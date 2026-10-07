@@ -1,0 +1,181 @@
+# ResearchSphere CI (NFR-7): runs on every push and every pull request.
+# The stack job always runs. The backend, frontend and ai jobs run once their folder has a
+# manifest (go.mod, package.json, pyproject.toml); until then they show as skipped.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+# A new push to the same branch cancels the run that is still going.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  stack:
+    name: Stack (PostgreSQL, Redis, make lint/test)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Create .env from .env.example
+        run: cp .env.example .env
+
+      - name: Start PostgreSQL and Redis
+        run: make up
+
+      - name: Check services
+        run: make check
+
+      - name: Lint
+        run: make lint
+
+      - name: Test
+        run: make test
+
+      - name: Show container logs
+        if: failure()
+        run: docker compose logs --no-color
+
+      - name: Stop services
+        if: always()
+        run: make down
+
+  detect:
+    name: Detect services with code
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      go: ${{ steps.detect.outputs.go }}
+      node: ${{ steps.detect.outputs.node }}
+      python: ${{ steps.detect.outputs.python }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # A job is skipped only when its folder has no manifest AND no source files.
+      # Source files without a manifest fail here, so a missing manifest cannot hide code.
+      - name: Detect manifests
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=0
+
+          detect() {
+            local key=$1 dir=$2 manifest=$3; shift 3
+            if [[ -f "$dir/$manifest" ]]; then
+              echo "$key=true" >> "$GITHUB_OUTPUT"
+              echo "$dir: found $manifest, job runs"
+              return
+            fi
+            local sources
+            sources=$(find "$dir" \( -name node_modules -o -name .next -o -name .venv \) -prune -o -type f \( "$@" \) -print)
+            if [[ -n "$sources" ]]; then
+              echo "::error::$dir has source files but no $manifest:"
+              echo "$sources"
+              status=1
+            fi
+            echo "$key=false" >> "$GITHUB_OUTPUT"
+            echo "$dir: no $manifest, job skipped"
+          }
+
+          detect go     backend  go.mod         -name '*.go'
+          detect node   frontend package.json   -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' -o -name '*.mjs'
+          detect python ai       pyproject.toml -name '*.py'
+          exit "$status"
+
+  backend:
+    name: Backend (Go)
+    needs: detect
+    if: needs.detect.outputs.go == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.14.0
+          working-directory: backend
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        run: go test -race -count=1 ./...
+
+  frontend:
+    name: Frontend (Node.js)
+    needs: detect
+    if: needs.detect.outputs.node == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      # No --if-present: package.json must define lint, test and build.
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+  ai:
+    name: AI (Python, uv)
+    needs: detect
+    if: needs.detect.outputs.python == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: ai
+    steps:
+      - uses: actions/checkout@v7
+
+      # setup-uv publishes no major tags (v8 onwards), so it is pinned to an exact release.
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: ai/uv.lock
+
+      - name: Install
+        run: uv sync --locked
+
+      - name: Lint
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      # pytest exits with 5 when it collects no tests; that stays a failure.
+      - name: Test
+        run: uv run pytest
