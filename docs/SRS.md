@@ -438,11 +438,13 @@ NFR-1 to NFR-7 come from the proposal. NFR-8 to NFR-12 are added here.
 
 ## 7. Data Requirements
 
-The database holds the 16 kinds of record below. The rules below are enforced by the database itself, so that a fault in the application cannot break them.
+The database holds the 18 kinds of record below. The rules below are enforced by the database itself, so that a fault in the application cannot break them.
 
 | Entity | Main attributes | Rules |
 | --- | --- | --- |
 | User | Email, password hash, role, verified time, suspended time, AI consent time | Email is unique, ignoring letter case |
+| Session | User, refresh token hash, expiry, revoked time | One per logged-in device; the token hash is unique |
+| One-time token | User, purpose (verification or reset), token hash, expiry, used time | The token hash is unique; works once |
 | Profile | Name, headline, bio, institution, department, job title, country, ORCID iD | One per user; ORCID iD is unique and well formed |
 | Interest, Skill | Name | Name is unique, ignoring letter case; shared by all users and projects |
 | Education | Institution, degree, field, start and end year | End year is not before start year |

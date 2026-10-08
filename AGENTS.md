@@ -36,11 +36,13 @@ Run these from the repository root. `make help` prints the current list.
 | `make migrate` / `make migrate-down` | Apply all migrations, or undo the latest one |
 | `make migrate-new name=add_users` | Create a new migration pair |
 | `make test` / `make lint` | Run all tests, or all linters |
+| `make test-db` | Run the database constraint tests (needs `make up` and `make migrate`) |
 
 When a slice adds a command to the Makefile, add it to this table in the same change.
 
 CI (`.github/workflows/ci.yml`) runs on every push and pull request: it starts the stack and runs
-`make check`, `make lint` and `make test`, then lints and tests each of `backend/`, `frontend/`
+`make check`, applies all migrations, undoes them, checks that nothing is left, applies them
+again, and runs `make lint` and `make test`, then lints and tests each of `backend/`, `frontend/`
 and `ai/` once that folder has its manifest (`go.mod`, `package.json`, `pyproject.toml`).
 
 ## Rules
