@@ -35,15 +35,21 @@ Run these from the repository root. `make help` prints the current list.
 | `make psql` | Open a psql prompt in the database |
 | `make migrate` / `make migrate-down` | Apply all migrations, or undo the latest one |
 | `make migrate-new name=add_users` | Create a new migration pair |
-| `make test` / `make lint` | Run all tests, or all linters |
+| `make api` | Run the API server (needs `make up`; settings from `.env`) |
+| `make generate` | Regenerate Go code in `backend/internal/api` from `docs/openapi.yaml` |
+| `make check-generated` | Regenerate and fail if the generated code differs from what is committed |
+| `make test` | Run all tests: `test-db` and `test-go` (needs `make up` and `make migrate`) |
 | `make test-db` | Run the database constraint tests (needs `make up` and `make migrate`) |
+| `make test-go` | Run the backend Go tests (`go test -race`); needs no database |
+| `make lint` | Run all linters: golangci-lint for the backend |
 
 When a slice adds a command to the Makefile, add it to this table in the same change.
 
 CI (`.github/workflows/ci.yml`) runs on every push and pull request: it starts the stack and runs
 `make check`, applies all migrations, undoes them, checks that nothing is left, applies them
-again, and runs `make lint` and `make test`, then lints and tests each of `backend/`, `frontend/`
-and `ai/` once that folder has its manifest (`go.mod`, `package.json`, `pyproject.toml`).
+again, and runs `make test-db`, then lints and tests each of `backend/`, `frontend/` and `ai/`
+once that folder has its manifest (`go.mod`, `package.json`, `pyproject.toml`). The backend job
+also fails when the code generated from `docs/openapi.yaml` is not up to date.
 
 ## Rules
 

@@ -1,0 +1,8 @@
+# oapi-codegen settings. Run `make generate` from the repository root after changing
+# docs/openapi.yaml; never edit api.gen.go by hand.
+package: api
+output: api.gen.go
+generate:
+  models: true
+  std-http-server: true
+  strict-server: true

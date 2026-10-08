@@ -1,0 +1,29 @@
+# golangci-lint v2 settings for the backend. CI runs v2.14.0 (docs/decisions.md).
+version: "2"
+
+linters:
+  # The default set (errcheck, govet, ineffassign, staticcheck, unused) plus:
+  enable:
+    - bodyclose  # HTTP response bodies are closed
+    - errorlint  # errors are compared with errors.Is / errors.As
+    - gosec      # common security mistakes
+    - misspell
+    - noctx      # outgoing requests and queries carry a context
+    - sloglint   # consistent log/slog calls
+  settings:
+    sloglint:
+      attr-only: false
+      no-mixed-args: true
+  exclusions:
+    generated: strict  # never lint api.gen.go and other generated files
+    presets:
+      - std-error-handling
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/ARAFATH-SH/researchsphere/backend
