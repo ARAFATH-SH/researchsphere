@@ -177,16 +177,29 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version-file: frontend/.nvmrc
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install
         run: npm ci
 
-      # No --if-present: package.json must define lint, test and build.
+      - name: Check generated API types are up to date
+        run: |
+          npm run generate
+          if [[ -n "$(git status --porcelain -- src/lib/api)" ]]; then
+            git status --short -- src/lib/api
+            git diff -- src/lib/api
+            echo "::error::Generated API types are out of date: run make generate and commit the result."
+            exit 1
+          fi
+
+      # No --if-present: package.json must define lint, typecheck, test and build.
       - name: Lint
         run: npm run lint
+
+      - name: Type check
+        run: npm run typecheck
 
       - name: Test
         run: npm test
