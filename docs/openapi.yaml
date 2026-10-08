@@ -1,0 +1,79 @@
+# ResearchSphere API contract (SRS 5.3). Change this file before a handler,
+# then run `make generate` to regenerate backend/internal/api/api.gen.go.
+openapi: 3.0.3
+info:
+  title: ResearchSphere API
+  version: 0.1.0
+  description: |
+    JSON API between the web client and the API server. Every error response uses the
+    Error schema. Lists are paginated and the server caps the page size at 50.
+servers:
+  - url: /api/v1
+
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      summary: Report whether the database and Redis respond
+      description: Public, needs no session. Returns no user data.
+      tags: [health]
+      security: []
+      responses:
+        "200":
+          description: The database and Redis both respond.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+        "503":
+          description: The database, Redis or both do not respond.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+components:
+  schemas:
+    Error:
+      type: object
+      description: The shape of every error response (SRS 5.3).
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Short machine-readable code, in snake_case.
+          example: not_found
+        message:
+          type: string
+          description: Readable explanation for the user.
+          example: The requested resource does not exist.
+
+    Health:
+      type: object
+      required: [status, database, redis]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        database:
+          type: string
+          enum: [ok]
+        redis:
+          type: string
+          enum: [ok]
+
+  responses:
+    NotFound:
+      description: No such route or resource.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    InternalError:
+      description: An unexpected error on the server.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
