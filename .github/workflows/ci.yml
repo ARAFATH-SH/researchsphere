@@ -32,6 +32,42 @@ jobs:
       - name: Check services
         run: make check
 
+      # The checksum is the one published in the release's sha256sum.txt.
+      - name: Install golang-migrate
+        env:
+          MIGRATE_VERSION: v4.18.3
+          MIGRATE_SHA256: 60c59c0cac50e99172d95135b2f421863c4b2f4a67709e66daae024d652fa1b5
+        run: |
+          curl -fsSL -o /tmp/migrate.tar.gz \
+            "https://github.com/golang-migrate/migrate/releases/download/${MIGRATE_VERSION}/migrate.linux-amd64.tar.gz"
+          echo "${MIGRATE_SHA256}  /tmp/migrate.tar.gz" | sha256sum --check
+          sudo tar -xzf /tmp/migrate.tar.gz -C /usr/local/bin migrate
+          migrate -version
+
+      # NFR-11.1: every migration must apply, undo completely and apply again.
+      - name: Apply migrations
+        run: make migrate
+
+      - name: Undo all migrations
+        run: |
+          set -a; source .env; set +a
+          migrate -path backend/db/migrations -database "$DATABASE_URL" down -all
+
+      - name: Check that nothing is left after undoing
+        run: |
+          set -a; source .env; set +a
+          leftovers=$(docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -X -tA \
+            -v ON_ERROR_STOP=1 < backend/db/tests/leftovers.sql)
+          if [[ -n "$leftovers" ]]; then
+            echo "::error::Down migrations left objects behind:"
+            echo "$leftovers"
+            exit 1
+          fi
+          echo "Database is empty."
+
+      - name: Apply migrations again
+        run: make migrate
+
       - name: Lint
         run: make lint
 

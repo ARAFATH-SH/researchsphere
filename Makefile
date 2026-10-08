@@ -13,7 +13,7 @@ DATABASE_URL  ?= postgres://researchsphere:devpassword@localhost:5433/researchsp
 MIGRATIONS_DIR := backend/db/migrations
 
 .DEFAULT_GOAL := help
-.PHONY: help up down logs ps psql check migrate migrate-down migrate-new test lint
+.PHONY: help up down logs ps psql check migrate migrate-down migrate-new test test-db lint
 
 help: ## List the available commands
 	@grep -hE '^[a-zA-Z_-]+:.*## ' $(firstword $(MAKEFILE_LIST)) | awk 'BEGIN {FS = ":.*## "} {printf "  make %-14s %s\n", $$1, $$2}'
@@ -48,8 +48,10 @@ migrate-new: ## Create a migration pair: make migrate-new name=add_users
 	@test -n "$(name)" || (echo "Usage: make migrate-new name=add_users" && exit 1)
 	migrate create -ext sql -dir $(MIGRATIONS_DIR) -seq $(name)
 
-test: ## Run all tests (each service adds its tests in its own slice)
-	@echo "No tests yet. Slice 2 adds the CI pipeline and the first checks."
+test: test-db ## Run all tests (each service adds its tests in its own slice)
+
+test-db: ## Run the database constraint tests (needs make up and make migrate)
+	docker compose exec -T postgres psql -U $(POSTGRES_USER) -d $(POSTGRES_DB) -X -v ON_ERROR_STOP=1 < backend/db/tests/constraints.sql
 
 lint: ## Run all linters (each service adds its linter in its own slice)
 	@echo "No linters yet. Slice 2 adds them."
