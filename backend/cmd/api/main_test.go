@@ -3,8 +3,10 @@ package main
 import (
 	"bytes"
 	"context"
+	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"strings"
 	"sync"
@@ -100,3 +102,19 @@ func TestRunStopsOnMissingSettings(t *testing.T) {
 		t.Fatalf("run() error = %v, want one naming DATABASE_URL and REDIS_URL", err)
 	}
 }
+
+func TestHealthThroughRouter(t *testing.T) {
+	up := pingerFunc(func(context.Context) error { return nil })
+	router := newRouter(slog.New(slog.DiscardHandler), up, up)
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/health", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body %s", rec.Code, rec.Body)
+	}
+}
+
+// pingerFunc adapts a function to the health domain's Pinger.
+type pingerFunc func(ctx context.Context) error
+
+func (f pingerFunc) Ping(ctx context.Context) error { return f(ctx) }

@@ -1,4 +1,4 @@
-package health
+package http
 
 import (
 	"context"
@@ -10,20 +10,27 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ARAFATH-SH/researchsphere/backend/internal/api"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/api/gen"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/health/domain"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/health/usecase"
 )
 
+// pingerFunc adapts a function to domain.Pinger.
+type pingerFunc func(ctx context.Context) error
+
+func (f pingerFunc) Ping(ctx context.Context) error { return f(ctx) }
+
 var (
-	up   = PingerFunc(func(context.Context) error { return nil })
-	down = PingerFunc(func(context.Context) error { return errors.New("connection refused") })
+	up   = pingerFunc(func(context.Context) error { return nil })
+	down = pingerFunc(func(context.Context) error { return errors.New("connection refused") })
 	// hung waits until the health check's timeout cancels it.
-	hung = PingerFunc(func(ctx context.Context) error { <-ctx.Done(); return ctx.Err() })
+	hung = pingerFunc(func(ctx context.Context) error { <-ctx.Done(); return ctx.Err() })
 )
 
 func TestGetHealth(t *testing.T) {
 	tests := []struct {
 		name       string
-		db, redis  Pinger
+		db, redis  domain.Pinger
 		wantStatus int
 		wantBody   map[string]string
 	}{
@@ -56,9 +63,13 @@ func TestGetHealth(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := NewHandler(tt.db, tt.redis, 50*time.Millisecond, slog.New(slog.DiscardHandler))
+			checker := usecase.New(50*time.Millisecond,
+				domain.Dependency{Name: "database", Pinger: tt.db},
+				domain.Dependency{Name: "redis", Pinger: tt.redis},
+			)
+			h := NewHandler(checker, slog.New(slog.DiscardHandler))
 			mux := http.NewServeMux()
-			api.HandlerWithOptions(api.NewStrictHandler(h, nil), api.StdHTTPServerOptions{BaseURL: "/api/v1", BaseRouter: mux})
+			gen.HandlerWithOptions(gen.NewStrictHandler(h, nil), gen.StdHTTPServerOptions{BaseURL: "/api/v1", BaseRouter: mux})
 
 			rec := httptest.NewRecorder()
 			mux.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/health", nil))

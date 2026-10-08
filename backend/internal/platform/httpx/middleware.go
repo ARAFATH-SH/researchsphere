@@ -1,7 +1,6 @@
 package httpx
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -9,18 +8,12 @@ import (
 	"net/http"
 	"runtime/debug"
 	"time"
+
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/logging"
 )
 
 // RequestIDHeader carries the request ID back to the client.
 const RequestIDHeader = "X-Request-ID"
-
-type ctxKey struct{}
-
-// RequestIDFrom returns the request ID stored by RequestID, or "" outside a request.
-func RequestIDFrom(ctx context.Context) string {
-	id, _ := ctx.Value(ctxKey{}).(string)
-	return id
-}
 
 // RequestID gives every request a new random ID, stores it in the context and sets the
 // X-Request-ID response header. An ID sent by the client is ignored, so a client cannot
@@ -29,7 +22,7 @@ func RequestID(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := newID()
 		w.Header().Set(RequestIDHeader, id)
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, id)))
+		next.ServeHTTP(w, r.WithContext(logging.WithRequestID(r.Context(), id)))
 	})
 }
 
@@ -117,25 +110,3 @@ func (r *statusRecorder) Status() int {
 
 // Unwrap lets http.ResponseController reach the underlying writer.
 func (r *statusRecorder) Unwrap() http.ResponseWriter { return r.ResponseWriter }
-
-// LogHandler adds the request ID from the context to every log record made with a
-// *Context logging call (InfoContext, LogAttrs, ...).
-type LogHandler struct{ slog.Handler }
-
-// NewLogHandler wraps h so that records carry request_id.
-func NewLogHandler(h slog.Handler) *LogHandler { return &LogHandler{Handler: h} }
-
-func (h *LogHandler) Handle(ctx context.Context, rec slog.Record) error {
-	if id := RequestIDFrom(ctx); id != "" {
-		rec.AddAttrs(slog.String("request_id", id))
-	}
-	return h.Handler.Handle(ctx, rec)
-}
-
-func (h *LogHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	return &LogHandler{Handler: h.Handler.WithAttrs(attrs)}
-}
-
-func (h *LogHandler) WithGroup(name string) slog.Handler {
-	return &LogHandler{Handler: h.Handler.WithGroup(name)}
-}

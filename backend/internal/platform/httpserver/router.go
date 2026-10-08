@@ -1,37 +1,29 @@
-// Package server builds the API's HTTP handler: the routes generated from
-// docs/openapi.yaml, mounted under /api/v1, behind the shared middleware.
-package server
+// Package httpserver builds the API's HTTP handler (the routes generated from
+// docs/openapi.yaml, mounted under /api/v1, behind the shared middleware) and serves it.
+package httpserver
 
 import (
 	"log/slog"
 	"net/http"
 
-	"github.com/ARAFATH-SH/researchsphere/backend/internal/api"
-	"github.com/ARAFATH-SH/researchsphere/backend/internal/health"
-	"github.com/ARAFATH-SH/researchsphere/backend/internal/httpx"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/api/gen"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpx"
 )
 
 // BaseURL is the prefix of every API route (SRS 5.3).
 const BaseURL = "/api/v1"
 
-// Handlers implements every operation in the contract. Each module adds its handler
-// here; the assertion below fails to compile when an operation has no implementation.
-type Handlers struct {
-	*health.Handler
-}
-
-var _ api.StrictServerInterface = Handlers{}
-
-// New returns the API's root handler.
-func New(logger *slog.Logger, h Handlers) http.Handler {
-	return newRouter(logger, h, nil)
+// NewRouter returns the API's root handler. si implements every operation in the
+// contract; cmd/api builds it from the modules' HTTP adapters.
+func NewRouter(logger *slog.Logger, si gen.StrictServerInterface) http.Handler {
+	return newRouter(logger, si, nil)
 }
 
 // newRouter lets tests register extra routes on the same mux and middleware.
-func newRouter(logger *slog.Logger, h Handlers, extra func(*http.ServeMux)) http.Handler {
+func newRouter(logger *slog.Logger, si gen.StrictServerInterface, extra func(*http.ServeMux)) http.Handler {
 	mux := http.NewServeMux()
 
-	strict := api.NewStrictHandlerWithOptions(h, nil, api.StrictHTTPServerOptions{
+	strict := gen.NewStrictHandlerWithOptions(si, nil, gen.StrictHTTPServerOptions{
 		RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
 			logger.WarnContext(r.Context(), "bad request", slog.Any("error", err))
 			httpx.WriteError(w, http.StatusBadRequest, httpx.CodeBadRequest, "The request is not valid.")
@@ -41,7 +33,7 @@ func newRouter(logger *slog.Logger, h Handlers, extra func(*http.ServeMux)) http
 			httpx.WriteError(w, http.StatusInternalServerError, httpx.CodeInternal, "An unexpected error occurred.")
 		},
 	})
-	api.HandlerWithOptions(strict, api.StdHTTPServerOptions{
+	gen.HandlerWithOptions(strict, gen.StdHTTPServerOptions{
 		BaseURL:    BaseURL,
 		BaseRouter: mux,
 		ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {

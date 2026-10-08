@@ -5,12 +5,45 @@ linters:
   # The default set (errcheck, govet, ineffassign, staticcheck, unused) plus:
   enable:
     - bodyclose  # HTTP response bodies are closed
+    - depguard   # the dependency rule between layers (AGENTS.md, Conventions)
     - errorlint  # errors are compared with errors.Is / errors.As
     - gosec      # common security mistakes
     - misspell
     - noctx      # outgoing requests and queries carry a context
     - sloglint   # consistent log/slog calls
   settings:
+    # Dependency rule: domain -> standard library only; usecase -> its own domain only.
+    # depguard cannot say "its own module", so every module adds a usecase-<module> rule;
+    # the usecase-layer rule still catches a module that forgets.
+    depguard:
+      rules:
+        domain:
+          files: ["**/internal/*/domain/**"]
+          list-mode: strict
+          allow: [$gostd]
+          deny:
+            - pkg: net/http
+              desc: the domain must not know about HTTP
+        usecase-layer:
+          files: ["**/internal/*/usecase/**"]
+          list-mode: lax
+          deny:
+            - pkg: net/http
+              desc: a usecase must not know about HTTP
+            - pkg: github.com/jackc
+              desc: depend on an interface in the module's domain instead
+            - pkg: github.com/redis
+              desc: depend on an interface in the module's domain instead
+            - pkg: github.com/ARAFATH-SH/researchsphere/backend/internal/api
+              desc: generated code is for adapters
+            - pkg: github.com/ARAFATH-SH/researchsphere/backend/internal/platform
+              desc: platform is an outer layer
+        usecase-health:
+          files: ["**/internal/health/usecase/**"]
+          list-mode: strict
+          allow:
+            - $gostd
+            - github.com/ARAFATH-SH/researchsphere/backend/internal/health/domain
     sloglint:
       attr-only: false
       no-mixed-args: true

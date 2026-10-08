@@ -1,4 +1,4 @@
-package server
+package httpserver
 
 import (
 	"bytes"
@@ -9,23 +9,31 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/ARAFATH-SH/researchsphere/backend/internal/health"
-	"github.com/ARAFATH-SH/researchsphere/backend/internal/httpx"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/api/gen"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpx"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/logging"
 )
 
 const panicText = "boom: secret internal detail"
 
-// newTestRouter returns the full router with both services up, a /test/panic route,
-// and a buffer that receives the JSON logs.
+// fakeAPI answers every operation in the contract with a fixed success, so these tests
+// exercise the router and middleware without any module.
+type fakeAPI struct{}
+
+func (fakeAPI) GetHealth(context.Context, gen.GetHealthRequestObject) (gen.GetHealthResponseObject, error) {
+	return gen.GetHealth200JSONResponse{Status: gen.HealthStatusOk, Database: gen.HealthDatabaseOk, Redis: gen.HealthRedisOk}, nil
+}
+
+var _ gen.StrictServerInterface = fakeAPI{}
+
+// newTestRouter returns the full router with a fake API, a /test/panic route, and a
+// buffer that receives the JSON logs.
 func newTestRouter(t *testing.T) (http.Handler, *bytes.Buffer) {
 	t.Helper()
 	var logs bytes.Buffer
-	logger := slog.New(httpx.NewLogHandler(slog.NewJSONHandler(&logs, nil)))
-	up := health.PingerFunc(func(context.Context) error { return nil })
-	h := Handlers{Handler: health.NewHandler(up, up, time.Second, logger)}
-	router := newRouter(logger, h, func(mux *http.ServeMux) {
+	logger := slog.New(logging.NewHandler(slog.NewJSONHandler(&logs, nil)))
+	router := newRouter(logger, fakeAPI{}, func(mux *http.ServeMux) {
 		mux.HandleFunc("GET /test/panic", func(http.ResponseWriter, *http.Request) { panic(panicText) })
 	})
 	return router, &logs
@@ -91,14 +99,6 @@ func TestErrorShape(t *testing.T) {
 				t.Errorf("body leaks the panic value: %s", rec.Body)
 			}
 		})
-	}
-}
-
-func TestHealthThroughRouter(t *testing.T) {
-	router, _ := newTestRouter(t)
-	rec := serve(t, router, http.MethodGet, "/api/v1/health")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body %s", rec.Code, rec.Body)
 	}
 }
 

@@ -69,9 +69,27 @@ also fails when the code generated from `docs/openapi.yaml` is not up to date.
 
 ## Conventions
 
-- **Go:** entry point in `backend/cmd/api`; modules in `backend/internal/<module>`, where the
-  modules are auth, profile, social, project, event and notification. Return errors, do not
-  panic. Table-driven tests beside the code.
+- **Go:** one application (modular monolith). Modules live in `backend/internal/<module>`: health,
+  then auth, profile, social, project, event and notification. Return errors, do not panic.
+  Table-driven tests beside the code they test. Each module is split into layers (clean
+  architecture); `backend/internal/health` is the example to copy:
+
+  | Path | Holds | May import |
+  | --- | --- | --- |
+  | `internal/<module>/domain` | Entities and the interfaces the usecase needs | Standard library only, no `net/http` |
+  | `internal/<module>/usecase` | Business logic | Standard library and its own `domain` |
+  | `internal/<module>/adapter/http` | Handlers for the module's operations in `api/gen` | domain, usecase, `platform`, `api/gen` |
+  | `internal/<module>/adapter/postgres`, `adapter/redis` | Implementations of the domain interfaces | domain, `platform`, pgx, go-redis |
+  | `internal/platform` | Config, logging, database pool, Redis client, HTTP server, middleware, error shape | Libraries and `api/gen`; never a module |
+  | `internal/api/gen` | Code generated from `docs/openapi.yaml` (do not edit) | |
+  | `cmd/api` | The only place that wires modules and platform together | Everything |
+
+  The dependency rule points inward: domain knows nothing outside the standard library, a
+  usecase knows only its own domain, and adapters depend on the inner layers, never the
+  reverse. depguard in `backend/.golangci.yml` enforces it, so `make lint` fails on a
+  violation. A new module adds a `usecase-<module>` depguard rule that allows only
+  `$gostd` and its own domain. Do not create empty layers: add `adapter/postgres` only when
+  the module has a domain interface that PostgreSQL implements.
 - **API:** JSON under `/api/v1`. Errors have the shape `{"code": "...", "message": "..."}`.
   Lists are paginated and the server caps the page size at 50.
 - **Database:** snake_case names, plural table names, uuid primary keys, `timestamptz` for
