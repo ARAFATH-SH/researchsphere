@@ -34,6 +34,100 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /auth/register:
+    post:
+      operationId: registerUser
+      summary: Register a new account and send a verification link (FR-1.1 to FR-1.3)
+      description: |
+        Public. Creates the user, the profile and a verification token in one transaction,
+        then emails the link. The account exists even when the email cannot be sent; the
+        user can ask for a new link (FR-1.5).
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: The account was created and a verification link was sent.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterResponse"
+        "400":
+          description: |
+            The input is not valid. `code` is one of `bad_request`, `invalid_full_name`,
+            `invalid_email`, `password_too_short` or `password_too_long`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: The email address is already registered (`email_taken`), ignoring letter case.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /auth/verify-email:
+    post:
+      operationId: verifyEmail
+      summary: Verify an email address with the token from the link (FR-1.3)
+      description: Public. A token works once and expires 24 hours after it was sent.
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyEmailRequest"
+      responses:
+        "204":
+          description: The email address is verified.
+        "400":
+          description: |
+            The token cannot be used. `code` is `token_invalid` (unknown), `token_used`
+            or `token_expired`, or `bad_request` for a malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /auth/resend-verification:
+    post:
+      operationId: resendVerification
+      summary: Send a new verification link (FR-1.5)
+      description: |
+        Public. The response is the same whether or not the address is registered or
+        already verified. A new link makes the older unused links stop working.
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResendVerificationRequest"
+      responses:
+        "202":
+          description: If the address belongs to an unverified account, a new link was sent.
+        "400":
+          description: The address is not well formed (`invalid_email`), or the body is malformed (`bad_request`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
   schemas:
     Error:
@@ -63,6 +157,50 @@ components:
         redis:
           type: string
           enum: [ok]
+
+    RegisterRequest:
+      type: object
+      required: [fullName, email, password]
+      properties:
+        fullName:
+          type: string
+          description: Trimmed, 1 to 200 characters.
+          maxLength: 200
+          example: Ada Lovelace
+        email:
+          type: string
+          maxLength: 254
+          example: ada@example.org
+        password:
+          type: string
+          description: 8 to 128 characters.
+          minLength: 8
+          maxLength: 128
+          format: password
+
+    RegisterResponse:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          description: The address the verification link was sent to.
+
+    VerifyEmailRequest:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          description: The token from the verification link.
+
+    ResendVerificationRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          maxLength: 254
 
   responses:
     NotFound:

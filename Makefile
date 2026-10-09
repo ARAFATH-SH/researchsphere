@@ -13,12 +13,12 @@ DATABASE_URL  ?= postgres://researchsphere:devpassword@localhost:5433/researchsp
 MIGRATIONS_DIR := backend/db/migrations
 
 .DEFAULT_GOAL := help
-.PHONY: help up down logs ps psql check migrate migrate-down migrate-new api web generate check-generated test test-db test-go test-web lint lint-go lint-web
+.PHONY: help up down logs ps psql check migrate migrate-down migrate-new api web generate check-generated test test-db test-go test-integration test-web lint lint-go lint-web
 
 help: ## List the available commands
 	@grep -hE '^[a-zA-Z_-]+:.*## ' $(firstword $(MAKEFILE_LIST)) | awk 'BEGIN {FS = ":.*## "} {printf "  make %-16s %s\n", $$1, $$2}'
 
-up: ## Start PostgreSQL and Redis and wait until both are healthy
+up: ## Start PostgreSQL, Redis and Mailpit and wait until they are healthy
 	docker compose up -d --wait
 
 down: ## Stop the containers (data is kept)
@@ -54,24 +54,29 @@ api: ## Run the API server (needs make up; settings from .env)
 web: ## Run the web client dev server on port 3000 (needs npm ci in frontend/)
 	cd frontend && npm run dev
 
-generate: ## Regenerate Go code and TypeScript types from docs/openapi.yaml
+generate: ## Regenerate Go code (oapi-codegen, sqlc) and TypeScript types
 	cd backend && go generate ./...
 	cd frontend && npm run generate
 
-check-generated: generate ## Fail if generated code differs from docs/openapi.yaml
-	@if [[ -n "$$(git status --porcelain -- backend/internal/api frontend/src/lib/api)" ]]; then \
-		git status --short -- backend/internal/api frontend/src/lib/api; \
+GENERATED := backend/internal/api backend/internal/auth/adapter/postgres/sqlcgen frontend/src/lib/api
+
+check-generated: generate ## Fail if generated code is out of date
+	@if [[ -n "$$(git status --porcelain -- $(GENERATED))" ]]; then \
+		git status --short -- $(GENERATED); \
 		echo "Generated code is out of date: run make generate and commit the result."; \
 		exit 1; \
 	fi
 
-test: test-db test-go test-web ## Run all tests (needs make up and make migrate)
+test: test-db test-go test-integration test-web ## Run all tests (needs make up and make migrate)
 
 test-db: ## Run the database constraint tests (needs make up and make migrate)
 	docker compose exec -T postgres psql -U $(POSTGRES_USER) -d $(POSTGRES_DB) -X -v ON_ERROR_STOP=1 < backend/db/tests/constraints.sql
 
 test-go: ## Run the backend Go tests
 	cd backend && go test -race -count=1 ./...
+
+test-integration: ## Run the Go repository tests against the database (needs make up and make migrate)
+	cd backend && go test -race -count=1 -tags=integration ./internal/...
 
 test-web: ## Run the frontend tests (Jest)
 	cd frontend && npm test

@@ -1,24 +1,32 @@
 @import "tailwindcss";
 
+/* Design tokens from docs/ui-guidelines.md. Components use only these names (bg-background,
+   bg-surface, border-border, text-text, text-text-muted, bg-primary, text-secondary,
+   text-danger, max-w-page …), never raw colors. */
+@theme {
+  --color-background: #f5f6f4;
+  --color-surface: #ffffff;
+  --color-border: #e1e4e8;
+  --color-text: #1f2933;
+  --color-text-muted: #5f6b7a;
+  --color-primary: #0b7a75; /* deep teal */
+  --color-primary-hover: #09615d;
+  --color-primary-soft: #e6f3f2;
+  --color-secondary: #1f4e8c; /* deep blue */
+  --color-danger: #c62828;
+
+  --container-page: 70.5rem; /* 1128px */
+
+  --font-sans: -apple-system, system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* Light theme only for now (docs/ui-guidelines.md): no dark-mode block. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  color-scheme: light;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: system-ui, sans-serif;
+  background: var(--color-background);
+  color: var(--color-text);
+  font-family: var(--font-sans);
 }

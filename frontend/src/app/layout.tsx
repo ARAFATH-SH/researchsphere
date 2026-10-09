@@ -1,8 +1,5 @@
 import type { Metadata } from "next";
 
-import { SiteFooter } from "@/components/site-footer";
-import { SiteHeader } from "@/components/site-header";
-
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -10,14 +7,12 @@ export const metadata: Metadata = {
   description: "Find collaborators, write papers together and choose where to publish.",
 };
 
+// The root layout holds only the document. The (public) and (app) route groups add the
+// signed-out top bar or the signed-in shell (docs/ui-guidelines.md).
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className="h-full antialiased">
-      <body className="flex min-h-full flex-col">
-        <SiteHeader />
-        <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8">{children}</main>
-        <SiteFooter />
-      </body>
+      <body className="flex min-h-full flex-col bg-background text-text">{children}</body>
     </html>
   );
 }

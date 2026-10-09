@@ -7,9 +7,9 @@ import { type ApiState, checkHealth } from "./api";
 const REFRESH_MS = 30_000;
 
 const labels: Record<ApiState | "checking", { text: string; dot: string }> = {
-  checking: { text: "checking", dot: "bg-gray-400" },
-  up: { text: "up", dot: "bg-green-600" },
-  down: { text: "down", dot: "bg-red-600" },
+  checking: { text: "checking", dot: "bg-text-muted" },
+  up: { text: "up", dot: "bg-primary" },
+  down: { text: "down", dot: "bg-danger" },
 };
 
 // ApiStatus shows whether the API server answers GET /api/v1/health.

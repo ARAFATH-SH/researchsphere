@@ -22,7 +22,7 @@ recommendations. One developer builds it in 30 slices over 12 weeks.
 | `compile/` | LaTeX compile service (slice 23) | TeX Live in a Docker sandbox |
 | `docs/` | SRS, API contract, decisions | Markdown, OpenAPI 3 |
 
-Data stores: PostgreSQL 16 with pgvector, and Redis. Both run in Docker.
+Data stores: PostgreSQL 16 with pgvector, and Redis. Both run in Docker, with Mailpit for local email.
 
 ## Commands
 
@@ -30,18 +30,19 @@ Run these from the repository root. `make help` prints the current list.
 
 | Command | What it does |
 | --- | --- |
-| `make up` / `make down` | Start or stop PostgreSQL and Redis |
+| `make up` / `make down` | Start or stop PostgreSQL, Redis and Mailpit (local email inbox at http://localhost:8025) |
 | `make check` | Confirm that PostgreSQL, pgvector and Redis respond |
 | `make psql` | Open a psql prompt in the database |
 | `make migrate` / `make migrate-down` | Apply all migrations, or undo the latest one |
 | `make migrate-new name=add_users` | Create a new migration pair |
 | `make api` | Run the API server (needs `make up`; settings from `.env`) |
 | `make web` | Run the web client dev server on port 3000; it forwards `/api/v1` to `API_URL` |
-| `make generate` | Regenerate Go code in `backend/internal/api` and TypeScript types in `frontend/src/lib/api` from `docs/openapi.yaml` |
+| `make generate` | Regenerate Go code in `backend/internal/api` and TypeScript types in `frontend/src/lib/api` from `docs/openapi.yaml`, and the sqlc query code in `backend/internal/*/adapter/postgres/sqlcgen` |
 | `make check-generated` | Regenerate and fail if the generated code differs from what is committed |
-| `make test` | Run all tests: `test-db`, `test-go` and `test-web` (needs `make up` and `make migrate`) |
+| `make test` | Run all tests: `test-db`, `test-go`, `test-integration` and `test-web` (needs `make up` and `make migrate`) |
 | `make test-db` | Run the database constraint tests (needs `make up` and `make migrate`) |
 | `make test-go` | Run the backend Go tests (`go test -race`); needs no database |
+| `make test-integration` | Run the Go repository tests (build tag `integration`) against the database (needs `make up` and `make migrate`) |
 | `make test-web` | Run the frontend tests (Jest) |
 | `make lint` | Run all linters: `lint-go` and `lint-web` |
 | `make lint-go` | Run golangci-lint for the backend |
@@ -53,7 +54,7 @@ table in the same change.
 
 CI (`.github/workflows/ci.yml`) runs on every push and pull request: it starts the stack and runs
 `make check`, applies all migrations, undoes them, checks that nothing is left, applies them
-again, and runs `make test-db`, then lints and tests each of `backend/`, `frontend/` and `ai/`
+again, and runs `make test-db` and the Go repository tests (`make test-integration`), then lints and tests each of `backend/`, `frontend/` and `ai/`
 once that folder has its manifest (`go.mod`, `package.json`, `pyproject.toml`). The backend job
 also fails when the code generated from `docs/openapi.yaml` is not up to date. The frontend
 job runs `npm ci`, checks that the generated API types are up to date, then runs lint, type
@@ -114,8 +115,13 @@ check, tests and a production build.
   read on the server only (never `NEXT_PUBLIC_`). Jest tests (`*.test.ts(x)`) sit beside the
   code they test and mock the API module, not the network. Pages except the workspace must
   work at 768 pixels wide (SRS 5.1).
+- **UI:** follow `docs/ui-guidelines.md` (colors, cards, pill buttons, signed-out and signed-in
+  layouts, forms). Use the design tokens from `globals.css`, never raw colors.
 - **API:** JSON under `/api/v1`. Errors have the shape `{"code": "...", "message": "..."}`.
   Lists are paginated and the server caps the page size at 50.
+- **SQL:** each module's queries are in `internal/<module>/adapter/postgres/queries.sql`; sqlc
+  generates `sqlcgen/` beside it (`backend/sqlc.yaml`, run by `make generate`). Repository tests
+  that need the database carry the build tag `integration`.
 - **Database:** snake_case names, plural table names, uuid primary keys, `timestamptz` for
   times. Rules that must always hold are constraints in the database.
 - **Git:** one branch per slice, named `slice-NN-short-name`. Small commits with messages in

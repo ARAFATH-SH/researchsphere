@@ -1,0 +1,14 @@
+# sqlc settings: typed Go code for the SQL queries in each module's adapter/postgres.
+# The schema is read from the golang-migrate up files (sqlc skips the .down.sql files).
+# Run `make generate` from the repository root; never edit the generated files.
+version: "2"
+sql:
+  - engine: postgresql
+    schema: db/migrations
+    queries: internal/auth/adapter/postgres/queries.sql
+    gen:
+      go:
+        package: sqlcgen
+        out: internal/auth/adapter/postgres/sqlcgen
+        sql_package: pgx/v5
+        omit_unused_structs: true  # only the types the queries use; no pgvector-go needed yet

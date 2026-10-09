@@ -1,6 +1,10 @@
 # golangci-lint v2 settings for the backend. CI runs v2.14.0 (docs/decisions.md).
 version: "2"
 
+run:
+  # Also lint the repository tests that need a database (make test-integration).
+  build-tags: [integration]
+
 linters:
   # The default set (errcheck, govet, ineffassign, staticcheck, unused) plus:
   enable:
@@ -44,6 +48,12 @@ linters:
           allow:
             - $gostd
             - github.com/ARAFATH-SH/researchsphere/backend/internal/health/domain
+        usecase-auth:
+          files: ["**/internal/auth/usecase/**"]
+          list-mode: strict
+          allow:
+            - $gostd
+            - github.com/ARAFATH-SH/researchsphere/backend/internal/auth/domain
     sloglint:
       attr-only: false
       no-mixed-args: true

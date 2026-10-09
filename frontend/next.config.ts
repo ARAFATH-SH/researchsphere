@@ -16,6 +16,10 @@ const nextConfig: NextConfig = {
       },
     },
   },
+  // The check-email page moved from /register/check-email (docs/decisions.md).
+  async redirects() {
+    return [{ source: "/register/check-email", destination: "/check-email", permanent: false }];
+  },
   async rewrites() {
     return [{ source: "/api/v1/:path*", destination: `${apiUrl}/api/v1/:path*` }];
   },
