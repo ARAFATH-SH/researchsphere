@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   stack:
-    name: Stack (PostgreSQL, Redis, migrations, database tests)
+    name: Stack (PostgreSQL, Redis, migrations, database and repository tests)
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -68,9 +68,18 @@ jobs:
       - name: Apply migrations again
         run: make migrate
 
-      # Go lint and tests run in the backend job, which needs no database.
       - name: Database tests
         run: make test-db
+
+      # Go lint and unit tests run in the backend job, which needs no database. Only the
+      # repository tests (build tag "integration") run here, against the migrated database.
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: Repository tests (Go)
+        run: make test-integration
 
       - name: Show container logs
         if: failure()

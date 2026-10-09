@@ -24,6 +24,69 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Register a new account and send a verification link (FR-1.1 to FR-1.3)
+         * @description Public. Creates the user, the profile and a verification token in one transaction,
+         *     then emails the link. The account exists even when the email cannot be sent; the
+         *     user can ask for a new link (FR-1.5).
+         */
+        post: operations["registerUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/verify-email": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Verify an email address with the token from the link (FR-1.3)
+         * @description Public. A token works once and expires 24 hours after it was sent.
+         */
+        post: operations["verifyEmail"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/resend-verification": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a new verification link (FR-1.5)
+         * @description Public. The response is the same whether or not the address is registered or
+         *     already verified. A new link makes the older unused links stop working.
+         */
+        post: operations["resendVerification"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -48,6 +111,31 @@ export interface components {
             database: "ok";
             /** @enum {string} */
             redis: "ok";
+        };
+        RegisterRequest: {
+            /**
+             * @description Trimmed, 1 to 200 characters.
+             * @example Ada Lovelace
+             */
+            fullName: string;
+            /** @example ada@example.org */
+            email: string;
+            /**
+             * Format: password
+             * @description 8 to 128 characters.
+             */
+            password: string;
+        };
+        RegisterResponse: {
+            /** @description The address the verification link was sent to. */
+            email: string;
+        };
+        VerifyEmailRequest: {
+            /** @description The token from the verification link. */
+            token: string;
+        };
+        ResendVerificationRequest: {
+            email: string;
         };
     };
     responses: {
@@ -105,6 +193,119 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+        };
+    };
+    registerUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterRequest"];
+            };
+        };
+        responses: {
+            /** @description The account was created and a verification link was sent. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegisterResponse"];
+                };
+            };
+            /**
+             * @description The input is not valid. `code` is one of `bad_request`, `invalid_full_name`,
+             *     `invalid_email`, `password_too_short` or `password_too_long`.
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The email address is already registered (`email_taken`), ignoring letter case. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    verifyEmail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VerifyEmailRequest"];
+            };
+        };
+        responses: {
+            /** @description The email address is verified. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /**
+             * @description The token cannot be used. `code` is `token_invalid` (unknown), `token_used`
+             *     or `token_expired`, or `bad_request` for a malformed body.
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    resendVerification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResendVerificationRequest"];
+            };
+        };
+        responses: {
+            /** @description If the address belongs to an unverified account, a new link was sent. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The address is not well formed (`invalid_email`), or the body is malformed (`bad_request`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
         };
     };
 }

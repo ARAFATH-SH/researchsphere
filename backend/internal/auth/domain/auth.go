@@ -1,0 +1,72 @@
+// Package domain holds the auth module's entities, errors and the interfaces its usecase
+// depends on. Standard library only.
+package domain
+
+import (
+	"errors"
+	"time"
+)
+
+// TokenPurpose says what a one-time token is for. The values match the
+// auth_token_purpose enum in the database.
+type TokenPurpose string
+
+// Token purposes.
+const (
+	PurposeEmailVerification TokenPurpose = "email_verification"
+)
+
+// User is the part of an account the auth module reads.
+type User struct {
+	ID              string
+	Email           string
+	FullName        string
+	EmailVerifiedAt *time.Time // nil until the address is verified (FR-1.4)
+}
+
+// Verified reports whether the user's email address has been verified.
+func (u User) Verified() bool { return u.EmailVerifiedAt != nil }
+
+// NewUser is what registration stores. PasswordHash is never the password itself.
+type NewUser struct {
+	Email        string
+	FullName     string
+	PasswordHash string
+}
+
+// NewToken is a one-time token to store. Only the hash of the token is kept (NFR-5).
+type NewToken struct {
+	UserID    string
+	Purpose   TokenPurpose
+	Hash      string
+	ExpiresAt time.Time
+}
+
+// Token is a stored one-time token.
+type Token struct {
+	ID        string
+	UserID    string
+	ExpiresAt time.Time
+	UsedAt    *time.Time // set once the token has been used
+}
+
+// VerificationEmail is the message that carries a verification link.
+type VerificationEmail struct {
+	To       string
+	FullName string
+	Link     string // contains the token: never log it
+}
+
+// Errors the usecase returns. The HTTP adapter turns each into an error code.
+var (
+	ErrInvalidFullName  = errors.New("full name is empty or too long")
+	ErrInvalidEmail     = errors.New("email address is not valid")
+	ErrPasswordTooShort = errors.New("password is too short")
+	ErrPasswordTooLong  = errors.New("password is too long")
+	ErrEmailTaken       = errors.New("email address is already registered")
+	ErrTokenInvalid     = errors.New("token is not valid")
+	ErrTokenUsed        = errors.New("token has already been used")
+	ErrTokenExpired     = errors.New("token has expired")
+	// ErrNotFound is returned by a Store or Tx when the row does not exist.
+	ErrNotFound = errors.New("not found")
+)

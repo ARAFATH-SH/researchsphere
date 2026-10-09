@@ -94,6 +94,26 @@ func TestLoad(t *testing.T) {
 			wantErr: []string{"LOG_LEVEL"},
 		},
 		{
+			name:    "smtp port not a number",
+			vars:    map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL, "SMTP_PORT": "mail"},
+			wantErr: []string{"SMTP_PORT"},
+		},
+		{
+			name:    "mail from not an address",
+			vars:    map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL, "MAIL_FROM": "ResearchSphere"},
+			wantErr: []string{"MAIL_FROM"},
+		},
+		{
+			name:    "app base url without scheme",
+			vars:    map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL, "APP_BASE_URL": "localhost:3000"},
+			wantErr: []string{"APP_BASE_URL"},
+		},
+		{
+			name:    "app base url with a fragment",
+			vars:    map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL, "APP_BASE_URL": "https://rs.example/#x"},
+			wantErr: []string{"APP_BASE_URL"},
+		},
+		{
 			name:    "several errors reported together",
 			vars:    map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL, "API_PORT": "x", "LOG_LEVEL": "y"},
 			wantErr: []string{"API_PORT", "LOG_LEVEL"},
@@ -131,6 +151,41 @@ func TestLoad(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLoadMailSettings(t *testing.T) {
+	t.Run("defaults point at Mailpit and the dev web client", func(t *testing.T) {
+		cfg, err := Load(env(map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.SMTPHost != "localhost" || cfg.SMTPPort != 1025 {
+			t.Errorf("SMTP = %s:%d, want localhost:1025", cfg.SMTPHost, cfg.SMTPPort)
+		}
+		if cfg.MailFrom.Address != "no-reply@researchsphere.local" || cfg.MailFrom.Name != "ResearchSphere" {
+			t.Errorf("MailFrom = %+v", cfg.MailFrom)
+		}
+		if cfg.AppBaseURL != "http://localhost:3000" {
+			t.Errorf("AppBaseURL = %q", cfg.AppBaseURL)
+		}
+	})
+
+	t.Run("set values are used and the base URL loses its trailing slash", func(t *testing.T) {
+		cfg, err := Load(env(map[string]string{
+			"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL,
+			"SMTP_HOST": "smtp.example.org", "SMTP_PORT": "587",
+			"MAIL_FROM": "no-reply@example.org", "APP_BASE_URL": "https://rs.example.org/",
+		}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.SMTPHost != "smtp.example.org" || cfg.SMTPPort != 587 || cfg.MailFrom.Address != "no-reply@example.org" {
+			t.Errorf("cfg = %+v", cfg)
+		}
+		if cfg.AppBaseURL != "https://rs.example.org" {
+			t.Errorf("AppBaseURL = %q", cfg.AppBaseURL)
+		}
+	})
 }
 
 func TestLogValueHidesSecrets(t *testing.T) {

@@ -12,6 +12,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	authhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/adapter/http"
+	authusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/usecase"
 )
 
 // freePort returns a TCP port that was free a moment ago.
@@ -105,7 +108,7 @@ func TestRunStopsOnMissingSettings(t *testing.T) {
 
 func TestHealthThroughRouter(t *testing.T) {
 	up := pingerFunc(func(context.Context) error { return nil })
-	router := newRouter(slog.New(slog.DiscardHandler), up, up)
+	router := newRouter(slog.New(slog.DiscardHandler), up, up, authhttp.NewHandler(okAuth{}))
 
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/health", nil))
@@ -113,6 +116,42 @@ func TestHealthThroughRouter(t *testing.T) {
 		t.Fatalf("status = %d, want 200; body %s", rec.Code, rec.Body)
 	}
 }
+
+func TestAuthRoutesThroughRouter(t *testing.T) {
+	up := pingerFunc(func(context.Context) error { return nil })
+	router := newRouter(slog.New(slog.DiscardHandler), up, up, authhttp.NewHandler(okAuth{}))
+
+	tests := []struct {
+		path, body string
+		want       int
+	}{
+		{"/api/v1/auth/register", `{"fullName":"Ada","email":"ada@example.org","password":"password1"}`, http.StatusCreated},
+		{"/api/v1/auth/verify-email", `{"token":"x"}`, http.StatusNoContent},
+		{"/api/v1/auth/resend-verification", `{"email":"ada@example.org"}`, http.StatusAccepted},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, tt.path, strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			router.ServeHTTP(rec, req)
+			if rec.Code != tt.want {
+				t.Fatalf("status = %d, want %d; body %s", rec.Code, tt.want, rec.Body)
+			}
+		})
+	}
+}
+
+// okAuth is an auth usecase that accepts everything.
+type okAuth struct{}
+
+func (okAuth) Register(_ context.Context, in authusecase.RegisterInput) (authusecase.RegisterResult, error) {
+	return authusecase.RegisterResult{Email: in.Email}, nil
+}
+
+func (okAuth) VerifyEmail(context.Context, string) error { return nil }
+
+func (okAuth) ResendVerification(context.Context, string) error { return nil }
 
 // pingerFunc adapts a function to the health domain's Pinger.
 type pingerFunc func(ctx context.Context) error

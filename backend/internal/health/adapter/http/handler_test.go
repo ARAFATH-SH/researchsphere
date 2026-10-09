@@ -27,6 +27,15 @@ var (
 	hung = pingerFunc(func(ctx context.Context) error { <-ctx.Done(); return ctx.Err() })
 )
 
+// server serves only the health operations: Handler's methods are promoted from a
+// shallower depth than the embedded interface's, which stays nil.
+type server struct {
+	*Handler
+	others
+}
+
+type others struct{ gen.StrictServerInterface }
+
 func TestGetHealth(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -69,7 +78,7 @@ func TestGetHealth(t *testing.T) {
 			)
 			h := NewHandler(checker, slog.New(slog.DiscardHandler))
 			mux := http.NewServeMux()
-			gen.HandlerWithOptions(gen.NewStrictHandler(h, nil), gen.StdHTTPServerOptions{BaseURL: "/api/v1", BaseRouter: mux})
+			gen.HandlerWithOptions(gen.NewStrictHandler(server{Handler: h}, nil), gen.StdHTTPServerOptions{BaseURL: "/api/v1", BaseRouter: mux})
 
 			rec := httptest.NewRecorder()
 			mux.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/health", nil))

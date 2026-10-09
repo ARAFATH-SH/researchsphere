@@ -5,15 +5,22 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/mail"
 	"net/url"
 	"strconv"
 	"strings"
 )
 
 // Defaults for optional settings.
+// The mail defaults point at Mailpit from docker-compose.yml and the web client's dev
+// server, so local development needs no settings.
 const (
-	DefaultPort     = 8080
-	DefaultLogLevel = "info"
+	DefaultPort       = 8080
+	DefaultLogLevel   = "info"
+	DefaultSMTPHost   = "localhost"
+	DefaultSMTPPort   = 1025
+	DefaultMailFrom   = "ResearchSphere <no-reply@researchsphere.local>"
+	DefaultAppBaseURL = "http://localhost:3000"
 )
 
 // Config holds the API server's settings. DatabaseURL and RedisURL may contain
@@ -23,6 +30,12 @@ type Config struct {
 	RedisURL    string
 	Port        int
 	LogLevel    slog.Level
+
+	// Email (FR-1.3). AppBaseURL is where the web client runs; links in emails point there.
+	SMTPHost   string
+	SMTPPort   int
+	MailFrom   mail.Address
+	AppBaseURL string
 }
 
 // Load reads the settings through getenv (os.Getenv in main). Errors name the
@@ -52,7 +65,7 @@ func Load(getenv func(string) string) (Config, error) {
 		errs = append(errs, err)
 	}
 
-	port, err := parsePort(getenv("API_PORT"))
+	port, err := parsePort("API_PORT", getenv("API_PORT"), DefaultPort)
 	if err != nil {
 		errs = append(errs, err)
 	}
@@ -64,17 +77,37 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	cfg.LogLevel = level
 
+	cfg.SMTPHost = orDefault(getenv("SMTP_HOST"), DefaultSMTPHost)
+	if cfg.SMTPPort, err = parsePort("SMTP_PORT", getenv("SMTP_PORT"), DefaultSMTPPort); err != nil {
+		errs = append(errs, err)
+	}
+	from, err := mail.ParseAddress(orDefault(getenv("MAIL_FROM"), DefaultMailFrom))
+	if err != nil {
+		errs = append(errs, errors.New("MAIL_FROM must be an email address, such as ResearchSphere <no-reply@example.org>"))
+	} else {
+		cfg.MailFrom = *from
+	}
+	cfg.AppBaseURL = strings.TrimRight(orDefault(getenv("APP_BASE_URL"), DefaultAppBaseURL), "/")
+	if err := checkBaseURL("APP_BASE_URL", cfg.AppBaseURL); err != nil {
+		errs = append(errs, err)
+	}
+
 	if len(errs) > 0 {
 		return Config{}, errors.Join(errs...)
 	}
 	return cfg, nil
 }
 
-// LogValue keeps the URLs, and so any password in them, out of the logs.
+// LogValue keeps the database and Redis URLs, and so any password in them, out of the
+// logs. The mail settings hold no secrets.
 func (c Config) LogValue() slog.Value {
 	return slog.GroupValue(
 		slog.Int("port", c.Port),
 		slog.String("log_level", c.LogLevel.String()),
+		slog.String("smtp_host", c.SMTPHost),
+		slog.Int("smtp_port", c.SMTPPort),
+		slog.String("mail_from", c.MailFrom.String()),
+		slog.String("app_base_url", c.AppBaseURL),
 	)
 }
 
@@ -93,16 +126,32 @@ func checkURL(name, raw string, schemes ...string) error {
 	return fmt.Errorf("%s must start with %s://", name, strings.Join(schemes, ":// or "))
 }
 
-func parsePort(raw string) (int, error) {
+func parsePort(name, raw string, def int) (int, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return DefaultPort, nil
+		return def, nil
 	}
 	port, err := strconv.Atoi(raw)
 	if err != nil || port < 1 || port > 65535 {
-		return 0, fmt.Errorf("API_PORT must be a number from 1 to 65535, got %q", raw)
+		return 0, fmt.Errorf("%s must be a number from 1 to 65535, got %q", name, raw)
 	}
 	return port, nil
+}
+
+// checkBaseURL accepts an absolute http or https URL with a host and no query or fragment.
+func checkBaseURL(name, raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("%s must be an http:// or https:// address such as http://localhost:3000, got %q", name, raw)
+	}
+	return nil
+}
+
+func orDefault(raw, def string) string {
+	if raw = strings.TrimSpace(raw); raw != "" {
+		return raw
+	}
+	return def
 }
 
 func parseLevel(raw string) (slog.Level, error) {

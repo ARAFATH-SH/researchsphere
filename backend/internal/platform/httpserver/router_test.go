@@ -25,6 +25,18 @@ func (fakeAPI) GetHealth(context.Context, gen.GetHealthRequestObject) (gen.GetHe
 	return gen.GetHealth200JSONResponse{Status: gen.HealthStatusOk, Database: gen.HealthDatabaseOk, Redis: gen.HealthRedisOk}, nil
 }
 
+func (fakeAPI) RegisterUser(context.Context, gen.RegisterUserRequestObject) (gen.RegisterUserResponseObject, error) {
+	return gen.RegisterUser201JSONResponse{Email: "ada@example.org"}, nil
+}
+
+func (fakeAPI) VerifyEmail(context.Context, gen.VerifyEmailRequestObject) (gen.VerifyEmailResponseObject, error) {
+	return gen.VerifyEmail204Response{}, nil
+}
+
+func (fakeAPI) ResendVerification(context.Context, gen.ResendVerificationRequestObject) (gen.ResendVerificationResponseObject, error) {
+	return gen.ResendVerification202Response{}, nil
+}
+
 var _ gen.StrictServerInterface = fakeAPI{}
 
 // newTestRouter returns the full router with a fake API, a /test/panic route, and a

@@ -13,7 +13,13 @@ import (
 	"os/signal"
 	"strconv"
 	"syscall"
+	"time"
 
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/auth/adapter/argon2"
+	authhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/adapter/http"
+	authpg "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/adapter/postgres"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/auth/adapter/smtp"
+	authusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/usecase"
 	healthpg "github.com/ARAFATH-SH/researchsphere/backend/internal/health/adapter/postgres"
 	healthredis "github.com/ARAFATH-SH/researchsphere/backend/internal/health/adapter/redis"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/config"
@@ -58,7 +64,15 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 	}
 	defer func() { _ = rdb.Close() }()
 
-	handler := newRouter(logger, healthpg.NewPinger(pool), healthredis.NewPinger(rdb))
+	auth := authusecase.New(
+		authpg.NewStore(pool),
+		argon2.New(argon2.DefaultParams),
+		smtp.New(cfg.SMTPHost, cfg.SMTPPort, cfg.MailFrom),
+		authusecase.Config{AppBaseURL: cfg.AppBaseURL},
+		time.Now,
+		logger,
+	)
+	handler := newRouter(logger, healthpg.NewPinger(pool), healthredis.NewPinger(rdb), authhttp.NewHandler(auth))
 
 	var lc net.ListenConfig
 	ln, err := lc.Listen(ctx, "tcp", ":"+strconv.Itoa(cfg.Port))
