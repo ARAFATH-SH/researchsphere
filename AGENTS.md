@@ -115,6 +115,7 @@ check, tests and a production build.
   read on the server only (never `NEXT_PUBLIC_`). Jest tests (`*.test.ts(x)`) sit beside the
   code they test and mock the API module, not the network. Pages except the workspace must
   work at 768 pixels wide (SRS 5.1).
+- **Layout widths:** Use Container for page width; never set max-width on a section.
 - **UI:** follow `docs/ui-guidelines.md` (colors, cards, pill buttons, signed-out and signed-in
   layouts, forms). Use the design tokens from `globals.css`, never raw colors.
 - **API:** JSON under `/api/v1`. Errors have the shape `{"code": "...", "message": "..."}`.

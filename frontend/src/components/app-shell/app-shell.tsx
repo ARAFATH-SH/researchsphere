@@ -1,5 +1,6 @@
 import { type ReactNode, Suspense } from "react";
 
+import { Container } from "@/components/Container";
 import { Logo } from "@/components/logo";
 
 import { SearchIcon } from "./icons";
@@ -11,16 +12,18 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <>
       <header className="fixed inset-x-0 top-0 z-20 border-b border-border bg-surface">
-        <div className="mx-auto flex h-14 w-full max-w-page items-center gap-3 px-4">
+        <Container size="app" className="flex h-14 items-center gap-3">
           <Logo href="/home" compactBelow="lg" />
           <SearchBox />
           <nav aria-label="Main" className="ml-auto hidden h-full md:block">
             <Tabs variant="top" />
           </nav>
-        </div>
+        </Container>
       </header>
 
-      <main className="mx-auto w-full max-w-page flex-1 px-4 pt-20 pb-24 md:pb-10">{children}</main>
+      <Container as="main" size="app" className="flex-1 pt-20 pb-24 md:pb-10">
+        {children}
+      </Container>
 
       <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-surface md:hidden">
         <Tabs variant="bottom" />
