@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { Container } from "@/components/Container";
 import { Logo } from "@/components/logo";
 import { buttonClass } from "@/components/ui/button";
 
@@ -7,7 +8,7 @@ import { buttonClass } from "@/components/ui/button";
 export function PublicHeader() {
   return (
     <header>
-      <div className="mx-auto flex w-full max-w-page items-center justify-between gap-4 px-4 py-4">
+      <Container size="marketing" className="flex items-center justify-between gap-4 py-4">
         <Logo compactBelow="sm" />
         <nav aria-label="Account" className="flex items-center gap-1 sm:gap-2">
           <Link href="/register" className={buttonClass({ variant: "text", size: "md" })}>
@@ -17,7 +18,7 @@ export function PublicHeader() {
             Sign in
           </Link>
         </nav>
-      </div>
+      </Container>
     </header>
   );
 }
