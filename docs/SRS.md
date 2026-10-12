@@ -443,7 +443,7 @@ The database holds the 18 kinds of record below. The rules below are enforced by
 | Entity | Main attributes | Rules |
 | --- | --- | --- |
 | User | Email, password hash, role, verified time, suspended time, AI consent time | Email is unique, ignoring letter case |
-| Session | User, refresh token hash, expiry, revoked time | One per logged-in device; the token hash is unique |
+| Session | User, refresh token hash, expiry, revoked time, hashes of earlier (retired) refresh tokens, kept to detect reuse | One per logged-in device; the token hash and every retired hash are unique |
 | One-time token | User, purpose (verification or reset), token hash, expiry, used time | The token hash is unique; works once |
 | Profile | Name, headline, bio, institution, department, job title, country, ORCID iD | One per user; ORCID iD is unique and well formed |
 | Interest, Skill | Name | Name is unique, ignoring letter case; shared by all users and projects |
