@@ -43,6 +43,14 @@ func (fakeAPI) LoginUser(context.Context, gen.LoginUserRequestObject) (gen.Login
 	return gen.LoginUser200JSONResponse{Body: gen.CurrentUser{Email: "ada@example.org"}}, nil
 }
 
+func (fakeAPI) RefreshSession(context.Context, gen.RefreshSessionRequestObject) (gen.RefreshSessionResponseObject, error) {
+	return gen.RefreshSession204Response{}, nil
+}
+
+func (fakeAPI) LogoutUser(context.Context, gen.LogoutUserRequestObject) (gen.LogoutUserResponseObject, error) {
+	return gen.LogoutUser204Response{}, nil
+}
+
 // GetCurrentUser echoes the user ID that the auth middleware put in the context.
 func (fakeAPI) GetCurrentUser(ctx context.Context, _ gen.GetCurrentUserRequestObject) (gen.GetCurrentUserResponseObject, error) {
 	id, _ := httpx.UserID(ctx)
@@ -244,5 +252,10 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 		strings.NewReader(`{"email":"ada@example.org","password":"pw"}`)))
 	if rec.Code != http.StatusOK {
 		t.Errorf("POST /auth/login without a cookie: status = %d, want 200", rec.Code)
+	}
+	for _, path := range []string{"/api/v1/auth/refresh", "/api/v1/auth/logout"} {
+		if rec := serve(t, router, http.MethodPost, path); rec.Code != http.StatusNoContent {
+			t.Errorf("POST %s without an access cookie: status = %d, want 204", path, rec.Code)
+		}
 	}
 }

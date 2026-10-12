@@ -145,6 +145,9 @@ func TestAuthRoutesThroughRouter(t *testing.T) {
 		{"/api/v1/auth/verify-email", `{"token":"x"}`, http.StatusNoContent},
 		{"/api/v1/auth/resend-verification", `{"email":"ada@example.org"}`, http.StatusAccepted},
 		{"/api/v1/auth/login", `{"email":"ada@example.org","password":"password1"}`, http.StatusOK},
+		// Public: reachable with no access cookie, which may have expired.
+		{"/api/v1/auth/refresh", "", http.StatusNoContent},
+		{"/api/v1/auth/logout", "", http.StatusNoContent},
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
@@ -182,6 +185,16 @@ func (okAuth) Login(context.Context, authusecase.LoginInput) (authusecase.LoginR
 func (okAuth) CurrentUser(_ context.Context, id string) (authdomain.User, error) {
 	return authdomain.User{ID: id, Email: "ada@example.org", FullName: "Ada"}, nil
 }
+
+func (okAuth) Refresh(context.Context, string) (authusecase.RefreshResult, error) {
+	now := time.Now()
+	return authusecase.RefreshResult{
+		IssuedAt: now, AccessToken: "a", AccessExpiresAt: now.Add(accessTTL),
+		RefreshToken: "r", RefreshExpiresAt: now.Add(authusecase.RefreshTTL),
+	}, nil
+}
+
+func (okAuth) Logout(context.Context, string) error { return nil }
 
 const okUserID = "6f1c2b9e-1d2a-4c3b-9a8e-0f1e2d3c4b5a"
 

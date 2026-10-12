@@ -26,6 +26,18 @@ type fakeService struct {
 	result   usecase.LoginResult // returned by Login
 	user     domain.User         // returned by CurrentUser
 	userID   string
+	refresh  usecase.RefreshResult // returned by Refresh
+	sent     []string              // refresh tokens given to Refresh and Logout
+}
+
+func (f *fakeService) Refresh(_ context.Context, token string) (usecase.RefreshResult, error) {
+	f.sent = append(f.sent, token)
+	return f.refresh, f.err
+}
+
+func (f *fakeService) Logout(_ context.Context, token string) error {
+	f.sent = append(f.sent, token)
+	return f.err
 }
 
 func (f *fakeService) Register(_ context.Context, in usecase.RegisterInput) (usecase.RegisterResult, error) {
@@ -346,4 +358,152 @@ func TestGetCurrentUser(t *testing.T) {
 			t.Errorf("status = %d, want 401", rec.Code)
 		}
 	})
+}
+
+// postWithCookie posts to path with the refresh cookie set to token, or no cookie when
+// token is empty.
+func postWithCookie(t *testing.T, svc *fakeService, path, token string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1"+path, nil)
+	if token != "" {
+		req.Header.Set("Cookie", httpx.RefreshCookie+"="+token)
+	}
+	return serve(NewHandler(svc, CookieConfig{Secure: true}), req)
+}
+
+// wantCookie is a Set-Cookie the test expects.
+type wantCookie struct {
+	name, value, path string
+	maxAge            int // -1 for a cleared cookie (Max-Age=0)
+}
+
+func checkCookies(t *testing.T, rec *httptest.ResponseRecorder, want []wantCookie) {
+	t.Helper()
+	cookies := map[string]*http.Cookie{}
+	for _, c := range rec.Result().Cookies() {
+		cookies[c.Name] = c
+	}
+	if len(cookies) != len(want) {
+		t.Errorf("cookies = %v, want exactly %d", rec.Header().Values("Set-Cookie"), len(want))
+	}
+	for _, w := range want {
+		c, ok := cookies[w.name]
+		if !ok {
+			t.Errorf("cookie %s not set", w.name)
+			continue
+		}
+		if c.Value != w.value || c.Path != w.path || c.MaxAge != w.maxAge {
+			t.Errorf("%s = value %q, path %q, max-age %d; want %q, %q, %d", w.name, c.Value, c.Path, c.MaxAge, w.value, w.path, w.maxAge)
+		}
+		if !c.HttpOnly || c.SameSite != http.SameSiteLaxMode || !c.Secure {
+			t.Errorf("%s: HttpOnly=%v SameSite=%v Secure=%v, want true, Lax, true", w.name, c.HttpOnly, c.SameSite, c.Secure)
+		}
+	}
+	if cc := rec.Header().Get("Cache-Control"); cc != "no-store" {
+		t.Errorf("Cache-Control = %q, want no-store", cc)
+	}
+}
+
+var clearedCookies = []wantCookie{
+	{httpx.AccessCookie, "", "/", -1},
+	{httpx.RefreshCookie, "", "/api/v1/auth", -1},
+}
+
+func TestRefreshSessionSetsCookies(t *testing.T) {
+	issued := time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name          string
+		refreshLeft   time.Duration
+		wantRefreshMA int
+	}{
+		{"fresh session", 29 * 24 * time.Hour, 29 * 24 * 60 * 60},
+		{"less than a second left", 300 * time.Millisecond, 1}, // never Max-Age 0
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &fakeService{refresh: usecase.RefreshResult{
+				IssuedAt:         issued,
+				AccessToken:      "new-access",
+				AccessExpiresAt:  issued.Add(15 * time.Minute),
+				RefreshToken:     "new-refresh",
+				RefreshExpiresAt: issued.Add(tt.refreshLeft),
+			}}
+			rec := postWithCookie(t, svc, "/auth/refresh", "old-refresh")
+
+			if rec.Code != http.StatusNoContent || rec.Body.Len() != 0 {
+				t.Fatalf("status = %d, body %q; want 204 and no body", rec.Code, rec.Body)
+			}
+			if len(svc.sent) != 1 || svc.sent[0] != "old-refresh" {
+				t.Errorf("service got %v, want the cookie's token", svc.sent)
+			}
+			checkCookies(t, rec, []wantCookie{
+				{httpx.AccessCookie, "new-access", "/", 15 * 60},
+				{httpx.RefreshCookie, "new-refresh", "/api/v1/auth", tt.wantRefreshMA},
+			})
+		})
+	}
+}
+
+func TestRefreshSessionRefused(t *testing.T) {
+	tests := []struct {
+		name   string
+		cookie string
+	}{
+		{"no cookie", ""},
+		{"invalid session", "old-refresh"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &fakeService{err: domain.ErrSessionInvalid}
+			rec := postWithCookie(t, svc, "/auth/refresh", tt.cookie)
+
+			if rec.Code != http.StatusUnauthorized {
+				t.Fatalf("status = %d, want 401", rec.Code)
+			}
+			if got := decode(t, rec); got["code"] != CodeSessionInvalid || got["message"] == "" {
+				t.Errorf("body = %v, want code %q and a message", got, CodeSessionInvalid)
+			}
+			if len(svc.sent) != 1 || svc.sent[0] != tt.cookie {
+				t.Errorf("service got %v, want [%q]", svc.sent, tt.cookie)
+			}
+			checkCookies(t, rec, clearedCookies)
+		})
+	}
+}
+
+func TestRefreshSessionFails(t *testing.T) {
+	rec := postWithCookie(t, &fakeService{err: errors.New("database down")}, "/auth/refresh", "old-refresh")
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rec.Code)
+	}
+	if c := rec.Header().Values("Set-Cookie"); len(c) != 0 {
+		t.Errorf("a failed refresh changed cookies: %v", c)
+	}
+}
+
+func TestLogoutUser(t *testing.T) {
+	for _, cookie := range []string{"refresh", ""} {
+		t.Run(map[string]string{"refresh": "with cookie", "": "without cookie"}[cookie], func(t *testing.T) {
+			svc := &fakeService{}
+			rec := postWithCookie(t, svc, "/auth/logout", cookie)
+
+			if rec.Code != http.StatusNoContent || rec.Body.Len() != 0 {
+				t.Fatalf("status = %d, body %q; want 204 and no body", rec.Code, rec.Body)
+			}
+			if len(svc.sent) != 1 || svc.sent[0] != cookie {
+				t.Errorf("service got %v, want [%q]", svc.sent, cookie)
+			}
+			checkCookies(t, rec, clearedCookies)
+		})
+	}
+}
+
+func TestLogoutUserFails(t *testing.T) {
+	rec := postWithCookie(t, &fakeService{err: errors.New("database down")}, "/auth/logout", "refresh")
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rec.Code)
+	}
+	if c := rec.Header().Values("Set-Cookie"); len(c) != 0 {
+		t.Errorf("a failed logout cleared cookies: %v", c)
+	}
 }

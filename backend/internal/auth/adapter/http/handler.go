@@ -1,5 +1,6 @@
 // Package http serves the auth operations in docs/openapi.yaml: registration, email
-// verification and new verification links (FR-1), login and the current user (FR-2.1).
+// verification and new verification links (FR-1), login and the current user (FR-2.1),
+// and refreshing and ending sessions (FR-2.2).
 // It turns the usecase's errors into the error codes the web client shows next to each
 // field, and puts the login tokens in cookies.
 package http
@@ -34,6 +35,7 @@ const (
 
 	CodeInvalidCredentials = "invalid_credentials" //nolint:gosec // an error code, not a credential
 	CodeEmailNotVerified   = "email_not_verified"
+	CodeSessionInvalid     = "session_invalid"
 )
 
 // refreshCookiePath limits the refresh cookie to the auth routes, which will refresh and
@@ -47,6 +49,8 @@ type service interface {
 	ResendVerification(ctx context.Context, email string) error
 	Login(ctx context.Context, in usecase.LoginInput) (usecase.LoginResult, error)
 	CurrentUser(ctx context.Context, id string) (domain.User, error)
+	Refresh(ctx context.Context, token string) (usecase.RefreshResult, error)
+	Logout(ctx context.Context, token string) error
 }
 
 // CookieConfig sets the attributes of the session cookies.
@@ -167,6 +171,49 @@ func (h *Handler) LoginUser(ctx context.Context, req gen.LoginUserRequestObject)
 	}, nil
 }
 
+// RefreshSession issues new tokens for the session in the refresh cookie and sets both
+// cookies again (FR-2.1). Every refusal gets the same answer and clears both cookies, so
+// the browser stops sending a refresh token that no longer works.
+func (h *Handler) RefreshSession(ctx context.Context, req gen.RefreshSessionRequestObject) (gen.RefreshSessionResponseObject, error) {
+	res, err := h.svc.Refresh(ctx, refreshToken(req.Params.RsRefresh))
+	if errors.Is(err, domain.ErrSessionInvalid) {
+		return cookieResponse{
+			status:  http.StatusUnauthorized,
+			body:    &gen.Error{Code: CodeSessionInvalid, Message: "Your session has ended. Log in again."},
+			cookies: h.clearedCookies(),
+		}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return cookieResponse{
+		status: http.StatusNoContent,
+		cookies: []*http.Cookie{
+			h.cookie(httpx.AccessCookie, res.AccessToken, "/", res.AccessExpiresAt.Sub(res.IssuedAt)),
+			// The session keeps its login expiry, so little time may be left; a Max-Age of 0
+			// would mean no Max-Age at all.
+			h.cookie(httpx.RefreshCookie, res.RefreshToken, refreshCookiePath, max(res.RefreshExpiresAt.Sub(res.IssuedAt), time.Second)),
+		},
+	}, nil
+}
+
+// LogoutUser ends the session in the refresh cookie and clears both cookies (FR-2.2).
+// It answers 204 when there is no cookie or no such session. A failure to end the
+// session is a 500, so the user is never told they logged out when they did not.
+func (h *Handler) LogoutUser(ctx context.Context, req gen.LogoutUserRequestObject) (gen.LogoutUserResponseObject, error) {
+	if err := h.svc.Logout(ctx, refreshToken(req.Params.RsRefresh)); err != nil {
+		return nil, err
+	}
+	return cookieResponse{status: http.StatusNoContent, cookies: h.clearedCookies()}, nil
+}
+
+func refreshToken(c *gen.RefreshCookie) string {
+	if c == nil {
+		return ""
+	}
+	return *c
+}
+
 // GetCurrentUser returns the user whose ID the auth middleware put in the context. A
 // valid token for an account that no longer exists is refused like a missing one.
 func (h *Handler) GetCurrentUser(ctx context.Context, _ gen.GetCurrentUserRequestObject) (gen.GetCurrentUserResponseObject, error) {
@@ -212,6 +259,14 @@ func (h *Handler) cookie(name, value, path string, ttl time.Duration) *http.Cook
 	}
 }
 
+// clearedCookies returns both session cookies, set to expire at once.
+func (h *Handler) clearedCookies() []*http.Cookie {
+	return []*http.Cookie{
+		h.cookie(httpx.AccessCookie, "", "/", -time.Second),
+		h.cookie(httpx.RefreshCookie, "", refreshCookiePath, -time.Second),
+	}
+}
+
 // loginOK is the 200 answer to a login. The generated response type can set only one
 // Set-Cookie header, and a login sets two.
 type loginOK struct {
@@ -226,5 +281,31 @@ func (r loginOK) VisitLoginUserResponse(w http.ResponseWriter) error {
 	w.Header().Set("Cache-Control", "no-store") // a response that sets session cookies must not be cached
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
+	return json.NewEncoder(w).Encode(r.body)
+}
+
+// cookieResponse answers a refresh or a logout. Like loginOK, it exists because the
+// generated response types can set only one Set-Cookie header. body is nil for a 204.
+type cookieResponse struct {
+	status  int
+	body    *gen.Error
+	cookies []*http.Cookie
+}
+
+func (r cookieResponse) VisitRefreshSessionResponse(w http.ResponseWriter) error { return r.write(w) }
+
+func (r cookieResponse) VisitLogoutUserResponse(w http.ResponseWriter) error { return r.write(w) }
+
+func (r cookieResponse) write(w http.ResponseWriter) error {
+	for _, c := range r.cookies {
+		http.SetCookie(w, c)
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	if r.body == nil {
+		w.WriteHeader(r.status)
+		return nil
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(r.status)
 	return json.NewEncoder(w).Encode(r.body)
 }
