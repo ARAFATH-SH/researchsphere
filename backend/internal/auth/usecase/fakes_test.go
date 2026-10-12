@@ -30,10 +30,11 @@ type fakeToken struct {
 // as the citext column does, and RunInTx undoes every write when fn fails.
 type fakeStore struct {
 	users  map[string]fakeUser  // by lower-case email
-	tokens map[string]fakeToken // by token ID
-	nextID int
+	tokens   map[string]fakeToken // by token ID
+	sessions []domain.NewSession
+	nextID   int
 
-	failFind error // returned by FindUserByEmail when set
+	failFind error // returned by the Find methods when set
 	failTx   error // returned by every Tx write when set
 	txCount  int
 }
@@ -66,6 +67,36 @@ func (s *fakeStore) FindUserByEmail(_ context.Context, email string) (domain.Use
 		return domain.User{}, domain.ErrNotFound
 	}
 	return u.User, nil
+}
+
+func (s *fakeStore) FindCredentialsByEmail(_ context.Context, email string) (domain.Credentials, error) {
+	if s.failFind != nil {
+		return domain.Credentials{}, s.failFind
+	}
+	u, ok := s.users[strings.ToLower(email)]
+	if !ok {
+		return domain.Credentials{}, domain.ErrNotFound
+	}
+	return domain.Credentials{User: u.User, PasswordHash: u.passwordHash}, nil
+}
+
+func (s *fakeStore) FindUserByID(_ context.Context, id string) (domain.User, error) {
+	if s.failFind != nil {
+		return domain.User{}, s.failFind
+	}
+	_, u, ok := s.userByID(id)
+	if !ok {
+		return domain.User{}, domain.ErrNotFound
+	}
+	return u.User, nil
+}
+
+func (s *fakeStore) CreateSession(_ context.Context, sess domain.NewSession) error {
+	if s.failTx != nil {
+		return s.failTx
+	}
+	s.sessions = append(s.sessions, sess)
+	return nil
 }
 
 func (s *fakeStore) userByID(id string) (string, fakeUser, bool) {
@@ -166,14 +197,36 @@ func (tx fakeTx) MarkEmailVerified(_ context.Context, userID string, at time.Tim
 	return nil
 }
 
-// fakeHasher marks the password so tests can see it was hashed.
-type fakeHasher struct{ err error }
+// fakeHasher marks the password so tests can see it was hashed, and counts the
+// passwords it checked.
+type fakeHasher struct {
+	err      error
+	verified int
+}
 
-func (h fakeHasher) Hash(password string) (string, error) {
+func (h *fakeHasher) Hash(password string) (string, error) {
 	if h.err != nil {
 		return "", h.err
 	}
 	return "hashed:" + password, nil
+}
+
+func (h *fakeHasher) Verify(password, encoded string) (bool, error) {
+	h.verified++
+	if h.err != nil {
+		return false, h.err
+	}
+	return encoded == "hashed:"+password, nil
+}
+
+// fakeSigner issues readable access tokens.
+type fakeSigner struct{ err error }
+
+func (s fakeSigner) Sign(userID string, now time.Time) (string, time.Time, error) {
+	if s.err != nil {
+		return "", time.Time{}, s.err
+	}
+	return "access-for-" + userID, now.Add(15 * time.Minute), nil
 }
 
 // fakeMailer records the messages it was asked to send.
@@ -201,15 +254,16 @@ var start = time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
 type env struct {
 	svc    *Service
 	store  *fakeStore
+	hasher *fakeHasher
 	mailer *fakeMailer
 	clock  *clock
 	logs   *bytes.Buffer
 }
 
 func newEnv() *env {
-	e := &env{store: newFakeStore(), mailer: &fakeMailer{}, clock: &clock{t: start}, logs: &bytes.Buffer{}}
+	e := &env{store: newFakeStore(), hasher: &fakeHasher{}, mailer: &fakeMailer{}, clock: &clock{t: start}, logs: &bytes.Buffer{}}
 	logger := slog.New(slog.NewTextHandler(e.logs, nil))
-	e.svc = New(e.store, fakeHasher{}, e.mailer, Config{AppBaseURL: "https://rs.example/"}, e.clock.now, logger)
+	e.svc = New(e.store, e.hasher, e.mailer, fakeSigner{}, Config{AppBaseURL: "https://rs.example/"}, e.clock.now, logger)
 	return e
 }
 

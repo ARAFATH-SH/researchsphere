@@ -12,6 +12,11 @@ type Store interface {
 	RunInTx(ctx context.Context, fn func(tx Tx) error) error
 	// FindUserByEmail returns ErrNotFound when no user has the address, ignoring letter case.
 	FindUserByEmail(ctx context.Context, email string) (User, error)
+	// FindCredentialsByEmail is FindUserByEmail with the password hash.
+	FindCredentialsByEmail(ctx context.Context, email string) (Credentials, error)
+	// FindUserByID returns ErrNotFound when no user has the ID.
+	FindUserByID(ctx context.Context, id string) (User, error)
+	CreateSession(ctx context.Context, s NewSession) error
 }
 
 // Tx is the set of writes available inside a transaction.
@@ -31,9 +36,18 @@ type Tx interface {
 	MarkEmailVerified(ctx context.Context, userID string, at time.Time) error
 }
 
-// PasswordHasher turns a password into a salted hash (NFR-5).
+// PasswordHasher turns a password into a salted hash (NFR-5) and checks a password
+// against one.
 type PasswordHasher interface {
 	Hash(password string) (string, error)
+	// Verify reports whether password matches encoded, a hash made by Hash.
+	Verify(password, encoded string) (bool, error)
+}
+
+// AccessTokenSigner issues the short-lived access token given at login (FR-2.1).
+type AccessTokenSigner interface {
+	// Sign returns a token for userID issued at now, and the time it expires.
+	Sign(userID string, now time.Time) (string, time.Time, error)
 }
 
 // Mailer sends email.

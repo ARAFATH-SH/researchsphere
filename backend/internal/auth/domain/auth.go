@@ -50,6 +50,20 @@ type Token struct {
 	UsedAt    *time.Time // set once the token has been used
 }
 
+// Credentials is a user with the stored password hash, read only to check a login.
+type Credentials struct {
+	User
+	PasswordHash string
+}
+
+// NewSession is a login to store: one row per login (FR-2.1). Only the hash of the
+// refresh token is kept (NFR-5).
+type NewSession struct {
+	UserID    string
+	TokenHash string
+	ExpiresAt time.Time
+}
+
 // VerificationEmail is the message that carries a verification link.
 type VerificationEmail struct {
 	To       string
@@ -67,6 +81,10 @@ var (
 	ErrTokenInvalid     = errors.New("token is not valid")
 	ErrTokenUsed        = errors.New("token has already been used")
 	ErrTokenExpired     = errors.New("token has expired")
+	// ErrInvalidCredentials covers both an unknown email address and a wrong password,
+	// so a login attempt cannot tell which accounts exist (FR-2.1).
+	ErrInvalidCredentials = errors.New("email address or password is wrong")
+	ErrEmailNotVerified   = errors.New("email address is not verified")
 	// ErrNotFound is returned by a Store or Tx when the row does not exist.
 	ErrNotFound = errors.New("not found")
 )

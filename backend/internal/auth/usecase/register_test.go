@@ -172,7 +172,7 @@ func TestRegisterStoreAndHasherErrors(t *testing.T) {
 
 	t.Run("hasher fails", func(t *testing.T) {
 		e := newEnv()
-		e.svc.hasher = fakeHasher{err: errors.New("out of memory")}
+		e.hasher.err = errors.New("out of memory")
 		if _, err := e.svc.Register(context.Background(), in); err == nil {
 			t.Fatal("Register() error = nil, want the hasher's error")
 		}
