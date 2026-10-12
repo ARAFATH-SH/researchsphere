@@ -24,6 +24,7 @@ type LoginInput struct {
 // LoginResult holds the tokens of a new session. Both tokens are secrets: never log them.
 type LoginResult struct {
 	User             domain.User
+	IssuedAt         time.Time
 	AccessToken      string
 	AccessExpiresAt  time.Time
 	RefreshToken     string
@@ -66,7 +67,7 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (LoginResult, error)
 
 	now := s.now()
 	refresh, hash := newToken()
-	res := LoginResult{User: creds.User, RefreshToken: refresh, RefreshExpiresAt: now.Add(RefreshTTL)}
+	res := LoginResult{User: creds.User, IssuedAt: now, RefreshToken: refresh, RefreshExpiresAt: now.Add(RefreshTTL)}
 	// Sign first, so a failure leaves no session behind.
 	if res.AccessToken, res.AccessExpiresAt, err = s.signer.Sign(creds.ID, now); err != nil {
 		return LoginResult{}, err

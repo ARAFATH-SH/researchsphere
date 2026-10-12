@@ -22,12 +22,17 @@ import (
 	authusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/usecase"
 	healthpg "github.com/ARAFATH-SH/researchsphere/backend/internal/health/adapter/postgres"
 	healthredis "github.com/ARAFATH-SH/researchsphere/backend/internal/health/adapter/redis"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/accesstoken"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/config"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpserver"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpx"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/logging"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/postgres"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/redis"
 )
+
+// accessTTL is how long an access token is valid (FR-2.1).
+const accessTTL = 15 * time.Minute
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -64,15 +69,19 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 	}
 	defer func() { _ = rdb.Close() }()
 
+	tokens := accesstoken.New(cfg.JWTSecret, accessTTL)
 	auth := authusecase.New(
 		authpg.NewStore(pool),
 		argon2.New(argon2.DefaultParams),
 		smtp.New(cfg.SMTPHost, cfg.SMTPPort, cfg.MailFrom),
+		tokens,
 		authusecase.Config{AppBaseURL: cfg.AppBaseURL},
 		time.Now,
 		logger,
 	)
-	handler := newRouter(logger, healthpg.NewPinger(pool), healthredis.NewPinger(rdb), authhttp.NewHandler(auth))
+	handler := newRouter(logger, healthpg.NewPinger(pool), healthredis.NewPinger(rdb),
+		authhttp.NewHandler(auth, authhttp.CookieConfig{Secure: cfg.CookieSecure}),
+		httpx.RequireAuth(tokens, time.Now))
 
 	var lc net.ListenConfig
 	ln, err := lc.Listen(ctx, "tcp", ":"+strconv.Itoa(cfg.Port))

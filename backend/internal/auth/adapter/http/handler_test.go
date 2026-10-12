@@ -8,10 +8,12 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/api/gen"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/auth/domain"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/auth/usecase"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpx"
 )
 
 // fakeService returns err from every operation and records what it was given.
@@ -20,6 +22,10 @@ type fakeService struct {
 	register usecase.RegisterInput
 	token    string
 	email    string
+	login    usecase.LoginInput
+	result   usecase.LoginResult // returned by Login
+	user     domain.User         // returned by CurrentUser
+	userID   string
 }
 
 func (f *fakeService) Register(_ context.Context, in usecase.RegisterInput) (usecase.RegisterResult, error) {
@@ -37,6 +43,16 @@ func (f *fakeService) ResendVerification(_ context.Context, email string) error 
 	return f.err
 }
 
+func (f *fakeService) Login(_ context.Context, in usecase.LoginInput) (usecase.LoginResult, error) {
+	f.login = in
+	return f.result, f.err
+}
+
+func (f *fakeService) CurrentUser(_ context.Context, id string) (domain.User, error) {
+	f.userID = id
+	return f.user, f.err
+}
+
 // server serves only the auth operations: Handler's methods are promoted from a
 // shallower depth than the embedded interface's, which stays nil.
 type server struct {
@@ -48,8 +64,15 @@ type others struct{ gen.StrictServerInterface }
 
 func post(t *testing.T, svc *fakeService, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1"+path, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	return serve(NewHandler(svc, CookieConfig{}), req)
+}
+
+// serve sends req through the generated routes to h.
+func serve(h *Handler, req *http.Request) *httptest.ResponseRecorder {
 	mux := http.NewServeMux()
-	gen.HandlerWithOptions(gen.NewStrictHandlerWithOptions(server{Handler: NewHandler(svc)}, nil, gen.StrictHTTPServerOptions{
+	gen.HandlerWithOptions(gen.NewStrictHandlerWithOptions(server{Handler: h}, nil, gen.StrictHTTPServerOptions{
 		RequestErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, _ error) {
 			w.WriteHeader(http.StatusBadRequest)
 		},
@@ -59,8 +82,6 @@ func post(t *testing.T, svc *fakeService, path, body string) *httptest.ResponseR
 	}), gen.StdHTTPServerOptions{BaseURL: "/api/v1", BaseRouter: mux})
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1"+path, strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
 	mux.ServeHTTP(rec, req)
 	return rec
 }
@@ -184,4 +205,145 @@ func TestMalformedBody(t *testing.T) {
 			}
 		})
 	}
+}
+
+const userID = "6f1c2b9e-1d2a-4c3b-9a8e-0f1e2d3c4b5a"
+
+func loginResult() usecase.LoginResult {
+	issued := time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC)
+	return usecase.LoginResult{
+		User:             domain.User{ID: userID, Email: "ada@example.org", FullName: "Ada Lovelace"},
+		IssuedAt:         issued,
+		AccessToken:      "access-token",
+		AccessExpiresAt:  issued.Add(15 * time.Minute),
+		RefreshToken:     "refresh-token",
+		RefreshExpiresAt: issued.Add(30 * 24 * time.Hour),
+	}
+}
+
+func login(t *testing.T, svc *fakeService, cookies CookieConfig) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/auth/login",
+		strings.NewReader(`{"email":"ada@example.org","password":"password1"}`))
+	req.Header.Set("Content-Type", "application/json")
+	return serve(NewHandler(svc, cookies), req)
+}
+
+func TestLoginUserSetsCookies(t *testing.T) {
+	for _, secure := range []bool{false, true} {
+		t.Run(map[bool]string{false: "local http", true: "https"}[secure], func(t *testing.T) {
+			svc := &fakeService{result: loginResult()}
+			rec := login(t, svc, CookieConfig{Secure: secure})
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body)
+			}
+			if svc.login != (usecase.LoginInput{Email: "ada@example.org", Password: "password1"}) {
+				t.Errorf("service got %+v", svc.login)
+			}
+			if got := decode(t, rec); got["id"] != userID || got["email"] != "ada@example.org" || got["fullName"] != "Ada Lovelace" || len(got) != 3 {
+				t.Errorf("body = %v", got)
+			}
+			if strings.Contains(rec.Body.String(), "token") {
+				t.Errorf("the body carries a token: %s", rec.Body)
+			}
+			if cc := rec.Header().Get("Cache-Control"); cc != "no-store" {
+				t.Errorf("Cache-Control = %q, want no-store", cc)
+			}
+
+			cookies := map[string]*http.Cookie{}
+			for _, c := range rec.Result().Cookies() {
+				cookies[c.Name] = c
+			}
+			want := []struct {
+				name, value, path string
+				maxAge            int
+			}{
+				{httpx.AccessCookie, "access-token", "/", 15 * 60},
+				{httpx.RefreshCookie, "refresh-token", "/api/v1/auth", 30 * 24 * 60 * 60},
+			}
+			if len(cookies) != len(want) {
+				t.Errorf("cookies = %v, want exactly %d", rec.Header().Values("Set-Cookie"), len(want))
+			}
+			for _, w := range want {
+				c, ok := cookies[w.name]
+				if !ok {
+					t.Errorf("cookie %s not set", w.name)
+					continue
+				}
+				if c.Value != w.value || c.Path != w.path || c.MaxAge != w.maxAge {
+					t.Errorf("%s = value %q, path %q, max-age %d; want %q, %q, %d", w.name, c.Value, c.Path, c.MaxAge, w.value, w.path, w.maxAge)
+				}
+				if !c.HttpOnly || c.SameSite != http.SameSiteLaxMode || c.Secure != secure {
+					t.Errorf("%s: HttpOnly=%v SameSite=%v Secure=%v, want true, Lax, %v", w.name, c.HttpOnly, c.SameSite, c.Secure, secure)
+				}
+			}
+		})
+	}
+}
+
+func TestLoginUserRefused(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantCode   string
+	}{
+		{"wrong email or password", domain.ErrInvalidCredentials, http.StatusUnauthorized, CodeInvalidCredentials},
+		{"unverified email address", domain.ErrEmailNotVerified, http.StatusForbidden, CodeEmailNotVerified},
+		{"unexpected error", errors.New("database down"), http.StatusInternalServerError, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := login(t, &fakeService{err: tt.err}, CookieConfig{})
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d", rec.Code, tt.wantStatus)
+			}
+			if got := decode(t, rec); tt.wantCode != "" && (got["code"] != tt.wantCode || got["message"] == "") {
+				t.Errorf("body = %v, want code %q and a message", got, tt.wantCode)
+			}
+			if c := rec.Header().Values("Set-Cookie"); len(c) != 0 {
+				t.Errorf("a refused login set cookies: %v", c)
+			}
+		})
+	}
+}
+
+func TestGetCurrentUser(t *testing.T) {
+	me := func(t *testing.T, svc *fakeService, ctxUser string) *httptest.ResponseRecorder {
+		t.Helper()
+		ctx := t.Context()
+		if ctxUser != "" {
+			ctx = httpx.WithUserID(ctx, ctxUser) // what the auth middleware does
+		}
+		return serve(NewHandler(svc, CookieConfig{}), httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/v1/auth/me", nil))
+	}
+
+	t.Run("logged in", func(t *testing.T) {
+		svc := &fakeService{user: domain.User{ID: userID, Email: "ada@example.org", FullName: "Ada Lovelace"}}
+		rec := me(t, svc, userID)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200", rec.Code)
+		}
+		if svc.userID != userID {
+			t.Errorf("service asked for %q, want %q", svc.userID, userID)
+		}
+		if got := decode(t, rec); got["id"] != userID || got["email"] != "ada@example.org" || got["fullName"] != "Ada Lovelace" {
+			t.Errorf("body = %v", got)
+		}
+	})
+
+	t.Run("account no longer exists", func(t *testing.T) {
+		rec := me(t, &fakeService{err: domain.ErrNotFound}, userID)
+		if rec.Code != http.StatusUnauthorized || decode(t, rec)["code"] != httpx.CodeUnauthenticated {
+			t.Errorf("got %d %s, want 401 unauthenticated", rec.Code, rec.Body)
+		}
+	})
+
+	t.Run("no user in the context", func(t *testing.T) {
+		rec := me(t, &fakeService{}, "")
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("status = %d, want 401", rec.Code)
+		}
+	})
 }

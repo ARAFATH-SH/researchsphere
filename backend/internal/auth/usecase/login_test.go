@@ -37,6 +37,9 @@ func TestLoginSuccess(t *testing.T) {
 	if res.User.ID != id || res.User.Email != "ada@example.org" || res.User.FullName != "Ada" {
 		t.Errorf("User = %+v, want the registered user", res.User)
 	}
+	if !res.IssuedAt.Equal(e.clock.t) {
+		t.Errorf("IssuedAt = %v, want %v", res.IssuedAt, e.clock.t)
+	}
 	if res.AccessToken != "access-for-"+id {
 		t.Errorf("AccessToken = %q, want the signer's token for the user", res.AccessToken)
 	}
@@ -124,7 +127,7 @@ func TestLoginRefused(t *testing.T) {
 func TestLoginPassesOnFailures(t *testing.T) {
 	boom := errors.New("database down")
 	tests := []struct {
-		name  string
+		name string
 		fail func(e *env)
 	}{
 		{"finding the user", func(e *env) { e.store.failFind = boom }},

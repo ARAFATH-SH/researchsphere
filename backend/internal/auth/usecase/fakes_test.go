@@ -29,7 +29,7 @@ type fakeToken struct {
 // fakeStore keeps users and tokens in maps. It compares email addresses in lower case,
 // as the citext column does, and RunInTx undoes every write when fn fails.
 type fakeStore struct {
-	users  map[string]fakeUser  // by lower-case email
+	users    map[string]fakeUser  // by lower-case email
 	tokens   map[string]fakeToken // by token ID
 	sessions []domain.NewSession
 	nextID   int

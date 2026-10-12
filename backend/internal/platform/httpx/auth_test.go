@@ -28,18 +28,18 @@ func TestRequireAuth(t *testing.T) {
 	tests := []struct {
 		name      string
 		secured   bool
-		cookie    *http.Cookie
+		cookie    string // the Cookie request header
 		at        time.Time
 		wantCode  int
 		wantUser  string
 		wantError string
 	}{
-		{name: "valid token", secured: true, cookie: &http.Cookie{Name: AccessCookie, Value: valid}, at: start.Add(time.Minute), wantCode: 200, wantUser: "user-1"},
+		{name: "valid token", secured: true, cookie: AccessCookie + "=" + valid, at: start.Add(time.Minute), wantCode: 200, wantUser: "user-1"},
 		{name: "missing cookie", secured: true, at: start, wantCode: 401, wantError: CodeUnauthenticated},
-		{name: "expired token", secured: true, cookie: &http.Cookie{Name: AccessCookie, Value: valid}, at: start.Add(15 * time.Minute), wantCode: 401, wantError: CodeUnauthenticated},
-		{name: "token from another secret", secured: true, cookie: &http.Cookie{Name: AccessCookie, Value: foreign}, at: start, wantCode: 401, wantError: CodeUnauthenticated},
-		{name: "garbage token", secured: true, cookie: &http.Cookie{Name: AccessCookie, Value: "garbage"}, at: start, wantCode: 401, wantError: CodeUnauthenticated},
-		{name: "token in another cookie", secured: true, cookie: &http.Cookie{Name: RefreshCookie, Value: valid}, at: start, wantCode: 401, wantError: CodeUnauthenticated},
+		{name: "expired token", secured: true, cookie: AccessCookie + "=" + valid, at: start.Add(15 * time.Minute), wantCode: 401, wantError: CodeUnauthenticated},
+		{name: "token from another secret", secured: true, cookie: AccessCookie + "=" + foreign, at: start, wantCode: 401, wantError: CodeUnauthenticated},
+		{name: "garbage token", secured: true, cookie: AccessCookie + "=garbage", at: start, wantCode: 401, wantError: CodeUnauthenticated},
+		{name: "token in another cookie", secured: true, cookie: RefreshCookie + "=" + valid, at: start, wantCode: 401, wantError: CodeUnauthenticated},
 		{name: "public operation without cookie", secured: false, at: start, wantCode: 200},
 	}
 	for _, tt := range tests {
@@ -52,13 +52,13 @@ func TestRequireAuth(t *testing.T) {
 			})
 			h := RequireAuth(signer, func() time.Time { return tt.at })(next)
 
-			req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/auth/me", nil)
 			if tt.secured {
 				// What the generated wrapper does for an operation with security.
 				req = req.WithContext(context.WithValue(req.Context(), gen.CookieAuthScopes, []string{}))
 			}
-			if tt.cookie != nil {
-				req.AddCookie(tt.cookie)
+			if tt.cookie != "" {
+				req.Header.Set("Cookie", tt.cookie)
 			}
 			rec := httptest.NewRecorder()
 			h.ServeHTTP(rec, req)

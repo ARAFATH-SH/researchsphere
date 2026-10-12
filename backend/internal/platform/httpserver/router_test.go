@@ -229,7 +229,7 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 		t.Fatal(err)
 	}
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/auth/me", nil)
-	req.AddCookie(&http.Cookie{Name: httpx.AccessCookie, Value: token})
+	req.Header.Set("Cookie", httpx.AccessCookie+"="+token)
 	rec = httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"user-1"`) {
