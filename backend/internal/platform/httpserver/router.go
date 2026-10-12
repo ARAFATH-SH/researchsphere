@@ -14,13 +14,14 @@ import (
 const BaseURL = "/api/v1"
 
 // NewRouter returns the API's root handler. si implements every operation in the
-// contract; cmd/api builds it from the modules' HTTP adapters.
-func NewRouter(logger *slog.Logger, si gen.StrictServerInterface) http.Handler {
-	return newRouter(logger, si, nil)
+// contract; cmd/api builds it from the modules' HTTP adapters. auth (httpx.RequireAuth)
+// runs inside each generated operation, where it can see whether the contract secures it.
+func NewRouter(logger *slog.Logger, si gen.StrictServerInterface, auth func(http.Handler) http.Handler) http.Handler {
+	return newRouter(logger, si, auth, nil)
 }
 
 // newRouter lets tests register extra routes on the same mux and middleware.
-func newRouter(logger *slog.Logger, si gen.StrictServerInterface, extra func(*http.ServeMux)) http.Handler {
+func newRouter(logger *slog.Logger, si gen.StrictServerInterface, auth func(http.Handler) http.Handler, extra func(*http.ServeMux)) http.Handler {
 	mux := http.NewServeMux()
 
 	strict := gen.NewStrictHandlerWithOptions(si, nil, gen.StrictHTTPServerOptions{
@@ -34,8 +35,9 @@ func newRouter(logger *slog.Logger, si gen.StrictServerInterface, extra func(*ht
 		},
 	})
 	gen.HandlerWithOptions(strict, gen.StdHTTPServerOptions{
-		BaseURL:    BaseURL,
-		BaseRouter: mux,
+		BaseURL:     BaseURL,
+		BaseRouter:  mux,
+		Middlewares: []gen.MiddlewareFunc{auth},
 		ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
 			logger.WarnContext(r.Context(), "bad request parameters", slog.Any("error", err))
 			httpx.WriteError(w, http.StatusBadRequest, httpx.CodeBadRequest, "The request parameters are not valid.")

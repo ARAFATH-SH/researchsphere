@@ -9,8 +9,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/api/gen"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/accesstoken"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpx"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/logging"
 )
@@ -37,7 +39,19 @@ func (fakeAPI) ResendVerification(context.Context, gen.ResendVerificationRequest
 	return gen.ResendVerification202Response{}, nil
 }
 
+func (fakeAPI) LoginUser(context.Context, gen.LoginUserRequestObject) (gen.LoginUserResponseObject, error) {
+	return gen.LoginUser200JSONResponse{Body: gen.CurrentUser{Email: "ada@example.org"}}, nil
+}
+
+// GetCurrentUser echoes the user ID that the auth middleware put in the context.
+func (fakeAPI) GetCurrentUser(ctx context.Context, _ gen.GetCurrentUserRequestObject) (gen.GetCurrentUserResponseObject, error) {
+	id, _ := httpx.UserID(ctx)
+	return gen.GetCurrentUser200JSONResponse{FullName: id}, nil
+}
+
 var _ gen.StrictServerInterface = fakeAPI{}
+
+var testSigner = accesstoken.New([]byte("test-secret-that-is-at-least-32-bytes-long"), 15*time.Minute)
 
 // newTestRouter returns the full router with a fake API, a /test/panic route, and a
 // buffer that receives the JSON logs.
@@ -45,7 +59,7 @@ func newTestRouter(t *testing.T) (http.Handler, *bytes.Buffer) {
 	t.Helper()
 	var logs bytes.Buffer
 	logger := slog.New(logging.NewHandler(slog.NewJSONHandler(&logs, nil)))
-	router := newRouter(logger, fakeAPI{}, func(mux *http.ServeMux) {
+	router := newRouter(logger, fakeAPI{}, httpx.RequireAuth(testSigner, time.Now), func(mux *http.ServeMux) {
 		mux.HandleFunc("GET /test/panic", func(http.ResponseWriter, *http.Request) { panic(panicText) })
 	})
 	return router, &logs
@@ -194,5 +208,41 @@ func TestPanicIsLoggedWithRequestID(t *testing.T) {
 	}
 	if !strings.Contains(out, `"request_id":"`+rec.Header().Get(httpx.RequestIDHeader)+`"`) {
 		t.Errorf("panic log lacks the request ID:\n%s", out)
+	}
+}
+
+// The contract secures every operation without `security: []`; the generated wrapper
+// tells the auth middleware so, and public operations need no cookie.
+func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
+	router, _ := newTestRouter(t)
+
+	rec := serve(t, router, http.MethodGet, "/api/v1/auth/me")
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("GET /auth/me without a cookie: status = %d, want 401", rec.Code)
+	}
+	if code, _ := decodeError(t, rec); code != httpx.CodeUnauthenticated {
+		t.Errorf("code = %q, want %q", code, httpx.CodeUnauthenticated)
+	}
+
+	token, _, err := testSigner.Sign("user-1", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/auth/me", nil)
+	req.AddCookie(&http.Cookie{Name: httpx.AccessCookie, Value: token})
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"user-1"`) {
+		t.Errorf("GET /auth/me with a valid cookie: %d %s, want 200 with the user ID", rec.Code, rec.Body)
+	}
+
+	if rec := serve(t, router, http.MethodGet, "/api/v1/health"); rec.Code != http.StatusOK {
+		t.Errorf("GET /health without a cookie: status = %d, want 200", rec.Code)
+	}
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/auth/login",
+		strings.NewReader(`{"email":"ada@example.org","password":"pw"}`)))
+	if rec.Code != http.StatusOK {
+		t.Errorf("POST /auth/login without a cookie: status = %d, want 200", rec.Code)
 	}
 }
