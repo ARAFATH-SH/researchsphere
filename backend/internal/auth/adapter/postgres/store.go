@@ -61,6 +61,64 @@ func (s *Store) FindUserByEmail(ctx context.Context, email string) (domain.User,
 	}, nil
 }
 
+// FindCredentialsByEmail returns domain.ErrNotFound when no user has the address.
+func (s *Store) FindCredentialsByEmail(ctx context.Context, email string) (domain.Credentials, error) {
+	row, err := s.q.FindCredentialsByEmail(ctx, email)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Credentials{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.Credentials{}, fmt.Errorf("find credentials by email: %w", err)
+	}
+	return domain.Credentials{
+		User: domain.User{
+			ID:              uuidString(row.ID),
+			Email:           row.Email,
+			FullName:        row.FullName,
+			EmailVerifiedAt: timePtr(row.EmailVerifiedAt),
+		},
+		PasswordHash: row.PasswordHash,
+	}, nil
+}
+
+// FindUserByID returns domain.ErrNotFound when no user has the ID, or the ID is not a UUID.
+func (s *Store) FindUserByID(ctx context.Context, userID string) (domain.User, error) {
+	id, err := parseUUID(userID)
+	if err != nil {
+		return domain.User{}, domain.ErrNotFound
+	}
+	row, err := s.q.FindUserByID(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.User{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.User{}, fmt.Errorf("find user by id: %w", err)
+	}
+	return domain.User{
+		ID:              uuidString(row.ID),
+		Email:           row.Email,
+		FullName:        row.FullName,
+		EmailVerifiedAt: timePtr(row.EmailVerifiedAt),
+	}, nil
+}
+
+// CreateSession stores a login with the hash of its refresh token.
+func (s *Store) CreateSession(ctx context.Context, ns domain.NewSession) error {
+	id, err := parseUUID(ns.UserID)
+	if err != nil {
+		return err
+	}
+	err = s.q.CreateSession(ctx, sqlcgen.CreateSessionParams{
+		UserID:           id,
+		RefreshTokenHash: ns.TokenHash,
+		ExpiresAt:        timestamptz(ns.ExpiresAt),
+	})
+	if err != nil {
+		return fmt.Errorf("create session: %w", err)
+	}
+	return nil
+}
+
 // tx runs the queries inside one transaction.
 type tx struct {
 	q *sqlcgen.Queries

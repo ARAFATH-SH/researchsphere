@@ -266,3 +266,91 @@ func TestDeleteUnusedTokensKeepsUsedOnes(t *testing.T) {
 		t.Errorf("tokens left = %v, want only the used one", left)
 	}
 }
+
+func TestFindCredentialsByEmail(t *testing.T) {
+	ctx := t.Context()
+	s, pool := newTestStore(t)
+	email := uniqueEmail(t, pool)
+	id, err := register(ctx, s, email, "Ada", rand.Text(), time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	c, err := s.FindCredentialsByEmail(ctx, strings.ToUpper(email))
+	if err != nil {
+		t.Fatalf("FindCredentialsByEmail in upper case: %v", err)
+	}
+	if c.ID != id || c.Email != email || c.FullName != "Ada" || c.PasswordHash != "hash" || c.Verified() {
+		t.Errorf("credentials = %+v", c)
+	}
+	if _, err := s.FindCredentialsByEmail(ctx, "nobody-"+email); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("unknown address: error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestFindUserByID(t *testing.T) {
+	ctx := t.Context()
+	s, pool := newTestStore(t)
+	email := uniqueEmail(t, pool)
+	id, err := register(ctx, s, email, "Ada", rand.Text(), time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	u, err := s.FindUserByID(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.ID != id || u.Email != email || u.FullName != "Ada" {
+		t.Errorf("user = %+v", u)
+	}
+	for _, other := range []string{"00000000-0000-0000-0000-000000000000", "not-a-uuid", ""} {
+		if _, err := s.FindUserByID(ctx, other); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("FindUserByID(%q) error = %v, want ErrNotFound", other, err)
+		}
+	}
+}
+
+func TestCreateSession(t *testing.T) {
+	ctx := t.Context()
+	s, pool := newTestStore(t)
+	email := uniqueEmail(t, pool)
+	id, err := register(ctx, s, email, "Ada", rand.Text(), time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash := rand.Text()
+	expires := time.Now().Add(30 * 24 * time.Hour).Truncate(time.Microsecond)
+
+	if err := s.CreateSession(ctx, domain.NewSession{UserID: id, TokenHash: hash, ExpiresAt: expires}); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	var (
+		gotUser    string
+		gotExpires time.Time
+		revoked    *time.Time
+	)
+	err = pool.QueryRow(ctx, "SELECT user_id::text, expires_at, revoked_at FROM sessions WHERE refresh_token_hash = $1", hash).
+		Scan(&gotUser, &gotExpires, &revoked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotUser != id || !gotExpires.Equal(expires) || revoked != nil {
+		t.Errorf("session = (%s, %v, %v), want (%s, %v, nil)", gotUser, gotExpires, revoked, id, expires)
+	}
+
+	// A second login is a second row; the same hash twice is refused.
+	if err := s.CreateSession(ctx, domain.NewSession{UserID: id, TokenHash: rand.Text(), ExpiresAt: expires}); err != nil {
+		t.Fatalf("second session: %v", err)
+	}
+	if err := s.CreateSession(ctx, domain.NewSession{UserID: id, TokenHash: hash, ExpiresAt: expires}); err == nil {
+		t.Error("a duplicate refresh token hash was stored")
+	}
+	var n int
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM sessions WHERE user_id = $1", id).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Errorf("sessions for the user = %d, want 2", n)
+	}
+}

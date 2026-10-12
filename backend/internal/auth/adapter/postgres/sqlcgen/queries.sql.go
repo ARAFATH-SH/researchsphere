@@ -26,6 +26,22 @@ func (q *Queries) CreateProfile(ctx context.Context, arg CreateProfileParams) er
 	return err
 }
 
+const createSession = `-- name: CreateSession :exec
+INSERT INTO sessions (user_id, refresh_token_hash, expires_at)
+VALUES ($1, $2, $3)
+`
+
+type CreateSessionParams struct {
+	UserID           pgtype.UUID
+	RefreshTokenHash string
+	ExpiresAt        pgtype.Timestamptz
+}
+
+func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) error {
+	_, err := q.db.Exec(ctx, createSession, arg.UserID, arg.RefreshTokenHash, arg.ExpiresAt)
+	return err
+}
+
 const createToken = `-- name: CreateToken :exec
 INSERT INTO auth_tokens (user_id, purpose, token_hash, expires_at)
 VALUES ($1, $2, $3, $4)
@@ -81,6 +97,34 @@ func (q *Queries) DeleteUnusedTokens(ctx context.Context, arg DeleteUnusedTokens
 	return err
 }
 
+const findCredentialsByEmail = `-- name: FindCredentialsByEmail :one
+SELECT u.id, u.email, u.password_hash, u.email_verified_at, p.full_name
+FROM users u
+JOIN profiles p ON p.user_id = u.id
+WHERE u.email = $1
+`
+
+type FindCredentialsByEmailRow struct {
+	ID              pgtype.UUID
+	Email           string
+	PasswordHash    string
+	EmailVerifiedAt pgtype.Timestamptz
+	FullName        string
+}
+
+func (q *Queries) FindCredentialsByEmail(ctx context.Context, email string) (FindCredentialsByEmailRow, error) {
+	row := q.db.QueryRow(ctx, findCredentialsByEmail, email)
+	var i FindCredentialsByEmailRow
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.PasswordHash,
+		&i.EmailVerifiedAt,
+		&i.FullName,
+	)
+	return i, err
+}
+
 const findTokenForUpdate = `-- name: FindTokenForUpdate :one
 SELECT id, user_id, expires_at, used_at
 FROM auth_tokens
@@ -129,6 +173,32 @@ type FindUserByEmailRow struct {
 func (q *Queries) FindUserByEmail(ctx context.Context, email string) (FindUserByEmailRow, error) {
 	row := q.db.QueryRow(ctx, findUserByEmail, email)
 	var i FindUserByEmailRow
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.EmailVerifiedAt,
+		&i.FullName,
+	)
+	return i, err
+}
+
+const findUserByID = `-- name: FindUserByID :one
+SELECT u.id, u.email, u.email_verified_at, p.full_name
+FROM users u
+JOIN profiles p ON p.user_id = u.id
+WHERE u.id = $1
+`
+
+type FindUserByIDRow struct {
+	ID              pgtype.UUID
+	Email           string
+	EmailVerifiedAt pgtype.Timestamptz
+	FullName        string
+}
+
+func (q *Queries) FindUserByID(ctx context.Context, id pgtype.UUID) (FindUserByIDRow, error) {
+	row := q.db.QueryRow(ctx, findUserByID, id)
+	var i FindUserByIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.Email,
