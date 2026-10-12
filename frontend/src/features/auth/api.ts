@@ -1,6 +1,8 @@
 import { api, type components } from "@/lib/api/client";
 
 export type RegisterRequest = components["schemas"]["RegisterRequest"];
+export type LoginRequest = components["schemas"]["LoginRequest"];
+export type CurrentUser = components["schemas"]["CurrentUser"];
 
 // ApiError is the error shape every API error uses (SRS 5.3).
 export type ApiError = components["schemas"]["Error"];
@@ -48,5 +50,28 @@ export async function verifyEmail(token: string): Promise<Result<undefined>> {
 // well-formed address (FR-1.5).
 export async function resendVerification(email: string): Promise<Result<undefined>> {
   const res = await call(() => api.POST("/auth/resend-verification", { body: { email } }));
+  return res.ok ? { ok: true, data: undefined } : res;
+}
+
+// withUser turns a successful reply that must carry the user into a Result.
+function withUser(res: Result<CurrentUser | undefined>): Result<CurrentUser> {
+  if (!res.ok) return res;
+  return res.data ? { ok: true, data: res.data } : { ok: false, ...unexpectedError };
+}
+
+// login signs a user in; the server sets the session cookies (FR-2.1). An unverified
+// address is refused with email_not_verified (FR-1.4).
+export async function login(body: LoginRequest): Promise<Result<CurrentUser>> {
+  return withUser(await call(() => api.POST("/auth/login", { body })));
+}
+
+// getCurrentUser returns the signed-in user, or an error when there is no session.
+export async function getCurrentUser(): Promise<Result<CurrentUser>> {
+  return withUser(await call(() => api.GET("/auth/me")));
+}
+
+// logout ends the session on this device (FR-2.2).
+export async function logout(): Promise<Result<undefined>> {
+  const res = await call(() => api.POST("/auth/logout"));
   return res.ok ? { ok: true, data: undefined } : res;
 }

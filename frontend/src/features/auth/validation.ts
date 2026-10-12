@@ -19,6 +19,8 @@ export const messages = {
   passwordTooShort: `The password must be at least ${MIN_PASSWORD_LENGTH} characters long.`,
   passwordTooLong: `The password must be at most ${MAX_PASSWORD_LENGTH} characters long.`,
   passwordMismatch: "Passwords do not match.",
+  emailRequired: "Enter your email address.",
+  passwordRequired: "Enter your password.",
 };
 
 // length counts characters (code points), as the server does, not UTF-16 units.
@@ -47,6 +49,23 @@ export function validateRegistration(values: RegisterValues): FieldErrors {
   else if (n > MAX_PASSWORD_LENGTH) errors.password = messages.passwordTooLong;
 
   if (values.confirmPassword !== values.password) errors.confirmPassword = messages.passwordMismatch;
+  return errors;
+}
+
+export type LoginField = "email" | "password";
+export type LoginValues = Record<LoginField, string>;
+export type LoginErrors = Partial<Record<LoginField, string>>;
+
+// validateLogin checks only that both fields are filled in and the address looks like
+// one. Password length is not checked: a wrong password is the server's answer to give.
+export function validateLogin(values: LoginValues): LoginErrors {
+  const errors: LoginErrors = {};
+  if (values.email.trim() === "") errors.email = messages.emailRequired;
+  else {
+    const emailError = validateEmail(values.email);
+    if (emailError) errors.email = emailError;
+  }
+  if (values.password === "") errors.password = messages.passwordRequired;
   return errors;
 }
 
