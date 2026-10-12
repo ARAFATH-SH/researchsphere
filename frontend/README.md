@@ -16,6 +16,7 @@ Run from the repository root (see `make help`), or the npm script from `frontend
 | Make | npm | What it does |
 | --- | --- | --- |
 | `make web` | `npm run dev` | Dev server on http://localhost:3000 |
+| `make web-clean` | | Delete the `.next` build cache (stop the dev server first) |
 | `make test-web` | `npm test` | Jest tests |
 | `make lint-web` | `npm run lint`, `npm run typecheck` | ESLint and the TypeScript type check |
 | `make generate` | `npm run generate` | Regenerate `src/lib/api/schema.gen.ts` from `docs/openapi.yaml` |

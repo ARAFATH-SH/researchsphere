@@ -37,6 +37,7 @@ Run these from the repository root. `make help` prints the current list.
 | `make migrate-new name=add_users` | Create a new migration pair |
 | `make api` | Run the API server (needs `make up`; settings from `.env`) |
 | `make web` | Run the web client dev server on port 3000; it forwards `/api/v1` to `API_URL` |
+| `make web-clean` | Delete the web client build cache (`frontend/.next`). Stop `make web` first; run it after switching branches if styles look broken |
 | `make generate` | Regenerate Go code in `backend/internal/api` and TypeScript types in `frontend/src/lib/api` from `docs/openapi.yaml`, and the sqlc query code in `backend/internal/*/adapter/postgres/sqlcgen` |
 | `make check-generated` | Regenerate and fail if the generated code differs from what is committed |
 | `make test` | Run all tests: `test-db`, `test-go`, `test-integration` and `test-web` (needs `make up` and `make migrate`) |

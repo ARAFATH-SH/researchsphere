@@ -13,7 +13,7 @@ DATABASE_URL  ?= postgres://researchsphere:devpassword@localhost:5433/researchsp
 MIGRATIONS_DIR := backend/db/migrations
 
 .DEFAULT_GOAL := help
-.PHONY: help up down logs ps psql check migrate migrate-down migrate-new api web generate check-generated test test-db test-go test-integration test-web lint lint-go lint-web
+.PHONY: help up down logs ps psql check migrate migrate-down migrate-new api web web-clean generate check-generated test test-db test-go test-integration test-web lint lint-go lint-web
 
 help: ## List the available commands
 	@grep -hE '^[a-zA-Z_-]+:.*## ' $(firstword $(MAKEFILE_LIST)) | awk 'BEGIN {FS = ":.*## "} {printf "  make %-16s %s\n", $$1, $$2}'
@@ -53,6 +53,9 @@ api: ## Run the API server (needs make up; settings from .env)
 
 web: ## Run the web client dev server on port 3000 (needs npm ci in frontend/)
 	cd frontend && npm run dev
+
+web-clean: ## Delete the web client build cache (frontend/.next); stop make web first
+	rm -rf frontend/.next
 
 generate: ## Regenerate Go code (oapi-codegen, sqlc) and TypeScript types
 	cd backend && go generate ./...
