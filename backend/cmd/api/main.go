@@ -18,6 +18,7 @@ import (
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/auth/adapter/argon2"
 	authhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/adapter/http"
 	authpg "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/adapter/postgres"
+	authredis "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/adapter/redis"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/auth/adapter/smtp"
 	authusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/usecase"
 	healthpg "github.com/ARAFATH-SH/researchsphere/backend/internal/health/adapter/postgres"
@@ -69,12 +70,16 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 	}
 	defer func() { _ = rdb.Close() }()
 
+	attempts := authredis.New(rdb)
+	defer func() { _ = attempts.Close() }()
+
 	tokens := accesstoken.New(cfg.JWTSecret, accessTTL)
 	auth := authusecase.New(
 		authpg.NewStore(pool),
 		argon2.New(argon2.DefaultParams),
 		smtp.New(cfg.SMTPHost, cfg.SMTPPort, cfg.MailFrom),
 		tokens,
+		attempts,
 		authusecase.Config{AppBaseURL: cfg.AppBaseURL},
 		time.Now,
 		logger,

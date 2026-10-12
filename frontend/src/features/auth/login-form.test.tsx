@@ -85,6 +85,19 @@ describe("LoginForm", () => {
     expect(mockReplace).not.toHaveBeenCalled();
   });
 
+  it("says when to try again while the account is locked (429, FR-2.7)", async () => {
+    const message = "This account is locked after too many failed login attempts. Try again in 15 minutes.";
+    mockLogin.mockResolvedValue({ ok: false, code: "account_locked", message });
+    render(<LoginForm />);
+    fill("ada@example.org", "right password");
+    submit();
+    expect((await screen.findByRole("alert")).textContent).toBe(message);
+    expect(screen.queryByText(INVALID_CREDENTIALS_MESSAGE)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Resend verification" })).toBeNull();
+    expect(mockSetSignedIn).not.toHaveBeenCalled();
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+
   it("shows other errors above the form", async () => {
     mockLogin.mockResolvedValue({ ok: false, code: "network_error", message: "Could not reach the server." });
     render(<LoginForm />);

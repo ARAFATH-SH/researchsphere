@@ -480,6 +480,22 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            /**
+             * @description The account is locked after 5 failed logins within 15 minutes (`account_locked`,
+             *     FR-2.7). Every login for it is refused for 15 minutes from the 5th failure, even
+             *     with the right password. Failures for an unknown email address count and lock
+             *     the same way, so the answer does not reveal whether an account exists.
+             */
+            429: {
+                headers: {
+                    /** @description Seconds until the lock ends. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             500: components["responses"]["InternalError"];
         };
     };

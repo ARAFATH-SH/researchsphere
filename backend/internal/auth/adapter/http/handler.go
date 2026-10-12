@@ -1,6 +1,6 @@
 // Package http serves the auth operations in docs/openapi.yaml: registration, email
 // verification and new verification links (FR-1), login and the current user (FR-2.1),
-// and refreshing and ending sessions (FR-2.2).
+// refreshing and ending sessions (FR-2.2), and the login lockout (FR-2.7).
 // It turns the usecase's errors into the error codes the web client shows next to each
 // field, and puts the login tokens in cookies.
 package http
@@ -36,6 +36,7 @@ const (
 	CodeInvalidCredentials = "invalid_credentials" //nolint:gosec // an error code, not a credential
 	CodeEmailNotVerified   = "email_not_verified"
 	CodeSessionInvalid     = "session_invalid"
+	CodeAccountLocked      = "account_locked"
 )
 
 // refreshCookiePath limits the refresh cookie to the auth routes, which will refresh and
@@ -144,7 +145,8 @@ func (h *Handler) ResendVerification(ctx context.Context, req gen.ResendVerifica
 
 // LoginUser checks the email address and password and sets the session cookies (FR-2.1).
 // A wrong password and an unknown address get the same answer; an unverified address is
-// refused only after the right password (FR-1.4).
+// refused only after the right password (FR-1.4). A locked account is refused with 429
+// (FR-2.7).
 func (h *Handler) LoginUser(ctx context.Context, req gen.LoginUserRequestObject) (gen.LoginUserResponseObject, error) {
 	res, err := h.svc.Login(ctx, usecase.LoginInput{Email: req.Body.Email, Password: req.Body.Password})
 	switch {
@@ -155,6 +157,12 @@ func (h *Handler) LoginUser(ctx context.Context, req gen.LoginUserRequestObject)
 			Code:    CodeEmailNotVerified,
 			Message: "Verify your email address before you log in. Ask for a new link if you cannot find it.",
 		}, nil
+	case errors.Is(err, domain.ErrAccountLocked):
+		var locked *domain.LockedError
+		if !errors.As(err, &locked) {
+			return nil, err
+		}
+		return accountLocked(locked.RetryAfter), nil
 	case err != nil:
 		return nil, err
 	}
@@ -169,6 +177,24 @@ func (h *Handler) LoginUser(ctx context.Context, req gen.LoginUserRequestObject)
 			h.cookie(httpx.RefreshCookie, res.RefreshToken, refreshCookiePath, res.RefreshExpiresAt.Sub(res.IssuedAt)),
 		},
 	}, nil
+}
+
+// accountLocked answers a login while the account is locked (FR-2.7). Retry-After and
+// the message round the time left up to whole seconds and whole minutes.
+func accountLocked(left time.Duration) gen.LoginUser429JSONResponse {
+	seconds := int((left + time.Second - 1) / time.Second)
+	minutes := (seconds + 59) / 60
+	unit := "minutes"
+	if minutes == 1 {
+		unit = "minute"
+	}
+	return gen.LoginUser429JSONResponse{
+		Headers: gen.LoginUser429ResponseHeaders{RetryAfter: &seconds},
+		Body: gen.Error{
+			Code:    CodeAccountLocked,
+			Message: fmt.Sprintf("This account is locked after too many failed login attempts. Try again in %d %s.", minutes, unit),
+		},
+	}
 }
 
 // RefreshSession issues new tokens for the session in the refresh cookie and sets both

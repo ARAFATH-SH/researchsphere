@@ -582,6 +582,30 @@ func (response LoginUser403JSONResponse) VisitLoginUserResponse(w http.ResponseW
 	return err
 }
 
+type LoginUser429ResponseHeaders struct {
+	RetryAfter *int
+}
+
+type LoginUser429JSONResponse struct {
+	Body    Error
+	Headers LoginUser429ResponseHeaders
+}
+
+func (response LoginUser429JSONResponse) VisitLoginUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type LoginUser500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response LoginUser500JSONResponse) VisitLoginUserResponse(w http.ResponseWriter) error {

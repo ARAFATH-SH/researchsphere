@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -313,6 +314,41 @@ func TestLoginUserRefused(t *testing.T) {
 			}
 			if got := decode(t, rec); tt.wantCode != "" && (got["code"] != tt.wantCode || got["message"] == "") {
 				t.Errorf("body = %v, want code %q and a message", got, tt.wantCode)
+			}
+			if c := rec.Header().Values("Set-Cookie"); len(c) != 0 {
+				t.Errorf("a refused login set cookies: %v", c)
+			}
+		})
+	}
+}
+
+func TestLoginUserLocked(t *testing.T) {
+	tests := []struct {
+		name           string
+		retryAfter     time.Duration
+		wantRetryAfter string
+		wantMinutes    string
+	}{
+		{"just locked", 15 * time.Minute, "900", "Try again in 15 minutes."},
+		{"part of a minute rounds up", 14*time.Minute + 1*time.Second, "841", "Try again in 15 minutes."},
+		{"under a minute left", 1500 * time.Millisecond, "2", "Try again in 1 minute."},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := fmt.Errorf("login: %w", &domain.LockedError{Until: time.Now().Add(tt.retryAfter), RetryAfter: tt.retryAfter})
+			rec := login(t, &fakeService{err: err}, CookieConfig{})
+			if rec.Code != http.StatusTooManyRequests {
+				t.Fatalf("status = %d, want 429", rec.Code)
+			}
+			if got := rec.Header().Get("Retry-After"); got != tt.wantRetryAfter {
+				t.Errorf("Retry-After = %q, want %q", got, tt.wantRetryAfter)
+			}
+			got := decode(t, rec)
+			if got["code"] != CodeAccountLocked {
+				t.Errorf("code = %v, want %q", got["code"], CodeAccountLocked)
+			}
+			if msg := got["message"]; !strings.Contains(msg, tt.wantMinutes) {
+				t.Errorf("message = %q, want it to say %q", msg, tt.wantMinutes)
 			}
 			if c := rec.Header().Values("Set-Cookie"); len(c) != 0 {
 				t.Errorf("a refused login set cookies: %v", c)

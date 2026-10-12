@@ -17,7 +17,8 @@ import { type LoginErrors, type LoginValues, validateLogin } from "./validation"
 export const INVALID_CREDENTIALS_MESSAGE = "The email address or password is incorrect.";
 
 // LoginForm signs a user in (FR-2.1) and goes to /home. An address that is not verified
-// yet is refused, with a button to send a new verification link (FR-1.4, FR-1.5).
+// yet is refused, with a button to send a new verification link (FR-1.4, FR-1.5). A
+// locked account is refused with the time to wait (FR-2.7).
 export function LoginForm() {
   const router = useRouter();
   const [values, setValues] = useState<LoginValues>({ email: "", password: "" });
@@ -45,6 +46,8 @@ export function LoginForm() {
     setSubmitting(false);
     if (res.code === "invalid_credentials") setFormError(INVALID_CREDENTIALS_MESSAGE);
     else if (res.code === "email_not_verified") setUnverified({ message: res.message, email });
+    // The server's message says when the lock ends (FR-2.7).
+    else if (res.code === "account_locked") setFormError(res.message);
     else setFormError(res.message);
   }
 

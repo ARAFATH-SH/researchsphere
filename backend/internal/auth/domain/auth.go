@@ -93,9 +93,22 @@ var (
 	// so a login attempt cannot tell which accounts exist (FR-2.1).
 	ErrInvalidCredentials = errors.New("email address or password is wrong")
 	ErrEmailNotVerified   = errors.New("email address is not verified")
+	// ErrAccountLocked is wrapped by LockedError, which says when the lock ends (FR-2.7).
+	ErrAccountLocked = errors.New("account is locked after too many failed logins")
 	// ErrSessionInvalid covers every refused refresh: a missing, unknown, expired, revoked
 	// or reused refresh token. The client is not told which (FR-2.2).
 	ErrSessionInvalid = errors.New("session is not valid")
 	// ErrNotFound is returned by a Store or Tx when the row does not exist.
 	ErrNotFound = errors.New("not found")
 )
+
+// LockedError refuses a login while the account is locked (FR-2.7). It matches
+// ErrAccountLocked with errors.Is.
+type LockedError struct {
+	Until      time.Time     // when the lock ends
+	RetryAfter time.Duration // how long until then, measured when the login was refused
+}
+
+func (e *LockedError) Error() string { return ErrAccountLocked.Error() }
+
+func (e *LockedError) Unwrap() error { return ErrAccountLocked }

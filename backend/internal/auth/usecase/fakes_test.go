@@ -318,6 +318,70 @@ func (m *fakeMailer) SendVerification(_ context.Context, msg domain.Verification
 	return nil
 }
 
+// fakeAttempts keeps failed-login windows and locks in memory, timed by the test clock,
+// as the Redis adapter keeps them with key expiry.
+type fakeAttempts struct {
+	clock    *clock
+	failures map[string]fakeWindow
+	locks    map[string]time.Time
+	err      error // returned by every method when set
+	calls    int   // method calls made
+}
+
+// fakeWindow is the failures counted in a window that ends at end.
+type fakeWindow struct {
+	count int
+	end   time.Time
+}
+
+func newFakeAttempts(c *clock) *fakeAttempts {
+	return &fakeAttempts{clock: c, failures: map[string]fakeWindow{}, locks: map[string]time.Time{}}
+}
+
+func (a *fakeAttempts) RecordFailure(_ context.Context, key string, window time.Duration) (int, error) {
+	a.calls++
+	if a.err != nil {
+		return 0, a.err
+	}
+	w, ok := a.failures[key]
+	if !ok || !a.clock.t.Before(w.end) {
+		w = fakeWindow{end: a.clock.t.Add(window)}
+	}
+	w.count++
+	a.failures[key] = w
+	return w.count, nil
+}
+
+func (a *fakeAttempts) Reset(_ context.Context, key string) error {
+	a.calls++
+	if a.err != nil {
+		return a.err
+	}
+	delete(a.failures, key)
+	return nil
+}
+
+func (a *fakeAttempts) Lock(_ context.Context, key string, until time.Time) error {
+	a.calls++
+	if a.err != nil {
+		return a.err
+	}
+	a.locks[key] = until
+	return nil
+}
+
+func (a *fakeAttempts) LockedUntil(_ context.Context, key string) (time.Time, error) {
+	a.calls++
+	if a.err != nil {
+		return time.Time{}, a.err
+	}
+	until, ok := a.locks[key]
+	if !ok || !a.clock.t.Before(until) {
+		return time.Time{}, nil // the key has expired
+	}
+	return until, nil
+}
+
 // clock is a settable time source.
 type clock struct{ t time.Time }
 
@@ -327,18 +391,20 @@ var start = time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
 
 // env holds a Service and its fakes.
 type env struct {
-	svc    *Service
-	store  *fakeStore
-	hasher *fakeHasher
-	mailer *fakeMailer
-	clock  *clock
-	logs   *bytes.Buffer
+	svc      *Service
+	store    *fakeStore
+	attempts *fakeAttempts
+	hasher   *fakeHasher
+	mailer   *fakeMailer
+	clock    *clock
+	logs     *bytes.Buffer
 }
 
 func newEnv() *env {
 	e := &env{store: newFakeStore(), hasher: &fakeHasher{}, mailer: &fakeMailer{}, clock: &clock{t: start}, logs: &bytes.Buffer{}}
+	e.attempts = newFakeAttempts(e.clock)
 	logger := slog.New(slog.NewTextHandler(e.logs, nil))
-	e.svc = New(e.store, e.hasher, e.mailer, fakeSigner{}, Config{AppBaseURL: "https://rs.example/"}, e.clock.now, logger)
+	e.svc = New(e.store, e.hasher, e.mailer, fakeSigner{}, e.attempts, Config{AppBaseURL: "https://rs.example/"}, e.clock.now, logger)
 	return e
 }
 

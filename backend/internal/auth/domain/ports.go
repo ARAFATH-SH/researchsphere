@@ -65,6 +65,22 @@ type AccessTokenSigner interface {
 	Sign(userID string, now time.Time) (string, time.Time, error)
 }
 
+// LoginAttempts counts failed logins per account and holds account locks (FR-2.7). key
+// names the account; the usecase passes the normalized email address, which may belong
+// to no account.
+type LoginAttempts interface {
+	// RecordFailure adds a failed login and returns how many the current window holds.
+	// A window starts at the first failure and lasts window; the first failure after it
+	// starts a new one.
+	RecordFailure(ctx context.Context, key string, window time.Duration) (int, error)
+	// Reset forgets the account's failed logins.
+	Reset(ctx context.Context, key string) error
+	// Lock refuses logins for the account until until.
+	Lock(ctx context.Context, key string, until time.Time) error
+	// LockedUntil returns when the account's lock ends, or the zero time when it has none.
+	LockedUntil(ctx context.Context, key string) (time.Time, error)
+}
+
 // Mailer sends email.
 type Mailer interface {
 	SendVerification(ctx context.Context, msg VerificationEmail) error
