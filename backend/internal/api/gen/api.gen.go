@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/oapi-codegen/runtime"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
@@ -138,6 +139,9 @@ type VerifyEmailRequest struct {
 	Token string `json:"token"`
 }
 
+// RefreshCookie defines model for RefreshCookie.
+type RefreshCookie = string
+
 // InternalError The shape of every error response (SRS 5.3).
 type InternalError = Error
 
@@ -146,6 +150,18 @@ type Unauthorized = Error
 
 // cookieAuthContextKey is the context key for cookieAuth security scheme
 type cookieAuthContextKey string
+
+// LogoutUserParams defines parameters for LogoutUser.
+type LogoutUserParams struct {
+	// RsRefresh The refresh token set by `POST /auth/login` or `POST /auth/refresh`.
+	RsRefresh *RefreshCookie `form:"rs_refresh,omitempty" json:"rs_refresh,omitempty"`
+}
+
+// RefreshSessionParams defines parameters for RefreshSession.
+type RefreshSessionParams struct {
+	// RsRefresh The refresh token set by `POST /auth/login` or `POST /auth/refresh`.
+	RsRefresh *RefreshCookie `form:"rs_refresh,omitempty" json:"rs_refresh,omitempty"`
+}
 
 // LoginUserJSONRequestBody defines body for LoginUser for application/json ContentType.
 type LoginUserJSONRequestBody = LoginRequest
@@ -164,9 +180,15 @@ type ServerInterface interface {
 	// LoginUser Log in with email address and password (FR-2.1, FR-1.4)
 	// (POST /auth/login)
 	LoginUser(w http.ResponseWriter, r *http.Request)
+	// LogoutUser End the session on this device (FR-2.2)
+	// (POST /auth/logout)
+	LogoutUser(w http.ResponseWriter, r *http.Request, params LogoutUserParams)
 	// GetCurrentUser Return the logged-in user
 	// (GET /auth/me)
 	GetCurrentUser(w http.ResponseWriter, r *http.Request)
+	// RefreshSession Issue new tokens for the session in the refresh cookie (FR-2.1, FR-2.2)
+	// (POST /auth/refresh)
+	RefreshSession(w http.ResponseWriter, r *http.Request, params RefreshSessionParams)
 	// RegisterUser Register a new account and send a verification link (FR-1.1 to FR-1.3)
 	// (POST /auth/register)
 	RegisterUser(w http.ResponseWriter, r *http.Request)
@@ -204,6 +226,41 @@ func (siw *ServerInterfaceWrapper) LoginUser(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
+// LogoutUser operation middleware
+func (siw *ServerInterfaceWrapper) LogoutUser(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params LogoutUserParams
+
+	{
+		var cookie *http.Cookie
+
+		if cookie, err = r.Cookie("rs_refresh"); err == nil {
+			var value RefreshCookie
+			err = runtime.BindStyledParameterWithOptions("simple", "rs_refresh", cookie.Value, &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationCookie, Explode: true, Required: false, Type: "string", Format: ""})
+			if err != nil {
+				siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "rs_refresh", Err: err})
+				return
+			}
+			params.RsRefresh = &value
+
+		}
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.LogoutUser(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetCurrentUser operation middleware
 func (siw *ServerInterfaceWrapper) GetCurrentUser(w http.ResponseWriter, r *http.Request) {
 
@@ -215,6 +272,41 @@ func (siw *ServerInterfaceWrapper) GetCurrentUser(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetCurrentUser(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RefreshSession operation middleware
+func (siw *ServerInterfaceWrapper) RefreshSession(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RefreshSessionParams
+
+	{
+		var cookie *http.Cookie
+
+		if cookie, err = r.Cookie("rs_refresh"); err == nil {
+			var value RefreshCookie
+			err = runtime.BindStyledParameterWithOptions("simple", "rs_refresh", cookie.Value, &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationCookie, Explode: true, Required: false, Type: "string", Format: ""})
+			if err != nil {
+				siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "rs_refresh", Err: err})
+				return
+			}
+			params.RsRefresh = &value
+
+		}
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RefreshSession(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -405,6 +497,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/auth/verify-email", wrapper.VerifyEmail)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/auth/resend-verification", wrapper.ResendVerification)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/auth/login", wrapper.LoginUser)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/auth/refresh", wrapper.RefreshSession)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/auth/logout", wrapper.LogoutUser)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/auth/me", wrapper.GetCurrentUser)
 
 	return m
@@ -502,6 +596,44 @@ func (response LoginUser500JSONResponse) VisitLoginUserResponse(w http.ResponseW
 	return err
 }
 
+type LogoutUserRequestObject struct {
+	Params LogoutUserParams
+}
+
+type LogoutUserResponseObject interface {
+	VisitLogoutUserResponse(w http.ResponseWriter) error
+}
+
+type LogoutUser204ResponseHeaders struct {
+	SetCookie *string
+}
+
+type LogoutUser204Response struct {
+	Headers LogoutUser204ResponseHeaders
+}
+
+func (response LogoutUser204Response) VisitLogoutUserResponse(w http.ResponseWriter) error {
+	if response.Headers.SetCookie != nil {
+		w.Header().Set("Set-Cookie", fmt.Sprint(*response.Headers.SetCookie))
+	}
+	w.WriteHeader(204)
+	return nil
+}
+
+type LogoutUser500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response LogoutUser500JSONResponse) VisitLogoutUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetCurrentUserRequestObject struct {
 }
 
@@ -540,6 +672,68 @@ func (response GetCurrentUser401JSONResponse) VisitGetCurrentUserResponse(w http
 type GetCurrentUser500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response GetCurrentUser500JSONResponse) VisitGetCurrentUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RefreshSessionRequestObject struct {
+	Params RefreshSessionParams
+}
+
+type RefreshSessionResponseObject interface {
+	VisitRefreshSessionResponse(w http.ResponseWriter) error
+}
+
+type RefreshSession204ResponseHeaders struct {
+	SetCookie *string
+}
+
+type RefreshSession204Response struct {
+	Headers RefreshSession204ResponseHeaders
+}
+
+func (response RefreshSession204Response) VisitRefreshSessionResponse(w http.ResponseWriter) error {
+	if response.Headers.SetCookie != nil {
+		w.Header().Set("Set-Cookie", fmt.Sprint(*response.Headers.SetCookie))
+	}
+	w.WriteHeader(204)
+	return nil
+}
+
+type RefreshSession401ResponseHeaders struct {
+	SetCookie *string
+}
+
+type RefreshSession401JSONResponse struct {
+	Body    Error
+	Headers RefreshSession401ResponseHeaders
+}
+
+func (response RefreshSession401JSONResponse) VisitRefreshSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.SetCookie != nil {
+		w.Header().Set("Set-Cookie", fmt.Sprint(*response.Headers.SetCookie))
+	}
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RefreshSession500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RefreshSession500JSONResponse) VisitRefreshSessionResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -757,9 +951,15 @@ type StrictServerInterface interface {
 	// LoginUser Log in with email address and password (FR-2.1, FR-1.4)
 	// (POST /auth/login)
 	LoginUser(ctx context.Context, request LoginUserRequestObject) (LoginUserResponseObject, error)
+	// LogoutUser End the session on this device (FR-2.2)
+	// (POST /auth/logout)
+	LogoutUser(ctx context.Context, request LogoutUserRequestObject) (LogoutUserResponseObject, error)
 	// GetCurrentUser Return the logged-in user
 	// (GET /auth/me)
 	GetCurrentUser(ctx context.Context, request GetCurrentUserRequestObject) (GetCurrentUserResponseObject, error)
+	// RefreshSession Issue new tokens for the session in the refresh cookie (FR-2.1, FR-2.2)
+	// (POST /auth/refresh)
+	RefreshSession(ctx context.Context, request RefreshSessionRequestObject) (RefreshSessionResponseObject, error)
 	// RegisterUser Register a new account and send a verification link (FR-1.1 to FR-1.3)
 	// (POST /auth/register)
 	RegisterUser(ctx context.Context, request RegisterUserRequestObject) (RegisterUserResponseObject, error)
@@ -844,6 +1044,32 @@ func (sh *strictHandler) LoginUser(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// LogoutUser operation middleware
+func (sh *strictHandler) LogoutUser(w http.ResponseWriter, r *http.Request, params LogoutUserParams) {
+	var request LogoutUserRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.LogoutUser(ctx, request.(LogoutUserRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "LogoutUser")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(LogoutUserResponseObject); ok {
+		if err := validResponse.VisitLogoutUserResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetCurrentUser operation middleware
 func (sh *strictHandler) GetCurrentUser(w http.ResponseWriter, r *http.Request) {
 	var request GetCurrentUserRequestObject
@@ -861,6 +1087,32 @@ func (sh *strictHandler) GetCurrentUser(w http.ResponseWriter, r *http.Request) 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetCurrentUserResponseObject); ok {
 		if err := validResponse.VisitGetCurrentUserResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RefreshSession operation middleware
+func (sh *strictHandler) RefreshSession(w http.ResponseWriter, r *http.Request, params RefreshSessionParams) {
+	var request RefreshSessionRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RefreshSession(ctx, request.(RefreshSessionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RefreshSession")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RefreshSessionResponseObject); ok {
+		if err := validResponse.VisitRefreshSessionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

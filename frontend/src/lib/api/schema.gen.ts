@@ -101,10 +101,57 @@ export interface paths {
          * @description Public. On success the response sets two httpOnly, SameSite=Lax cookies (Secure
          *     when the site runs on HTTPS): `rs_access`, a signed access token valid for 15
          *     minutes (path `/`), and `rs_refresh`, a refresh token valid for 30 days (path
-         *     `/api/v1/auth`). Each login starts a new session. A wrong password and an unknown
-         *     email address get the same answer.
+         *     `/api/v1/auth`). Each login starts a new session, which lasts 30 days; refresh it
+         *     with `POST /auth/refresh` and end it with `POST /auth/logout`. A wrong password and
+         *     an unknown email address get the same answer.
          */
         post: operations["loginUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Issue new tokens for the session in the refresh cookie (FR-2.1, FR-2.2)
+         * @description Public: the access token may already have expired. Reads the `rs_refresh` cookie,
+         *     replaces the session's refresh token with a new one and issues a new access token.
+         *     The old refresh token stops working. The session keeps the expiry it got at login.
+         *     Sending a refresh token that was already replaced ends the session, since the token
+         *     may have been stolen. A browser must not send two refreshes at the same time.
+         */
+        post: operations["refreshSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * End the session on this device (FR-2.2)
+         * @description Public. Ends the session in the `rs_refresh` cookie, so its refresh token no longer
+         *     works, and clears both cookies. Other devices stay logged in. Answers 204 even when
+         *     there is no cookie or no such session.
+         */
+        post: operations["logoutUser"];
         delete?: never;
         options?: never;
         head?: never;
@@ -223,7 +270,10 @@ export interface components {
             };
         };
     };
-    parameters: never;
+    parameters: {
+        /** @description The refresh token set by `POST /auth/login` or `POST /auth/refresh`. */
+        RefreshCookie: string;
+    };
     requestBodies: never;
     headers: never;
     pathItems: never;
@@ -429,6 +479,68 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Error"];
                 };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    refreshSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                /** @description The refresh token set by `POST /auth/login` or `POST /auth/refresh`. */
+                rs_refresh?: components["parameters"]["RefreshCookie"];
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Refreshed. `rs_access` and `rs_refresh` are set again. */
+            204: {
+                headers: {
+                    /** @description `rs_access` and `rs_refresh`, in two headers. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /**
+             * @description The cookie is missing, or its session is unknown, expired, ended or was reused
+             *     (`session_invalid`). The answer does not say which, and clears both cookies.
+             */
+            401: {
+                headers: {
+                    /** @description `rs_access` and `rs_refresh`, cleared, in two headers. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    logoutUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                /** @description The refresh token set by `POST /auth/login` or `POST /auth/refresh`. */
+                rs_refresh?: components["parameters"]["RefreshCookie"];
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Logged out. Both cookies are cleared. */
+            204: {
+                headers: {
+                    /** @description `rs_access` and `rs_refresh`, cleared, in two headers. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             500: components["responses"]["InternalError"];
         };
