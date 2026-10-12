@@ -125,6 +125,59 @@ func (q *Queries) FindCredentialsByEmail(ctx context.Context, email string) (Fin
 	return i, err
 }
 
+const findSessionByRetiredTokenForUpdate = `-- name: FindSessionByRetiredTokenForUpdate :one
+SELECT s.id, s.user_id, s.expires_at, s.revoked_at
+FROM sessions s
+JOIN session_retired_tokens r ON r.session_id = s.id
+WHERE r.token_hash = $1
+FOR UPDATE OF s
+`
+
+type FindSessionByRetiredTokenForUpdateRow struct {
+	ID        pgtype.UUID
+	UserID    pgtype.UUID
+	ExpiresAt pgtype.Timestamptz
+	RevokedAt pgtype.Timestamptz
+}
+
+func (q *Queries) FindSessionByRetiredTokenForUpdate(ctx context.Context, tokenHash string) (FindSessionByRetiredTokenForUpdateRow, error) {
+	row := q.db.QueryRow(ctx, findSessionByRetiredTokenForUpdate, tokenHash)
+	var i FindSessionByRetiredTokenForUpdateRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.ExpiresAt,
+		&i.RevokedAt,
+	)
+	return i, err
+}
+
+const findSessionForUpdate = `-- name: FindSessionForUpdate :one
+SELECT id, user_id, expires_at, revoked_at
+FROM sessions
+WHERE refresh_token_hash = $1
+FOR UPDATE
+`
+
+type FindSessionForUpdateRow struct {
+	ID        pgtype.UUID
+	UserID    pgtype.UUID
+	ExpiresAt pgtype.Timestamptz
+	RevokedAt pgtype.Timestamptz
+}
+
+func (q *Queries) FindSessionForUpdate(ctx context.Context, refreshTokenHash string) (FindSessionForUpdateRow, error) {
+	row := q.db.QueryRow(ctx, findSessionForUpdate, refreshTokenHash)
+	var i FindSessionForUpdateRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.ExpiresAt,
+		&i.RevokedAt,
+	)
+	return i, err
+}
+
 const findTokenForUpdate = `-- name: FindTokenForUpdate :one
 SELECT id, user_id, expires_at, used_at
 FROM auth_tokens
@@ -208,6 +261,22 @@ func (q *Queries) FindUserByID(ctx context.Context, id pgtype.UUID) (FindUserByI
 	return i, err
 }
 
+const insertRetiredToken = `-- name: InsertRetiredToken :exec
+INSERT INTO session_retired_tokens (token_hash, session_id, retired_at)
+VALUES ($1, $2, $3)
+`
+
+type InsertRetiredTokenParams struct {
+	TokenHash string
+	SessionID pgtype.UUID
+	RetiredAt pgtype.Timestamptz
+}
+
+func (q *Queries) InsertRetiredToken(ctx context.Context, arg InsertRetiredTokenParams) error {
+	_, err := q.db.Exec(ctx, insertRetiredToken, arg.TokenHash, arg.SessionID, arg.RetiredAt)
+	return err
+}
+
 const markEmailVerified = `-- name: MarkEmailVerified :exec
 UPDATE users SET email_verified_at = coalesce(email_verified_at, $1)
 WHERE id = $2
@@ -235,4 +304,68 @@ type MarkTokenUsedParams struct {
 func (q *Queries) MarkTokenUsed(ctx context.Context, arg MarkTokenUsedParams) error {
 	_, err := q.db.Exec(ctx, markTokenUsed, arg.UsedAt, arg.ID)
 	return err
+}
+
+const revokeSession = `-- name: RevokeSession :exec
+UPDATE sessions SET revoked_at = coalesce(revoked_at, $1)
+WHERE id = $2
+`
+
+type RevokeSessionParams struct {
+	RevokedAt pgtype.Timestamptz
+	ID        pgtype.UUID
+}
+
+func (q *Queries) RevokeSession(ctx context.Context, arg RevokeSessionParams) error {
+	_, err := q.db.Exec(ctx, revokeSession, arg.RevokedAt, arg.ID)
+	return err
+}
+
+const revokeSessionByTokenHash = `-- name: RevokeSessionByTokenHash :one
+UPDATE sessions SET revoked_at = $1
+WHERE refresh_token_hash = $2 AND revoked_at IS NULL
+RETURNING id, user_id, expires_at, revoked_at
+`
+
+type RevokeSessionByTokenHashParams struct {
+	RevokedAt        pgtype.Timestamptz
+	RefreshTokenHash string
+}
+
+type RevokeSessionByTokenHashRow struct {
+	ID        pgtype.UUID
+	UserID    pgtype.UUID
+	ExpiresAt pgtype.Timestamptz
+	RevokedAt pgtype.Timestamptz
+}
+
+func (q *Queries) RevokeSessionByTokenHash(ctx context.Context, arg RevokeSessionByTokenHashParams) (RevokeSessionByTokenHashRow, error) {
+	row := q.db.QueryRow(ctx, revokeSessionByTokenHash, arg.RevokedAt, arg.RefreshTokenHash)
+	var i RevokeSessionByTokenHashRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.ExpiresAt,
+		&i.RevokedAt,
+	)
+	return i, err
+}
+
+const updateSessionTokenHash = `-- name: UpdateSessionTokenHash :execrows
+UPDATE sessions SET refresh_token_hash = $1
+WHERE id = $2 AND refresh_token_hash = $3
+`
+
+type UpdateSessionTokenHashParams struct {
+	NewHash string
+	ID      pgtype.UUID
+	OldHash string
+}
+
+func (q *Queries) UpdateSessionTokenHash(ctx context.Context, arg UpdateSessionTokenHashParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateSessionTokenHash, arg.NewHash, arg.ID, arg.OldHash)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

@@ -49,3 +49,33 @@ WHERE u.id = @id;
 -- name: CreateSession :exec
 INSERT INTO sessions (user_id, refresh_token_hash, expires_at)
 VALUES (@user_id, @refresh_token_hash, @expires_at);
+
+-- name: FindSessionForUpdate :one
+SELECT id, user_id, expires_at, revoked_at
+FROM sessions
+WHERE refresh_token_hash = @refresh_token_hash
+FOR UPDATE;
+
+-- name: FindSessionByRetiredTokenForUpdate :one
+SELECT s.id, s.user_id, s.expires_at, s.revoked_at
+FROM sessions s
+JOIN session_retired_tokens r ON r.session_id = s.id
+WHERE r.token_hash = @token_hash
+FOR UPDATE OF s;
+
+-- name: UpdateSessionTokenHash :execrows
+UPDATE sessions SET refresh_token_hash = @new_hash
+WHERE id = @id AND refresh_token_hash = @old_hash;
+
+-- name: InsertRetiredToken :exec
+INSERT INTO session_retired_tokens (token_hash, session_id, retired_at)
+VALUES (@token_hash, @session_id, @retired_at);
+
+-- name: RevokeSession :exec
+UPDATE sessions SET revoked_at = coalesce(revoked_at, @revoked_at)
+WHERE id = @id;
+
+-- name: RevokeSessionByTokenHash :one
+UPDATE sessions SET revoked_at = @revoked_at
+WHERE refresh_token_hash = @refresh_token_hash AND revoked_at IS NULL
+RETURNING id, user_id, expires_at, revoked_at;
