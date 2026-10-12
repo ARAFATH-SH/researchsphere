@@ -119,6 +119,18 @@ func (s *Store) CreateSession(ctx context.Context, ns domain.NewSession) error {
 	return nil
 }
 
+// RevokeSessionByToken returns domain.ErrNotFound when no live session has the hash.
+func (s *Store) RevokeSessionByToken(ctx context.Context, hash string, at time.Time) (domain.Session, error) {
+	row, err := s.q.RevokeSessionByTokenHash(ctx, sqlcgen.RevokeSessionByTokenHashParams{RefreshTokenHash: hash, RevokedAt: timestamptz(at)})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Session{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.Session{}, fmt.Errorf("revoke session by token: %w", err)
+	}
+	return session(row.ID, row.UserID, row.ExpiresAt, row.RevokedAt), nil
+}
+
 // tx runs the queries inside one transaction.
 type tx struct {
 	q *sqlcgen.Queries
@@ -211,6 +223,64 @@ func (t tx) MarkEmailVerified(ctx context.Context, userID string, at time.Time) 
 		return fmt.Errorf("mark email verified: %w", err)
 	}
 	return nil
+}
+
+func (t tx) FindSessionForUpdate(ctx context.Context, hash string) (domain.Session, error) {
+	row, err := t.q.FindSessionForUpdate(ctx, hash)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Session{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.Session{}, fmt.Errorf("find session: %w", err)
+	}
+	return session(row.ID, row.UserID, row.ExpiresAt, row.RevokedAt), nil
+}
+
+func (t tx) FindSessionByRetiredTokenForUpdate(ctx context.Context, hash string) (domain.Session, error) {
+	row, err := t.q.FindSessionByRetiredTokenForUpdate(ctx, hash)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Session{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.Session{}, fmt.Errorf("find session by retired token: %w", err)
+	}
+	return session(row.ID, row.UserID, row.ExpiresAt, row.RevokedAt), nil
+}
+
+// RotateSession fails when the session no longer has oldHash, so a token is never
+// retired for a session that did not hold it.
+func (t tx) RotateSession(ctx context.Context, sessionID, oldHash, newHash string, at time.Time) error {
+	id, err := parseUUID(sessionID)
+	if err != nil {
+		return err
+	}
+	n, err := t.q.UpdateSessionTokenHash(ctx, sqlcgen.UpdateSessionTokenHashParams{ID: id, OldHash: oldHash, NewHash: newHash})
+	if err != nil {
+		return fmt.Errorf("update session token: %w", err)
+	}
+	if n != 1 {
+		return fmt.Errorf("update session token: %d rows changed, want 1", n)
+	}
+	err = t.q.InsertRetiredToken(ctx, sqlcgen.InsertRetiredTokenParams{TokenHash: oldHash, SessionID: id, RetiredAt: timestamptz(at)})
+	if err != nil {
+		return fmt.Errorf("retire session token: %w", err)
+	}
+	return nil
+}
+
+func (t tx) RevokeSession(ctx context.Context, sessionID string, at time.Time) error {
+	id, err := parseUUID(sessionID)
+	if err != nil {
+		return err
+	}
+	if err := t.q.RevokeSession(ctx, sqlcgen.RevokeSessionParams{ID: id, RevokedAt: timestamptz(at)}); err != nil {
+		return fmt.Errorf("revoke session: %w", err)
+	}
+	return nil
+}
+
+func session(id, userID pgtype.UUID, expiresAt, revokedAt pgtype.Timestamptz) domain.Session {
+	return domain.Session{ID: uuidString(id), UserID: uuidString(userID), ExpiresAt: expiresAt.Time, RevokedAt: timePtr(revokedAt)}
 }
 
 func uuidString(id pgtype.UUID) string { return id.String() }

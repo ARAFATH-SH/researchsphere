@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -26,12 +27,19 @@ type fakeToken struct {
 	purpose domain.TokenPurpose
 }
 
-// fakeStore keeps users and tokens in maps. It compares email addresses in lower case,
+// fakeSession is a stored session with the hash of its current refresh token.
+type fakeSession struct {
+	domain.Session
+	TokenHash string
+}
+
+// fakeStore keeps users, tokens and sessions in memory. It compares email addresses in lower case,
 // as the citext column does, and RunInTx undoes every write when fn fails.
 type fakeStore struct {
 	users    map[string]fakeUser  // by lower-case email
 	tokens   map[string]fakeToken // by token ID
-	sessions []domain.NewSession
+	sessions []fakeSession
+	retired  map[string]string // session ID by retired refresh token hash
 	nextID   int
 
 	failFind error // returned by the Find methods when set
@@ -40,7 +48,7 @@ type fakeStore struct {
 }
 
 func newFakeStore() *fakeStore {
-	return &fakeStore{users: map[string]fakeUser{}, tokens: map[string]fakeToken{}}
+	return &fakeStore{users: map[string]fakeUser{}, tokens: map[string]fakeToken{}, retired: map[string]string{}}
 }
 
 func (s *fakeStore) id() string {
@@ -51,8 +59,10 @@ func (s *fakeStore) id() string {
 func (s *fakeStore) RunInTx(_ context.Context, fn func(domain.Tx) error) error {
 	s.txCount++
 	users, tokens, nextID := maps.Clone(s.users), maps.Clone(s.tokens), s.nextID
+	sessions, retired := slices.Clone(s.sessions), maps.Clone(s.retired)
 	if err := fn(fakeTx{s}); err != nil {
 		s.users, s.tokens, s.nextID = users, tokens, nextID
+		s.sessions, s.retired = sessions, retired
 		return err
 	}
 	return nil
@@ -95,8 +105,29 @@ func (s *fakeStore) CreateSession(_ context.Context, sess domain.NewSession) err
 	if s.failTx != nil {
 		return s.failTx
 	}
-	s.sessions = append(s.sessions, sess)
+	s.sessions = append(s.sessions, fakeSession{
+		Session:   domain.Session{ID: s.id(), UserID: sess.UserID, ExpiresAt: sess.ExpiresAt},
+		TokenHash: sess.TokenHash,
+	})
 	return nil
+}
+
+func (s *fakeStore) RevokeSessionByToken(_ context.Context, hash string, at time.Time) (domain.Session, error) {
+	if s.failTx != nil {
+		return domain.Session{}, s.failTx
+	}
+	for i, sess := range s.sessions {
+		if sess.TokenHash == hash && sess.RevokedAt == nil {
+			s.sessions[i].RevokedAt = &at
+			return s.sessions[i].Session, nil
+		}
+	}
+	return domain.Session{}, domain.ErrNotFound
+}
+
+// sessionIndex returns the position of the session with id, or -1.
+func (s *fakeStore) sessionIndex(id string) int {
+	return slices.IndexFunc(s.sessions, func(sess fakeSession) bool { return sess.ID == id })
 }
 
 func (s *fakeStore) userByID(id string) (string, fakeUser, bool) {
@@ -194,6 +225,50 @@ func (tx fakeTx) MarkEmailVerified(_ context.Context, userID string, at time.Tim
 		u.EmailVerifiedAt = &at
 	}
 	tx.s.users[k] = u
+	return nil
+}
+
+func (tx fakeTx) FindSessionForUpdate(_ context.Context, hash string) (domain.Session, error) {
+	for _, sess := range tx.s.sessions {
+		if sess.TokenHash == hash {
+			return sess.Session, nil
+		}
+	}
+	return domain.Session{}, domain.ErrNotFound
+}
+
+func (tx fakeTx) FindSessionByRetiredTokenForUpdate(_ context.Context, hash string) (domain.Session, error) {
+	id, ok := tx.s.retired[hash]
+	if !ok {
+		return domain.Session{}, domain.ErrNotFound
+	}
+	return tx.s.sessions[tx.s.sessionIndex(id)].Session, nil
+}
+
+func (tx fakeTx) RotateSession(_ context.Context, sessionID, oldHash, newHash string, _ time.Time) error {
+	if tx.s.failTx != nil {
+		return tx.s.failTx
+	}
+	i := tx.s.sessionIndex(sessionID)
+	if i < 0 || tx.s.sessions[i].TokenHash != oldHash {
+		return errors.New("no such session")
+	}
+	tx.s.sessions[i].TokenHash = newHash
+	tx.s.retired[oldHash] = sessionID
+	return nil
+}
+
+func (tx fakeTx) RevokeSession(_ context.Context, sessionID string, at time.Time) error {
+	if tx.s.failTx != nil {
+		return tx.s.failTx
+	}
+	i := tx.s.sessionIndex(sessionID)
+	if i < 0 {
+		return errors.New("no such session")
+	}
+	if tx.s.sessions[i].RevokedAt == nil {
+		tx.s.sessions[i].RevokedAt = &at
+	}
 	return nil
 }
 

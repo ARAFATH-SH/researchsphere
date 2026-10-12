@@ -64,6 +64,14 @@ type NewSession struct {
 	ExpiresAt time.Time
 }
 
+// Session is a stored login (FR-2.1). It ends when it expires or is revoked (FR-2.2).
+type Session struct {
+	ID        string
+	UserID    string
+	ExpiresAt time.Time
+	RevokedAt *time.Time // set once the session has ended
+}
+
 // VerificationEmail is the message that carries a verification link.
 type VerificationEmail struct {
 	To       string
@@ -85,6 +93,9 @@ var (
 	// so a login attempt cannot tell which accounts exist (FR-2.1).
 	ErrInvalidCredentials = errors.New("email address or password is wrong")
 	ErrEmailNotVerified   = errors.New("email address is not verified")
+	// ErrSessionInvalid covers every refused refresh: a missing, unknown, expired, revoked
+	// or reused refresh token. The client is not told which (FR-2.2).
+	ErrSessionInvalid = errors.New("session is not valid")
 	// ErrNotFound is returned by a Store or Tx when the row does not exist.
 	ErrNotFound = errors.New("not found")
 )

@@ -17,6 +17,10 @@ type Store interface {
 	// FindUserByID returns ErrNotFound when no user has the ID.
 	FindUserByID(ctx context.Context, id string) (User, error)
 	CreateSession(ctx context.Context, s NewSession) error
+	// RevokeSessionByToken ends the session whose current refresh token has this hash and
+	// returns it. It returns ErrNotFound, and changes nothing, when there is no such
+	// session or it has already ended.
+	RevokeSessionByToken(ctx context.Context, hash string, at time.Time) (Session, error)
 }
 
 // Tx is the set of writes available inside a transaction.
@@ -34,6 +38,17 @@ type Tx interface {
 	MarkTokenUsed(ctx context.Context, tokenID string, at time.Time) error
 	// MarkEmailVerified sets the verified time unless it is already set.
 	MarkEmailVerified(ctx context.Context, userID string, at time.Time) error
+	// FindSessionForUpdate locks the session whose current refresh token has this hash
+	// until the transaction ends. It returns ErrNotFound when there is none.
+	FindSessionForUpdate(ctx context.Context, hash string) (Session, error)
+	// FindSessionByRetiredTokenForUpdate locks the session that once had a refresh token
+	// with this hash and has since replaced it. It returns ErrNotFound when there is none.
+	FindSessionByRetiredTokenForUpdate(ctx context.Context, hash string) (Session, error)
+	// RotateSession gives the session a new refresh token hash and records oldHash as
+	// retired at at.
+	RotateSession(ctx context.Context, sessionID, oldHash, newHash string, at time.Time) error
+	// RevokeSession ends the session at at, unless it has already ended.
+	RevokeSession(ctx context.Context, sessionID string, at time.Time) error
 }
 
 // PasswordHasher turns a password into a salted hash (NFR-5) and checks a password

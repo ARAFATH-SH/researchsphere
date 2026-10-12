@@ -1,5 +1,6 @@
 // Package usecase holds the auth module's logic: registration, email verification and
-// new verification links (FR-1), and login (FR-2.1). It imports only the auth domain.
+// new verification links (FR-1), login (FR-2.1), and refreshing and ending sessions
+// (FR-2.2). It imports only the auth domain.
 package usecase
 
 import (

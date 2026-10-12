@@ -354,3 +354,134 @@ func TestCreateSession(t *testing.T) {
 		t.Errorf("sessions for the user = %d, want 2", n)
 	}
 }
+
+// newSession registers a user with a new session and returns the user's ID and the
+// session's refresh token hash.
+func newSession(t *testing.T, s *Store, pool *pgxpool.Pool) (userID, hash string) {
+	t.Helper()
+	ctx := t.Context()
+	userID, err := register(ctx, s, uniqueEmail(t, pool), "Ada", rand.Text(), time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash = rand.Text()
+	expires := time.Now().Add(30 * 24 * time.Hour)
+	if err := s.CreateSession(ctx, domain.NewSession{UserID: userID, TokenHash: hash, ExpiresAt: expires}); err != nil {
+		t.Fatal(err)
+	}
+	return userID, hash
+}
+
+// findSession runs FindSessionForUpdate in its own transaction.
+func findSession(t *testing.T, s *Store, hash string) (domain.Session, error) {
+	t.Helper()
+	var sess domain.Session
+	err := s.RunInTx(t.Context(), func(tx domain.Tx) error {
+		var err error
+		sess, err = tx.FindSessionForUpdate(t.Context(), hash)
+		return err
+	})
+	return sess, err
+}
+
+func TestRotateSession(t *testing.T) {
+	ctx := t.Context()
+	s, pool := newTestStore(t)
+	userID, oldHash := newSession(t, s, pool)
+	newHash := rand.Text()
+
+	sess, err := findSession(t, s, oldHash)
+	if err != nil {
+		t.Fatalf("FindSessionForUpdate: %v", err)
+	}
+	if sess.UserID != userID || sess.RevokedAt != nil {
+		t.Errorf("session = %+v, want the user's live session", sess)
+	}
+	err = s.RunInTx(ctx, func(tx domain.Tx) error {
+		return tx.RotateSession(ctx, sess.ID, oldHash, newHash, time.Now())
+	})
+	if err != nil {
+		t.Fatalf("RotateSession: %v", err)
+	}
+
+	if _, err := findSession(t, s, oldHash); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("FindSessionForUpdate(old hash) error = %v, want ErrNotFound", err)
+	}
+	if got, err := findSession(t, s, newHash); err != nil || got.ID != sess.ID {
+		t.Errorf("FindSessionForUpdate(new hash) = %+v, %v; want the same session", got, err)
+	}
+	err = s.RunInTx(ctx, func(tx domain.Tx) error {
+		got, err := tx.FindSessionByRetiredTokenForUpdate(ctx, oldHash)
+		if err != nil || got.ID != sess.ID {
+			t.Errorf("FindSessionByRetiredTokenForUpdate(old hash) = %+v, %v; want the session", got, err)
+		}
+		if _, err := tx.FindSessionByRetiredTokenForUpdate(ctx, newHash); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("FindSessionByRetiredTokenForUpdate(current hash) error = %v, want ErrNotFound", err)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Rotating from a hash the session no longer holds fails and changes nothing.
+	err = s.RunInTx(ctx, func(tx domain.Tx) error {
+		return tx.RotateSession(ctx, sess.ID, oldHash, rand.Text(), time.Now())
+	})
+	if err == nil {
+		t.Error("RotateSession from a retired hash succeeded")
+	}
+	if got, err := findSession(t, s, newHash); err != nil || got.ID != sess.ID {
+		t.Errorf("after a failed rotation the session must keep its hash; got %+v, %v", got, err)
+	}
+}
+
+func TestRevokeSession(t *testing.T) {
+	ctx := t.Context()
+	s, pool := newTestStore(t)
+	_, hash := newSession(t, s, pool)
+	sess, err := findSession(t, s, hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := time.Now().Add(-time.Minute).Truncate(time.Microsecond)
+
+	for _, at := range []time.Time{first, time.Now()} { // the second call keeps the first time
+		err := s.RunInTx(ctx, func(tx domain.Tx) error { return tx.RevokeSession(ctx, sess.ID, at) })
+		if err != nil {
+			t.Fatalf("RevokeSession: %v", err)
+		}
+	}
+	got, err := findSession(t, s, hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RevokedAt == nil || !got.RevokedAt.Equal(first) {
+		t.Errorf("RevokedAt = %v, want the first revocation time %v", got.RevokedAt, first)
+	}
+}
+
+func TestRevokeSessionByToken(t *testing.T) {
+	ctx := t.Context()
+	s, pool := newTestStore(t)
+	userID, hash := newSession(t, s, pool)
+	_, otherHash := newSession(t, s, pool)
+	at := time.Now().Truncate(time.Microsecond)
+
+	sess, err := s.RevokeSessionByToken(ctx, hash, at)
+	if err != nil {
+		t.Fatalf("RevokeSessionByToken: %v", err)
+	}
+	if sess.UserID != userID || sess.RevokedAt == nil || !sess.RevokedAt.Equal(at) {
+		t.Errorf("revoked session = %+v, want the user's, revoked at %v", sess, at)
+	}
+	if _, err := s.RevokeSessionByToken(ctx, hash, time.Now()); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("second RevokeSessionByToken error = %v, want ErrNotFound", err)
+	}
+	if _, err := s.RevokeSessionByToken(ctx, rand.Text(), time.Now()); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("RevokeSessionByToken(unknown hash) error = %v, want ErrNotFound", err)
+	}
+	if other, err := findSession(t, s, otherHash); err != nil || other.RevokedAt != nil {
+		t.Errorf("another session = %+v, %v; want it untouched", other, err)
+	}
+}
