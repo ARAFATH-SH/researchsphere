@@ -87,6 +87,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Log in with email address and password (FR-2.1, FR-1.4)
+         * @description Public. On success the response sets two httpOnly, SameSite=Lax cookies (Secure
+         *     when the site runs on HTTPS): `rs_access`, a signed access token valid for 15
+         *     minutes (path `/`), and `rs_refresh`, a refresh token valid for 30 days (path
+         *     `/api/v1/auth`). Each login starts a new session. A wrong password and an unknown
+         *     email address get the same answer.
+         */
+        post: operations["loginUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Return the logged-in user
+         * @description Needs the access cookie.
+         */
+        get: operations["getCurrentUser"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -137,8 +181,29 @@ export interface components {
         ResendVerificationRequest: {
             email: string;
         };
+        LoginRequest: {
+            /** @example ada@example.org */
+            email: string;
+            /** Format: password */
+            password: string;
+        };
+        CurrentUser: {
+            /** Format: uuid */
+            id: string;
+            email: string;
+            fullName: string;
+        };
     };
     responses: {
+        /** @description No valid access token was sent (`unauthenticated`). */
+        Unauthorized: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
         /** @description No such route or resource. */
         NotFound: {
             headers: {
@@ -305,6 +370,88 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    loginUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Logged in. The cookies are set and the body is the user. */
+            200: {
+                headers: {
+                    /** @description `rs_access` and `rs_refresh`, in two headers. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CurrentUser"];
+                };
+            };
+            /** @description The body is malformed (`bad_request`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /**
+             * @description The email address or the password is wrong (`invalid_credentials`). The answer
+             *     does not say which.
+             */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /**
+             * @description The password is right but the email address is not verified yet
+             *     (`email_not_verified`, FR-1.4).
+             */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getCurrentUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The logged-in user. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CurrentUser"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
             500: components["responses"]["InternalError"];
         };
     };

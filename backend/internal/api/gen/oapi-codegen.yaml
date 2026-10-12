@@ -6,3 +6,9 @@ generate:
   models: true
   std-http-server: true
   strict-server: true
+compatibility:
+  # Store each secured operation's scopes in the request context (gen.CookieAuthScopes),
+  # so the auth middleware protects exactly what the contract's `security` says
+  # (docs/decisions.md). Deprecated upstream only because it cannot express OR/AND
+  # combinations of schemes, which this API does not use.
+  enable-auth-scopes-on-context: true

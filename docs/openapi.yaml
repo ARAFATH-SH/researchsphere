@@ -10,6 +10,10 @@ info:
 servers:
   - url: /api/v1
 
+# Every operation needs a session unless it declares `security: []` (FR-3.1).
+security:
+  - cookieAuth: []
+
 paths:
   /health:
     get:
@@ -128,7 +132,87 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /auth/login:
+    post:
+      operationId: loginUser
+      summary: Log in with email address and password (FR-2.1, FR-1.4)
+      description: |
+        Public. On success the response sets two httpOnly, SameSite=Lax cookies (Secure
+        when the site runs on HTTPS): `rs_access`, a signed access token valid for 15
+        minutes (path `/`), and `rs_refresh`, a refresh token valid for 30 days (path
+        `/api/v1/auth`). Each login starts a new session. A wrong password and an unknown
+        email address get the same answer.
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Logged in. The cookies are set and the body is the user.
+          headers:
+            Set-Cookie:
+              description: "`rs_access` and `rs_refresh`, in two headers."
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentUser"
+        "400":
+          description: The body is malformed (`bad_request`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: |
+            The email address or the password is wrong (`invalid_credentials`). The answer
+            does not say which.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: |
+            The password is right but the email address is not verified yet
+            (`email_not_verified`, FR-1.4).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /auth/me:
+    get:
+      operationId: getCurrentUser
+      summary: Return the logged-in user
+      description: Needs the access cookie.
+      tags: [auth]
+      responses:
+        "200":
+          description: The logged-in user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentUser"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: rs_access
+      description: The access token set by `POST /auth/login`.
+
   schemas:
     Error:
       type: object
@@ -202,7 +286,38 @@ components:
           type: string
           maxLength: 254
 
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          maxLength: 254
+          example: ada@example.org
+        password:
+          type: string
+          maxLength: 128
+          format: password
+
+    CurrentUser:
+      type: object
+      required: [id, email, fullName]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        fullName:
+          type: string
+
   responses:
+    Unauthorized:
+      description: No valid access token was sent (`unauthenticated`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
     NotFound:
       description: No such route or resource.
       content:

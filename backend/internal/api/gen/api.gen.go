@@ -11,6 +11,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+
+	openapi_types "github.com/oapi-codegen/runtime/types"
+)
+
+const (
+	CookieAuthScopes cookieAuthContextKey = "cookieAuth.Scopes"
 )
 
 // Defines values for HealthDatabase.
@@ -58,6 +64,13 @@ func (e HealthStatus) Valid() bool {
 	}
 }
 
+// CurrentUser defines model for CurrentUser.
+type CurrentUser struct {
+	Email    string             `json:"email"`
+	FullName string             `json:"fullName"`
+	Id       openapi_types.UUID `json:"id"`
+}
+
 // Error The shape of every error response (SRS 5.3).
 type Error struct {
 	// Code Short machine-readable code, in snake_case.
@@ -86,6 +99,13 @@ type HealthRedis string
 
 // HealthStatus defines model for Health.Status.
 type HealthStatus string
+
+// LoginRequest defines model for LoginRequest.
+type LoginRequest struct {
+	// Email Example: ada@example.org
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
 
 // RegisterRequest defines model for RegisterRequest.
 type RegisterRequest struct {
@@ -121,6 +141,15 @@ type VerifyEmailRequest struct {
 // InternalError The shape of every error response (SRS 5.3).
 type InternalError = Error
 
+// Unauthorized The shape of every error response (SRS 5.3).
+type Unauthorized = Error
+
+// cookieAuthContextKey is the context key for cookieAuth security scheme
+type cookieAuthContextKey string
+
+// LoginUserJSONRequestBody defines body for LoginUser for application/json ContentType.
+type LoginUserJSONRequestBody = LoginRequest
+
 // RegisterUserJSONRequestBody defines body for RegisterUser for application/json ContentType.
 type RegisterUserJSONRequestBody = RegisterRequest
 
@@ -132,6 +161,12 @@ type VerifyEmailJSONRequestBody = VerifyEmailRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// LoginUser Log in with email address and password (FR-2.1, FR-1.4)
+	// (POST /auth/login)
+	LoginUser(w http.ResponseWriter, r *http.Request)
+	// GetCurrentUser Return the logged-in user
+	// (GET /auth/me)
+	GetCurrentUser(w http.ResponseWriter, r *http.Request)
 	// RegisterUser Register a new account and send a verification link (FR-1.1 to FR-1.3)
 	// (POST /auth/register)
 	RegisterUser(w http.ResponseWriter, r *http.Request)
@@ -154,6 +189,40 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// LoginUser operation middleware
+func (siw *ServerInterfaceWrapper) LoginUser(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.LoginUser(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetCurrentUser operation middleware
+func (siw *ServerInterfaceWrapper) GetCurrentUser(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetCurrentUser(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // RegisterUser operation middleware
 func (siw *ServerInterfaceWrapper) RegisterUser(w http.ResponseWriter, r *http.Request) {
@@ -335,11 +404,152 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/auth/register", wrapper.RegisterUser)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/auth/verify-email", wrapper.VerifyEmail)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/auth/resend-verification", wrapper.ResendVerification)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/auth/login", wrapper.LoginUser)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/auth/me", wrapper.GetCurrentUser)
 
 	return m
 }
 
 type InternalErrorJSONResponse Error
+
+type UnauthorizedJSONResponse Error
+
+type LoginUserRequestObject struct {
+	Body *LoginUserJSONRequestBody
+}
+
+type LoginUserResponseObject interface {
+	VisitLoginUserResponse(w http.ResponseWriter) error
+}
+
+type LoginUser200ResponseHeaders struct {
+	SetCookie *string
+}
+
+type LoginUser200JSONResponse struct {
+	Body    CurrentUser
+	Headers LoginUser200ResponseHeaders
+}
+
+func (response LoginUser200JSONResponse) VisitLoginUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.SetCookie != nil {
+		w.Header().Set("Set-Cookie", fmt.Sprint(*response.Headers.SetCookie))
+	}
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LoginUser400JSONResponse Error
+
+func (response LoginUser400JSONResponse) VisitLoginUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LoginUser401JSONResponse Error
+
+func (response LoginUser401JSONResponse) VisitLoginUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LoginUser403JSONResponse Error
+
+func (response LoginUser403JSONResponse) VisitLoginUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LoginUser500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response LoginUser500JSONResponse) VisitLoginUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCurrentUserRequestObject struct {
+}
+
+type GetCurrentUserResponseObject interface {
+	VisitGetCurrentUserResponse(w http.ResponseWriter) error
+}
+
+type GetCurrentUser200JSONResponse CurrentUser
+
+func (response GetCurrentUser200JSONResponse) VisitGetCurrentUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCurrentUser401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetCurrentUser401JSONResponse) VisitGetCurrentUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCurrentUser500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response GetCurrentUser500JSONResponse) VisitGetCurrentUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
 
 type RegisterUserRequestObject struct {
 	Body *RegisterUserJSONRequestBody
@@ -544,6 +754,12 @@ func (response GetHealth503JSONResponse) VisitGetHealthResponse(w http.ResponseW
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// LoginUser Log in with email address and password (FR-2.1, FR-1.4)
+	// (POST /auth/login)
+	LoginUser(ctx context.Context, request LoginUserRequestObject) (LoginUserResponseObject, error)
+	// GetCurrentUser Return the logged-in user
+	// (GET /auth/me)
+	GetCurrentUser(ctx context.Context, request GetCurrentUserRequestObject) (GetCurrentUserResponseObject, error)
 	// RegisterUser Register a new account and send a verification link (FR-1.1 to FR-1.3)
 	// (POST /auth/register)
 	RegisterUser(ctx context.Context, request RegisterUserRequestObject) (RegisterUserResponseObject, error)
@@ -595,6 +811,61 @@ type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
+}
+
+// LoginUser operation middleware
+func (sh *strictHandler) LoginUser(w http.ResponseWriter, r *http.Request) {
+	var request LoginUserRequestObject
+
+	var body LoginUserJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.LoginUser(ctx, request.(LoginUserRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "LoginUser")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(LoginUserResponseObject); ok {
+		if err := validResponse.VisitLoginUserResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetCurrentUser operation middleware
+func (sh *strictHandler) GetCurrentUser(w http.ResponseWriter, r *http.Request) {
+	var request GetCurrentUserRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetCurrentUser(ctx, request.(GetCurrentUserRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetCurrentUser")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetCurrentUserResponseObject); ok {
+		if err := validResponse.VisitGetCurrentUserResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
 }
 
 // RegisterUser operation middleware
