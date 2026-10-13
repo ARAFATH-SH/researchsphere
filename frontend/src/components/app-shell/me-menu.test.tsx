@@ -49,6 +49,9 @@ describe("MeMenu", () => {
     fireEvent.click(toggle());
     const settings = screen.getByRole("link", { name: "Settings" });
     expect(settings.getAttribute("href")).toBe("/settings/account");
+    // jsdom cannot follow a link; cancel only the browser's navigation, so the menu's own
+    // click handler still runs.
+    settings.addEventListener("click", (e) => e.preventDefault());
     fireEvent.click(settings);
     expect(toggle().getAttribute("aria-expanded")).toBe("false");
   });
