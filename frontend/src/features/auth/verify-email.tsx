@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { buttonClass } from "@/components/ui/button";
 
@@ -68,20 +68,45 @@ const views: Record<Exclude<Outcome, "checking">, { title: string; text: string;
   },
 };
 
+// The check of each token, shared by every instance of the page. Strict Mode runs effects
+// twice and the page can be mounted again; a second request would find the token used.
+const checks = new Map<string, Promise<Outcome>>();
+
+function checkOnce(hash: string): Promise<Outcome> {
+  const token = tokenFromHash(hash);
+  let check = checks.get(token);
+  if (!check) {
+    check = checkLink(hash);
+    if (token) {
+      checks.set(token, check);
+      // An error spent nothing: a later attempt may ask again.
+      void check.then((outcome) => {
+        if (outcome === "error") checks.delete(token);
+      });
+    }
+  }
+  return check;
+}
+
 // VerifyEmail spends the token from the verification link once and shows the result
 // (FR-1.3), with a way to get a new link when it cannot be used (FR-1.5).
 export function VerifyEmail() {
   const [outcome, setOutcome] = useState<Outcome>("checking");
-  const started = useRef(false);
 
   useEffect(() => {
-    // Development mode runs effects twice; a second request would find the token used.
-    if (started.current) return;
-    started.current = true;
-    const hash = window.location.hash;
-    // Take the token out of the address bar so it does not stay in history.
-    if (hash) window.history.replaceState(null, "", window.location.pathname + window.location.search);
-    void checkLink(hash).then(setOutcome);
+    let active = true;
+    void checkOnce(window.location.hash).then((next) => {
+      // The token is spent or refused: take it out of the address bar so it does not stay
+      // in history. Keep history.state: the Next.js router keeps its own state there. After
+      // an error it stays, so reloading the page tries again.
+      if (next !== "error" && window.location.hash) {
+        window.history.replaceState(window.history.state, "", window.location.pathname + window.location.search);
+      }
+      if (active) setOutcome(next);
+    });
+    return () => {
+      active = false;
+    };
   }, []);
 
   if (outcome === "checking") {

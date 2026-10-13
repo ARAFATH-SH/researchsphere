@@ -1,6 +1,7 @@
 // Package http serves the auth operations in docs/openapi.yaml: registration, email
 // verification and new verification links (FR-1), login and the current user (FR-2.1),
-// refreshing and ending sessions (FR-2.2), and the login lockout (FR-2.7).
+// refreshing and ending sessions (FR-2.2), password reset (FR-2.3 to FR-2.5), and the
+// login lockout (FR-2.7).
 // It turns the usecase's errors into the error codes the web client shows next to each
 // field, and puts the login tokens in cookies.
 package http
@@ -52,6 +53,8 @@ type service interface {
 	CurrentUser(ctx context.Context, id string) (domain.User, error)
 	Refresh(ctx context.Context, token string) (usecase.RefreshResult, error)
 	Logout(ctx context.Context, token string) error
+	RequestPasswordReset(ctx context.Context, email string) error
+	ResetPassword(ctx context.Context, token, newPassword string) error
 }
 
 // CookieConfig sets the attributes of the session cookies.
@@ -141,6 +144,39 @@ func (h *Handler) ResendVerification(ctx context.Context, req gen.ResendVerifica
 		return nil, err
 	}
 	return gen.ResendVerification202Response{}, nil
+}
+
+// RequestPasswordReset sends a reset link. The reply is the same for every well-formed
+// address (FR-2.4).
+func (h *Handler) RequestPasswordReset(ctx context.Context, req gen.RequestPasswordResetRequestObject) (gen.RequestPasswordResetResponseObject, error) {
+	err := h.svc.RequestPasswordReset(ctx, req.Body.Email)
+	if e, ok := inputError(err); ok {
+		return gen.RequestPasswordReset400JSONResponse(e), nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return gen.RequestPasswordReset202Response{}, nil
+}
+
+// ConfirmPasswordReset sets the new password and ends every session of the account
+// (FR-2.3, FR-2.5).
+func (h *Handler) ConfirmPasswordReset(ctx context.Context, req gen.ConfirmPasswordResetRequestObject) (gen.ConfirmPasswordResetResponseObject, error) {
+	err := h.svc.ResetPassword(ctx, req.Body.Token, req.Body.NewPassword)
+	if e, ok := inputError(err); ok {
+		return gen.ConfirmPasswordReset400JSONResponse(e), nil
+	}
+	switch {
+	case err == nil:
+		return gen.ConfirmPasswordReset204Response{}, nil
+	case errors.Is(err, domain.ErrTokenInvalid):
+		return gen.ConfirmPasswordReset400JSONResponse{Code: CodeTokenInvalid, Message: "This reset link is not valid. Ask for a new one."}, nil
+	case errors.Is(err, domain.ErrTokenUsed):
+		return gen.ConfirmPasswordReset400JSONResponse{Code: CodeTokenUsed, Message: "This reset link has already been used. Ask for a new one if you still need it."}, nil
+	case errors.Is(err, domain.ErrTokenExpired):
+		return gen.ConfirmPasswordReset400JSONResponse{Code: CodeTokenExpired, Message: "This reset link has expired. Ask for a new one."}, nil
+	}
+	return nil, err
 }
 
 // LoginUser checks the email address and password and sets the session cookies (FR-2.1).

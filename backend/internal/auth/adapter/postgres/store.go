@@ -279,6 +279,28 @@ func (t tx) RevokeSession(ctx context.Context, sessionID string, at time.Time) e
 	return nil
 }
 
+func (t tx) UpdatePasswordHash(ctx context.Context, userID, hash string) error {
+	id, err := parseUUID(userID)
+	if err != nil {
+		return err
+	}
+	if err := t.q.UpdatePasswordHash(ctx, sqlcgen.UpdatePasswordHashParams{ID: id, PasswordHash: hash}); err != nil {
+		return fmt.Errorf("update password hash: %w", err)
+	}
+	return nil
+}
+
+func (t tx) RevokeUserSessions(ctx context.Context, userID string, at time.Time) error {
+	id, err := parseUUID(userID)
+	if err != nil {
+		return err
+	}
+	if err := t.q.RevokeUserSessions(ctx, sqlcgen.RevokeUserSessionsParams{UserID: id, RevokedAt: timestamptz(at)}); err != nil {
+		return fmt.Errorf("revoke user sessions: %w", err)
+	}
+	return nil
+}
+
 func session(id, userID pgtype.UUID, expiresAt, revokedAt pgtype.Timestamptz) domain.Session {
 	return domain.Session{ID: uuidString(id), UserID: uuidString(userID), ExpiresAt: expiresAt.Time, RevokedAt: timePtr(revokedAt)}
 }

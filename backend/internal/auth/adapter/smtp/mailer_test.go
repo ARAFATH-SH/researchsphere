@@ -175,3 +175,38 @@ func TestSendVerificationServerDown(t *testing.T) {
 		t.Errorf("error %v does not wrap the dial error", err)
 	}
 }
+
+func TestSendPasswordReset(t *testing.T) {
+	host, port, got := fakeServer(t)
+	m := New(host, port, mail.Address{Name: "ResearchSphere", Address: "no-reply@rs.example"})
+	link := "https://rs.example/reset-password#token=" + strings.Repeat("A", 43)
+
+	err := m.SendPasswordReset(t.Context(), domain.PasswordResetEmail{To: "ada@example.org", FullName: "Ada\r\nBcc: victim@evil.test", Link: link})
+	if err != nil {
+		t.Fatalf("SendPasswordReset() error = %v", err)
+	}
+
+	r := <-got
+	if !strings.HasPrefix(r.to, "RCPT TO:<ada@example.org>") {
+		t.Errorf("envelope to %q", r.to)
+	}
+	msg, err := mail.ReadMessage(strings.NewReader(r.data))
+	if err != nil {
+		t.Fatalf("message does not parse: %v\n%s", err, r.data)
+	}
+	if got := msg.Header.Get("Subject"); got != "Reset your ResearchSphere password" {
+		t.Errorf("Subject = %q", got)
+	}
+	if bcc := msg.Header.Get("Bcc"); bcc != "" {
+		t.Errorf("injected Bcc header %q", bcc)
+	}
+	body, err := io.ReadAll(quotedprintable.NewReader(msg.Body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{link, "Hello Ada Bcc: victim@evil.test,", "expires in 1 hour"} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("body lacks %q:\n%s", want, body)
+		}
+	}
+}

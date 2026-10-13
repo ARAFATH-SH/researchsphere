@@ -108,6 +108,20 @@ type LoginRequest struct {
 	Password string `json:"password"`
 }
 
+// PasswordResetConfirm defines model for PasswordResetConfirm.
+type PasswordResetConfirm struct {
+	// NewPassword 8 to 128 characters, as at registration.
+	NewPassword string `json:"newPassword"`
+
+	// Token The token from the reset link.
+	Token string `json:"token"`
+}
+
+// PasswordResetRequest defines model for PasswordResetRequest.
+type PasswordResetRequest struct {
+	Email string `json:"email"`
+}
+
 // RegisterRequest defines model for RegisterRequest.
 type RegisterRequest struct {
 	// Email Example: ada@example.org
@@ -166,6 +180,12 @@ type RefreshSessionParams struct {
 // LoginUserJSONRequestBody defines body for LoginUser for application/json ContentType.
 type LoginUserJSONRequestBody = LoginRequest
 
+// ConfirmPasswordResetJSONRequestBody defines body for ConfirmPasswordReset for application/json ContentType.
+type ConfirmPasswordResetJSONRequestBody = PasswordResetConfirm
+
+// RequestPasswordResetJSONRequestBody defines body for RequestPasswordReset for application/json ContentType.
+type RequestPasswordResetJSONRequestBody = PasswordResetRequest
+
 // RegisterUserJSONRequestBody defines body for RegisterUser for application/json ContentType.
 type RegisterUserJSONRequestBody = RegisterRequest
 
@@ -186,6 +206,12 @@ type ServerInterface interface {
 	// GetCurrentUser Return the logged-in user
 	// (GET /auth/me)
 	GetCurrentUser(w http.ResponseWriter, r *http.Request)
+	// ConfirmPasswordReset Set a new password with the token from a reset link (FR-2.3, FR-2.5)
+	// (POST /auth/password-reset/confirm)
+	ConfirmPasswordReset(w http.ResponseWriter, r *http.Request)
+	// RequestPasswordReset Send a password reset link (FR-2.3, FR-2.4)
+	// (POST /auth/password-reset/request)
+	RequestPasswordReset(w http.ResponseWriter, r *http.Request)
 	// RefreshSession Issue new tokens for the session in the refresh cookie (FR-2.1, FR-2.2)
 	// (POST /auth/refresh)
 	RefreshSession(w http.ResponseWriter, r *http.Request, params RefreshSessionParams)
@@ -272,6 +298,34 @@ func (siw *ServerInterfaceWrapper) GetCurrentUser(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetCurrentUser(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ConfirmPasswordReset operation middleware
+func (siw *ServerInterfaceWrapper) ConfirmPasswordReset(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ConfirmPasswordReset(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RequestPasswordReset operation middleware
+func (siw *ServerInterfaceWrapper) RequestPasswordReset(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RequestPasswordReset(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -496,6 +550,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/auth/register", wrapper.RegisterUser)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/auth/verify-email", wrapper.VerifyEmail)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/auth/resend-verification", wrapper.ResendVerification)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/auth/password-reset/request", wrapper.RequestPasswordReset)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/auth/password-reset/confirm", wrapper.ConfirmPasswordReset)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/auth/login", wrapper.LoginUser)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/auth/refresh", wrapper.RefreshSession)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/auth/logout", wrapper.LogoutUser)
@@ -696,6 +752,94 @@ func (response GetCurrentUser401JSONResponse) VisitGetCurrentUserResponse(w http
 type GetCurrentUser500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response GetCurrentUser500JSONResponse) VisitGetCurrentUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ConfirmPasswordResetRequestObject struct {
+	Body *ConfirmPasswordResetJSONRequestBody
+}
+
+type ConfirmPasswordResetResponseObject interface {
+	VisitConfirmPasswordResetResponse(w http.ResponseWriter) error
+}
+
+type ConfirmPasswordReset204Response struct {
+}
+
+func (response ConfirmPasswordReset204Response) VisitConfirmPasswordResetResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type ConfirmPasswordReset400JSONResponse Error
+
+func (response ConfirmPasswordReset400JSONResponse) VisitConfirmPasswordResetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ConfirmPasswordReset500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ConfirmPasswordReset500JSONResponse) VisitConfirmPasswordResetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RequestPasswordResetRequestObject struct {
+	Body *RequestPasswordResetJSONRequestBody
+}
+
+type RequestPasswordResetResponseObject interface {
+	VisitRequestPasswordResetResponse(w http.ResponseWriter) error
+}
+
+type RequestPasswordReset202Response struct {
+}
+
+func (response RequestPasswordReset202Response) VisitRequestPasswordResetResponse(w http.ResponseWriter) error {
+	w.WriteHeader(202)
+	return nil
+}
+
+type RequestPasswordReset400JSONResponse Error
+
+func (response RequestPasswordReset400JSONResponse) VisitRequestPasswordResetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RequestPasswordReset500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RequestPasswordReset500JSONResponse) VisitRequestPasswordResetResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -981,6 +1125,12 @@ type StrictServerInterface interface {
 	// GetCurrentUser Return the logged-in user
 	// (GET /auth/me)
 	GetCurrentUser(ctx context.Context, request GetCurrentUserRequestObject) (GetCurrentUserResponseObject, error)
+	// ConfirmPasswordReset Set a new password with the token from a reset link (FR-2.3, FR-2.5)
+	// (POST /auth/password-reset/confirm)
+	ConfirmPasswordReset(ctx context.Context, request ConfirmPasswordResetRequestObject) (ConfirmPasswordResetResponseObject, error)
+	// RequestPasswordReset Send a password reset link (FR-2.3, FR-2.4)
+	// (POST /auth/password-reset/request)
+	RequestPasswordReset(ctx context.Context, request RequestPasswordResetRequestObject) (RequestPasswordResetResponseObject, error)
 	// RefreshSession Issue new tokens for the session in the refresh cookie (FR-2.1, FR-2.2)
 	// (POST /auth/refresh)
 	RefreshSession(ctx context.Context, request RefreshSessionRequestObject) (RefreshSessionResponseObject, error)
@@ -1111,6 +1261,68 @@ func (sh *strictHandler) GetCurrentUser(w http.ResponseWriter, r *http.Request) 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetCurrentUserResponseObject); ok {
 		if err := validResponse.VisitGetCurrentUserResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ConfirmPasswordReset operation middleware
+func (sh *strictHandler) ConfirmPasswordReset(w http.ResponseWriter, r *http.Request) {
+	var request ConfirmPasswordResetRequestObject
+
+	var body ConfirmPasswordResetJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ConfirmPasswordReset(ctx, request.(ConfirmPasswordResetRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ConfirmPasswordReset")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ConfirmPasswordResetResponseObject); ok {
+		if err := validResponse.VisitConfirmPasswordResetResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RequestPasswordReset operation middleware
+func (sh *strictHandler) RequestPasswordReset(w http.ResponseWriter, r *http.Request) {
+	var request RequestPasswordResetRequestObject
+
+	var body RequestPasswordResetJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RequestPasswordReset(ctx, request.(RequestPasswordResetRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RequestPasswordReset")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RequestPasswordResetResponseObject); ok {
+		if err := validResponse.VisitRequestPasswordResetResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

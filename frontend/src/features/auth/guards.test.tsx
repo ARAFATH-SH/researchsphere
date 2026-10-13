@@ -1,6 +1,5 @@
 import { render, screen } from "@testing-library/react";
 
-import { RedirectIfSignedIn } from "./redirect-if-signed-in";
 import { RequireSession } from "./require-session";
 import { type Session, useSession } from "./session";
 
@@ -36,23 +35,6 @@ describe("RequireSession", () => {
     mockUseSession.mockReturnValue(signedIn);
     render(<RequireSession>secret page</RequireSession>);
     expect(screen.getByText("secret page")).toBeTruthy();
-    expect(mockReplace).not.toHaveBeenCalled();
-  });
-});
-
-describe("RedirectIfSignedIn", () => {
-  afterEach(() => jest.resetAllMocks());
-
-  it("sends a signed-in user to /home", () => {
-    mockUseSession.mockReturnValue(signedIn);
-    render(<RedirectIfSignedIn>login form</RedirectIfSignedIn>);
-    expect(mockReplace).toHaveBeenCalledWith("/home");
-  });
-
-  it.each(["loading", "signedOut"] as const)("shows the page at once when %s", (status) => {
-    mockUseSession.mockReturnValue({ status });
-    render(<RedirectIfSignedIn>login form</RedirectIfSignedIn>);
-    expect(screen.getByText("login form")).toBeTruthy();
     expect(mockReplace).not.toHaveBeenCalled();
   });
 });

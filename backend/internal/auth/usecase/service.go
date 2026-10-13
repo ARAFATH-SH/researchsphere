@@ -1,7 +1,7 @@
 // Package usecase holds the auth module's logic: registration, email verification and
 // new verification links (FR-1), login (FR-2.1), refreshing and ending sessions
-// (FR-2.2), and locking an account after failed logins (FR-2.7). It imports only the
-// auth domain.
+// (FR-2.2), password reset (FR-2.3 to FR-2.5), and locking an account after failed
+// logins (FR-2.7). It imports only the auth domain.
 package usecase
 
 import (
@@ -19,7 +19,7 @@ const VerificationTTL = 24 * time.Hour
 // Config holds the settings the usecase needs.
 type Config struct {
 	// AppBaseURL is where the web client runs, such as https://researchsphere.example.
-	// Verification links point to its /verify-email page.
+	// Verification links point to its /verify-email page, reset links to /reset-password.
 	AppBaseURL string
 }
 
@@ -51,4 +51,10 @@ func New(store domain.Store, hasher domain.PasswordHasher, mailer domain.Mailer,
 // browsers never send to a server, so it cannot appear in access logs or Referer headers.
 func (s *Service) verificationLink(token string) string {
 	return s.cfg.AppBaseURL + "/verify-email#token=" + token
+}
+
+// resetLink builds the password reset link, with the token in the fragment for the same
+// reason as verificationLink.
+func (s *Service) resetLink(token string) string {
+	return s.cfg.AppBaseURL + "/reset-password#token=" + token
 }

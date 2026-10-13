@@ -87,6 +87,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/password-reset/request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a password reset link (FR-2.3, FR-2.4)
+         * @description Public. The response is the same whether or not the address is registered or
+         *     verified. When it belongs to an account, a link is emailed to
+         *     `/reset-password#token=...`; it works once and expires after 1 hour. A new link
+         *     makes the account's older unused reset links stop working.
+         */
+        post: operations["requestPasswordReset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/password-reset/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set a new password with the token from a reset link (FR-2.3, FR-2.5)
+         * @description Public. Sets the new password, marks the token used and the email address
+         *     verified, and ends every session of the account, in one transaction. It also
+         *     clears the account's failed logins (FR-2.7). Access tokens already issued stay
+         *     valid until they expire (at most 15 minutes).
+         */
+        post: operations["confirmPasswordReset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/login": {
         parameters: {
             query?: never;
@@ -227,6 +273,18 @@ export interface components {
         };
         ResendVerificationRequest: {
             email: string;
+        };
+        PasswordResetRequest: {
+            email: string;
+        };
+        PasswordResetConfirm: {
+            /** @description The token from the reset link. */
+            token: string;
+            /**
+             * Format: password
+             * @description 8 to 128 characters, as at registration.
+             */
+            newPassword: string;
         };
         LoginRequest: {
             /** @example ada@example.org */
@@ -412,6 +470,74 @@ export interface operations {
                 content?: never;
             };
             /** @description The address is not well formed (`invalid_email`), or the body is malformed (`bad_request`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    requestPasswordReset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordResetRequest"];
+            };
+        };
+        responses: {
+            /** @description If the address belongs to an account, a reset link was sent. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The address is not well formed (`invalid_email`), or the body is malformed (`bad_request`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    confirmPasswordReset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordResetConfirm"];
+            };
+        };
+        responses: {
+            /** @description The password is changed and every session of the account has ended. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /**
+             * @description The reset was refused. `code` is `token_invalid` (unknown or not a reset token),
+             *     `token_used`, `token_expired`, `password_too_short`, `password_too_long`, or
+             *     `bad_request` for a malformed body.
+             */
             400: {
                 headers: {
                     [name: string]: unknown;

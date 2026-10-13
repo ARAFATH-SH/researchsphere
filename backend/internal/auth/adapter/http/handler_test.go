@@ -29,6 +29,17 @@ type fakeService struct {
 	userID   string
 	refresh  usecase.RefreshResult // returned by Refresh
 	sent     []string              // refresh tokens given to Refresh and Logout
+	password string                // new password given to ResetPassword
+}
+
+func (f *fakeService) RequestPasswordReset(_ context.Context, email string) error {
+	f.email = email
+	return f.err
+}
+
+func (f *fakeService) ResetPassword(_ context.Context, token, newPassword string) error {
+	f.token, f.password = token, newPassword
+	return f.err
 }
 
 func (f *fakeService) Refresh(_ context.Context, token string) (usecase.RefreshResult, error) {
@@ -210,8 +221,75 @@ func TestResendVerification(t *testing.T) {
 	}
 }
 
+func TestRequestPasswordReset(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantCode   string
+	}{
+		{"accepted", nil, http.StatusAccepted, ""},
+		{"malformed email", domain.ErrInvalidEmail, http.StatusBadRequest, CodeInvalidEmail},
+		{"unexpected error", errors.New("database down"), http.StatusInternalServerError, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &fakeService{err: tt.err}
+			rec := post(t, svc, "/auth/password-reset/request", `{"email":"ada@example.org"}`)
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d; body %s", rec.Code, tt.wantStatus, rec.Body)
+			}
+			if got := decode(t, rec); tt.wantCode != "" && got["code"] != tt.wantCode {
+				t.Errorf("body = %v, want code %q", got, tt.wantCode)
+			}
+			if tt.wantStatus == http.StatusAccepted && rec.Body.Len() != 0 {
+				t.Errorf("202 with body %q", rec.Body)
+			}
+			if svc.email != "ada@example.org" {
+				t.Errorf("usecase got email %q", svc.email)
+			}
+		})
+	}
+}
+
+func TestConfirmPasswordReset(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantCode   string
+	}{
+		{"reset", nil, http.StatusNoContent, ""},
+		{"unknown token", domain.ErrTokenInvalid, http.StatusBadRequest, CodeTokenInvalid},
+		{"used token", domain.ErrTokenUsed, http.StatusBadRequest, CodeTokenUsed},
+		{"expired token", domain.ErrTokenExpired, http.StatusBadRequest, CodeTokenExpired},
+		{"short password", domain.ErrPasswordTooShort, http.StatusBadRequest, CodePasswordTooShort},
+		{"long password", domain.ErrPasswordTooLong, http.StatusBadRequest, CodePasswordTooLong},
+		{"unexpected error", errors.New("database down"), http.StatusInternalServerError, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &fakeService{err: tt.err}
+			rec := post(t, svc, "/auth/password-reset/confirm", `{"token":"abc","newPassword":"password1"}`)
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d; body %s", rec.Code, tt.wantStatus, rec.Body)
+			}
+			got := decode(t, rec)
+			if tt.wantCode != "" && (got["code"] != tt.wantCode || got["message"] == "") {
+				t.Errorf("body = %v, want code %q and a message", got, tt.wantCode)
+			}
+			if tt.wantStatus == http.StatusNoContent && rec.Body.Len() != 0 {
+				t.Errorf("204 with body %q", rec.Body)
+			}
+			if svc.token != "abc" || svc.password != "password1" {
+				t.Errorf("usecase got token %q and password %q", svc.token, svc.password)
+			}
+		})
+	}
+}
+
 func TestMalformedBody(t *testing.T) {
-	for _, path := range []string{"/auth/register", "/auth/verify-email", "/auth/resend-verification"} {
+	for _, path := range []string{"/auth/register", "/auth/verify-email", "/auth/resend-verification", "/auth/password-reset/request", "/auth/password-reset/confirm"} {
 		t.Run(path, func(t *testing.T) {
 			if rec := post(t, &fakeService{}, path, `{not json`); rec.Code != http.StatusBadRequest {
 				t.Errorf("status = %d, want 400", rec.Code)

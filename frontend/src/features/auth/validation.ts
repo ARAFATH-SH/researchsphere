@@ -52,6 +52,22 @@ export function validateRegistration(values: RegisterValues): FieldErrors {
   return errors;
 }
 
+// confirmPassword is checked only in the browser; the API receives only the new password.
+export type NewPasswordField = "password" | "confirmPassword";
+export type NewPasswordValues = Record<NewPasswordField, string>;
+export type NewPasswordErrors = Partial<Record<NewPasswordField, string>>;
+
+// validateNewPassword applies the registration rule to a new password (FR-1.2) and checks
+// that both entries match.
+export function validateNewPassword(values: NewPasswordValues): NewPasswordErrors {
+  const errors: NewPasswordErrors = {};
+  const n = length(values.password);
+  if (n < MIN_PASSWORD_LENGTH) errors.password = messages.passwordTooShort;
+  else if (n > MAX_PASSWORD_LENGTH) errors.password = messages.passwordTooLong;
+  if (values.confirmPassword !== values.password) errors.confirmPassword = messages.passwordMismatch;
+  return errors;
+}
+
 export type LoginField = "email" | "password";
 export type LoginValues = Record<LoginField, string>;
 export type LoginErrors = Partial<Record<LoginField, string>>;

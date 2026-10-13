@@ -53,6 +53,20 @@ export async function resendVerification(email: string): Promise<Result<undefine
   return res.ok ? { ok: true, data: undefined } : res;
 }
 
+// requestPasswordReset asks for a reset link. The server answers the same whether or
+// not the address belongs to an account (FR-2.4).
+export async function requestPasswordReset(email: string): Promise<Result<undefined>> {
+  const res = await call(() => api.POST("/auth/password-reset/request", { body: { email } }));
+  return res.ok ? { ok: true, data: undefined } : res;
+}
+
+// confirmPasswordReset spends the token from a reset link and sets the new password. The
+// server ends every session of the account (FR-2.3, FR-2.5).
+export async function confirmPasswordReset(token: string, newPassword: string): Promise<Result<undefined>> {
+  const res = await call(() => api.POST("/auth/password-reset/confirm", { body: { token, newPassword } }));
+  return res.ok ? { ok: true, data: undefined } : res;
+}
+
 // withUser turns a successful reply that must carry the user into a Result.
 function withUser(res: Result<CurrentUser | undefined>): Result<CurrentUser> {
   if (!res.ok) return res;

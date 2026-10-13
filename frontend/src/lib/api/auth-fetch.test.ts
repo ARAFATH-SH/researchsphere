@@ -71,7 +71,7 @@ describe("createAuthFetch", () => {
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 
-  it.each(["/auth/login", "/auth/refresh", "/auth/logout", "/auth/register", "/auth/verify-email", "/auth/resend-verification"])(
+  it.each(["/auth/login", "/auth/refresh", "/auth/logout", "/auth/register", "/auth/verify-email", "/auth/resend-verification", "/auth/password-reset/request", "/auth/password-reset/confirm"])(
     "does not refresh for %s",
     async (path) => {
       const { authFetch, fetch, refresh, onSessionLost } = setup([401]);

@@ -49,6 +49,10 @@ type Tx interface {
 	RotateSession(ctx context.Context, sessionID, oldHash, newHash string, at time.Time) error
 	// RevokeSession ends the session at at, unless it has already ended.
 	RevokeSession(ctx context.Context, sessionID string, at time.Time) error
+	// UpdatePasswordHash replaces the user's stored password hash.
+	UpdatePasswordHash(ctx context.Context, userID, hash string) error
+	// RevokeUserSessions ends every session of the user that has not ended yet (FR-2.5).
+	RevokeUserSessions(ctx context.Context, userID string, at time.Time) error
 }
 
 // PasswordHasher turns a password into a salted hash (NFR-5) and checks a password
@@ -84,4 +88,5 @@ type LoginAttempts interface {
 // Mailer sends email.
 type Mailer interface {
 	SendVerification(ctx context.Context, msg VerificationEmail) error
+	SendPasswordReset(ctx context.Context, msg PasswordResetEmail) error
 }

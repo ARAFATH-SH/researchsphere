@@ -351,6 +351,36 @@ func (q *Queries) RevokeSessionByTokenHash(ctx context.Context, arg RevokeSessio
 	return i, err
 }
 
+const revokeUserSessions = `-- name: RevokeUserSessions :exec
+UPDATE sessions SET revoked_at = $1
+WHERE user_id = $2 AND revoked_at IS NULL
+`
+
+type RevokeUserSessionsParams struct {
+	RevokedAt pgtype.Timestamptz
+	UserID    pgtype.UUID
+}
+
+func (q *Queries) RevokeUserSessions(ctx context.Context, arg RevokeUserSessionsParams) error {
+	_, err := q.db.Exec(ctx, revokeUserSessions, arg.RevokedAt, arg.UserID)
+	return err
+}
+
+const updatePasswordHash = `-- name: UpdatePasswordHash :exec
+UPDATE users SET password_hash = $1
+WHERE id = $2
+`
+
+type UpdatePasswordHashParams struct {
+	PasswordHash string
+	ID           pgtype.UUID
+}
+
+func (q *Queries) UpdatePasswordHash(ctx context.Context, arg UpdatePasswordHashParams) error {
+	_, err := q.db.Exec(ctx, updatePasswordHash, arg.PasswordHash, arg.ID)
+	return err
+}
+
 const updateSessionTokenHash = `-- name: UpdateSessionTokenHash :execrows
 UPDATE sessions SET refresh_token_hash = $1
 WHERE id = $2 AND refresh_token_hash = $3

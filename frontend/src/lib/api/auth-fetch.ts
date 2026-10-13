@@ -22,6 +22,8 @@ const noRefresh = new Set([
   "/auth/register",
   "/auth/verify-email",
   "/auth/resend-verification",
+  "/auth/password-reset/request",
+  "/auth/password-reset/confirm",
 ]);
 
 function mayRefresh(request: Request): boolean {

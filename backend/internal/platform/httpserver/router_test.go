@@ -51,6 +51,14 @@ func (fakeAPI) LogoutUser(context.Context, gen.LogoutUserRequestObject) (gen.Log
 	return gen.LogoutUser204Response{}, nil
 }
 
+func (fakeAPI) RequestPasswordReset(context.Context, gen.RequestPasswordResetRequestObject) (gen.RequestPasswordResetResponseObject, error) {
+	return gen.RequestPasswordReset202Response{}, nil
+}
+
+func (fakeAPI) ConfirmPasswordReset(context.Context, gen.ConfirmPasswordResetRequestObject) (gen.ConfirmPasswordResetResponseObject, error) {
+	return gen.ConfirmPasswordReset204Response{}, nil
+}
+
 // GetCurrentUser echoes the user ID that the auth middleware put in the context.
 func (fakeAPI) GetCurrentUser(ctx context.Context, _ gen.GetCurrentUserRequestObject) (gen.GetCurrentUserResponseObject, error) {
 	id, _ := httpx.UserID(ctx)

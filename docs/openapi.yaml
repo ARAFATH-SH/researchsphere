@@ -132,6 +132,67 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /auth/password-reset/request:
+    post:
+      operationId: requestPasswordReset
+      summary: Send a password reset link (FR-2.3, FR-2.4)
+      description: |
+        Public. The response is the same whether or not the address is registered or
+        verified. When it belongs to an account, a link is emailed to
+        `/reset-password#token=...`; it works once and expires after 1 hour. A new link
+        makes the account's older unused reset links stop working.
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordResetRequest"
+      responses:
+        "202":
+          description: If the address belongs to an account, a reset link was sent.
+        "400":
+          description: The address is not well formed (`invalid_email`), or the body is malformed (`bad_request`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /auth/password-reset/confirm:
+    post:
+      operationId: confirmPasswordReset
+      summary: Set a new password with the token from a reset link (FR-2.3, FR-2.5)
+      description: |
+        Public. Sets the new password, marks the token used and the email address
+        verified, and ends every session of the account, in one transaction. It also
+        clears the account's failed logins (FR-2.7). Access tokens already issued stay
+        valid until they expire (at most 15 minutes).
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordResetConfirm"
+      responses:
+        "204":
+          description: The password is changed and every session of the account has ended.
+        "400":
+          description: |
+            The reset was refused. `code` is `token_invalid` (unknown or not a reset token),
+            `token_used`, `token_expired`, `password_too_short`, `password_too_long`, or
+            `bad_request` for a malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /auth/login:
     post:
       operationId: loginUser
@@ -371,6 +432,28 @@ components:
         email:
           type: string
           maxLength: 254
+
+    PasswordResetRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          maxLength: 254
+
+    PasswordResetConfirm:
+      type: object
+      required: [token, newPassword]
+      properties:
+        token:
+          type: string
+          description: The token from the reset link.
+        newPassword:
+          type: string
+          description: 8 to 128 characters, as at registration.
+          minLength: 8
+          maxLength: 128
+          format: password
 
     LoginRequest:
       type: object

@@ -14,6 +14,7 @@ type TokenPurpose string
 // Token purposes.
 const (
 	PurposeEmailVerification TokenPurpose = "email_verification"
+	PurposePasswordReset     TokenPurpose = "password_reset"
 )
 
 // User is the part of an account the auth module reads.
@@ -74,6 +75,13 @@ type Session struct {
 
 // VerificationEmail is the message that carries a verification link.
 type VerificationEmail struct {
+	To       string
+	FullName string
+	Link     string // contains the token: never log it
+}
+
+// PasswordResetEmail is the message that carries a password reset link (FR-2.3).
+type PasswordResetEmail struct {
 	To       string
 	FullName string
 	Link     string // contains the token: never log it

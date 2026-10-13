@@ -272,6 +272,31 @@ func (tx fakeTx) RevokeSession(_ context.Context, sessionID string, at time.Time
 	return nil
 }
 
+func (tx fakeTx) UpdatePasswordHash(_ context.Context, userID, hash string) error {
+	if tx.s.failTx != nil {
+		return tx.s.failTx
+	}
+	k, u, ok := tx.s.userByID(userID)
+	if !ok {
+		return errors.New("no such user")
+	}
+	u.passwordHash = hash
+	tx.s.users[k] = u
+	return nil
+}
+
+func (tx fakeTx) RevokeUserSessions(_ context.Context, userID string, at time.Time) error {
+	if tx.s.failTx != nil {
+		return tx.s.failTx
+	}
+	for i, sess := range tx.s.sessions {
+		if sess.UserID == userID && sess.RevokedAt == nil {
+			tx.s.sessions[i].RevokedAt = &at
+		}
+	}
+	return nil
+}
+
 // fakeHasher marks the password so tests can see it was hashed, and counts the
 // passwords it checked.
 type fakeHasher struct {
@@ -306,8 +331,9 @@ func (s fakeSigner) Sign(userID string, now time.Time) (string, time.Time, error
 
 // fakeMailer records the messages it was asked to send.
 type fakeMailer struct {
-	sent []domain.VerificationEmail
-	err  error
+	sent   []domain.VerificationEmail
+	resets []domain.PasswordResetEmail
+	err    error
 }
 
 func (m *fakeMailer) SendVerification(_ context.Context, msg domain.VerificationEmail) error {
@@ -315,6 +341,14 @@ func (m *fakeMailer) SendVerification(_ context.Context, msg domain.Verification
 		return m.err
 	}
 	m.sent = append(m.sent, msg)
+	return nil
+}
+
+func (m *fakeMailer) SendPasswordReset(_ context.Context, msg domain.PasswordResetEmail) error {
+	if m.err != nil {
+		return m.err
+	}
+	m.resets = append(m.resets, msg)
 	return nil
 }
 
@@ -408,7 +442,7 @@ func newEnv() *env {
 	return e
 }
 
-// tokenFromLink returns the token in a verification link.
+// tokenFromLink returns the token in a verification or reset link.
 func tokenFromLink(link string) string {
 	_, token, _ := strings.Cut(link, "#token=")
 	return token

@@ -145,6 +145,8 @@ func TestAuthRoutesThroughRouter(t *testing.T) {
 		{"/api/v1/auth/verify-email", `{"token":"x"}`, http.StatusNoContent},
 		{"/api/v1/auth/resend-verification", `{"email":"ada@example.org"}`, http.StatusAccepted},
 		{"/api/v1/auth/login", `{"email":"ada@example.org","password":"password1"}`, http.StatusOK},
+		{"/api/v1/auth/password-reset/request", `{"email":"ada@example.org"}`, http.StatusAccepted},
+		{"/api/v1/auth/password-reset/confirm", `{"token":"x","newPassword":"password1"}`, http.StatusNoContent},
 		// Public: reachable with no access cookie, which may have expired.
 		{"/api/v1/auth/refresh", "", http.StatusNoContent},
 		{"/api/v1/auth/logout", "", http.StatusNoContent},
@@ -195,6 +197,10 @@ func (okAuth) Refresh(context.Context, string) (authusecase.RefreshResult, error
 }
 
 func (okAuth) Logout(context.Context, string) error { return nil }
+
+func (okAuth) RequestPasswordReset(context.Context, string) error { return nil }
+
+func (okAuth) ResetPassword(context.Context, string, string) error { return nil }
 
 const okUserID = "6f1c2b9e-1d2a-4c3b-9a8e-0f1e2d3c4b5a"
 

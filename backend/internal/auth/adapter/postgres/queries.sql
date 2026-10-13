@@ -75,6 +75,14 @@ VALUES (@token_hash, @session_id, @retired_at);
 UPDATE sessions SET revoked_at = coalesce(revoked_at, @revoked_at)
 WHERE id = @id;
 
+-- name: UpdatePasswordHash :exec
+UPDATE users SET password_hash = @password_hash
+WHERE id = @id;
+
+-- name: RevokeUserSessions :exec
+UPDATE sessions SET revoked_at = @revoked_at
+WHERE user_id = @user_id AND revoked_at IS NULL;
+
 -- name: RevokeSessionByTokenHash :one
 UPDATE sessions SET revoked_at = @revoked_at
 WHERE refresh_token_hash = @refresh_token_hash AND revoked_at IS NULL
