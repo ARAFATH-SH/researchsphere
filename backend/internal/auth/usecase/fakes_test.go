@@ -40,6 +40,8 @@ type fakeStore struct {
 	tokens   map[string]fakeToken // by token ID
 	sessions []fakeSession
 	retired  map[string]string // session ID by retired refresh token hash
+	projects map[string]fakeProject
+	pubs     map[string][]string // user IDs linked, by publication ID
 	nextID   int
 
 	failFind error // returned by the Find methods when set
@@ -48,7 +50,39 @@ type fakeStore struct {
 }
 
 func newFakeStore() *fakeStore {
-	return &fakeStore{users: map[string]fakeUser{}, tokens: map[string]fakeToken{}, retired: map[string]string{}}
+	return &fakeStore{
+		users: map[string]fakeUser{}, tokens: map[string]fakeToken{}, retired: map[string]string{},
+		projects: map[string]fakeProject{}, pubs: map[string][]string{},
+	}
+}
+
+// fakeProject is a project with the roles of its members, by user ID.
+type fakeProject struct {
+	title   string
+	members map[string]string
+}
+
+// addProject stores a project owned by ownerID with the other members given, as editors.
+func (s *fakeStore) addProject(title, ownerID string, others ...string) string {
+	id := s.id()
+	members := map[string]string{ownerID: "owner"}
+	for _, o := range others {
+		members[o] = "editor"
+	}
+	s.projects[id] = fakeProject{title: title, members: members}
+	return id
+}
+
+// ownedProjects returns the IDs of the projects userID owns, with those that have other
+// members marked.
+func (s *fakeStore) ownedProjects(userID string) map[string]bool {
+	out := map[string]bool{}
+	for id, p := range s.projects {
+		if p.members[userID] == "owner" {
+			out[id] = len(p.members) > 1
+		}
+	}
+	return out
 }
 
 func (s *fakeStore) id() string {
@@ -60,9 +94,11 @@ func (s *fakeStore) RunInTx(_ context.Context, fn func(domain.Tx) error) error {
 	s.txCount++
 	users, tokens, nextID := maps.Clone(s.users), maps.Clone(s.tokens), s.nextID
 	sessions, retired := slices.Clone(s.sessions), maps.Clone(s.retired)
+	projects, pubs := maps.Clone(s.projects), maps.Clone(s.pubs)
 	if err := fn(fakeTx{s}); err != nil {
 		s.users, s.tokens, s.nextID = users, tokens, nextID
 		s.sessions, s.retired = sessions, retired
+		s.projects, s.pubs = projects, pubs
 		return err
 	}
 	return nil
@@ -315,6 +351,79 @@ func (tx fakeTx) RevokeOtherUserSessions(_ context.Context, userID, keepSessionI
 	for i, sess := range tx.s.sessions {
 		if sess.UserID == userID && sess.ID != keepSessionID && sess.RevokedAt == nil {
 			tx.s.sessions[i].RevokedAt = &at
+		}
+	}
+	return nil
+}
+
+func (tx fakeTx) LockOwnedProjects(context.Context, string) error { return tx.s.failTx }
+
+func (tx fakeTx) FindSharedOwnedProjects(_ context.Context, userID string) ([]domain.ProjectRef, error) {
+	if tx.s.failTx != nil {
+		return nil, tx.s.failTx
+	}
+	var out []domain.ProjectRef
+	for id, shared := range tx.s.ownedProjects(userID) {
+		if shared {
+			out = append(out, domain.ProjectRef{ID: id, Title: tx.s.projects[id].title})
+		}
+	}
+	slices.SortFunc(out, func(a, b domain.ProjectRef) int { return strings.Compare(a.Title, b.Title) })
+	return out, nil
+}
+
+func (tx fakeTx) DeleteSoloProjects(_ context.Context, userID string) (int64, error) {
+	if tx.s.failTx != nil {
+		return 0, tx.s.failTx
+	}
+	var n int64
+	for id, shared := range tx.s.ownedProjects(userID) {
+		if !shared {
+			delete(tx.s.projects, id)
+			n++
+		}
+	}
+	return n, nil
+}
+
+func (tx fakeTx) DeleteUserPublications(_ context.Context, userID string) (int64, error) {
+	if tx.s.failTx != nil {
+		return 0, tx.s.failTx
+	}
+	var n int64
+	for id, users := range tx.s.pubs {
+		if !slices.Contains(users, userID) {
+			continue
+		}
+		left := slices.DeleteFunc(slices.Clone(users), func(u string) bool { return u == userID })
+		if len(left) == 0 {
+			delete(tx.s.pubs, id)
+			n++
+			continue
+		}
+		tx.s.pubs[id] = left
+	}
+	return n, nil
+}
+
+// DeleteUser removes the user and, as the database cascades do, the user's sessions,
+// tokens and project memberships.
+func (tx fakeTx) DeleteUser(_ context.Context, userID string) error {
+	if tx.s.failTx != nil {
+		return tx.s.failTx
+	}
+	k, _, ok := tx.s.userByID(userID)
+	if !ok {
+		return domain.ErrNotFound
+	}
+	delete(tx.s.users, k)
+	tx.s.sessions = slices.DeleteFunc(tx.s.sessions, func(sess fakeSession) bool { return sess.UserID == userID })
+	maps.DeleteFunc(tx.s.tokens, func(_ string, t fakeToken) bool { return t.UserID == userID })
+	for id, p := range tx.s.projects {
+		if _, ok := p.members[userID]; ok {
+			members := maps.Clone(p.members)
+			delete(members, userID)
+			tx.s.projects[id] = fakeProject{title: p.title, members: members}
 		}
 	}
 	return nil

@@ -106,6 +106,11 @@ var (
 	ErrWrongCurrentPassword = errors.New("current password is wrong")
 	// ErrSamePassword refuses a password change to the password already in use.
 	ErrSamePassword = errors.New("new password is the same as the current one")
+	// ErrWrongPassword refuses an account deletion whose password is wrong (FR-2.8).
+	ErrWrongPassword = errors.New("password is wrong")
+	// ErrOwnsSharedProject is wrapped by SharedProjectsError, which lists the projects
+	// (FR-2.9).
+	ErrOwnsSharedProject = errors.New("user owns a project that has other members")
 	// ErrAccountLocked is wrapped by LockedError, which says when the lock ends (FR-2.7).
 	ErrAccountLocked = errors.New("account is locked after too many failed logins")
 	// ErrSessionInvalid covers every refused refresh: a missing, unknown, expired, revoked
@@ -125,3 +130,19 @@ type LockedError struct {
 func (e *LockedError) Error() string { return ErrAccountLocked.Error() }
 
 func (e *LockedError) Unwrap() error { return ErrAccountLocked }
+
+// ProjectRef names a project.
+type ProjectRef struct {
+	ID    string
+	Title string
+}
+
+// SharedProjectsError refuses an account deletion while the user owns projects that have
+// other members (FR-2.9). It matches ErrOwnsSharedProject with errors.Is.
+type SharedProjectsError struct {
+	Projects []ProjectRef
+}
+
+func (e *SharedProjectsError) Error() string { return ErrOwnsSharedProject.Error() }
+
+func (e *SharedProjectsError) Unwrap() error { return ErrOwnsSharedProject }

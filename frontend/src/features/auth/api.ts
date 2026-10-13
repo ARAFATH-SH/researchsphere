@@ -4,6 +4,7 @@ export type RegisterRequest = components["schemas"]["RegisterRequest"];
 export type LoginRequest = components["schemas"]["LoginRequest"];
 export type CurrentUser = components["schemas"]["CurrentUser"];
 export type ChangePasswordRequest = components["schemas"]["ChangePasswordRequest"];
+export type ProjectRef = components["schemas"]["ProjectRef"];
 
 // ApiError is the error shape every API error uses (SRS 5.3).
 export type ApiError = components["schemas"]["Error"];
@@ -73,6 +74,23 @@ export async function confirmPasswordReset(token: string, newPassword: string): 
 export async function changePassword(body: ChangePasswordRequest): Promise<Result<undefined>> {
   const res = await call(() => api.POST("/auth/password", { body }));
   return res.ok ? { ok: true, data: undefined } : res;
+}
+
+// DeleteAccountResult is a Result that, for owns_shared_project, lists the projects that
+// block the deletion (FR-2.9).
+export type DeleteAccountResult = { ok: true; data: undefined } | ({ ok: false; projects?: ProjectRef[] } & ApiError);
+
+// deleteAccount deletes the signed-in user's account; the server clears the session
+// cookies (FR-2.8). It is refused while the user owns a project that has other members.
+export async function deleteAccount(password: string): Promise<DeleteAccountResult> {
+  let projects: ProjectRef[] | undefined;
+  const res = await call(async () => {
+    const reply = await api.DELETE("/account", { body: { password } });
+    if (reply.error && "projects" in reply.error) projects = reply.error.projects;
+    return reply;
+  });
+  if (res.ok) return { ok: true, data: undefined };
+  return projects ? { ...res, projects } : res;
 }
 
 // withUser turns a successful reply that must carry the user into a Result.

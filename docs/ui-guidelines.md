@@ -23,10 +23,10 @@ Components use only these names, for example `bg-background`, `bg-surface`,
 | `primary-hover` | `#09615D` | Hover and pressed state of `primary` |
 | `primary-soft` | `#E6F3F2` | Tinted backgrounds: search box, badges, illustration fills |
 | `secondary` | `#1F4E8C` (deep blue) | The wordmark, the landing headline and links in text |
-| `danger` | `#C62828` | Field errors and error banners |
+| `danger` | `#C62828` | Field errors, error banners, danger buttons and the border of a danger card |
 
 - **Contrast:** against white, `primary` is about 5.2:1, `text-muted` 5.4:1, `secondary`
-  8.3:1 and `danger` 5.6:1; white text on `primary` is 5.2:1. All pass WCAG AA. Keep new
+  8.3:1 and `danger` 5.6:1; white text on `primary` is 5.2:1 and on `danger` 5.6:1. All pass WCAG AA. Keep new
   text pairs at 4.5:1 or more.
 - **Font:** the system stack (`-apple-system, system-ui, "Segoe UI", Roboto, …`). Body text
   is 16px in forms and 14–16px elsewhere; secondary text 14px.
@@ -67,12 +67,14 @@ Components use only these names, for example `bg-background`, `bg-surface`,
 
 ## Buttons and links
 
-- Buttons are pills (`rounded-full`). Four kinds:
+- Buttons are pills (`rounded-full`). Five kinds:
   - **Primary:** `primary` background, `surface` text. One per view, for the main action.
   - **Outlined:** `primary` 1px border and text, transparent background.
   - **Text:** no border; `text-muted` text that darkens on hover, on a `background` tint.
   - **Inverse:** `surface` background, `primary` text. Only on a `primary` band, such as the
     landing call to action.
+  - **Danger:** `danger` background, `surface` text. Only for an action that destroys data,
+    such as deleting the account, inside a card with a `danger` border.
 - Submit buttons in forms are full width.
 - Links in text use `secondary` and underline on hover.
 - Every interactive element shows a visible focus ring (`focus-visible:ring-2 ring-primary`).

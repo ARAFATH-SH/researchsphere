@@ -399,6 +399,73 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /account:
+    delete:
+      operationId: deleteAccount
+      summary: Delete the logged-in user's account after entering the password (FR-2.8, FR-2.9)
+      description: |
+        Needs the access cookie. Refused while the user owns a project that has other
+        members (FR-2.9). Otherwise, in one transaction, deletes the projects where the
+        user is the only member, the user's publication links and every publication left
+        with no author, and the user; the database removes the profile, posts, comments,
+        likes, connections, sessions, tokens and embeddings with it (FR-2.8). Then clears
+        the failed logins of the account's email address and both session cookies.
+        Access tokens already issued on other devices are refused with 401 from then on,
+        because their user no longer exists.
+
+        A wrong password counts as a failed login (FR-2.7): the 5th failure within 15
+        minutes locks the account, and while it is locked this operation is refused before
+        the password is checked. A wrong password is a 400, not a 401, so the client does
+        not take it for an expired session.
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeleteAccountRequest"
+      responses:
+        "204":
+          description: The account is deleted.
+          headers:
+            Set-Cookie:
+              description: "`rs_access` and `rs_refresh`, cleared, in two headers."
+              schema:
+                type: string
+        "400":
+          description: |
+            The deletion was refused. `code` is `wrong_password`, or `bad_request` for a
+            malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: |
+            The user owns projects that have other members (`owns_shared_project`, FR-2.9).
+            `projects` lists them; each must be transferred or deleted first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OwnsSharedProjectError"
+        "429":
+          description: |
+            The account is locked after 5 failed logins within 15 minutes (`account_locked`,
+            FR-2.7), as for `POST /auth/login`.
+          headers:
+            Retry-After:
+              description: Seconds until the lock ends.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
   securitySchemes:
     cookieAuth:
@@ -524,6 +591,39 @@ components:
           minLength: 8
           maxLength: 128
           format: password
+
+    DeleteAccountRequest:
+      type: object
+      required: [password]
+      properties:
+        password:
+          type: string
+          format: password
+
+    OwnsSharedProjectError:
+      type: object
+      description: The error shape with the projects that block an account deletion (FR-2.9).
+      required: [code, message, projects]
+      properties:
+        code:
+          type: string
+          example: owns_shared_project
+        message:
+          type: string
+        projects:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProjectRef"
+
+    ProjectRef:
+      type: object
+      required: [id, title]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
 
     LoginRequest:
       type: object

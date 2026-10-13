@@ -254,6 +254,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete the logged-in user's account after entering the password (FR-2.8, FR-2.9)
+         * @description Needs the access cookie. Refused while the user owns a project that has other
+         *     members (FR-2.9). Otherwise, in one transaction, deletes the projects where the
+         *     user is the only member, the user's publication links and every publication left
+         *     with no author, and the user; the database removes the profile, posts, comments,
+         *     likes, connections, sessions, tokens and embeddings with it (FR-2.8). Then clears
+         *     the failed logins of the account's email address and both session cookies.
+         *     Access tokens already issued on other devices are refused with 401 from then on,
+         *     because their user no longer exists.
+         *
+         *     A wrong password counts as a failed login (FR-2.7): the 5th failure within 15
+         *     minutes locks the account, and while it is locked this operation is refused before
+         *     the password is checked. A wrong password is a 400, not a 401, so the client does
+         *     not take it for an expired session.
+         */
+        delete: operations["deleteAccount"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -324,6 +356,22 @@ export interface components {
              * @description 8 to 128 characters, as at registration, and not the current password.
              */
             newPassword: string;
+        };
+        DeleteAccountRequest: {
+            /** Format: password */
+            password: string;
+        };
+        /** @description The error shape with the projects that block an account deletion (FR-2.9). */
+        OwnsSharedProjectError: {
+            /** @example owns_shared_project */
+            code: string;
+            message: string;
+            projects: components["schemas"]["ProjectRef"][];
+        };
+        ProjectRef: {
+            /** Format: uuid */
+            id: string;
+            title: string;
         };
         LoginRequest: {
             /** @example ada@example.org */
@@ -800,6 +848,70 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    deleteAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteAccountRequest"];
+            };
+        };
+        responses: {
+            /** @description The account is deleted. */
+            204: {
+                headers: {
+                    /** @description `rs_access` and `rs_refresh`, cleared, in two headers. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /**
+             * @description The deletion was refused. `code` is `wrong_password`, or `bad_request` for a
+             *     malformed body.
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /**
+             * @description The user owns projects that have other members (`owns_shared_project`, FR-2.9).
+             *     `projects` lists them; each must be transferred or deleted first.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OwnsSharedProjectError"];
+                };
+            };
+            /**
+             * @description The account is locked after 5 failed logins within 15 minutes (`account_locked`,
+             *     FR-2.7), as for `POST /auth/login`.
+             */
+            429: {
+                headers: {
+                    /** @description Seconds until the lock ends. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             500: components["responses"]["InternalError"];
         };
     };

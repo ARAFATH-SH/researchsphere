@@ -97,3 +97,47 @@ WHERE u.id = @id;
 -- name: RevokeOtherUserSessions :exec
 UPDATE sessions SET revoked_at = @revoked_at
 WHERE user_id = @user_id AND id <> @keep_id AND revoked_at IS NULL;
+
+-- Account deletion (FR-2.8, FR-2.9). Each step is its own statement: in READ COMMITTED a
+-- statement sees rows committed while an earlier one waited for its locks.
+
+-- name: LockOwnedProjects :exec
+-- Locks the projects the user owns. A new member's row takes a key-share lock on its
+-- project, so nobody can join them until the transaction ends.
+SELECT p.id
+FROM projects p
+JOIN project_members m ON m.project_id = p.id
+WHERE m.user_id = @user_id AND m.role = 'owner'
+FOR UPDATE OF p;
+
+-- name: FindSharedOwnedProjects :many
+SELECT p.id, p.title
+FROM projects p
+JOIN project_members m ON m.project_id = p.id
+WHERE m.user_id = @user_id AND m.role = 'owner'
+  AND EXISTS (SELECT 1 FROM project_members o WHERE o.project_id = p.id AND o.user_id <> @user_id)
+ORDER BY p.title, p.id;
+
+-- name: DeleteSoloProjects :execrows
+DELETE FROM projects p
+WHERE p.id IN (SELECT m.project_id FROM project_members m WHERE m.user_id = @user_id AND m.role = 'owner')
+  AND NOT EXISTS (SELECT 1 FROM project_members o WHERE o.project_id = p.id AND o.user_id <> @user_id);
+
+-- name: LockUserPublications :many
+-- Locks the user's publications, so no co-author can link one until the transaction ends.
+SELECT p.id
+FROM publications p
+JOIN user_publications up ON up.publication_id = p.id
+WHERE up.user_id = @user_id
+FOR UPDATE OF p;
+
+-- name: DeleteUserPublicationLinks :exec
+DELETE FROM user_publications WHERE user_id = @user_id;
+
+-- name: DeleteAuthorlessPublications :execrows
+DELETE FROM publications p
+WHERE p.id = ANY(@ids::uuid[])
+  AND NOT EXISTS (SELECT 1 FROM user_publications up WHERE up.publication_id = p.id);
+
+-- name: DeleteUser :execrows
+DELETE FROM users WHERE id = @id;

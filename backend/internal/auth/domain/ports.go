@@ -58,6 +58,22 @@ type Tx interface {
 	// RevokeOtherUserSessions is RevokeUserSessions except for the session with
 	// keepSessionID, which stays as it is (FR-2.5 after a password change).
 	RevokeOtherUserSessions(ctx context.Context, userID, keepSessionID string, at time.Time) error
+	// LockOwnedProjects locks the projects the user owns until the transaction ends, so
+	// nobody can join them meanwhile (FR-2.9).
+	LockOwnedProjects(ctx context.Context, userID string) error
+	// FindSharedOwnedProjects returns the projects the user owns that have other members,
+	// ordered by title (FR-2.9).
+	FindSharedOwnedProjects(ctx context.Context, userID string) ([]ProjectRef, error)
+	// DeleteSoloProjects deletes the projects where the user is the only member and
+	// returns how many it deleted.
+	DeleteSoloProjects(ctx context.Context, userID string) (int64, error)
+	// DeleteUserPublications removes the user's links to publications, then deletes those
+	// publications that no author links to any more, and returns how many it deleted. A
+	// publication another user is linked to stays.
+	DeleteUserPublications(ctx context.Context, userID string) (int64, error)
+	// DeleteUser deletes the user; the database deletes the rows that belong to the user
+	// with it (FR-2.8). It returns ErrNotFound when there is no such user.
+	DeleteUser(ctx context.Context, userID string) error
 }
 
 // PasswordHasher turns a password into a salted hash (NFR-5) and checks a password

@@ -1,7 +1,8 @@
 // Package http serves the auth operations in docs/openapi.yaml: registration, email
 // verification and new verification links (FR-1), login and the current user (FR-2.1),
 // refreshing and ending sessions (FR-2.2), password reset (FR-2.3 to FR-2.5), changing
-// the password (FR-2.6), and the login lockout (FR-2.7).
+// the password (FR-2.6), the login lockout (FR-2.7), and deleting the account (FR-2.8,
+// FR-2.9).
 // It turns the usecase's errors into the error codes the web client shows next to each
 // field, and puts the login tokens in cookies.
 package http
@@ -41,6 +42,9 @@ const (
 
 	CodeWrongCurrentPassword = "wrong_current_password" //nolint:gosec // an error code, not a credential
 	CodeSamePassword         = "same_password"          //nolint:gosec // an error code, not a credential
+
+	CodeWrongPassword     = "wrong_password" //nolint:gosec // an error code, not a credential
+	CodeOwnsSharedProject = "owns_shared_project"
 )
 
 // refreshCookiePath limits the refresh cookie to the auth routes, which will refresh and
@@ -59,6 +63,7 @@ type service interface {
 	RequestPasswordReset(ctx context.Context, email string) error
 	ResetPassword(ctx context.Context, token, newPassword string) error
 	ChangePassword(ctx context.Context, in usecase.ChangePasswordInput) error
+	DeleteAccount(ctx context.Context, in usecase.DeleteAccountInput) error
 }
 
 // CookieConfig sets the attributes of the session cookies.
@@ -348,6 +353,59 @@ func (h *Handler) ChangePassword(ctx context.Context, req gen.ChangePasswordRequ
 	return nil, err
 }
 
+// DeleteAccount deletes the logged-in user's account and clears both cookies (FR-2.8). It
+// is refused with 409 and the blocking projects while the user owns a project that has
+// other members (FR-2.9). A wrong password is a 400, not a 401, as for ChangePassword.
+func (h *Handler) DeleteAccount(ctx context.Context, req gen.DeleteAccountRequestObject) (gen.DeleteAccountResponseObject, error) {
+	unauthenticated := gen.DeleteAccount401JSONResponse{UnauthorizedJSONResponse: gen.UnauthorizedJSONResponse{
+		Code: httpx.CodeUnauthenticated, Message: "Log in to continue.",
+	}}
+	id, ok := httpx.UserID(ctx)
+	if !ok {
+		return unauthenticated, nil
+	}
+	err := h.svc.DeleteAccount(ctx, usecase.DeleteAccountInput{UserID: id, Password: req.Body.Password})
+	switch {
+	case err == nil:
+		return cookieResponse{status: http.StatusNoContent, cookies: h.clearedCookies()}, nil
+	case errors.Is(err, domain.ErrWrongPassword):
+		return gen.DeleteAccount400JSONResponse{Code: CodeWrongPassword, Message: "The password is wrong."}, nil
+	case errors.Is(err, domain.ErrNotFound):
+		return unauthenticated, nil
+	case errors.Is(err, domain.ErrOwnsSharedProject):
+		var shared *domain.SharedProjectsError
+		if !errors.As(err, &shared) {
+			return nil, err
+		}
+		return ownsSharedProject(shared.Projects)
+	case errors.Is(err, domain.ErrAccountLocked):
+		var locked *domain.LockedError
+		if !errors.As(err, &locked) {
+			return nil, err
+		}
+		seconds, body := lockedError(locked.RetryAfter)
+		return gen.DeleteAccount429JSONResponse{Headers: gen.DeleteAccount429ResponseHeaders{RetryAfter: &seconds}, Body: body}, nil
+	}
+	return nil, err
+}
+
+// ownsSharedProject lists the projects that block an account deletion (FR-2.9).
+func ownsSharedProject(projects []domain.ProjectRef) (gen.DeleteAccountResponseObject, error) {
+	refs := make([]gen.ProjectRef, 0, len(projects))
+	for _, p := range projects {
+		var id openapi_types.UUID
+		if err := id.UnmarshalText([]byte(p.ID)); err != nil {
+			return nil, fmt.Errorf("project id: %w", err)
+		}
+		refs = append(refs, gen.ProjectRef{Id: id, Title: p.Title})
+	}
+	return gen.DeleteAccount409JSONResponse{
+		Code:     CodeOwnsSharedProject,
+		Message:  "You own projects that have other members. Transfer or delete them before you delete your account.",
+		Projects: refs,
+	}, nil
+}
+
 func currentUser(u domain.User) (gen.CurrentUser, error) {
 	var id openapi_types.UUID
 	if err := id.UnmarshalText([]byte(u.ID)); err != nil {
@@ -394,7 +452,7 @@ func (r loginOK) VisitLoginUserResponse(w http.ResponseWriter) error {
 	return json.NewEncoder(w).Encode(r.body)
 }
 
-// cookieResponse answers a refresh or a logout. Like loginOK, it exists because the
+// cookieResponse answers a refresh, a logout or an account deletion. Like loginOK, it exists because the
 // generated response types can set only one Set-Cookie header. body is nil for a 204.
 type cookieResponse struct {
 	status  int
@@ -405,6 +463,8 @@ type cookieResponse struct {
 func (r cookieResponse) VisitRefreshSessionResponse(w http.ResponseWriter) error { return r.write(w) }
 
 func (r cookieResponse) VisitLogoutUserResponse(w http.ResponseWriter) error { return r.write(w) }
+
+func (r cookieResponse) VisitDeleteAccountResponse(w http.ResponseWriter) error { return r.write(w) }
 
 func (r cookieResponse) write(w http.ResponseWriter) error {
 	for _, c := range r.cookies {

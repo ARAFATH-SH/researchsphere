@@ -342,6 +342,85 @@ func (t tx) RevokeOtherUserSessions(ctx context.Context, userID, keepSessionID s
 	return nil
 }
 
+func (t tx) LockOwnedProjects(ctx context.Context, userID string) error {
+	id, err := parseUUID(userID)
+	if err != nil {
+		return err
+	}
+	if err := t.q.LockOwnedProjects(ctx, id); err != nil {
+		return fmt.Errorf("lock owned projects: %w", err)
+	}
+	return nil
+}
+
+func (t tx) FindSharedOwnedProjects(ctx context.Context, userID string) ([]domain.ProjectRef, error) {
+	id, err := parseUUID(userID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := t.q.FindSharedOwnedProjects(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("find shared owned projects: %w", err)
+	}
+	projects := make([]domain.ProjectRef, 0, len(rows))
+	for _, r := range rows {
+		projects = append(projects, domain.ProjectRef{ID: uuidString(r.ID), Title: r.Title})
+	}
+	return projects, nil
+}
+
+func (t tx) DeleteSoloProjects(ctx context.Context, userID string) (int64, error) {
+	id, err := parseUUID(userID)
+	if err != nil {
+		return 0, err
+	}
+	n, err := t.q.DeleteSoloProjects(ctx, id)
+	if err != nil {
+		return 0, fmt.Errorf("delete solo projects: %w", err)
+	}
+	return n, nil
+}
+
+// DeleteUserPublications locks the user's publications before it removes the links, so a
+// co-author linking one at the same moment either commits first, and the publication
+// stays, or waits until it is gone.
+func (t tx) DeleteUserPublications(ctx context.Context, userID string) (int64, error) {
+	id, err := parseUUID(userID)
+	if err != nil {
+		return 0, err
+	}
+	pubs, err := t.q.LockUserPublications(ctx, id)
+	if err != nil {
+		return 0, fmt.Errorf("lock user publications: %w", err)
+	}
+	if err := t.q.DeleteUserPublicationLinks(ctx, id); err != nil {
+		return 0, fmt.Errorf("delete user publication links: %w", err)
+	}
+	if len(pubs) == 0 {
+		return 0, nil
+	}
+	n, err := t.q.DeleteAuthorlessPublications(ctx, pubs)
+	if err != nil {
+		return 0, fmt.Errorf("delete authorless publications: %w", err)
+	}
+	return n, nil
+}
+
+func (t tx) DeleteUser(ctx context.Context, userID string) error {
+	id, err := parseUUID(userID)
+	if err != nil {
+		return domain.ErrNotFound
+	}
+	n, err := t.q.DeleteUser(ctx, id)
+	if err != nil {
+		return fmt.Errorf("delete user: %w", err)
+	}
+	if n == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
 func session(id, userID pgtype.UUID, expiresAt, revokedAt pgtype.Timestamptz) domain.Session {
 	return domain.Session{ID: uuidString(id), UserID: uuidString(userID), ExpiresAt: expiresAt.Time, RevokedAt: timePtr(revokedAt)}
 }

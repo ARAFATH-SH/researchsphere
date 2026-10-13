@@ -1,0 +1,79 @@
+package usecase
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"unicode/utf8"
+
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/auth/domain"
+)
+
+// DeleteAccountInput is what the delete account form sends, with the logged-in user's ID.
+// The password is a secret: never log it.
+type DeleteAccountInput struct {
+	UserID   string
+	Password string
+}
+
+// DeleteAccount deletes a logged-in user who confirms with the password (FR-2.8). While
+// the user owns a project that has other members it returns a *domain.SharedProjectsError
+// listing them and deletes nothing (FR-2.9). Otherwise, in one transaction, it deletes
+// the projects where the user is the only member, the user's publication links and the
+// publications left with no author, and the user, whose other rows the database deletes
+// with it. It then clears the account's failed logins.
+//
+// A wrong password counts as a failed login and returns ErrWrongPassword; a locked
+// account returns a *domain.LockedError before the password is checked (FR-2.7). A user
+// that no longer exists returns ErrNotFound.
+func (s *Service) DeleteAccount(ctx context.Context, in DeleteAccountInput) error {
+	creds, err := s.store.FindCredentialsByID(ctx, in.UserID)
+	if err != nil {
+		return fmt.Errorf("find user: %w", err)
+	}
+	lock := s.lockoutFor(creds.Email)
+	if until := lock.lockedUntil(ctx); !until.IsZero() {
+		return &domain.LockedError{Until: until, RetryAfter: until.Sub(s.now())}
+	}
+	if utf8.RuneCountInString(in.Password) > MaxPasswordLength {
+		lock.recordFailure(ctx)
+		return domain.ErrWrongPassword // no stored password can match
+	}
+	ok, err := s.hasher.Verify(in.Password, creds.PasswordHash)
+	if err != nil {
+		return fmt.Errorf("check password: %w", err)
+	}
+	if !ok {
+		lock.recordFailure(ctx)
+		return domain.ErrWrongPassword
+	}
+
+	var projects, publications int64
+	err = s.store.RunInTx(ctx, func(tx domain.Tx) error {
+		// Lock first, then look: a member who joined while the lock was awaited is seen.
+		if err := tx.LockOwnedProjects(ctx, creds.ID); err != nil {
+			return err
+		}
+		shared, err := tx.FindSharedOwnedProjects(ctx, creds.ID)
+		if err != nil {
+			return err
+		}
+		if len(shared) > 0 {
+			return &domain.SharedProjectsError{Projects: shared}
+		}
+		if projects, err = tx.DeleteSoloProjects(ctx, creds.ID); err != nil {
+			return err
+		}
+		if publications, err = tx.DeleteUserPublications(ctx, creds.ID); err != nil {
+			return err
+		}
+		return tx.DeleteUser(ctx, creds.ID)
+	})
+	if err != nil {
+		return err
+	}
+	s.logger.InfoContext(ctx, "account deleted", slog.String("user_id", creds.ID),
+		slog.Int64("projects_deleted", projects), slog.Int64("publications_deleted", publications))
+	lock.reset(ctx)
+	return nil
+}

@@ -1,7 +1,7 @@
 // Pill buttons from docs/ui-guidelines.md. buttonClass styles a <button> or a <Link>,
 // so a link that acts as a button looks the same as one.
 
-export type ButtonVariant = "primary" | "outline" | "text" | "inverse";
+export type ButtonVariant = "primary" | "outline" | "text" | "inverse" | "danger";
 
 const base =
   "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full font-semibold transition-colors " +
@@ -14,6 +14,8 @@ const variants: Record<ButtonVariant, string> = {
   text: "text-text-muted hover:bg-background hover:text-text",
   // inverse is the primary action on a primary-coloured band.
   inverse: "bg-surface text-primary hover:bg-primary-soft focus-visible:ring-surface focus-visible:ring-offset-primary",
+  // danger is the action that destroys data, such as deleting the account.
+  danger: "bg-danger text-surface hover:bg-danger/90 focus-visible:ring-danger",
 };
 
 const sizes = {

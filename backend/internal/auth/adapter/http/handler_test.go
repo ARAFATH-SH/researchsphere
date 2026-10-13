@@ -31,6 +31,12 @@ type fakeService struct {
 	sent     []string              // refresh tokens given to Refresh and Logout
 	password string                // new password given to ResetPassword
 	change   usecase.ChangePasswordInput
+	deleted  usecase.DeleteAccountInput
+}
+
+func (f *fakeService) DeleteAccount(_ context.Context, in usecase.DeleteAccountInput) error {
+	f.deleted = in
+	return f.err
 }
 
 func (f *fakeService) ChangePassword(_ context.Context, in usecase.ChangePasswordInput) error {
@@ -715,6 +721,108 @@ func TestChangePasswordNotLoggedIn(t *testing.T) {
 func TestChangePasswordFails(t *testing.T) {
 	rec := changePassword(t, &fakeService{err: errors.New("database down")}, userID, "")
 	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", rec.Code)
+	}
+}
+
+func deleteAccount(t *testing.T, svc *fakeService, ctxUser string) *httptest.ResponseRecorder {
+	t.Helper()
+	ctx := t.Context()
+	if ctxUser != "" {
+		ctx = httpx.WithUserID(ctx, ctxUser) // what the auth middleware does
+	}
+	req := httptest.NewRequestWithContext(ctx, http.MethodDelete, "/api/v1/account", strings.NewReader(`{"password":"password1"}`))
+	req.Header.Set("Content-Type", "application/json")
+	return serve(NewHandler(svc, CookieConfig{}), req)
+}
+
+func TestDeleteAccount(t *testing.T) {
+	svc := &fakeService{}
+	rec := deleteAccount(t, svc, userID)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d %s, want 204", rec.Code, rec.Body)
+	}
+	if want := (usecase.DeleteAccountInput{UserID: userID, Password: "password1"}); svc.deleted != want {
+		t.Errorf("service got %+v, want %+v", svc.deleted, want)
+	}
+	cleared := map[string]string{}
+	for _, c := range rec.Result().Cookies() {
+		if c.Value != "" || c.MaxAge >= 0 {
+			t.Errorf("cookie %s = %q, max-age %d: want it cleared", c.Name, c.Value, c.MaxAge)
+		}
+		cleared[c.Name] = c.Path
+	}
+	if cleared[httpx.AccessCookie] != "/" || cleared[httpx.RefreshCookie] != "/api/v1/auth" {
+		t.Errorf("cleared cookies = %v, want both session cookies on their paths", cleared)
+	}
+}
+
+func TestDeleteAccountRefused(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantCode   string
+	}{
+		{"wrong password", domain.ErrWrongPassword, http.StatusBadRequest, CodeWrongPassword},
+		{"account no longer exists", fmt.Errorf("find user: %w", domain.ErrNotFound), http.StatusUnauthorized, httpx.CodeUnauthenticated},
+		{"locked", &domain.LockedError{RetryAfter: 90 * time.Second}, http.StatusTooManyRequests, CodeAccountLocked},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := deleteAccount(t, &fakeService{err: tt.err}, userID)
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d", rec.Code, tt.wantStatus)
+			}
+			got := decode(t, rec)
+			if got["code"] != tt.wantCode || got["message"] == "" {
+				t.Errorf("body = %v, want code %q and a message", got, tt.wantCode)
+			}
+			if c := rec.Header().Values("Set-Cookie"); len(c) != 0 {
+				t.Errorf("a refused deletion set cookies: %v", c)
+			}
+			if tt.wantStatus == http.StatusTooManyRequests && rec.Header().Get("Retry-After") != "90" {
+				t.Errorf("Retry-After = %q, want 90", rec.Header().Get("Retry-After"))
+			}
+		})
+	}
+}
+
+func TestDeleteAccountOwnsSharedProject(t *testing.T) {
+	const projectID = "7d0b5c8e-2f43-4a51-9a3e-0c6f1f3b2a10"
+	err := fmt.Errorf("delete: %w", &domain.SharedProjectsError{Projects: []domain.ProjectRef{{ID: projectID, Title: "Graph survey"}}})
+	rec := deleteAccount(t, &fakeService{err: err}, userID)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d %s, want 409", rec.Code, rec.Body)
+	}
+	var body gen.OwnsSharedProjectError
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Code != CodeOwnsSharedProject || body.Message == "" {
+		t.Errorf("body = %+v, want code %q and a message", body, CodeOwnsSharedProject)
+	}
+	if len(body.Projects) != 1 || body.Projects[0].Id.String() != projectID || body.Projects[0].Title != "Graph survey" {
+		t.Errorf("projects = %+v, want the one blocking project", body.Projects)
+	}
+	if c := rec.Header().Values("Set-Cookie"); len(c) != 0 {
+		t.Errorf("a refused deletion set cookies: %v", c)
+	}
+}
+
+func TestDeleteAccountNotLoggedIn(t *testing.T) {
+	svc := &fakeService{}
+	rec := deleteAccount(t, svc, "")
+	if rec.Code != http.StatusUnauthorized || decode(t, rec)["code"] != httpx.CodeUnauthenticated {
+		t.Errorf("got %d %s, want 401 unauthenticated", rec.Code, rec.Body)
+	}
+	if svc.deleted != (usecase.DeleteAccountInput{}) {
+		t.Error("the service was called without a logged-in user")
+	}
+}
+
+func TestDeleteAccountFails(t *testing.T) {
+	if rec := deleteAccount(t, &fakeService{err: errors.New("database down")}, userID); rec.Code != http.StatusInternalServerError {
 		t.Errorf("status = %d, want 500", rec.Code)
 	}
 }

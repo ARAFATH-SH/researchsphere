@@ -63,6 +63,10 @@ func (fakeAPI) ChangePassword(context.Context, gen.ChangePasswordRequestObject) 
 	return gen.ChangePassword204Response{}, nil
 }
 
+func (fakeAPI) DeleteAccount(context.Context, gen.DeleteAccountRequestObject) (gen.DeleteAccountResponseObject, error) {
+	return gen.DeleteAccount204Response{}, nil
+}
+
 // GetCurrentUser echoes the user ID that the auth middleware put in the context.
 func (fakeAPI) GetCurrentUser(ctx context.Context, _ gen.GetCurrentUserRequestObject) (gen.GetCurrentUserResponseObject, error) {
 	id, _ := httpx.UserID(ctx)

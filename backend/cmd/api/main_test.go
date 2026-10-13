@@ -204,6 +204,8 @@ func (okAuth) ResetPassword(context.Context, string, string) error { return nil 
 
 func (okAuth) ChangePassword(context.Context, authusecase.ChangePasswordInput) error { return nil }
 
+func (okAuth) DeleteAccount(context.Context, authusecase.DeleteAccountInput) error { return nil }
+
 const okUserID = "6f1c2b9e-1d2a-4c3b-9a8e-0f1e2d3c4b5a"
 
 // The wired router needs the access cookie for /auth/me and accepts a token it signed.
@@ -228,6 +230,31 @@ func TestCurrentUserThroughRouter(t *testing.T) {
 	rec := get(httpx.AccessCookie + "=" + token)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), okUserID) {
 		t.Errorf("with a valid cookie: %d %s, want 200 with the user", rec.Code, rec.Body)
+	}
+}
+
+// The wired router needs the access cookie to delete an account (FR-2.8).
+func TestDeleteAccountThroughRouter(t *testing.T) {
+	router := testRouter()
+	del := func(cookie string) *httptest.ResponseRecorder {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodDelete, "/api/v1/account", strings.NewReader(`{"password":"password1"}`))
+		req.Header.Set("Content-Type", "application/json")
+		if cookie != "" {
+			req.Header.Set("Cookie", cookie)
+		}
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		return rec
+	}
+	if rec := del(""); rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), httpx.CodeUnauthenticated) {
+		t.Errorf("without a cookie: %d %s, want 401 unauthenticated", rec.Code, rec.Body)
+	}
+	token, _, err := accesstoken.New([]byte(testSecret), accessTTL).Sign(okUserID, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec := del(httpx.AccessCookie + "=" + token); rec.Code != http.StatusNoContent {
+		t.Errorf("with a valid cookie: %d %s, want 204", rec.Code, rec.Body)
 	}
 }
 
