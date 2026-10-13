@@ -59,6 +59,10 @@ func (fakeAPI) ConfirmPasswordReset(context.Context, gen.ConfirmPasswordResetReq
 	return gen.ConfirmPasswordReset204Response{}, nil
 }
 
+func (fakeAPI) ChangePassword(context.Context, gen.ChangePasswordRequestObject) (gen.ChangePasswordResponseObject, error) {
+	return gen.ChangePassword204Response{}, nil
+}
+
 // GetCurrentUser echoes the user ID that the auth middleware put in the context.
 func (fakeAPI) GetCurrentUser(ctx context.Context, _ gen.GetCurrentUserRequestObject) (gen.GetCurrentUserResponseObject, error) {
 	id, _ := httpx.UserID(ctx)
@@ -250,6 +254,13 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"user-1"`) {
 		t.Errorf("GET /auth/me with a valid cookie: %d %s, want 200 with the user ID", rec.Code, rec.Body)
+	}
+
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/auth/password",
+		strings.NewReader(`{"currentPassword":"password1","newPassword":"password2"}`)))
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("POST /auth/password without a cookie: status = %d, want 401", rec.Code)
 	}
 
 	if rec := serve(t, router, http.MethodGet, "/api/v1/health"); rec.Code != http.StatusOK {

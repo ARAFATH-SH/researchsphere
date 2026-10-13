@@ -204,6 +204,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change the password after entering the current one (FR-2.6, FR-2.5)
+         * @description Needs the access cookie. Checks the current password, stores the new one and ends
+         *     every other session of the account, in one transaction. The session in the
+         *     `rs_refresh` cookie stays logged in; when the cookie is missing or names no live
+         *     session of this user, every session ends. Access tokens already issued on other
+         *     devices stay valid until they expire (at most 15 minutes).
+         *
+         *     A wrong current password counts as a failed login (FR-2.7): the 5th failure within
+         *     15 minutes locks the account, and while it is locked this operation is refused
+         *     before the password is checked. A successful change clears the failed logins.
+         *     A wrong current password is a 400, not a 401, so the client does not take it for
+         *     an expired session.
+         */
+        post: operations["changePassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/me": {
         parameters: {
             query?: never;
@@ -283,6 +313,15 @@ export interface components {
             /**
              * Format: password
              * @description 8 to 128 characters, as at registration.
+             */
+            newPassword: string;
+        };
+        ChangePasswordRequest: {
+            /** Format: password */
+            currentPassword: string;
+            /**
+             * Format: password
+             * @description 8 to 128 characters, as at registration, and not the current password.
              */
             newPassword: string;
         };
@@ -683,6 +722,61 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    changePassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                /** @description The refresh token set by `POST /auth/login` or `POST /auth/refresh`. */
+                rs_refresh?: components["parameters"]["RefreshCookie"];
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangePasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description The password is changed and every other session of the account has ended. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /**
+             * @description The change was refused. `code` is `wrong_current_password`,
+             *     `password_too_short` or `password_too_long` (the new password),
+             *     `same_password` (the new password equals the current one), or `bad_request`
+             *     for a malformed body.
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /**
+             * @description The account is locked after 5 failed logins within 15 minutes (`account_locked`,
+             *     FR-2.7), as for `POST /auth/login`.
+             */
+            429: {
+                headers: {
+                    /** @description Seconds until the lock ends. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
             };
             500: components["responses"]["InternalError"];
         };

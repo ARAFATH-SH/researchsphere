@@ -101,6 +101,17 @@ func (s *fakeStore) FindUserByID(_ context.Context, id string) (domain.User, err
 	return u.User, nil
 }
 
+func (s *fakeStore) FindCredentialsByID(_ context.Context, id string) (domain.Credentials, error) {
+	if s.failFind != nil {
+		return domain.Credentials{}, s.failFind
+	}
+	_, u, ok := s.userByID(id)
+	if !ok {
+		return domain.Credentials{}, domain.ErrNotFound
+	}
+	return domain.Credentials{User: u.User, PasswordHash: u.passwordHash}, nil
+}
+
 func (s *fakeStore) CreateSession(_ context.Context, sess domain.NewSession) error {
 	if s.failTx != nil {
 		return s.failTx
@@ -291,6 +302,18 @@ func (tx fakeTx) RevokeUserSessions(_ context.Context, userID string, at time.Ti
 	}
 	for i, sess := range tx.s.sessions {
 		if sess.UserID == userID && sess.RevokedAt == nil {
+			tx.s.sessions[i].RevokedAt = &at
+		}
+	}
+	return nil
+}
+
+func (tx fakeTx) RevokeOtherUserSessions(_ context.Context, userID, keepSessionID string, at time.Time) error {
+	if tx.s.failTx != nil {
+		return tx.s.failTx
+	}
+	for i, sess := range tx.s.sessions {
+		if sess.UserID == userID && sess.ID != keepSessionID && sess.RevokedAt == nil {
 			tx.s.sessions[i].RevokedAt = &at
 		}
 	}

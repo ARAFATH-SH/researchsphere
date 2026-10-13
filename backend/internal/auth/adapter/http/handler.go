@@ -1,7 +1,7 @@
 // Package http serves the auth operations in docs/openapi.yaml: registration, email
 // verification and new verification links (FR-1), login and the current user (FR-2.1),
-// refreshing and ending sessions (FR-2.2), password reset (FR-2.3 to FR-2.5), and the
-// login lockout (FR-2.7).
+// refreshing and ending sessions (FR-2.2), password reset (FR-2.3 to FR-2.5), changing
+// the password (FR-2.6), and the login lockout (FR-2.7).
 // It turns the usecase's errors into the error codes the web client shows next to each
 // field, and puts the login tokens in cookies.
 package http
@@ -38,6 +38,9 @@ const (
 	CodeEmailNotVerified   = "email_not_verified"
 	CodeSessionInvalid     = "session_invalid"
 	CodeAccountLocked      = "account_locked"
+
+	CodeWrongCurrentPassword = "wrong_current_password" //nolint:gosec // an error code, not a credential
+	CodeSamePassword         = "same_password"          //nolint:gosec // an error code, not a credential
 )
 
 // refreshCookiePath limits the refresh cookie to the auth routes, which will refresh and
@@ -55,6 +58,7 @@ type service interface {
 	Logout(ctx context.Context, token string) error
 	RequestPasswordReset(ctx context.Context, email string) error
 	ResetPassword(ctx context.Context, token, newPassword string) error
+	ChangePassword(ctx context.Context, in usecase.ChangePasswordInput) error
 }
 
 // CookieConfig sets the attributes of the session cookies.
@@ -215,21 +219,24 @@ func (h *Handler) LoginUser(ctx context.Context, req gen.LoginUserRequestObject)
 	}, nil
 }
 
-// accountLocked answers a login while the account is locked (FR-2.7). Retry-After and
-// the message round the time left up to whole seconds and whole minutes.
+// accountLocked answers a login while the account is locked (FR-2.7).
 func accountLocked(left time.Duration) gen.LoginUser429JSONResponse {
+	seconds, body := lockedError(left)
+	return gen.LoginUser429JSONResponse{Headers: gen.LoginUser429ResponseHeaders{RetryAfter: &seconds}, Body: body}
+}
+
+// lockedError returns the Retry-After seconds and the error body for a locked account
+// (FR-2.7). Both round the time left up, to whole seconds and whole minutes.
+func lockedError(left time.Duration) (int, gen.Error) {
 	seconds := int((left + time.Second - 1) / time.Second)
 	minutes := (seconds + 59) / 60
 	unit := "minutes"
 	if minutes == 1 {
 		unit = "minute"
 	}
-	return gen.LoginUser429JSONResponse{
-		Headers: gen.LoginUser429ResponseHeaders{RetryAfter: &seconds},
-		Body: gen.Error{
-			Code:    CodeAccountLocked,
-			Message: fmt.Sprintf("This account is locked after too many failed login attempts. Try again in %d %s.", minutes, unit),
-		},
+	return seconds, gen.Error{
+		Code:    CodeAccountLocked,
+		Message: fmt.Sprintf("This account is locked after too many failed login attempts. Try again in %d %s.", minutes, unit),
 	}
 }
 
@@ -298,6 +305,47 @@ func (h *Handler) GetCurrentUser(ctx context.Context, _ gen.GetCurrentUserReques
 		return nil, err
 	}
 	return gen.GetCurrentUser200JSONResponse(body), nil
+}
+
+// ChangePassword sets a new password for the logged-in user and ends every other session
+// of the account (FR-2.6, FR-2.5). The session in the refresh cookie stays logged in, so
+// the response sets no cookies. A wrong current password is a 400, not a 401: the web
+// client answers a 401 by refreshing the session.
+func (h *Handler) ChangePassword(ctx context.Context, req gen.ChangePasswordRequestObject) (gen.ChangePasswordResponseObject, error) {
+	unauthenticated := gen.ChangePassword401JSONResponse{UnauthorizedJSONResponse: gen.UnauthorizedJSONResponse{
+		Code: httpx.CodeUnauthenticated, Message: "Log in to continue.",
+	}}
+	id, ok := httpx.UserID(ctx)
+	if !ok {
+		return unauthenticated, nil
+	}
+	err := h.svc.ChangePassword(ctx, usecase.ChangePasswordInput{
+		UserID:          id,
+		RefreshToken:    refreshToken(req.Params.RsRefresh),
+		CurrentPassword: req.Body.CurrentPassword,
+		NewPassword:     req.Body.NewPassword,
+	})
+	if e, ok := inputError(err); ok {
+		return gen.ChangePassword400JSONResponse(e), nil
+	}
+	switch {
+	case err == nil:
+		return gen.ChangePassword204Response{}, nil
+	case errors.Is(err, domain.ErrWrongCurrentPassword):
+		return gen.ChangePassword400JSONResponse{Code: CodeWrongCurrentPassword, Message: "The current password is wrong."}, nil
+	case errors.Is(err, domain.ErrSamePassword):
+		return gen.ChangePassword400JSONResponse{Code: CodeSamePassword, Message: "Choose a password different from the current one."}, nil
+	case errors.Is(err, domain.ErrNotFound):
+		return unauthenticated, nil
+	case errors.Is(err, domain.ErrAccountLocked):
+		var locked *domain.LockedError
+		if !errors.As(err, &locked) {
+			return nil, err
+		}
+		seconds, body := lockedError(locked.RetryAfter)
+		return gen.ChangePassword429JSONResponse{Headers: gen.ChangePassword429ResponseHeaders{RetryAfter: &seconds}, Body: body}, nil
+	}
+	return nil, err
 }
 
 func currentUser(u domain.User) (gen.CurrentUser, error) {

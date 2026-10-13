@@ -30,6 +30,12 @@ type fakeService struct {
 	refresh  usecase.RefreshResult // returned by Refresh
 	sent     []string              // refresh tokens given to Refresh and Logout
 	password string                // new password given to ResetPassword
+	change   usecase.ChangePasswordInput
+}
+
+func (f *fakeService) ChangePassword(_ context.Context, in usecase.ChangePasswordInput) error {
+	f.change = in
+	return f.err
 }
 
 func (f *fakeService) RequestPasswordReset(_ context.Context, email string) error {
@@ -619,5 +625,96 @@ func TestLogoutUserFails(t *testing.T) {
 	}
 	if c := rec.Header().Values("Set-Cookie"); len(c) != 0 {
 		t.Errorf("a failed logout cleared cookies: %v", c)
+	}
+}
+
+// changePassword posts a password change as the logged-in user ctxUser, with the refresh
+// cookie set to refresh unless it is empty.
+func changePassword(t *testing.T, svc *fakeService, ctxUser, refresh string) *httptest.ResponseRecorder {
+	t.Helper()
+	ctx := t.Context()
+	if ctxUser != "" {
+		ctx = httpx.WithUserID(ctx, ctxUser) // what the auth middleware does
+	}
+	req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/auth/password",
+		strings.NewReader(`{"currentPassword":"password1","newPassword":"password2"}`))
+	req.Header.Set("Content-Type", "application/json")
+	if refresh != "" {
+		req.Header.Set("Cookie", httpx.RefreshCookie+"="+refresh)
+	}
+	return serve(NewHandler(svc, CookieConfig{}), req)
+}
+
+func TestChangePassword(t *testing.T) {
+	svc := &fakeService{}
+	rec := changePassword(t, svc, userID, "refresh-token")
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d %s, want 204", rec.Code, rec.Body)
+	}
+	want := usecase.ChangePasswordInput{UserID: userID, RefreshToken: "refresh-token", CurrentPassword: "password1", NewPassword: "password2"}
+	if svc.change != want {
+		t.Errorf("service got %+v, want %+v", svc.change, want)
+	}
+	if c := rec.Header().Values("Set-Cookie"); len(c) != 0 {
+		t.Errorf("a password change set cookies: %v: the current session must stay as it is", c)
+	}
+
+	svc = &fakeService{}
+	if rec := changePassword(t, svc, userID, ""); rec.Code != http.StatusNoContent || svc.change.RefreshToken != "" {
+		t.Errorf("without a refresh cookie: %d, token %q, want 204 and an empty token", rec.Code, svc.change.RefreshToken)
+	}
+}
+
+func TestChangePasswordRefused(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantCode   string
+	}{
+		{"wrong current password", domain.ErrWrongCurrentPassword, http.StatusBadRequest, CodeWrongCurrentPassword},
+		{"too short", domain.ErrPasswordTooShort, http.StatusBadRequest, CodePasswordTooShort},
+		{"too long", domain.ErrPasswordTooLong, http.StatusBadRequest, CodePasswordTooLong},
+		{"same as current", domain.ErrSamePassword, http.StatusBadRequest, CodeSamePassword},
+		{"account no longer exists", fmt.Errorf("find user: %w", domain.ErrNotFound), http.StatusUnauthorized, httpx.CodeUnauthenticated},
+		{"locked", &domain.LockedError{RetryAfter: 90 * time.Second}, http.StatusTooManyRequests, CodeAccountLocked},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := changePassword(t, &fakeService{err: tt.err}, userID, "refresh-token")
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d", rec.Code, tt.wantStatus)
+			}
+			got := decode(t, rec)
+			if got["code"] != tt.wantCode || got["message"] == "" {
+				t.Errorf("body = %v, want code %q and a message", got, tt.wantCode)
+			}
+			if tt.wantStatus == http.StatusTooManyRequests {
+				if ra := rec.Header().Get("Retry-After"); ra != "90" {
+					t.Errorf("Retry-After = %q, want 90", ra)
+				}
+				if !strings.Contains(got["message"], "2 minutes") {
+					t.Errorf("message = %q, want the minutes left", got["message"])
+				}
+			}
+		})
+	}
+}
+
+func TestChangePasswordNotLoggedIn(t *testing.T) {
+	svc := &fakeService{}
+	rec := changePassword(t, svc, "", "refresh-token")
+	if rec.Code != http.StatusUnauthorized || decode(t, rec)["code"] != httpx.CodeUnauthenticated {
+		t.Errorf("got %d %s, want 401 unauthenticated", rec.Code, rec.Body)
+	}
+	if svc.change != (usecase.ChangePasswordInput{}) {
+		t.Error("the service was called without a logged-in user")
+	}
+}
+
+func TestChangePasswordFails(t *testing.T) {
+	rec := changePassword(t, &fakeService{err: errors.New("database down")}, userID, "")
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", rec.Code)
 	}
 }

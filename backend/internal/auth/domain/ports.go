@@ -16,6 +16,8 @@ type Store interface {
 	FindCredentialsByEmail(ctx context.Context, email string) (Credentials, error)
 	// FindUserByID returns ErrNotFound when no user has the ID.
 	FindUserByID(ctx context.Context, id string) (User, error)
+	// FindCredentialsByID is FindUserByID with the password hash.
+	FindCredentialsByID(ctx context.Context, id string) (Credentials, error)
 	CreateSession(ctx context.Context, s NewSession) error
 	// RevokeSessionByToken ends the session whose current refresh token has this hash and
 	// returns it. It returns ErrNotFound, and changes nothing, when there is no such
@@ -53,6 +55,9 @@ type Tx interface {
 	UpdatePasswordHash(ctx context.Context, userID, hash string) error
 	// RevokeUserSessions ends every session of the user that has not ended yet (FR-2.5).
 	RevokeUserSessions(ctx context.Context, userID string, at time.Time) error
+	// RevokeOtherUserSessions is RevokeUserSessions except for the session with
+	// keepSessionID, which stays as it is (FR-2.5 after a password change).
+	RevokeOtherUserSessions(ctx context.Context, userID, keepSessionID string, at time.Time) error
 }
 
 // PasswordHasher turns a password into a salted hash (NFR-5) and checks a password

@@ -22,8 +22,8 @@ export function initials(fullName: string): string {
 
 type MeMenuProps = { variant: TabListVariant; active: boolean; tabClass: string };
 
-// MeMenu is the "Me" tab: the user's initials, opening a menu with their name, a link
-// to the profile and "Sign out" (FR-2.2).
+// MeMenu is the "Me" tab: the user's initials, opening a menu with their name, links to
+// the profile and the account settings, and "Sign out" (FR-2.2).
 export function MeMenu({ variant, active, tabClass }: MeMenuProps) {
   const session = useSession();
   const router = useRouter();
@@ -103,6 +103,13 @@ export function MeMenu({ variant, active, tabClass }: MeMenuProps) {
           className={buttonClass({ variant: "outline", size: "md", full: true })}
         >
           View profile
+        </Link>
+        <Link
+          href="/settings/account"
+          onClick={() => setOpen(false)}
+          className={`mt-2 ${buttonClass({ variant: "text", size: "md", full: true })}`}
+        >
+          Settings
         </Link>
         <div className="mt-3 border-t border-border pt-3">
           <button

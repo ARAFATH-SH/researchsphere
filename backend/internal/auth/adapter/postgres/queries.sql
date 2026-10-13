@@ -87,3 +87,13 @@ WHERE user_id = @user_id AND revoked_at IS NULL;
 UPDATE sessions SET revoked_at = @revoked_at
 WHERE refresh_token_hash = @refresh_token_hash AND revoked_at IS NULL
 RETURNING id, user_id, expires_at, revoked_at;
+
+-- name: FindCredentialsByID :one
+SELECT u.id, u.email, u.password_hash, u.email_verified_at, p.full_name
+FROM users u
+JOIN profiles p ON p.user_id = u.id
+WHERE u.id = @id;
+
+-- name: RevokeOtherUserSessions :exec
+UPDATE sessions SET revoked_at = @revoked_at
+WHERE user_id = @user_id AND id <> @keep_id AND revoked_at IS NULL;

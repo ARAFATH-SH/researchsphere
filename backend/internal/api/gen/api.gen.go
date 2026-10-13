@@ -65,6 +65,14 @@ func (e HealthStatus) Valid() bool {
 	}
 }
 
+// ChangePasswordRequest defines model for ChangePasswordRequest.
+type ChangePasswordRequest struct {
+	CurrentPassword string `json:"currentPassword"`
+
+	// NewPassword 8 to 128 characters, as at registration, and not the current password.
+	NewPassword string `json:"newPassword"`
+}
+
 // CurrentUser defines model for CurrentUser.
 type CurrentUser struct {
 	Email    string             `json:"email"`
@@ -171,6 +179,12 @@ type LogoutUserParams struct {
 	RsRefresh *RefreshCookie `form:"rs_refresh,omitempty" json:"rs_refresh,omitempty"`
 }
 
+// ChangePasswordParams defines parameters for ChangePassword.
+type ChangePasswordParams struct {
+	// RsRefresh The refresh token set by `POST /auth/login` or `POST /auth/refresh`.
+	RsRefresh *RefreshCookie `form:"rs_refresh,omitempty" json:"rs_refresh,omitempty"`
+}
+
 // RefreshSessionParams defines parameters for RefreshSession.
 type RefreshSessionParams struct {
 	// RsRefresh The refresh token set by `POST /auth/login` or `POST /auth/refresh`.
@@ -179,6 +193,9 @@ type RefreshSessionParams struct {
 
 // LoginUserJSONRequestBody defines body for LoginUser for application/json ContentType.
 type LoginUserJSONRequestBody = LoginRequest
+
+// ChangePasswordJSONRequestBody defines body for ChangePassword for application/json ContentType.
+type ChangePasswordJSONRequestBody = ChangePasswordRequest
 
 // ConfirmPasswordResetJSONRequestBody defines body for ConfirmPasswordReset for application/json ContentType.
 type ConfirmPasswordResetJSONRequestBody = PasswordResetConfirm
@@ -206,6 +223,9 @@ type ServerInterface interface {
 	// GetCurrentUser Return the logged-in user
 	// (GET /auth/me)
 	GetCurrentUser(w http.ResponseWriter, r *http.Request)
+	// ChangePassword Change the password after entering the current one (FR-2.6, FR-2.5)
+	// (POST /auth/password)
+	ChangePassword(w http.ResponseWriter, r *http.Request, params ChangePasswordParams)
 	// ConfirmPasswordReset Set a new password with the token from a reset link (FR-2.3, FR-2.5)
 	// (POST /auth/password-reset/confirm)
 	ConfirmPasswordReset(w http.ResponseWriter, r *http.Request)
@@ -298,6 +318,47 @@ func (siw *ServerInterfaceWrapper) GetCurrentUser(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetCurrentUser(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ChangePassword operation middleware
+func (siw *ServerInterfaceWrapper) ChangePassword(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ChangePasswordParams
+
+	{
+		var cookie *http.Cookie
+
+		if cookie, err = r.Cookie("rs_refresh"); err == nil {
+			var value RefreshCookie
+			err = runtime.BindStyledParameterWithOptions("simple", "rs_refresh", cookie.Value, &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationCookie, Explode: true, Required: false, Type: "string", Format: ""})
+			if err != nil {
+				siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "rs_refresh", Err: err})
+				return
+			}
+			params.RsRefresh = &value
+
+		}
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ChangePassword(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -555,6 +616,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/auth/login", wrapper.LoginUser)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/auth/refresh", wrapper.RefreshSession)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/auth/logout", wrapper.LogoutUser)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/auth/password", wrapper.ChangePassword)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/auth/me", wrapper.GetCurrentUser)
 
 	return m
@@ -752,6 +814,89 @@ func (response GetCurrentUser401JSONResponse) VisitGetCurrentUserResponse(w http
 type GetCurrentUser500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response GetCurrentUser500JSONResponse) VisitGetCurrentUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ChangePasswordRequestObject struct {
+	Params ChangePasswordParams
+	Body   *ChangePasswordJSONRequestBody
+}
+
+type ChangePasswordResponseObject interface {
+	VisitChangePasswordResponse(w http.ResponseWriter) error
+}
+
+type ChangePassword204Response struct {
+}
+
+func (response ChangePassword204Response) VisitChangePasswordResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type ChangePassword400JSONResponse Error
+
+func (response ChangePassword400JSONResponse) VisitChangePasswordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ChangePassword401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ChangePassword401JSONResponse) VisitChangePasswordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ChangePassword429ResponseHeaders struct {
+	RetryAfter *int
+}
+
+type ChangePassword429JSONResponse struct {
+	Body    Error
+	Headers ChangePassword429ResponseHeaders
+}
+
+func (response ChangePassword429JSONResponse) VisitChangePasswordResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ChangePassword500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ChangePassword500JSONResponse) VisitChangePasswordResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -1125,6 +1270,9 @@ type StrictServerInterface interface {
 	// GetCurrentUser Return the logged-in user
 	// (GET /auth/me)
 	GetCurrentUser(ctx context.Context, request GetCurrentUserRequestObject) (GetCurrentUserResponseObject, error)
+	// ChangePassword Change the password after entering the current one (FR-2.6, FR-2.5)
+	// (POST /auth/password)
+	ChangePassword(ctx context.Context, request ChangePasswordRequestObject) (ChangePasswordResponseObject, error)
 	// ConfirmPasswordReset Set a new password with the token from a reset link (FR-2.3, FR-2.5)
 	// (POST /auth/password-reset/confirm)
 	ConfirmPasswordReset(ctx context.Context, request ConfirmPasswordResetRequestObject) (ConfirmPasswordResetResponseObject, error)
@@ -1261,6 +1409,39 @@ func (sh *strictHandler) GetCurrentUser(w http.ResponseWriter, r *http.Request) 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetCurrentUserResponseObject); ok {
 		if err := validResponse.VisitGetCurrentUserResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ChangePassword operation middleware
+func (sh *strictHandler) ChangePassword(w http.ResponseWriter, r *http.Request, params ChangePasswordParams) {
+	var request ChangePasswordRequestObject
+
+	request.Params = params
+
+	var body ChangePasswordJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ChangePassword(ctx, request.(ChangePasswordRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ChangePassword")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ChangePasswordResponseObject); ok {
+		if err := validResponse.VisitChangePasswordResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

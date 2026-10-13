@@ -562,3 +562,77 @@ func TestRevokeUserSessions(t *testing.T) {
 		t.Errorf("another user's session = %+v, %v; want it untouched", other, err)
 	}
 }
+
+func TestFindCredentialsByID(t *testing.T) {
+	ctx := t.Context()
+	s, pool := newTestStore(t)
+	email := uniqueEmail(t, pool)
+	id, err := register(ctx, s, email, "Ada", rand.Text(), time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	c, err := s.FindCredentialsByID(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.ID != id || c.Email != email || c.FullName != "Ada" || c.PasswordHash != "hash" || c.Verified() {
+		t.Errorf("credentials = %+v", c)
+	}
+	for _, other := range []string{"00000000-0000-0000-0000-000000000000", "not-a-uuid", ""} {
+		if _, err := s.FindCredentialsByID(ctx, other); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("FindCredentialsByID(%q) error = %v, want ErrNotFound", other, err)
+		}
+	}
+}
+
+func TestRevokeOtherUserSessions(t *testing.T) {
+	ctx := t.Context()
+	s, pool := newTestStore(t)
+	userID, kept := newSession(t, s, pool)
+	_, otherHash := newSession(t, s, pool)
+
+	second, ended := rand.Text(), rand.Text()
+	expires := time.Now().Add(30 * 24 * time.Hour)
+	for _, h := range []string{second, ended} {
+		if err := s.CreateSession(ctx, domain.NewSession{UserID: userID, TokenHash: h, ExpiresAt: expires}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	endedAt := time.Now().Add(-time.Hour).Truncate(time.Microsecond)
+	if _, err := s.RevokeSessionByToken(ctx, ended, endedAt); err != nil {
+		t.Fatal(err)
+	}
+	keep, err := findSession(t, s, kept)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	at := time.Now().Truncate(time.Microsecond)
+	err = s.RunInTx(ctx, func(tx domain.Tx) error { return tx.RevokeOtherUserSessions(ctx, userID, keep.ID, at) })
+	if err != nil {
+		t.Fatalf("RevokeOtherUserSessions: %v", err)
+	}
+
+	if got, err := findSession(t, s, kept); err != nil || got.RevokedAt != nil {
+		t.Errorf("kept session = %+v, %v; want it live", got, err)
+	}
+	for _, tt := range []struct {
+		name, hash string
+		want       time.Time
+	}{
+		{"other live session", second, at},
+		{"session that had already ended", ended, endedAt},
+	} {
+		got, err := findSession(t, s, tt.hash)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.RevokedAt == nil || !got.RevokedAt.Equal(tt.want) {
+			t.Errorf("%s: RevokedAt = %v, want %v", tt.name, got.RevokedAt, tt.want)
+		}
+	}
+	if other, err := findSession(t, s, otherHash); err != nil || other.RevokedAt != nil {
+		t.Errorf("another user's session = %+v, %v; want it untouched", other, err)
+	}
+}

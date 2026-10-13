@@ -102,6 +102,31 @@ func (s *Store) FindUserByID(ctx context.Context, userID string) (domain.User, e
 	}, nil
 }
 
+// FindCredentialsByID returns domain.ErrNotFound when no user has the ID, or the ID is
+// not a UUID.
+func (s *Store) FindCredentialsByID(ctx context.Context, userID string) (domain.Credentials, error) {
+	id, err := parseUUID(userID)
+	if err != nil {
+		return domain.Credentials{}, domain.ErrNotFound
+	}
+	row, err := s.q.FindCredentialsByID(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Credentials{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.Credentials{}, fmt.Errorf("find credentials by id: %w", err)
+	}
+	return domain.Credentials{
+		User: domain.User{
+			ID:              uuidString(row.ID),
+			Email:           row.Email,
+			FullName:        row.FullName,
+			EmailVerifiedAt: timePtr(row.EmailVerifiedAt),
+		},
+		PasswordHash: row.PasswordHash,
+	}, nil
+}
+
 // CreateSession stores a login with the hash of its refresh token.
 func (s *Store) CreateSession(ctx context.Context, ns domain.NewSession) error {
 	id, err := parseUUID(ns.UserID)
@@ -297,6 +322,22 @@ func (t tx) RevokeUserSessions(ctx context.Context, userID string, at time.Time)
 	}
 	if err := t.q.RevokeUserSessions(ctx, sqlcgen.RevokeUserSessionsParams{UserID: id, RevokedAt: timestamptz(at)}); err != nil {
 		return fmt.Errorf("revoke user sessions: %w", err)
+	}
+	return nil
+}
+
+func (t tx) RevokeOtherUserSessions(ctx context.Context, userID, keepSessionID string, at time.Time) error {
+	id, err := parseUUID(userID)
+	if err != nil {
+		return err
+	}
+	keep, err := parseUUID(keepSessionID)
+	if err != nil {
+		return err
+	}
+	err = t.q.RevokeOtherUserSessions(ctx, sqlcgen.RevokeOtherUserSessionsParams{UserID: id, KeepID: keep, RevokedAt: timestamptz(at)})
+	if err != nil {
+		return fmt.Errorf("revoke other user sessions: %w", err)
 	}
 	return nil
 }

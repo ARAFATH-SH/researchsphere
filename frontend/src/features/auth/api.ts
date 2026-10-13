@@ -3,6 +3,7 @@ import { api, type components } from "@/lib/api/client";
 export type RegisterRequest = components["schemas"]["RegisterRequest"];
 export type LoginRequest = components["schemas"]["LoginRequest"];
 export type CurrentUser = components["schemas"]["CurrentUser"];
+export type ChangePasswordRequest = components["schemas"]["ChangePasswordRequest"];
 
 // ApiError is the error shape every API error uses (SRS 5.3).
 export type ApiError = components["schemas"]["Error"];
@@ -64,6 +65,13 @@ export async function requestPasswordReset(email: string): Promise<Result<undefi
 // server ends every session of the account (FR-2.3, FR-2.5).
 export async function confirmPasswordReset(token: string, newPassword: string): Promise<Result<undefined>> {
   const res = await call(() => api.POST("/auth/password-reset/confirm", { body: { token, newPassword } }));
+  return res.ok ? { ok: true, data: undefined } : res;
+}
+
+// changePassword sets a new password for the signed-in user. The server ends every other
+// session of the account; this device stays signed in (FR-2.6, FR-2.5).
+export async function changePassword(body: ChangePasswordRequest): Promise<Result<undefined>> {
+  const res = await call(() => api.POST("/auth/password", { body }));
   return res.ok ? { ok: true, data: undefined } : res;
 }
 

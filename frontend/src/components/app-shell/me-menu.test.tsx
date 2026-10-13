@@ -43,6 +43,16 @@ describe("MeMenu", () => {
     expect(screen.getByRole("link", { name: "View profile" }).getAttribute("href")).toBe("/profile");
   });
 
+  it("links to the account settings and closes when the link is used", () => {
+    mockUseSession.mockReturnValue({ status: "signedIn", user });
+    renderMenu();
+    fireEvent.click(toggle());
+    const settings = screen.getByRole("link", { name: "Settings" });
+    expect(settings.getAttribute("href")).toBe("/settings/account");
+    fireEvent.click(settings);
+    expect(toggle().getAttribute("aria-expanded")).toBe("false");
+  });
+
   it("closes on Escape", () => {
     mockUseSession.mockReturnValue({ status: "signedIn", user });
     renderMenu();

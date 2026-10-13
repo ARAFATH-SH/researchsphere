@@ -202,6 +202,8 @@ func (okAuth) RequestPasswordReset(context.Context, string) error { return nil }
 
 func (okAuth) ResetPassword(context.Context, string, string) error { return nil }
 
+func (okAuth) ChangePassword(context.Context, authusecase.ChangePasswordInput) error { return nil }
+
 const okUserID = "6f1c2b9e-1d2a-4c3b-9a8e-0f1e2d3c4b5a"
 
 // The wired router needs the access cookie for /auth/me and accepts a token it signed.

@@ -325,6 +325,62 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /auth/password:
+    post:
+      operationId: changePassword
+      summary: Change the password after entering the current one (FR-2.6, FR-2.5)
+      description: |
+        Needs the access cookie. Checks the current password, stores the new one and ends
+        every other session of the account, in one transaction. The session in the
+        `rs_refresh` cookie stays logged in; when the cookie is missing or names no live
+        session of this user, every session ends. Access tokens already issued on other
+        devices stay valid until they expire (at most 15 minutes).
+
+        A wrong current password counts as a failed login (FR-2.7): the 5th failure within
+        15 minutes locks the account, and while it is locked this operation is refused
+        before the password is checked. A successful change clears the failed logins.
+        A wrong current password is a 400, not a 401, so the client does not take it for
+        an expired session.
+      tags: [auth]
+      parameters:
+        - $ref: "#/components/parameters/RefreshCookie"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangePasswordRequest"
+      responses:
+        "204":
+          description: The password is changed and every other session of the account has ended.
+        "400":
+          description: |
+            The change was refused. `code` is `wrong_current_password`,
+            `password_too_short` or `password_too_long` (the new password),
+            `same_password` (the new password equals the current one), or `bad_request`
+            for a malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          description: |
+            The account is locked after 5 failed logins within 15 minutes (`account_locked`,
+            FR-2.7), as for `POST /auth/login`.
+          headers:
+            Retry-After:
+              description: Seconds until the lock ends.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /auth/me:
     get:
       operationId: getCurrentUser
@@ -451,6 +507,20 @@ components:
         newPassword:
           type: string
           description: 8 to 128 characters, as at registration.
+          minLength: 8
+          maxLength: 128
+          format: password
+
+    ChangePasswordRequest:
+      type: object
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword:
+          type: string
+          format: password
+        newPassword:
+          type: string
+          description: 8 to 128 characters, as at registration, and not the current password.
           minLength: 8
           maxLength: 128
           format: password

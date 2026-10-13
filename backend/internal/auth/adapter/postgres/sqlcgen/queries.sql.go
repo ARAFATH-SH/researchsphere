@@ -125,6 +125,34 @@ func (q *Queries) FindCredentialsByEmail(ctx context.Context, email string) (Fin
 	return i, err
 }
 
+const findCredentialsByID = `-- name: FindCredentialsByID :one
+SELECT u.id, u.email, u.password_hash, u.email_verified_at, p.full_name
+FROM users u
+JOIN profiles p ON p.user_id = u.id
+WHERE u.id = $1
+`
+
+type FindCredentialsByIDRow struct {
+	ID              pgtype.UUID
+	Email           string
+	PasswordHash    string
+	EmailVerifiedAt pgtype.Timestamptz
+	FullName        string
+}
+
+func (q *Queries) FindCredentialsByID(ctx context.Context, id pgtype.UUID) (FindCredentialsByIDRow, error) {
+	row := q.db.QueryRow(ctx, findCredentialsByID, id)
+	var i FindCredentialsByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.PasswordHash,
+		&i.EmailVerifiedAt,
+		&i.FullName,
+	)
+	return i, err
+}
+
 const findSessionByRetiredTokenForUpdate = `-- name: FindSessionByRetiredTokenForUpdate :one
 SELECT s.id, s.user_id, s.expires_at, s.revoked_at
 FROM sessions s
@@ -303,6 +331,22 @@ type MarkTokenUsedParams struct {
 
 func (q *Queries) MarkTokenUsed(ctx context.Context, arg MarkTokenUsedParams) error {
 	_, err := q.db.Exec(ctx, markTokenUsed, arg.UsedAt, arg.ID)
+	return err
+}
+
+const revokeOtherUserSessions = `-- name: RevokeOtherUserSessions :exec
+UPDATE sessions SET revoked_at = $1
+WHERE user_id = $2 AND id <> $3 AND revoked_at IS NULL
+`
+
+type RevokeOtherUserSessionsParams struct {
+	RevokedAt pgtype.Timestamptz
+	UserID    pgtype.UUID
+	KeepID    pgtype.UUID
+}
+
+func (q *Queries) RevokeOtherUserSessions(ctx context.Context, arg RevokeOtherUserSessionsParams) error {
+	_, err := q.db.Exec(ctx, revokeOtherUserSessions, arg.RevokedAt, arg.UserID, arg.KeepID)
 	return err
 }
 

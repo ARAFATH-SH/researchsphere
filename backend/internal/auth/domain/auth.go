@@ -101,6 +101,11 @@ var (
 	// so a login attempt cannot tell which accounts exist (FR-2.1).
 	ErrInvalidCredentials = errors.New("email address or password is wrong")
 	ErrEmailNotVerified   = errors.New("email address is not verified")
+	// ErrWrongCurrentPassword refuses a password change whose current password is wrong
+	// (FR-2.6).
+	ErrWrongCurrentPassword = errors.New("current password is wrong")
+	// ErrSamePassword refuses a password change to the password already in use.
+	ErrSamePassword = errors.New("new password is the same as the current one")
 	// ErrAccountLocked is wrapped by LockedError, which says when the lock ends (FR-2.7).
 	ErrAccountLocked = errors.New("account is locked after too many failed logins")
 	// ErrSessionInvalid covers every refused refresh: a missing, unknown, expired, revoked
