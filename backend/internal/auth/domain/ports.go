@@ -12,6 +12,17 @@ type Store interface {
 	RunInTx(ctx context.Context, fn func(tx Tx) error) error
 	// FindUserByEmail returns ErrNotFound when no user has the address, ignoring letter case.
 	FindUserByEmail(ctx context.Context, email string) (User, error)
+	// FindCredentialsByEmail is FindUserByEmail with the password hash.
+	FindCredentialsByEmail(ctx context.Context, email string) (Credentials, error)
+	// FindUserByID returns ErrNotFound when no user has the ID.
+	FindUserByID(ctx context.Context, id string) (User, error)
+	// FindCredentialsByID is FindUserByID with the password hash.
+	FindCredentialsByID(ctx context.Context, id string) (Credentials, error)
+	CreateSession(ctx context.Context, s NewSession) error
+	// RevokeSessionByToken ends the session whose current refresh token has this hash and
+	// returns it. It returns ErrNotFound, and changes nothing, when there is no such
+	// session or it has already ended.
+	RevokeSessionByToken(ctx context.Context, hash string, at time.Time) (Session, error)
 }
 
 // Tx is the set of writes available inside a transaction.
@@ -29,14 +40,74 @@ type Tx interface {
 	MarkTokenUsed(ctx context.Context, tokenID string, at time.Time) error
 	// MarkEmailVerified sets the verified time unless it is already set.
 	MarkEmailVerified(ctx context.Context, userID string, at time.Time) error
+	// FindSessionForUpdate locks the session whose current refresh token has this hash
+	// until the transaction ends. It returns ErrNotFound when there is none.
+	FindSessionForUpdate(ctx context.Context, hash string) (Session, error)
+	// FindSessionByRetiredTokenForUpdate locks the session that once had a refresh token
+	// with this hash and has since replaced it. It returns ErrNotFound when there is none.
+	FindSessionByRetiredTokenForUpdate(ctx context.Context, hash string) (Session, error)
+	// RotateSession gives the session a new refresh token hash and records oldHash as
+	// retired at at.
+	RotateSession(ctx context.Context, sessionID, oldHash, newHash string, at time.Time) error
+	// RevokeSession ends the session at at, unless it has already ended.
+	RevokeSession(ctx context.Context, sessionID string, at time.Time) error
+	// UpdatePasswordHash replaces the user's stored password hash.
+	UpdatePasswordHash(ctx context.Context, userID, hash string) error
+	// RevokeUserSessions ends every session of the user that has not ended yet (FR-2.5).
+	RevokeUserSessions(ctx context.Context, userID string, at time.Time) error
+	// RevokeOtherUserSessions is RevokeUserSessions except for the session with
+	// keepSessionID, which stays as it is (FR-2.5 after a password change).
+	RevokeOtherUserSessions(ctx context.Context, userID, keepSessionID string, at time.Time) error
+	// LockOwnedProjects locks the projects the user owns until the transaction ends, so
+	// nobody can join them meanwhile (FR-2.9).
+	LockOwnedProjects(ctx context.Context, userID string) error
+	// FindSharedOwnedProjects returns the projects the user owns that have other members,
+	// ordered by title (FR-2.9).
+	FindSharedOwnedProjects(ctx context.Context, userID string) ([]ProjectRef, error)
+	// DeleteSoloProjects deletes the projects where the user is the only member and
+	// returns how many it deleted.
+	DeleteSoloProjects(ctx context.Context, userID string) (int64, error)
+	// DeleteUserPublications removes the user's links to publications, then deletes those
+	// publications that no author links to any more, and returns how many it deleted. A
+	// publication another user is linked to stays.
+	DeleteUserPublications(ctx context.Context, userID string) (int64, error)
+	// DeleteUser deletes the user; the database deletes the rows that belong to the user
+	// with it (FR-2.8). It returns ErrNotFound when there is no such user.
+	DeleteUser(ctx context.Context, userID string) error
 }
 
-// PasswordHasher turns a password into a salted hash (NFR-5).
+// PasswordHasher turns a password into a salted hash (NFR-5) and checks a password
+// against one.
 type PasswordHasher interface {
 	Hash(password string) (string, error)
+	// Verify reports whether password matches encoded, a hash made by Hash.
+	Verify(password, encoded string) (bool, error)
+}
+
+// AccessTokenSigner issues the short-lived access token given at login (FR-2.1).
+type AccessTokenSigner interface {
+	// Sign returns a token for userID issued at now, and the time it expires.
+	Sign(userID string, now time.Time) (string, time.Time, error)
+}
+
+// LoginAttempts counts failed logins per account and holds account locks (FR-2.7). key
+// names the account; the usecase passes the normalized email address, which may belong
+// to no account.
+type LoginAttempts interface {
+	// RecordFailure adds a failed login and returns how many the current window holds.
+	// A window starts at the first failure and lasts window; the first failure after it
+	// starts a new one.
+	RecordFailure(ctx context.Context, key string, window time.Duration) (int, error)
+	// Reset forgets the account's failed logins.
+	Reset(ctx context.Context, key string) error
+	// Lock refuses logins for the account until until.
+	Lock(ctx context.Context, key string, until time.Time) error
+	// LockedUntil returns when the account's lock ends, or the zero time when it has none.
+	LockedUntil(ctx context.Context, key string) (time.Time, error)
 }
 
 // Mailer sends email.
 type Mailer interface {
 	SendVerification(ctx context.Context, msg VerificationEmail) error
+	SendPasswordReset(ctx context.Context, msg PasswordResetEmail) error
 }

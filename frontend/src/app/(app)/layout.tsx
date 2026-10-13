@@ -1,7 +1,12 @@
 import { AppShell } from "@/components/app-shell/app-shell";
+import { RequireSession } from "@/features/auth/require-session";
 
-// Signed-in pages inside the shell (docs/ui-guidelines.md). Nothing checks the session
-// yet: login is built in slice 8, which adds that check here.
+// Signed-in pages inside the shell (docs/ui-guidelines.md). Their content shows only
+// to a signed-in user; anyone else goes to /login.
 export default function SignedInLayout({ children }: LayoutProps<"/">) {
-  return <AppShell>{children}</AppShell>;
+  return (
+    <AppShell>
+      <RequireSession>{children}</RequireSession>
+    </AppShell>
+  );
 }

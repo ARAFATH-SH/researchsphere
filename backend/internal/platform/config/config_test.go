@@ -11,10 +11,20 @@ const (
 	testPassword = "s3cret-pw"
 	testDBURL    = "postgres://user:" + testPassword + "@localhost:5433/db?sslmode=disable"
 	testRedisURL = "redis://:" + testPassword + "@localhost:6379/0"
+	testSecret   = "test-jwt-secret-0123456789abcdefghij"
 )
 
+// env serves vars, with a valid JWT_SECRET unless vars sets one (even to "").
 func env(vars map[string]string) func(string) string {
-	return func(k string) string { return vars[k] }
+	return func(k string) string {
+		if v, ok := vars[k]; ok {
+			return v
+		}
+		if k == "JWT_SECRET" {
+			return testSecret
+		}
+		return ""
+	}
 }
 
 func TestLoad(t *testing.T) {
@@ -114,6 +124,16 @@ func TestLoad(t *testing.T) {
 			wantErr: []string{"APP_BASE_URL"},
 		},
 		{
+			name:    "jwt secret missing",
+			vars:    map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL, "JWT_SECRET": ""},
+			wantErr: []string{"JWT_SECRET"},
+		},
+		{
+			name:    "jwt secret too short",
+			vars:    map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL, "JWT_SECRET": testPassword},
+			wantErr: []string{"JWT_SECRET must be at least 32 bytes"},
+		},
+		{
 			name:    "several errors reported together",
 			vars:    map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL, "API_PORT": "x", "LOG_LEVEL": "y"},
 			wantErr: []string{"API_PORT", "LOG_LEVEL"},
@@ -188,6 +208,35 @@ func TestLoadMailSettings(t *testing.T) {
 	})
 }
 
+func TestLoadLoginSettings(t *testing.T) {
+	tests := []struct {
+		baseURL    string
+		wantSecure bool
+	}{
+		{"", false}, // the default, http://localhost:3000
+		{"http://localhost:3000", false},
+		{"https://rs.example.org", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.baseURL, func(t *testing.T) {
+			vars := map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL}
+			if tt.baseURL != "" {
+				vars["APP_BASE_URL"] = tt.baseURL
+			}
+			cfg, err := Load(env(vars))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.CookieSecure != tt.wantSecure {
+				t.Errorf("CookieSecure = %v, want %v", cfg.CookieSecure, tt.wantSecure)
+			}
+			if string(cfg.JWTSecret) != testSecret {
+				t.Error("JWTSecret is not the value of JWT_SECRET")
+			}
+		})
+	}
+}
+
 func TestLogValueHidesSecrets(t *testing.T) {
 	cfg, err := Load(env(map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL}))
 	if err != nil {
@@ -197,7 +246,7 @@ func TestLogValueHidesSecrets(t *testing.T) {
 	slog.New(slog.NewJSONHandler(&buf, nil)).Info("config loaded", "config", cfg)
 
 	out := buf.String()
-	for _, secret := range []string{testPassword, testDBURL, testRedisURL, "postgres://", "redis://"} {
+	for _, secret := range []string{testPassword, testDBURL, testRedisURL, "postgres://", "redis://", testSecret} {
 		if strings.Contains(out, secret) {
 			t.Errorf("log line contains %q: %s", secret, out)
 		}

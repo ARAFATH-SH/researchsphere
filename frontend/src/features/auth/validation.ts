@@ -19,6 +19,9 @@ export const messages = {
   passwordTooShort: `The password must be at least ${MIN_PASSWORD_LENGTH} characters long.`,
   passwordTooLong: `The password must be at most ${MAX_PASSWORD_LENGTH} characters long.`,
   passwordMismatch: "Passwords do not match.",
+  emailRequired: "Enter your email address.",
+  passwordRequired: "Enter your password.",
+  currentPasswordRequired: "Enter your current password.",
 };
 
 // length counts characters (code points), as the server does, not UTF-16 units.
@@ -47,6 +50,56 @@ export function validateRegistration(values: RegisterValues): FieldErrors {
   else if (n > MAX_PASSWORD_LENGTH) errors.password = messages.passwordTooLong;
 
   if (values.confirmPassword !== values.password) errors.confirmPassword = messages.passwordMismatch;
+  return errors;
+}
+
+// confirmPassword is checked only in the browser; the API receives only the new password.
+export type NewPasswordField = "password" | "confirmPassword";
+export type NewPasswordValues = Record<NewPasswordField, string>;
+export type NewPasswordErrors = Partial<Record<NewPasswordField, string>>;
+
+// validateNewPassword applies the registration rule to a new password (FR-1.2) and checks
+// that both entries match.
+export function validateNewPassword(values: NewPasswordValues): NewPasswordErrors {
+  const errors: NewPasswordErrors = {};
+  const n = length(values.password);
+  if (n < MIN_PASSWORD_LENGTH) errors.password = messages.passwordTooShort;
+  else if (n > MAX_PASSWORD_LENGTH) errors.password = messages.passwordTooLong;
+  if (values.confirmPassword !== values.password) errors.confirmPassword = messages.passwordMismatch;
+  return errors;
+}
+
+// confirmPassword is checked only in the browser; the API receives the other two.
+export type PasswordChangeField = "currentPassword" | "newPassword" | "confirmPassword";
+export type PasswordChangeValues = Record<PasswordChangeField, string>;
+export type PasswordChangeErrors = Partial<Record<PasswordChangeField, string>>;
+
+// validatePasswordChange checks that the current password is filled in and applies
+// validateNewPassword to the new one (FR-2.6). Whether the current password is right is
+// the server's answer to give.
+export function validatePasswordChange(values: PasswordChangeValues): PasswordChangeErrors {
+  const errors: PasswordChangeErrors = {};
+  if (values.currentPassword === "") errors.currentPassword = messages.currentPasswordRequired;
+  const next = validateNewPassword({ password: values.newPassword, confirmPassword: values.confirmPassword });
+  if (next.password) errors.newPassword = next.password;
+  if (next.confirmPassword) errors.confirmPassword = next.confirmPassword;
+  return errors;
+}
+
+export type LoginField = "email" | "password";
+export type LoginValues = Record<LoginField, string>;
+export type LoginErrors = Partial<Record<LoginField, string>>;
+
+// validateLogin checks only that both fields are filled in and the address looks like
+// one. Password length is not checked: a wrong password is the server's answer to give.
+export function validateLogin(values: LoginValues): LoginErrors {
+  const errors: LoginErrors = {};
+  if (values.email.trim() === "") errors.email = messages.emailRequired;
+  else {
+    const emailError = validateEmail(values.email);
+    if (emailError) errors.email = emailError;
+  }
+  if (values.password === "") errors.password = messages.passwordRequired;
   return errors;
 }
 

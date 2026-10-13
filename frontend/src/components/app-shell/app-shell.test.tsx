@@ -3,7 +3,9 @@ import { render, screen, within } from "@testing-library/react";
 import { AppShell } from "./app-shell";
 
 const mockPathname = jest.fn<string, []>();
-jest.mock("next/navigation", () => ({ usePathname: () => mockPathname() }));
+jest.mock("next/navigation", () => ({ usePathname: () => mockPathname(), useRouter: () => ({ replace: jest.fn() }) }));
+jest.mock("@/features/auth/session", () => ({ useSession: () => ({ status: "loading" }) }));
+jest.mock("@/features/auth/api");
 
 const want = [
   ["Home", "/home"],
@@ -11,11 +13,10 @@ const want = [
   ["Projects", "/projects"],
   ["Events", "/events"],
   ["Notifications", "/notifications"],
-  ["Me", "/profile"],
 ];
 
 describe("AppShell", () => {
-  it("has the six tabs in order, in the top bar and the bottom bar", () => {
+  it("has the five page tabs and the Me menu, in the top bar and the bottom bar", () => {
     mockPathname.mockReturnValue("/home");
     render(<AppShell>content</AppShell>);
     // jsdom applies no CSS, so both bars are present; CSS shows one per screen width.
@@ -23,7 +24,9 @@ describe("AppShell", () => {
     expect(bars).toHaveLength(2);
     for (const bar of bars) {
       const links = within(bar).getAllByRole("link");
+      // The Me menu is closed, so its "View profile" link is hidden.
       expect(links.map((l) => [l.textContent, l.getAttribute("href")])).toEqual(want);
+      expect(within(bar).getByRole("button", { name: "Me" }).getAttribute("aria-expanded")).toBe("false");
     }
     expect(screen.getByText("content")).toBeTruthy();
   });
@@ -31,7 +34,6 @@ describe("AppShell", () => {
   it.each([
     ["/projects", "Projects"],
     ["/projects/123/workspace", "Projects"],
-    ["/profile", "Me"],
   ])("marks the tab for %s as current", (path, label) => {
     mockPathname.mockReturnValue(path);
     render(<AppShell>x</AppShell>);

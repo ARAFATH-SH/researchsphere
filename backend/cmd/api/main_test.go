@@ -14,7 +14,10 @@ import (
 	"time"
 
 	authhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/adapter/http"
+	authdomain "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/domain"
 	authusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/usecase"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/accesstoken"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpx"
 )
 
 // freePort returns a TCP port that was free a moment ago.
@@ -55,6 +58,7 @@ func TestRunShutsDownWhenContextIsCancelled(t *testing.T) {
 		"DATABASE_URL": "postgres://u:" + password + "@127.0.0.1:1/db?sslmode=disable",
 		"REDIS_URL":    "redis://:" + password + "@127.0.0.1:1/0",
 		"API_PORT":     port,
+		"JWT_SECRET":   testSecret,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	var logs syncBuffer
@@ -97,18 +101,31 @@ func TestRunShutsDownWhenContextIsCancelled(t *testing.T) {
 	if strings.Contains(out, password) {
 		t.Errorf("logs leak the password:\n%s", out)
 	}
+	if strings.Contains(out, testSecret) {
+		t.Errorf("logs leak the JWT secret:\n%s", out)
+	}
 }
 
 func TestRunStopsOnMissingSettings(t *testing.T) {
 	err := run(context.Background(), func(string) string { return "" }, &bytes.Buffer{})
-	if err == nil || !strings.Contains(err.Error(), "DATABASE_URL") || !strings.Contains(err.Error(), "REDIS_URL") {
-		t.Fatalf("run() error = %v, want one naming DATABASE_URL and REDIS_URL", err)
+	for _, name := range []string{"DATABASE_URL", "REDIS_URL", "JWT_SECRET"} {
+		if err == nil || !strings.Contains(err.Error(), name) {
+			t.Fatalf("run() error = %v, want one naming %s", err, name)
+		}
 	}
 }
 
-func TestHealthThroughRouter(t *testing.T) {
+const testSecret = "test-jwt-secret-0123456789abcdefghij"
+
+// testRouter wires the real router and auth middleware to fakes.
+func testRouter() http.Handler {
 	up := pingerFunc(func(context.Context) error { return nil })
-	router := newRouter(slog.New(slog.DiscardHandler), up, up, authhttp.NewHandler(okAuth{}))
+	return newRouter(slog.New(slog.DiscardHandler), up, up, authhttp.NewHandler(okAuth{}, authhttp.CookieConfig{}),
+		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
+}
+
+func TestHealthThroughRouter(t *testing.T) {
+	router := testRouter()
 
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/health", nil))
@@ -118,8 +135,7 @@ func TestHealthThroughRouter(t *testing.T) {
 }
 
 func TestAuthRoutesThroughRouter(t *testing.T) {
-	up := pingerFunc(func(context.Context) error { return nil })
-	router := newRouter(slog.New(slog.DiscardHandler), up, up, authhttp.NewHandler(okAuth{}))
+	router := testRouter()
 
 	tests := []struct {
 		path, body string
@@ -128,6 +144,12 @@ func TestAuthRoutesThroughRouter(t *testing.T) {
 		{"/api/v1/auth/register", `{"fullName":"Ada","email":"ada@example.org","password":"password1"}`, http.StatusCreated},
 		{"/api/v1/auth/verify-email", `{"token":"x"}`, http.StatusNoContent},
 		{"/api/v1/auth/resend-verification", `{"email":"ada@example.org"}`, http.StatusAccepted},
+		{"/api/v1/auth/login", `{"email":"ada@example.org","password":"password1"}`, http.StatusOK},
+		{"/api/v1/auth/password-reset/request", `{"email":"ada@example.org"}`, http.StatusAccepted},
+		{"/api/v1/auth/password-reset/confirm", `{"token":"x","newPassword":"password1"}`, http.StatusNoContent},
+		// Public: reachable with no access cookie, which may have expired.
+		{"/api/v1/auth/refresh", "", http.StatusNoContent},
+		{"/api/v1/auth/logout", "", http.StatusNoContent},
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
@@ -152,6 +174,89 @@ func (okAuth) Register(_ context.Context, in authusecase.RegisterInput) (authuse
 func (okAuth) VerifyEmail(context.Context, string) error { return nil }
 
 func (okAuth) ResendVerification(context.Context, string) error { return nil }
+
+func (okAuth) Login(context.Context, authusecase.LoginInput) (authusecase.LoginResult, error) {
+	now := time.Now()
+	return authusecase.LoginResult{
+		User:     authdomain.User{ID: okUserID, Email: "ada@example.org", FullName: "Ada"},
+		IssuedAt: now, AccessToken: "a", AccessExpiresAt: now.Add(accessTTL),
+		RefreshToken: "r", RefreshExpiresAt: now.Add(authusecase.RefreshTTL),
+	}, nil
+}
+
+func (okAuth) CurrentUser(_ context.Context, id string) (authdomain.User, error) {
+	return authdomain.User{ID: id, Email: "ada@example.org", FullName: "Ada"}, nil
+}
+
+func (okAuth) Refresh(context.Context, string) (authusecase.RefreshResult, error) {
+	now := time.Now()
+	return authusecase.RefreshResult{
+		IssuedAt: now, AccessToken: "a", AccessExpiresAt: now.Add(accessTTL),
+		RefreshToken: "r", RefreshExpiresAt: now.Add(authusecase.RefreshTTL),
+	}, nil
+}
+
+func (okAuth) Logout(context.Context, string) error { return nil }
+
+func (okAuth) RequestPasswordReset(context.Context, string) error { return nil }
+
+func (okAuth) ResetPassword(context.Context, string, string) error { return nil }
+
+func (okAuth) ChangePassword(context.Context, authusecase.ChangePasswordInput) error { return nil }
+
+func (okAuth) DeleteAccount(context.Context, authusecase.DeleteAccountInput) error { return nil }
+
+const okUserID = "6f1c2b9e-1d2a-4c3b-9a8e-0f1e2d3c4b5a"
+
+// The wired router needs the access cookie for /auth/me and accepts a token it signed.
+func TestCurrentUserThroughRouter(t *testing.T) {
+	router := testRouter()
+	get := func(cookie string) *httptest.ResponseRecorder {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/auth/me", nil)
+		if cookie != "" {
+			req.Header.Set("Cookie", cookie)
+		}
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		return rec
+	}
+	if rec := get(""); rec.Code != http.StatusUnauthorized {
+		t.Errorf("without a cookie: status = %d, want 401", rec.Code)
+	}
+	token, _, err := accesstoken.New([]byte(testSecret), accessTTL).Sign(okUserID, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := get(httpx.AccessCookie + "=" + token)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), okUserID) {
+		t.Errorf("with a valid cookie: %d %s, want 200 with the user", rec.Code, rec.Body)
+	}
+}
+
+// The wired router needs the access cookie to delete an account (FR-2.8).
+func TestDeleteAccountThroughRouter(t *testing.T) {
+	router := testRouter()
+	del := func(cookie string) *httptest.ResponseRecorder {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodDelete, "/api/v1/account", strings.NewReader(`{"password":"password1"}`))
+		req.Header.Set("Content-Type", "application/json")
+		if cookie != "" {
+			req.Header.Set("Cookie", cookie)
+		}
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		return rec
+	}
+	if rec := del(""); rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), httpx.CodeUnauthenticated) {
+		t.Errorf("without a cookie: %d %s, want 401 unauthenticated", rec.Code, rec.Body)
+	}
+	token, _, err := accesstoken.New([]byte(testSecret), accessTTL).Sign(okUserID, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec := del(httpx.AccessCookie + "=" + token); rec.Code != http.StatusNoContent {
+		t.Errorf("with a valid cookie: %d %s, want 204", rec.Code, rec.Body)
+	}
+}
 
 // pingerFunc adapts a function to the health domain's Pinger.
 type pingerFunc func(ctx context.Context) error

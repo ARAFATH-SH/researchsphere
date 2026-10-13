@@ -1,15 +1,13 @@
 import type { Metadata } from "next";
 
-import { AuthCard } from "@/features/auth/auth-card";
+import { ResetPassword } from "@/features/auth/reset-password";
 
-export const metadata: Metadata = { title: "Reset password · ResearchSphere" };
+export const metadata: Metadata = {
+  title: "Reset password · ResearchSphere",
+  // The page is reached from an emailed link; do not pass its address on to other sites.
+  referrer: "no-referrer",
+};
 
-// Password reset is built in a later slice (FR-2.3 to FR-2.5).
 export default function Page() {
-  return (
-    <AuthCard title="Reset password" subtitle="Ask for a reset link and choose a new password." signInLink>
-      <p className="inline-block rounded-full bg-primary-soft px-3 py-1 text-sm font-semibold text-primary">Coming soon</p>
-      <p className="text-sm text-text-muted">Built in a later slice: FR-2.</p>
-    </AuthCard>
-  );
+  return <ResetPassword />;
 }

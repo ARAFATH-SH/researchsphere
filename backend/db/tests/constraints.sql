@@ -316,8 +316,13 @@ SELECT pg_temp.expect_error('Embedding: vector must have 768 dimensions',
 -- Account deletion (FR-2.8, SRS 7 Retention): user 3 owns no project.
 -- ---------------------------------------------------------------------------
 
-INSERT INTO sessions (user_id, refresh_token_hash, expires_at) VALUES
-    ('00000000-0000-0000-0000-000000000003', 'rt-3', now() + interval '30 days');
+INSERT INTO sessions (id, user_id, refresh_token_hash, expires_at) VALUES
+    ('00000000-0000-0000-0000-0000000000f3', '00000000-0000-0000-0000-000000000003', 'rt-3', now() + interval '30 days');
+INSERT INTO session_retired_tokens (token_hash, session_id) VALUES
+    ('rt-3-old', '00000000-0000-0000-0000-0000000000f3');
+SELECT pg_temp.expect_error('Session: a retired refresh token hash is unique (FR-2.2)',
+    $s$INSERT INTO session_retired_tokens (token_hash, session_id)
+       VALUES ('rt-3-old', '00000000-0000-0000-0000-0000000000f3')$s$, '23505');
 INSERT INTO auth_tokens (user_id, purpose, token_hash, expires_at) VALUES
     ('00000000-0000-0000-0000-000000000003', 'password_reset', 'at-3', now() + interval '1 hour');
 INSERT INTO user_interests (user_id, interest_id) SELECT '00000000-0000-0000-0000-000000000003', id FROM research_interests;
@@ -348,9 +353,10 @@ SELECT pg_temp.expect_true('Deletion: profile, interests, skills, education remo
        AND NOT EXISTS (SELECT 1 FROM user_interests WHERE user_id = '00000000-0000-0000-0000-000000000003')
        AND NOT EXISTS (SELECT 1 FROM user_skills    WHERE user_id = '00000000-0000-0000-0000-000000000003')
        AND NOT EXISTS (SELECT 1 FROM education      WHERE user_id = '00000000-0000-0000-0000-000000000003')$q$);
-SELECT pg_temp.expect_true('Deletion: sessions and one-time tokens removed', $q$
+SELECT pg_temp.expect_true('Deletion: sessions, retired refresh tokens and one-time tokens removed', $q$
     SELECT NOT EXISTS (SELECT 1 FROM sessions    WHERE user_id = '00000000-0000-0000-0000-000000000003')
-       AND NOT EXISTS (SELECT 1 FROM auth_tokens WHERE user_id = '00000000-0000-0000-0000-000000000003')$q$);
+       AND NOT EXISTS (SELECT 1 FROM auth_tokens WHERE user_id = '00000000-0000-0000-0000-000000000003')
+       AND NOT EXISTS (SELECT 1 FROM session_retired_tokens WHERE session_id = '00000000-0000-0000-0000-0000000000f3')$q$);
 SELECT pg_temp.expect_true('Deletion: posts, comments on them, likes and own comments removed (FR-2.8)', $q$
     SELECT NOT EXISTS (SELECT 1 FROM posts         WHERE author_id = '00000000-0000-0000-0000-000000000003')
        AND NOT EXISTS (SELECT 1 FROM post_comments WHERE post_id   = '00000000-0000-0000-0000-0000000000e3')

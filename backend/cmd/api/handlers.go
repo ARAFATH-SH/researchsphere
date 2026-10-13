@@ -29,8 +29,9 @@ type handlers struct {
 var _ gen.StrictServerInterface = handlers{}
 
 // newRouter wires the modules to their dependencies and returns the API's root handler.
-// Tests pass fakes; run passes the real PostgreSQL, Redis and SMTP adapters.
-func newRouter(logger *slog.Logger, db, redis healthdomain.Pinger, auth *authhttp.Handler) http.Handler {
+// Tests pass fakes; run passes the real PostgreSQL, Redis and SMTP adapters. requireAuth
+// guards the operations the contract secures (httpx.RequireAuth).
+func newRouter(logger *slog.Logger, db, redis healthdomain.Pinger, auth *authhttp.Handler, requireAuth func(http.Handler) http.Handler) http.Handler {
 	checker := healthusecase.New(healthusecase.DefaultTimeout,
 		healthdomain.Dependency{Name: "database", Pinger: db},
 		healthdomain.Dependency{Name: "redis", Pinger: redis},
@@ -38,5 +39,5 @@ func newRouter(logger *slog.Logger, db, redis healthdomain.Pinger, auth *authhtt
 	return httpserver.NewRouter(logger, handlers{
 		healthHandler: healthhttp.NewHandler(checker, logger),
 		authHandler:   auth,
-	})
+	}, requireAuth)
 }

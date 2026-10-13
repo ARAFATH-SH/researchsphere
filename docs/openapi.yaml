@@ -10,6 +10,10 @@ info:
 servers:
   - url: /api/v1
 
+# Every operation needs a session unless it declares `security: []` (FR-3.1).
+security:
+  - cookieAuth: []
+
 paths:
   /health:
     get:
@@ -128,7 +132,357 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /auth/password-reset/request:
+    post:
+      operationId: requestPasswordReset
+      summary: Send a password reset link (FR-2.3, FR-2.4)
+      description: |
+        Public. The response is the same whether or not the address is registered or
+        verified. When it belongs to an account, a link is emailed to
+        `/reset-password#token=...`; it works once and expires after 1 hour. A new link
+        makes the account's older unused reset links stop working.
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordResetRequest"
+      responses:
+        "202":
+          description: If the address belongs to an account, a reset link was sent.
+        "400":
+          description: The address is not well formed (`invalid_email`), or the body is malformed (`bad_request`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /auth/password-reset/confirm:
+    post:
+      operationId: confirmPasswordReset
+      summary: Set a new password with the token from a reset link (FR-2.3, FR-2.5)
+      description: |
+        Public. Sets the new password, marks the token used and the email address
+        verified, and ends every session of the account, in one transaction. It also
+        clears the account's failed logins (FR-2.7). Access tokens already issued stay
+        valid until they expire (at most 15 minutes).
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordResetConfirm"
+      responses:
+        "204":
+          description: The password is changed and every session of the account has ended.
+        "400":
+          description: |
+            The reset was refused. `code` is `token_invalid` (unknown or not a reset token),
+            `token_used`, `token_expired`, `password_too_short`, `password_too_long`, or
+            `bad_request` for a malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /auth/login:
+    post:
+      operationId: loginUser
+      summary: Log in with email address and password (FR-2.1, FR-1.4)
+      description: |
+        Public. On success the response sets two httpOnly, SameSite=Lax cookies (Secure
+        when the site runs on HTTPS): `rs_access`, a signed access token valid for 15
+        minutes (path `/`), and `rs_refresh`, a refresh token valid for 30 days (path
+        `/api/v1/auth`). Each login starts a new session, which lasts 30 days; refresh it
+        with `POST /auth/refresh` and end it with `POST /auth/logout`. A wrong password and
+        an unknown email address get the same answer.
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Logged in. The cookies are set and the body is the user.
+          headers:
+            Set-Cookie:
+              description: "`rs_access` and `rs_refresh`, in two headers."
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentUser"
+        "400":
+          description: The body is malformed (`bad_request`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: |
+            The email address or the password is wrong (`invalid_credentials`). The answer
+            does not say which.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: |
+            The password is right but the email address is not verified yet
+            (`email_not_verified`, FR-1.4).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: |
+            The account is locked after 5 failed logins within 15 minutes (`account_locked`,
+            FR-2.7). Every login for it is refused for 15 minutes from the 5th failure, even
+            with the right password. Failures for an unknown email address count and lock
+            the same way, so the answer does not reveal whether an account exists.
+          headers:
+            Retry-After:
+              description: Seconds until the lock ends.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /auth/refresh:
+    post:
+      operationId: refreshSession
+      summary: Issue new tokens for the session in the refresh cookie (FR-2.1, FR-2.2)
+      description: |
+        Public: the access token may already have expired. Reads the `rs_refresh` cookie,
+        replaces the session's refresh token with a new one and issues a new access token.
+        The old refresh token stops working. The session keeps the expiry it got at login.
+        Sending a refresh token that was already replaced ends the session, since the token
+        may have been stolen. A browser must not send two refreshes at the same time.
+      tags: [auth]
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/RefreshCookie"
+      responses:
+        "204":
+          description: Refreshed. `rs_access` and `rs_refresh` are set again.
+          headers:
+            Set-Cookie:
+              description: "`rs_access` and `rs_refresh`, in two headers."
+              schema:
+                type: string
+        "401":
+          description: |
+            The cookie is missing, or its session is unknown, expired, ended or was reused
+            (`session_invalid`). The answer does not say which, and clears both cookies.
+          headers:
+            Set-Cookie:
+              description: "`rs_access` and `rs_refresh`, cleared, in two headers."
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /auth/logout:
+    post:
+      operationId: logoutUser
+      summary: End the session on this device (FR-2.2)
+      description: |
+        Public. Ends the session in the `rs_refresh` cookie, so its refresh token no longer
+        works, and clears both cookies. Other devices stay logged in. Answers 204 even when
+        there is no cookie or no such session.
+      tags: [auth]
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/RefreshCookie"
+      responses:
+        "204":
+          description: Logged out. Both cookies are cleared.
+          headers:
+            Set-Cookie:
+              description: "`rs_access` and `rs_refresh`, cleared, in two headers."
+              schema:
+                type: string
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /auth/password:
+    post:
+      operationId: changePassword
+      summary: Change the password after entering the current one (FR-2.6, FR-2.5)
+      description: |
+        Needs the access cookie. Checks the current password, stores the new one and ends
+        every other session of the account, in one transaction. The session in the
+        `rs_refresh` cookie stays logged in; when the cookie is missing or names no live
+        session of this user, every session ends. Access tokens already issued on other
+        devices stay valid until they expire (at most 15 minutes).
+
+        A wrong current password counts as a failed login (FR-2.7): the 5th failure within
+        15 minutes locks the account, and while it is locked this operation is refused
+        before the password is checked. A successful change clears the failed logins.
+        A wrong current password is a 400, not a 401, so the client does not take it for
+        an expired session.
+      tags: [auth]
+      parameters:
+        - $ref: "#/components/parameters/RefreshCookie"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangePasswordRequest"
+      responses:
+        "204":
+          description: The password is changed and every other session of the account has ended.
+        "400":
+          description: |
+            The change was refused. `code` is `wrong_current_password`,
+            `password_too_short` or `password_too_long` (the new password),
+            `same_password` (the new password equals the current one), or `bad_request`
+            for a malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          description: |
+            The account is locked after 5 failed logins within 15 minutes (`account_locked`,
+            FR-2.7), as for `POST /auth/login`.
+          headers:
+            Retry-After:
+              description: Seconds until the lock ends.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /auth/me:
+    get:
+      operationId: getCurrentUser
+      summary: Return the logged-in user
+      description: Needs the access cookie.
+      tags: [auth]
+      responses:
+        "200":
+          description: The logged-in user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentUser"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /account:
+    delete:
+      operationId: deleteAccount
+      summary: Delete the logged-in user's account after entering the password (FR-2.8, FR-2.9)
+      description: |
+        Needs the access cookie. Refused while the user owns a project that has other
+        members (FR-2.9). Otherwise, in one transaction, deletes the projects where the
+        user is the only member, the user's publication links and every publication left
+        with no author, and the user; the database removes the profile, posts, comments,
+        likes, connections, sessions, tokens and embeddings with it (FR-2.8). Then clears
+        the failed logins of the account's email address and both session cookies.
+        Access tokens already issued on other devices are refused with 401 from then on,
+        because their user no longer exists.
+
+        A wrong password counts as a failed login (FR-2.7): the 5th failure within 15
+        minutes locks the account, and while it is locked this operation is refused before
+        the password is checked. A wrong password is a 400, not a 401, so the client does
+        not take it for an expired session.
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeleteAccountRequest"
+      responses:
+        "204":
+          description: The account is deleted.
+          headers:
+            Set-Cookie:
+              description: "`rs_access` and `rs_refresh`, cleared, in two headers."
+              schema:
+                type: string
+        "400":
+          description: |
+            The deletion was refused. `code` is `wrong_password`, or `bad_request` for a
+            malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: |
+            The user owns projects that have other members (`owns_shared_project`, FR-2.9).
+            `projects` lists them; each must be transferred or deleted first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OwnsSharedProjectError"
+        "429":
+          description: |
+            The account is locked after 5 failed logins within 15 minutes (`account_locked`,
+            FR-2.7), as for `POST /auth/login`.
+          headers:
+            Retry-After:
+              description: Seconds until the lock ends.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: rs_access
+      description: The access token set by `POST /auth/login`.
+
+  parameters:
+    RefreshCookie:
+      name: rs_refresh
+      in: cookie
+      required: false
+      description: The refresh token set by `POST /auth/login` or `POST /auth/refresh`.
+      schema:
+        type: string
+
   schemas:
     Error:
       type: object
@@ -202,7 +556,107 @@ components:
           type: string
           maxLength: 254
 
+    PasswordResetRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          maxLength: 254
+
+    PasswordResetConfirm:
+      type: object
+      required: [token, newPassword]
+      properties:
+        token:
+          type: string
+          description: The token from the reset link.
+        newPassword:
+          type: string
+          description: 8 to 128 characters, as at registration.
+          minLength: 8
+          maxLength: 128
+          format: password
+
+    ChangePasswordRequest:
+      type: object
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword:
+          type: string
+          format: password
+        newPassword:
+          type: string
+          description: 8 to 128 characters, as at registration, and not the current password.
+          minLength: 8
+          maxLength: 128
+          format: password
+
+    DeleteAccountRequest:
+      type: object
+      required: [password]
+      properties:
+        password:
+          type: string
+          format: password
+
+    OwnsSharedProjectError:
+      type: object
+      description: The error shape with the projects that block an account deletion (FR-2.9).
+      required: [code, message, projects]
+      properties:
+        code:
+          type: string
+          example: owns_shared_project
+        message:
+          type: string
+        projects:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProjectRef"
+
+    ProjectRef:
+      type: object
+      required: [id, title]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          maxLength: 254
+          example: ada@example.org
+        password:
+          type: string
+          maxLength: 128
+          format: password
+
+    CurrentUser:
+      type: object
+      required: [id, email, fullName]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        fullName:
+          type: string
+
   responses:
+    Unauthorized:
+      description: No valid access token was sent (`unauthenticated`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
     NotFound:
       description: No such route or resource.
       content:

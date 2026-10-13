@@ -54,6 +54,24 @@ the page lets you ask for a new one. If you did not register, you can ignore thi
 	return m.send(ctx, mail.Address{Name: name, Address: msg.To}, "Confirm your email address", body)
 }
 
+// SendPasswordReset sends the password reset link (FR-2.3). Errors never contain the
+// message, so they are safe to log.
+func (m *Mailer) SendPasswordReset(ctx context.Context, msg domain.PasswordResetEmail) error {
+	name := oneLine(msg.FullName)
+	body := fmt.Sprintf(`Hello %s,
+
+Someone asked to reset the password of your ResearchSphere account. To choose a new
+password, open this link:
+
+%s
+
+The link works once and expires in 1 hour. Setting a new password signs you out on
+every device. If you did not ask for this, you can ignore this email: your password
+stays the same.
+`, name, msg.Link)
+	return m.send(ctx, mail.Address{Name: name, Address: msg.To}, "Reset your ResearchSphere password", body)
+}
+
 func (m *Mailer) send(ctx context.Context, to mail.Address, subject, body string) error {
 	data, err := m.message(to, subject, body)
 	if err != nil {

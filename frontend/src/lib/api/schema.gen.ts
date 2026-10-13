@@ -87,6 +87,205 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/password-reset/request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a password reset link (FR-2.3, FR-2.4)
+         * @description Public. The response is the same whether or not the address is registered or
+         *     verified. When it belongs to an account, a link is emailed to
+         *     `/reset-password#token=...`; it works once and expires after 1 hour. A new link
+         *     makes the account's older unused reset links stop working.
+         */
+        post: operations["requestPasswordReset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/password-reset/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set a new password with the token from a reset link (FR-2.3, FR-2.5)
+         * @description Public. Sets the new password, marks the token used and the email address
+         *     verified, and ends every session of the account, in one transaction. It also
+         *     clears the account's failed logins (FR-2.7). Access tokens already issued stay
+         *     valid until they expire (at most 15 minutes).
+         */
+        post: operations["confirmPasswordReset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Log in with email address and password (FR-2.1, FR-1.4)
+         * @description Public. On success the response sets two httpOnly, SameSite=Lax cookies (Secure
+         *     when the site runs on HTTPS): `rs_access`, a signed access token valid for 15
+         *     minutes (path `/`), and `rs_refresh`, a refresh token valid for 30 days (path
+         *     `/api/v1/auth`). Each login starts a new session, which lasts 30 days; refresh it
+         *     with `POST /auth/refresh` and end it with `POST /auth/logout`. A wrong password and
+         *     an unknown email address get the same answer.
+         */
+        post: operations["loginUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Issue new tokens for the session in the refresh cookie (FR-2.1, FR-2.2)
+         * @description Public: the access token may already have expired. Reads the `rs_refresh` cookie,
+         *     replaces the session's refresh token with a new one and issues a new access token.
+         *     The old refresh token stops working. The session keeps the expiry it got at login.
+         *     Sending a refresh token that was already replaced ends the session, since the token
+         *     may have been stolen. A browser must not send two refreshes at the same time.
+         */
+        post: operations["refreshSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * End the session on this device (FR-2.2)
+         * @description Public. Ends the session in the `rs_refresh` cookie, so its refresh token no longer
+         *     works, and clears both cookies. Other devices stay logged in. Answers 204 even when
+         *     there is no cookie or no such session.
+         */
+        post: operations["logoutUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change the password after entering the current one (FR-2.6, FR-2.5)
+         * @description Needs the access cookie. Checks the current password, stores the new one and ends
+         *     every other session of the account, in one transaction. The session in the
+         *     `rs_refresh` cookie stays logged in; when the cookie is missing or names no live
+         *     session of this user, every session ends. Access tokens already issued on other
+         *     devices stay valid until they expire (at most 15 minutes).
+         *
+         *     A wrong current password counts as a failed login (FR-2.7): the 5th failure within
+         *     15 minutes locks the account, and while it is locked this operation is refused
+         *     before the password is checked. A successful change clears the failed logins.
+         *     A wrong current password is a 400, not a 401, so the client does not take it for
+         *     an expired session.
+         */
+        post: operations["changePassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Return the logged-in user
+         * @description Needs the access cookie.
+         */
+        get: operations["getCurrentUser"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete the logged-in user's account after entering the password (FR-2.8, FR-2.9)
+         * @description Needs the access cookie. Refused while the user owns a project that has other
+         *     members (FR-2.9). Otherwise, in one transaction, deletes the projects where the
+         *     user is the only member, the user's publication links and every publication left
+         *     with no author, and the user; the database removes the profile, posts, comments,
+         *     likes, connections, sessions, tokens and embeddings with it (FR-2.8). Then clears
+         *     the failed logins of the account's email address and both session cookies.
+         *     Access tokens already issued on other devices are refused with 401 from then on,
+         *     because their user no longer exists.
+         *
+         *     A wrong password counts as a failed login (FR-2.7): the 5th failure within 15
+         *     minutes locks the account, and while it is locked this operation is refused before
+         *     the password is checked. A wrong password is a 400, not a 401, so the client does
+         *     not take it for an expired session.
+         */
+        delete: operations["deleteAccount"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -137,8 +336,66 @@ export interface components {
         ResendVerificationRequest: {
             email: string;
         };
+        PasswordResetRequest: {
+            email: string;
+        };
+        PasswordResetConfirm: {
+            /** @description The token from the reset link. */
+            token: string;
+            /**
+             * Format: password
+             * @description 8 to 128 characters, as at registration.
+             */
+            newPassword: string;
+        };
+        ChangePasswordRequest: {
+            /** Format: password */
+            currentPassword: string;
+            /**
+             * Format: password
+             * @description 8 to 128 characters, as at registration, and not the current password.
+             */
+            newPassword: string;
+        };
+        DeleteAccountRequest: {
+            /** Format: password */
+            password: string;
+        };
+        /** @description The error shape with the projects that block an account deletion (FR-2.9). */
+        OwnsSharedProjectError: {
+            /** @example owns_shared_project */
+            code: string;
+            message: string;
+            projects: components["schemas"]["ProjectRef"][];
+        };
+        ProjectRef: {
+            /** Format: uuid */
+            id: string;
+            title: string;
+        };
+        LoginRequest: {
+            /** @example ada@example.org */
+            email: string;
+            /** Format: password */
+            password: string;
+        };
+        CurrentUser: {
+            /** Format: uuid */
+            id: string;
+            email: string;
+            fullName: string;
+        };
     };
     responses: {
+        /** @description No valid access token was sent (`unauthenticated`). */
+        Unauthorized: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
         /** @description No such route or resource. */
         NotFound: {
             headers: {
@@ -158,7 +415,10 @@ export interface components {
             };
         };
     };
-    parameters: never;
+    parameters: {
+        /** @description The refresh token set by `POST /auth/login` or `POST /auth/refresh`. */
+        RefreshCookie: string;
+    };
     requestBodies: never;
     headers: never;
     pathItems: never;
@@ -299,6 +559,353 @@ export interface operations {
             /** @description The address is not well formed (`invalid_email`), or the body is malformed (`bad_request`). */
             400: {
                 headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    requestPasswordReset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordResetRequest"];
+            };
+        };
+        responses: {
+            /** @description If the address belongs to an account, a reset link was sent. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The address is not well formed (`invalid_email`), or the body is malformed (`bad_request`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    confirmPasswordReset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordResetConfirm"];
+            };
+        };
+        responses: {
+            /** @description The password is changed and every session of the account has ended. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /**
+             * @description The reset was refused. `code` is `token_invalid` (unknown or not a reset token),
+             *     `token_used`, `token_expired`, `password_too_short`, `password_too_long`, or
+             *     `bad_request` for a malformed body.
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    loginUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Logged in. The cookies are set and the body is the user. */
+            200: {
+                headers: {
+                    /** @description `rs_access` and `rs_refresh`, in two headers. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CurrentUser"];
+                };
+            };
+            /** @description The body is malformed (`bad_request`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /**
+             * @description The email address or the password is wrong (`invalid_credentials`). The answer
+             *     does not say which.
+             */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /**
+             * @description The password is right but the email address is not verified yet
+             *     (`email_not_verified`, FR-1.4).
+             */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /**
+             * @description The account is locked after 5 failed logins within 15 minutes (`account_locked`,
+             *     FR-2.7). Every login for it is refused for 15 minutes from the 5th failure, even
+             *     with the right password. Failures for an unknown email address count and lock
+             *     the same way, so the answer does not reveal whether an account exists.
+             */
+            429: {
+                headers: {
+                    /** @description Seconds until the lock ends. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    refreshSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                /** @description The refresh token set by `POST /auth/login` or `POST /auth/refresh`. */
+                rs_refresh?: components["parameters"]["RefreshCookie"];
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Refreshed. `rs_access` and `rs_refresh` are set again. */
+            204: {
+                headers: {
+                    /** @description `rs_access` and `rs_refresh`, in two headers. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /**
+             * @description The cookie is missing, or its session is unknown, expired, ended or was reused
+             *     (`session_invalid`). The answer does not say which, and clears both cookies.
+             */
+            401: {
+                headers: {
+                    /** @description `rs_access` and `rs_refresh`, cleared, in two headers. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    logoutUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                /** @description The refresh token set by `POST /auth/login` or `POST /auth/refresh`. */
+                rs_refresh?: components["parameters"]["RefreshCookie"];
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Logged out. Both cookies are cleared. */
+            204: {
+                headers: {
+                    /** @description `rs_access` and `rs_refresh`, cleared, in two headers. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    changePassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                /** @description The refresh token set by `POST /auth/login` or `POST /auth/refresh`. */
+                rs_refresh?: components["parameters"]["RefreshCookie"];
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangePasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description The password is changed and every other session of the account has ended. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /**
+             * @description The change was refused. `code` is `wrong_current_password`,
+             *     `password_too_short` or `password_too_long` (the new password),
+             *     `same_password` (the new password equals the current one), or `bad_request`
+             *     for a malformed body.
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /**
+             * @description The account is locked after 5 failed logins within 15 minutes (`account_locked`,
+             *     FR-2.7), as for `POST /auth/login`.
+             */
+            429: {
+                headers: {
+                    /** @description Seconds until the lock ends. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getCurrentUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The logged-in user. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CurrentUser"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    deleteAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteAccountRequest"];
+            };
+        };
+        responses: {
+            /** @description The account is deleted. */
+            204: {
+                headers: {
+                    /** @description `rs_access` and `rs_refresh`, cleared, in two headers. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /**
+             * @description The deletion was refused. `code` is `wrong_password`, or `bad_request` for a
+             *     malformed body.
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /**
+             * @description The user owns projects that have other members (`owns_shared_project`, FR-2.9).
+             *     `projects` lists them; each must be transferred or deleted first.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OwnsSharedProjectError"];
+                };
+            };
+            /**
+             * @description The account is locked after 5 failed logins within 15 minutes (`account_locked`,
+             *     FR-2.7), as for `POST /auth/login`.
+             */
+            429: {
+                headers: {
+                    /** @description Seconds until the lock ends. */
+                    "Retry-After"?: number;
                     [name: string]: unknown;
                 };
                 content: {

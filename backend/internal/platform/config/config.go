@@ -23,8 +23,12 @@ const (
 	DefaultAppBaseURL = "http://localhost:3000"
 )
 
+// MinJWTSecretLen is the shortest JWT_SECRET accepted, in bytes: HS256 needs a key at
+// least as long as its 256-bit output.
+const MinJWTSecretLen = 32
+
 // Config holds the API server's settings. DatabaseURL and RedisURL may contain
-// passwords: never log them. LogValue logs only the safe fields.
+// passwords, and JWTSecret is a key: never log them. LogValue logs only the safe fields.
 type Config struct {
 	DatabaseURL string
 	RedisURL    string
@@ -36,6 +40,11 @@ type Config struct {
 	SMTPPort   int
 	MailFrom   mail.Address
 	AppBaseURL string
+
+	// Login (FR-2.1). JWTSecret signs access tokens. CookieSecure is true when AppBaseURL
+	// uses https, so the session cookies are sent only over HTTPS outside local work.
+	JWTSecret    []byte
+	CookieSecure bool
 }
 
 // Load reads the settings through getenv (os.Getenv in main). Errors name the
@@ -44,6 +53,7 @@ func Load(getenv func(string) string) (Config, error) {
 	cfg := Config{
 		DatabaseURL: strings.TrimSpace(getenv("DATABASE_URL")),
 		RedisURL:    strings.TrimSpace(getenv("REDIS_URL")),
+		JWTSecret:   []byte(strings.TrimSpace(getenv("JWT_SECRET"))),
 	}
 
 	var missing []string
@@ -52,6 +62,9 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	if cfg.RedisURL == "" {
 		missing = append(missing, "REDIS_URL")
+	}
+	if len(cfg.JWTSecret) == 0 {
+		missing = append(missing, "JWT_SECRET")
 	}
 	if len(missing) > 0 {
 		return Config{}, fmt.Errorf("missing required environment variable(s): %s", strings.Join(missing, ", "))
@@ -63,6 +76,9 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	if err := checkURL("REDIS_URL", cfg.RedisURL, "redis", "rediss"); err != nil {
 		errs = append(errs, err)
+	}
+	if len(cfg.JWTSecret) < MinJWTSecretLen {
+		errs = append(errs, fmt.Errorf("JWT_SECRET must be at least %d bytes; generate one with: openssl rand -base64 48", MinJWTSecretLen))
 	}
 
 	port, err := parsePort("API_PORT", getenv("API_PORT"), DefaultPort)
@@ -91,6 +107,7 @@ func Load(getenv func(string) string) (Config, error) {
 	if err := checkBaseURL("APP_BASE_URL", cfg.AppBaseURL); err != nil {
 		errs = append(errs, err)
 	}
+	cfg.CookieSecure = strings.HasPrefix(cfg.AppBaseURL, "https://")
 
 	if len(errs) > 0 {
 		return Config{}, errors.Join(errs...)
@@ -98,8 +115,8 @@ func Load(getenv func(string) string) (Config, error) {
 	return cfg, nil
 }
 
-// LogValue keeps the database and Redis URLs, and so any password in them, out of the
-// logs. The mail settings hold no secrets.
+// LogValue keeps the database and Redis URLs, and so any password in them, and the JWT
+// secret out of the logs. The mail and cookie settings hold no secrets.
 func (c Config) LogValue() slog.Value {
 	return slog.GroupValue(
 		slog.Int("port", c.Port),
@@ -108,6 +125,7 @@ func (c Config) LogValue() slog.Value {
 		slog.Int("smtp_port", c.SMTPPort),
 		slog.String("mail_from", c.MailFrom.String()),
 		slog.String("app_base_url", c.AppBaseURL),
+		slog.Bool("cookie_secure", c.CookieSecure),
 	)
 }
 

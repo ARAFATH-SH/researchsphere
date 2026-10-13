@@ -26,6 +26,22 @@ func (q *Queries) CreateProfile(ctx context.Context, arg CreateProfileParams) er
 	return err
 }
 
+const createSession = `-- name: CreateSession :exec
+INSERT INTO sessions (user_id, refresh_token_hash, expires_at)
+VALUES ($1, $2, $3)
+`
+
+type CreateSessionParams struct {
+	UserID           pgtype.UUID
+	RefreshTokenHash string
+	ExpiresAt        pgtype.Timestamptz
+}
+
+func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) error {
+	_, err := q.db.Exec(ctx, createSession, arg.UserID, arg.RefreshTokenHash, arg.ExpiresAt)
+	return err
+}
+
 const createToken = `-- name: CreateToken :exec
 INSERT INTO auth_tokens (user_id, purpose, token_hash, expires_at)
 VALUES ($1, $2, $3, $4)
@@ -66,6 +82,34 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (pgtype.
 	return id, err
 }
 
+const deleteAuthorlessPublications = `-- name: DeleteAuthorlessPublications :execrows
+DELETE FROM publications p
+WHERE p.id = ANY($1::uuid[])
+  AND NOT EXISTS (SELECT 1 FROM user_publications up WHERE up.publication_id = p.id)
+`
+
+func (q *Queries) DeleteAuthorlessPublications(ctx context.Context, ids []pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteAuthorlessPublications, ids)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteSoloProjects = `-- name: DeleteSoloProjects :execrows
+DELETE FROM projects p
+WHERE p.id IN (SELECT m.project_id FROM project_members m WHERE m.user_id = $1 AND m.role = 'owner')
+  AND NOT EXISTS (SELECT 1 FROM project_members o WHERE o.project_id = p.id AND o.user_id <> $1)
+`
+
+func (q *Queries) DeleteSoloProjects(ctx context.Context, userID pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteSoloProjects, userID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteUnusedTokens = `-- name: DeleteUnusedTokens :exec
 DELETE FROM auth_tokens
 WHERE user_id = $1 AND purpose = $2 AND used_at IS NULL
@@ -79,6 +123,170 @@ type DeleteUnusedTokensParams struct {
 func (q *Queries) DeleteUnusedTokens(ctx context.Context, arg DeleteUnusedTokensParams) error {
 	_, err := q.db.Exec(ctx, deleteUnusedTokens, arg.UserID, arg.Purpose)
 	return err
+}
+
+const deleteUser = `-- name: DeleteUser :execrows
+DELETE FROM users WHERE id = $1
+`
+
+func (q *Queries) DeleteUser(ctx context.Context, id pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteUser, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteUserPublicationLinks = `-- name: DeleteUserPublicationLinks :exec
+DELETE FROM user_publications WHERE user_id = $1
+`
+
+func (q *Queries) DeleteUserPublicationLinks(ctx context.Context, userID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteUserPublicationLinks, userID)
+	return err
+}
+
+const findCredentialsByEmail = `-- name: FindCredentialsByEmail :one
+SELECT u.id, u.email, u.password_hash, u.email_verified_at, p.full_name
+FROM users u
+JOIN profiles p ON p.user_id = u.id
+WHERE u.email = $1
+`
+
+type FindCredentialsByEmailRow struct {
+	ID              pgtype.UUID
+	Email           string
+	PasswordHash    string
+	EmailVerifiedAt pgtype.Timestamptz
+	FullName        string
+}
+
+func (q *Queries) FindCredentialsByEmail(ctx context.Context, email string) (FindCredentialsByEmailRow, error) {
+	row := q.db.QueryRow(ctx, findCredentialsByEmail, email)
+	var i FindCredentialsByEmailRow
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.PasswordHash,
+		&i.EmailVerifiedAt,
+		&i.FullName,
+	)
+	return i, err
+}
+
+const findCredentialsByID = `-- name: FindCredentialsByID :one
+SELECT u.id, u.email, u.password_hash, u.email_verified_at, p.full_name
+FROM users u
+JOIN profiles p ON p.user_id = u.id
+WHERE u.id = $1
+`
+
+type FindCredentialsByIDRow struct {
+	ID              pgtype.UUID
+	Email           string
+	PasswordHash    string
+	EmailVerifiedAt pgtype.Timestamptz
+	FullName        string
+}
+
+func (q *Queries) FindCredentialsByID(ctx context.Context, id pgtype.UUID) (FindCredentialsByIDRow, error) {
+	row := q.db.QueryRow(ctx, findCredentialsByID, id)
+	var i FindCredentialsByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.PasswordHash,
+		&i.EmailVerifiedAt,
+		&i.FullName,
+	)
+	return i, err
+}
+
+const findSessionByRetiredTokenForUpdate = `-- name: FindSessionByRetiredTokenForUpdate :one
+SELECT s.id, s.user_id, s.expires_at, s.revoked_at
+FROM sessions s
+JOIN session_retired_tokens r ON r.session_id = s.id
+WHERE r.token_hash = $1
+FOR UPDATE OF s
+`
+
+type FindSessionByRetiredTokenForUpdateRow struct {
+	ID        pgtype.UUID
+	UserID    pgtype.UUID
+	ExpiresAt pgtype.Timestamptz
+	RevokedAt pgtype.Timestamptz
+}
+
+func (q *Queries) FindSessionByRetiredTokenForUpdate(ctx context.Context, tokenHash string) (FindSessionByRetiredTokenForUpdateRow, error) {
+	row := q.db.QueryRow(ctx, findSessionByRetiredTokenForUpdate, tokenHash)
+	var i FindSessionByRetiredTokenForUpdateRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.ExpiresAt,
+		&i.RevokedAt,
+	)
+	return i, err
+}
+
+const findSessionForUpdate = `-- name: FindSessionForUpdate :one
+SELECT id, user_id, expires_at, revoked_at
+FROM sessions
+WHERE refresh_token_hash = $1
+FOR UPDATE
+`
+
+type FindSessionForUpdateRow struct {
+	ID        pgtype.UUID
+	UserID    pgtype.UUID
+	ExpiresAt pgtype.Timestamptz
+	RevokedAt pgtype.Timestamptz
+}
+
+func (q *Queries) FindSessionForUpdate(ctx context.Context, refreshTokenHash string) (FindSessionForUpdateRow, error) {
+	row := q.db.QueryRow(ctx, findSessionForUpdate, refreshTokenHash)
+	var i FindSessionForUpdateRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.ExpiresAt,
+		&i.RevokedAt,
+	)
+	return i, err
+}
+
+const findSharedOwnedProjects = `-- name: FindSharedOwnedProjects :many
+SELECT p.id, p.title
+FROM projects p
+JOIN project_members m ON m.project_id = p.id
+WHERE m.user_id = $1 AND m.role = 'owner'
+  AND EXISTS (SELECT 1 FROM project_members o WHERE o.project_id = p.id AND o.user_id <> $1)
+ORDER BY p.title, p.id
+`
+
+type FindSharedOwnedProjectsRow struct {
+	ID    pgtype.UUID
+	Title string
+}
+
+func (q *Queries) FindSharedOwnedProjects(ctx context.Context, userID pgtype.UUID) ([]FindSharedOwnedProjectsRow, error) {
+	rows, err := q.db.Query(ctx, findSharedOwnedProjects, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FindSharedOwnedProjectsRow
+	for rows.Next() {
+		var i FindSharedOwnedProjectsRow
+		if err := rows.Scan(&i.ID, &i.Title); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const findTokenForUpdate = `-- name: FindTokenForUpdate :one
@@ -138,6 +346,95 @@ func (q *Queries) FindUserByEmail(ctx context.Context, email string) (FindUserBy
 	return i, err
 }
 
+const findUserByID = `-- name: FindUserByID :one
+SELECT u.id, u.email, u.email_verified_at, p.full_name
+FROM users u
+JOIN profiles p ON p.user_id = u.id
+WHERE u.id = $1
+`
+
+type FindUserByIDRow struct {
+	ID              pgtype.UUID
+	Email           string
+	EmailVerifiedAt pgtype.Timestamptz
+	FullName        string
+}
+
+func (q *Queries) FindUserByID(ctx context.Context, id pgtype.UUID) (FindUserByIDRow, error) {
+	row := q.db.QueryRow(ctx, findUserByID, id)
+	var i FindUserByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.EmailVerifiedAt,
+		&i.FullName,
+	)
+	return i, err
+}
+
+const insertRetiredToken = `-- name: InsertRetiredToken :exec
+INSERT INTO session_retired_tokens (token_hash, session_id, retired_at)
+VALUES ($1, $2, $3)
+`
+
+type InsertRetiredTokenParams struct {
+	TokenHash string
+	SessionID pgtype.UUID
+	RetiredAt pgtype.Timestamptz
+}
+
+func (q *Queries) InsertRetiredToken(ctx context.Context, arg InsertRetiredTokenParams) error {
+	_, err := q.db.Exec(ctx, insertRetiredToken, arg.TokenHash, arg.SessionID, arg.RetiredAt)
+	return err
+}
+
+const lockOwnedProjects = `-- name: LockOwnedProjects :exec
+
+SELECT p.id
+FROM projects p
+JOIN project_members m ON m.project_id = p.id
+WHERE m.user_id = $1 AND m.role = 'owner'
+FOR UPDATE OF p
+`
+
+// Account deletion (FR-2.8, FR-2.9). Each step is its own statement: in READ COMMITTED a
+// statement sees rows committed while an earlier one waited for its locks.
+// Locks the projects the user owns. A new member's row takes a key-share lock on its
+// project, so nobody can join them until the transaction ends.
+func (q *Queries) LockOwnedProjects(ctx context.Context, userID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, lockOwnedProjects, userID)
+	return err
+}
+
+const lockUserPublications = `-- name: LockUserPublications :many
+SELECT p.id
+FROM publications p
+JOIN user_publications up ON up.publication_id = p.id
+WHERE up.user_id = $1
+FOR UPDATE OF p
+`
+
+// Locks the user's publications, so no co-author can link one until the transaction ends.
+func (q *Queries) LockUserPublications(ctx context.Context, userID pgtype.UUID) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, lockUserPublications, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var id pgtype.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markEmailVerified = `-- name: MarkEmailVerified :exec
 UPDATE users SET email_verified_at = coalesce(email_verified_at, $1)
 WHERE id = $2
@@ -165,4 +462,114 @@ type MarkTokenUsedParams struct {
 func (q *Queries) MarkTokenUsed(ctx context.Context, arg MarkTokenUsedParams) error {
 	_, err := q.db.Exec(ctx, markTokenUsed, arg.UsedAt, arg.ID)
 	return err
+}
+
+const revokeOtherUserSessions = `-- name: RevokeOtherUserSessions :exec
+UPDATE sessions SET revoked_at = $1
+WHERE user_id = $2 AND id <> $3 AND revoked_at IS NULL
+`
+
+type RevokeOtherUserSessionsParams struct {
+	RevokedAt pgtype.Timestamptz
+	UserID    pgtype.UUID
+	KeepID    pgtype.UUID
+}
+
+func (q *Queries) RevokeOtherUserSessions(ctx context.Context, arg RevokeOtherUserSessionsParams) error {
+	_, err := q.db.Exec(ctx, revokeOtherUserSessions, arg.RevokedAt, arg.UserID, arg.KeepID)
+	return err
+}
+
+const revokeSession = `-- name: RevokeSession :exec
+UPDATE sessions SET revoked_at = coalesce(revoked_at, $1)
+WHERE id = $2
+`
+
+type RevokeSessionParams struct {
+	RevokedAt pgtype.Timestamptz
+	ID        pgtype.UUID
+}
+
+func (q *Queries) RevokeSession(ctx context.Context, arg RevokeSessionParams) error {
+	_, err := q.db.Exec(ctx, revokeSession, arg.RevokedAt, arg.ID)
+	return err
+}
+
+const revokeSessionByTokenHash = `-- name: RevokeSessionByTokenHash :one
+UPDATE sessions SET revoked_at = $1
+WHERE refresh_token_hash = $2 AND revoked_at IS NULL
+RETURNING id, user_id, expires_at, revoked_at
+`
+
+type RevokeSessionByTokenHashParams struct {
+	RevokedAt        pgtype.Timestamptz
+	RefreshTokenHash string
+}
+
+type RevokeSessionByTokenHashRow struct {
+	ID        pgtype.UUID
+	UserID    pgtype.UUID
+	ExpiresAt pgtype.Timestamptz
+	RevokedAt pgtype.Timestamptz
+}
+
+func (q *Queries) RevokeSessionByTokenHash(ctx context.Context, arg RevokeSessionByTokenHashParams) (RevokeSessionByTokenHashRow, error) {
+	row := q.db.QueryRow(ctx, revokeSessionByTokenHash, arg.RevokedAt, arg.RefreshTokenHash)
+	var i RevokeSessionByTokenHashRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.ExpiresAt,
+		&i.RevokedAt,
+	)
+	return i, err
+}
+
+const revokeUserSessions = `-- name: RevokeUserSessions :exec
+UPDATE sessions SET revoked_at = $1
+WHERE user_id = $2 AND revoked_at IS NULL
+`
+
+type RevokeUserSessionsParams struct {
+	RevokedAt pgtype.Timestamptz
+	UserID    pgtype.UUID
+}
+
+func (q *Queries) RevokeUserSessions(ctx context.Context, arg RevokeUserSessionsParams) error {
+	_, err := q.db.Exec(ctx, revokeUserSessions, arg.RevokedAt, arg.UserID)
+	return err
+}
+
+const updatePasswordHash = `-- name: UpdatePasswordHash :exec
+UPDATE users SET password_hash = $1
+WHERE id = $2
+`
+
+type UpdatePasswordHashParams struct {
+	PasswordHash string
+	ID           pgtype.UUID
+}
+
+func (q *Queries) UpdatePasswordHash(ctx context.Context, arg UpdatePasswordHashParams) error {
+	_, err := q.db.Exec(ctx, updatePasswordHash, arg.PasswordHash, arg.ID)
+	return err
+}
+
+const updateSessionTokenHash = `-- name: UpdateSessionTokenHash :execrows
+UPDATE sessions SET refresh_token_hash = $1
+WHERE id = $2 AND refresh_token_hash = $3
+`
+
+type UpdateSessionTokenHashParams struct {
+	NewHash string
+	ID      pgtype.UUID
+	OldHash string
+}
+
+func (q *Queries) UpdateSessionTokenHash(ctx context.Context, arg UpdateSessionTokenHashParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateSessionTokenHash, arg.NewHash, arg.ID, arg.OldHash)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

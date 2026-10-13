@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { MeMenu } from "./me-menu";
 import { isActive, tabs } from "./tabs";
 
 export type TabListVariant = "top" | "bottom";
@@ -26,13 +27,18 @@ export function TabList({ pathname, variant }: { pathname: string; variant: TabL
             ? "after:absolute after:inset-x-1 after:bottom-0 after:h-0.5 after:bg-primary"
             : "";
         const size = variant === "top" ? "min-w-20 px-1" : "py-2";
+        const tabClass = `relative flex w-full flex-col items-center justify-center gap-0.5 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${size} ${color} ${underline}`;
+        // "Me" opens the account menu instead of going straight to the profile.
+        if (tab.href === "/profile") {
+          return (
+            <li key={tab.href} className="flex">
+              <MeMenu variant={variant} active={active} tabClass={tabClass} />
+            </li>
+          );
+        }
         return (
           <li key={tab.href} className="flex">
-            <Link
-              href={tab.href}
-              aria-current={active ? "page" : undefined}
-              className={`relative flex w-full flex-col items-center justify-center gap-0.5 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${size} ${color} ${underline}`}
-            >
+            <Link href={tab.href} aria-current={active ? "page" : undefined} className={tabClass}>
               <tab.Icon />
               <span className={variant === "bottom" ? "text-[11px]" : ""}>{tab.label}</span>
             </Link>
