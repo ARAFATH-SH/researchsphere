@@ -282,3 +282,22 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 		}
 	}
 }
+
+func TestRoutes(t *testing.T) {
+	got := Routes()
+	if len(got) != 12 {
+		t.Errorf("Routes() returned %d routes, want the 12 operations in the contract: %v", len(got), got)
+	}
+	seen := map[string]bool{}
+	for _, p := range got {
+		if seen[p] {
+			t.Errorf("route %q registered twice", p)
+		}
+		seen[p] = true
+	}
+	for _, want := range []string{"GET /api/v1/health", "GET /api/v1/auth/me", "DELETE /api/v1/account"} {
+		if !seen[want] {
+			t.Errorf("Routes() lacks %q", want)
+		}
+	}
+}

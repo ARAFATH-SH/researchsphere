@@ -21,6 +21,7 @@ paths:
       summary: Report whether the database and Redis respond
       description: Public, needs no session. Returns no user data.
       tags: [health]
+      # Public for deployment and uptime checks, though not in FR-3.1's list (docs/decisions.md).
       security: []
       responses:
         "200":
