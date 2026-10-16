@@ -364,6 +364,144 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/profiles/me/interests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add a research interest to the logged-in user's profile (FR-4.2)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). The name is normalized (see AddTagRequest) and matched
+         *     ignoring letter case: an existing tag is reused with its first spelling, otherwise
+         *     a new tag is created. A user has at most 20 interests.
+         */
+        post: operations["addMyInterest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/profiles/me/interests/{tagId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a research interest from the logged-in user's profile (FR-4.2)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Only the link to the user is removed; the tag stays for
+         *     other users and for suggestions.
+         */
+        delete: operations["removeMyInterest"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tags/interests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Suggest existing research interest tags while the user types (FR-4.3)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed,
+         *     events and recommendations" (SRS 2.3). Matching ignores letter case. Names that
+         *     start with `q` come first, then names that contain it elsewhere; within each group
+         *     tags used by more users come first, then by name. `q` is normalized like a tag name;
+         *     an empty `q` gives an empty list.
+         */
+        get: operations["suggestInterestTags"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/profiles/me/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add a skill to the logged-in user's profile (FR-4.2)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). The name is normalized (see AddTagRequest) and matched
+         *     ignoring letter case: an existing tag is reused with its first spelling, otherwise
+         *     a new tag is created. A user has at most 30 skills.
+         */
+        post: operations["addMySkill"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/profiles/me/skills/{tagId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a skill from the logged-in user's profile (FR-4.2)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Only the link to the user is removed; the tag stays for
+         *     other users and for suggestions.
+         */
+        delete: operations["removeMySkill"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tags/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Suggest existing skill tags while the user types (FR-4.3)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed,
+         *     events and recommendations" (SRS 2.3). Matching ignores letter case. Names that
+         *     start with `q` come first, then names that contain it elsewhere; within each group
+         *     tags used by more users come first, then by name. `q` is normalized like a tag name;
+         *     an empty `q` gives an empty list.
+         */
+        get: operations["suggestSkillTags"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -493,10 +631,9 @@ export interface components {
             total: number;
         };
         /**
-         * @description A researcher's profile (FR-4.1, FR-4.5). The optional text fields are always
-         *     present and null when not set. `interests`, `skills`, `education`,
-         *     `publications` and `connectionStatus` are placeholders for now; later work fills
-         *     them in.
+         * @description A researcher's profile (FR-4.1, FR-4.2, FR-4.5). The optional text fields are
+         *     always present and null when not set. `education`, `publications` and
+         *     `connectionStatus` are placeholders for now; later work fills them in.
          */
         Profile: {
             /** Format: uuid */
@@ -513,15 +650,38 @@ export interface components {
              * @example DE
              */
             country: string | null;
-            /** @description Placeholder: always empty until research interests are added (FR-4.2). */
-            interests: Record<string, never>[];
-            /** @description Placeholder: always empty until skills are added (FR-4.2). */
-            skills: Record<string, never>[];
+            /** @description The user's research interests (FR-4.2), sorted by name ignoring letter case. */
+            interests: components["schemas"]["Tag"][];
+            /** @description The user's skills (FR-4.2), sorted by name ignoring letter case. */
+            skills: components["schemas"]["Tag"][];
             /** @description Placeholder: always empty until education entries are added (FR-4.4). */
             education: Record<string, never>[];
             /** @description Placeholder: always empty until confirmed publications are shown (FR-5.5). */
             publications: Record<string, never>[];
             connectionStatus: components["schemas"]["ConnectionStatus"];
+        };
+        /**
+         * @description A research interest or skill (FR-4.2). Tags are shared by all users; names that
+         *     differ only in letter case are the same tag, and the name keeps the spelling it was
+         *     first created with.
+         */
+        Tag: {
+            /** Format: uuid */
+            id: string;
+            /** @example Machine Learning */
+            name: string;
+        };
+        AddTagRequest: {
+            /**
+             * @description Trimmed, and every run of spaces, tabs or line breaks becomes one space; then 1 to
+             *     60 characters.
+             * @example Machine Learning
+             */
+            name: string;
+        };
+        /** @description Existing tags that match the typed text (FR-4.3), best match first. */
+        TagSuggestions: {
+            items: components["schemas"]["Tag"][];
         };
         /**
          * @description The connection between the caller and the profile's owner (FR-4.5).
@@ -599,6 +759,19 @@ export interface components {
         };
     };
     parameters: {
+        /**
+         * @description The tag's ID, a UUID. It is declared as a plain string so that the login check runs
+         *     before it is read (FR-3.1); a value that is not a UUID names no tag the user has and
+         *     gets 404 `not_found`.
+         */
+        TagID: string;
+        /** @description The text typed so far. Empty or missing gives an empty list. */
+        TagQuery: string;
+        /**
+         * @description Suggestions to return, from 1. Defaults to 10. A larger value than 20 is reduced to
+         *     20.
+         */
+        TagLimit: number;
         /** @description The refresh token set by `POST /auth/login` or `POST /auth/refresh`. */
         RefreshCookie: string;
     };
@@ -1245,6 +1418,274 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    addMyInterest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddTagRequest"];
+            };
+        };
+        responses: {
+            /** @description The user already had the tag; nothing changed. The body is the same as for 201. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tag"];
+                };
+            };
+            /** @description The tag is now on the user's profile. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tag"];
+                };
+            };
+            /**
+             * @description The name is empty or longer than 60 characters after normalizing
+             *     (`invalid_tag_name`), or the body is not JSON (`bad_request`).
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The user already has 20 interests (`tag_limit_reached`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    removeMyInterest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The tag's ID, a UUID. It is declared as a plain string so that the login check runs
+                 *     before it is read (FR-3.1); a value that is not a UUID names no tag the user has and
+                 *     gets 404 `not_found`.
+                 */
+                tagId: components["parameters"]["TagID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tag is no longer on the user's profile. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The user does not have this tag (`not_found`). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    suggestInterestTags: {
+        parameters: {
+            query?: {
+                /** @description The text typed so far. Empty or missing gives an empty list. */
+                q?: components["parameters"]["TagQuery"];
+                /**
+                 * @description Suggestions to return, from 1. Defaults to 10. A larger value than 20 is reduced to
+                 *     20.
+                 */
+                limit?: components["parameters"]["TagLimit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Matching tags, best first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TagSuggestions"];
+                };
+            };
+            /** @description `limit` is not a whole number of at least 1 (`bad_request`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    addMySkill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddTagRequest"];
+            };
+        };
+        responses: {
+            /** @description The user already had the tag; nothing changed. The body is the same as for 201. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tag"];
+                };
+            };
+            /** @description The tag is now on the user's profile. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tag"];
+                };
+            };
+            /**
+             * @description The name is empty or longer than 60 characters after normalizing
+             *     (`invalid_tag_name`), or the body is not JSON (`bad_request`).
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The user already has 30 skills (`tag_limit_reached`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    removeMySkill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The tag's ID, a UUID. It is declared as a plain string so that the login check runs
+                 *     before it is read (FR-3.1); a value that is not a UUID names no tag the user has and
+                 *     gets 404 `not_found`.
+                 */
+                tagId: components["parameters"]["TagID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tag is no longer on the user's profile. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The user does not have this tag (`not_found`). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    suggestSkillTags: {
+        parameters: {
+            query?: {
+                /** @description The text typed so far. Empty or missing gives an empty list. */
+                q?: components["parameters"]["TagQuery"];
+                /**
+                 * @description Suggestions to return, from 1. Defaults to 10. A larger value than 20 is reduced to
+                 *     20.
+                 */
+                limit?: components["parameters"]["TagLimit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Matching tags, best first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TagSuggestions"];
+                };
+            };
+            /** @description `limit` is not a whole number of at least 1 (`bad_request`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             500: components["responses"]["InternalError"];
         };
     };

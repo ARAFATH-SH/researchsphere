@@ -162,6 +162,33 @@ SELECT pg_temp.expect_error('Interest: name is unique ignoring letter case (FR-4
     $s$INSERT INTO research_interests (name) VALUES ('nlp')$s$, '23505');
 SELECT pg_temp.expect_error('Skill: name is unique ignoring letter case (FR-4.2)',
     $s$INSERT INTO skills (name) VALUES ('pytorch')$s$, '23505');
+
+-- Tag name limits (FR-4.2, migration 000004): at most 60 characters, trimmed, single
+-- spaces only. The accepted values use a two-byte letter, since lengths count characters.
+SELECT pg_temp.expect_ok('Interest: name of 60 characters with single spaces is accepted',
+    $s$INSERT INTO research_interests (name) VALUES (repeat('é', 29) || ' ' || repeat('é', 30))$s$);
+SELECT pg_temp.expect_error('Interest: name is at most 60 characters',
+    $s$INSERT INTO research_interests (name) VALUES (repeat('a', 61))$s$, '23514');
+SELECT pg_temp.expect_error('Interest: name has no leading space',
+    $s$INSERT INTO research_interests (name) VALUES (' Robotics')$s$, '23514');
+SELECT pg_temp.expect_error('Interest: name has no trailing space',
+    $s$INSERT INTO research_interests (name) VALUES ('Robotics ')$s$, '23514');
+SELECT pg_temp.expect_error('Interest: name has no double space',
+    $s$INSERT INTO research_interests (name) VALUES ('Machine  Learning')$s$, '23514');
+SELECT pg_temp.expect_error('Interest: name has no tab or line break',
+    $s$INSERT INTO research_interests (name) VALUES (E'Machine\tLearning')$s$, '23514');
+SELECT pg_temp.expect_ok('Skill: name of 60 characters with single spaces is accepted',
+    $s$INSERT INTO skills (name) VALUES (repeat('é', 29) || ' ' || repeat('é', 30))$s$);
+SELECT pg_temp.expect_error('Skill: name is at most 60 characters',
+    $s$INSERT INTO skills (name) VALUES (repeat('a', 61))$s$, '23514');
+SELECT pg_temp.expect_error('Skill: name has no leading space',
+    $s$INSERT INTO skills (name) VALUES (' Go')$s$, '23514');
+SELECT pg_temp.expect_error('Skill: name has no trailing space',
+    $s$INSERT INTO skills (name) VALUES ('Go ')$s$, '23514');
+SELECT pg_temp.expect_error('Skill: name has no double space',
+    $s$INSERT INTO skills (name) VALUES ('Data  Analysis')$s$, '23514');
+SELECT pg_temp.expect_error('Skill: name has no tab or line break',
+    $s$INSERT INTO skills (name) VALUES (E'Data\nAnalysis')$s$, '23514');
 SELECT pg_temp.expect_error('Education: end year is not before start year',
     $s$INSERT INTO education (user_id, institution, degree, start_year, end_year)
        VALUES ('00000000-0000-0000-0000-000000000001', 'MIT', 'BSc', 2020, 2019)$s$, '23514');

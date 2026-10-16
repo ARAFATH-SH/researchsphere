@@ -27,6 +27,30 @@ type fakeService struct {
 	err     error
 	userID  string
 	update  usecase.UpdateInput
+
+	tag         domain.Tag // returned by AddTag
+	created     bool       // returned by AddTag
+	suggestions []domain.Tag
+	kind        domain.TagKind // given to the tag operations
+	name        string         // given to AddTag
+	tagID       string         // given to RemoveTag
+	q           string         // given to SuggestTags
+	limit       int            // given to SuggestTags
+}
+
+func (f *fakeService) AddTag(_ context.Context, userID string, kind domain.TagKind, name string) (domain.Tag, bool, error) {
+	f.userID, f.kind, f.name = userID, kind, name
+	return f.tag, f.created, f.err
+}
+
+func (f *fakeService) RemoveTag(_ context.Context, userID string, kind domain.TagKind, tagID string) error {
+	f.userID, f.kind, f.tagID = userID, kind, tagID
+	return f.err
+}
+
+func (f *fakeService) SuggestTags(_ context.Context, kind domain.TagKind, q string, limit int) ([]domain.Tag, error) {
+	f.kind, f.q, f.limit = kind, q, limit
+	return f.suggestions, f.err
 }
 
 func (f *fakeService) GetOwn(_ context.Context, userID string) (domain.Profile, error) {

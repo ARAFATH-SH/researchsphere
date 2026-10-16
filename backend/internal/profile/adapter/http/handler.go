@@ -1,5 +1,6 @@
 // Package http serves the profile operations in docs/openapi.yaml: the caller's own
-// profile and editing its basic fields (FR-4.1), and any user's profile (FR-4.5). It
+// profile and editing its basic fields (FR-4.1), research interests and skills (FR-4.2)
+// with suggestions (FR-4.3), and any user's profile (FR-4.5). It
 // turns the usecase's errors into the error codes the web client shows next to each
 // field. cmd/api guards each route with its platform action (SRS 2.3) before it gets here.
 package http
@@ -26,6 +27,8 @@ const (
 	CodeInvalidDepartment  = "invalid_department"
 	CodeInvalidJobTitle    = "invalid_job_title"
 	CodeInvalidCountry     = "invalid_country"
+	CodeInvalidTagName     = "invalid_tag_name"
+	CodeTagLimitReached    = "tag_limit_reached"
 )
 
 // service is the part of usecase.Service this handler needs.
@@ -33,6 +36,9 @@ type service interface {
 	GetOwn(ctx context.Context, userID string) (domain.Profile, error)
 	UpdateOwn(ctx context.Context, userID string, in usecase.UpdateInput) (domain.Profile, error)
 	View(ctx context.Context, userID string) (domain.Profile, error)
+	AddTag(ctx context.Context, userID string, kind domain.TagKind, name string) (domain.Tag, bool, error)
+	RemoveTag(ctx context.Context, userID string, kind domain.TagKind, tagID string) error
+	SuggestTags(ctx context.Context, kind domain.TagKind, q string, limit int) ([]domain.Tag, error)
 }
 
 // Handler implements the profile operations of gen.StrictServerInterface.
@@ -145,13 +151,21 @@ func (h *Handler) GetProfile(ctx context.Context, req gen.GetProfileRequestObjec
 	return gen.GetProfile200JSONResponse(body), nil
 }
 
-// profileBody builds the response. The lists and the connection status are placeholders
-// until interests, skills (FR-4.2), education (FR-4.4), publications (FR-5.5) and
-// connections (FR-7) exist; the lists are empty, never null.
+// profileBody builds the response. Education, publications and the connection status are
+// placeholders until education (FR-4.4), publications (FR-5.5) and connections (FR-7)
+// exist. Every list is empty, never null, when there is nothing in it.
 func profileBody(p domain.Profile) (gen.Profile, error) {
 	var id openapi_types.UUID
 	if err := id.UnmarshalText([]byte(p.UserID)); err != nil {
 		return gen.Profile{}, fmt.Errorf("profile user id: %w", err)
+	}
+	interests, err := tagBodies(p.Interests)
+	if err != nil {
+		return gen.Profile{}, err
+	}
+	skills, err := tagBodies(p.Skills)
+	if err != nil {
+		return gen.Profile{}, err
 	}
 	return gen.Profile{
 		UserId:           id,
@@ -162,8 +176,8 @@ func profileBody(p domain.Profile) (gen.Profile, error) {
 		Department:       p.Department,
 		JobTitle:         p.JobTitle,
 		Country:          p.Country,
-		Interests:        []map[string]any{},
-		Skills:           []map[string]any{},
+		Interests:        interests,
+		Skills:           skills,
 		Education:        []map[string]any{},
 		Publications:     []map[string]any{},
 		ConnectionStatus: gen.None,

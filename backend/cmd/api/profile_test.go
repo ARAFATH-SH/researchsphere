@@ -13,8 +13,9 @@ import (
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpx"
 )
 
-// The profile routes go through authz (FR-3.2, SRS 2.3): both platform roles may view
-// profiles and edit their own, and any other role gets exactly the FR-3.3 refusal.
+// The profile and tag routes go through authz (FR-3.2, SRS 2.3): both platform roles may
+// view profiles and tags and edit their own, and any other role gets exactly the FR-3.3
+// refusal.
 func TestProfileRoutesThroughRouter(t *testing.T) {
 	router := testRouter()
 	routes := []struct {
@@ -23,6 +24,12 @@ func TestProfileRoutesThroughRouter(t *testing.T) {
 		{http.MethodGet, "/api/v1/profiles/me", ""},
 		{http.MethodPut, "/api/v1/profiles/me", `{"fullName":"Ada Lovelace","country":"gb"}`},
 		{http.MethodGet, "/api/v1/profiles/" + okUserID, ""},
+		{http.MethodPost, "/api/v1/profiles/me/interests", `{"name":"Machine Learning"}`},
+		{http.MethodDelete, "/api/v1/profiles/me/interests/" + okTagID, ""},
+		{http.MethodPost, "/api/v1/profiles/me/skills", `{"name":"Go"}`},
+		{http.MethodDelete, "/api/v1/profiles/me/skills/" + okTagID, ""},
+		{http.MethodGet, "/api/v1/tags/interests?q=mach", ""},
+		{http.MethodGet, "/api/v1/tags/skills?q=g&limit=50", ""},
 	}
 	send := func(t *testing.T, method, path, body, role string) *httptest.ResponseRecorder {
 		t.Helper()
@@ -44,8 +51,8 @@ func TestProfileRoutesThroughRouter(t *testing.T) {
 		name := r.method + " " + r.path
 		for _, role := range []authz.Role{authz.RoleResearcher, authz.RoleAdmin} {
 			t.Run(name+"/"+string(role), func(t *testing.T) {
-				if rec := send(t, r.method, r.path, r.body, string(role)); rec.Code != http.StatusOK {
-					t.Errorf("status = %d, want 200; body %s", rec.Code, rec.Body)
+				if rec := send(t, r.method, r.path, r.body, string(role)); rec.Code < 200 || rec.Code > 299 {
+					t.Errorf("status = %d, want success; body %s", rec.Code, rec.Body)
 				}
 			})
 		}
@@ -62,13 +69,20 @@ func TestProfileRoutesThroughRouter(t *testing.T) {
 	}
 }
 
-// Every profile route has a platform guard (FR-3.2), so a new one cannot be added
-// without deciding which SRS 2.3 row it belongs to.
+// Every profile and tag route has the platform guard this test expects (FR-3.2), so a new
+// one cannot be added without deciding which SRS 2.3 row it belongs to.
 func TestProfileRoutesAreGuarded(t *testing.T) {
 	want := map[string]authz.Action{
 		"GET /api/v1/profiles/me":       authz.ViewContent,
 		"PUT /api/v1/profiles/me":       authz.ActAsMember,
 		"GET /api/v1/profiles/{userId}": authz.ViewContent,
+
+		"POST /api/v1/profiles/me/interests":           authz.ActAsMember,
+		"DELETE /api/v1/profiles/me/interests/{tagId}": authz.ActAsMember,
+		"POST /api/v1/profiles/me/skills":              authz.ActAsMember,
+		"DELETE /api/v1/profiles/me/skills/{tagId}":    authz.ActAsMember,
+		"GET /api/v1/tags/interests":                   authz.ViewContent,
+		"GET /api/v1/tags/skills":                      authz.ViewContent,
 	}
 	for route, action := range want {
 		if got := platformGuards[route]; got != action {
@@ -77,11 +91,11 @@ func TestProfileRoutesAreGuarded(t *testing.T) {
 	}
 	for _, r := range httpserver.Routes() {
 		_, path, _ := strings.Cut(r, " ")
-		if !strings.HasPrefix(path, httpserver.BaseURL+"/profiles") {
+		if !strings.HasPrefix(path, httpserver.BaseURL+"/profiles") && !strings.HasPrefix(path, httpserver.BaseURL+"/tags") {
 			continue
 		}
-		if _, ok := platformGuards[r]; !ok {
-			t.Errorf("profile route %q has no entry in platformGuards", r)
+		if _, ok := want[r]; !ok {
+			t.Errorf("route %q has no expected action in this test; add it", r)
 		}
 	}
 }

@@ -44,6 +44,15 @@ var platformGuards = map[string]authz.Action{
 	"GET /api/v1/profiles/me":       authz.ViewContent,
 	"PUT /api/v1/profiles/me":       authz.ActAsMember,
 	"GET /api/v1/profiles/{userId}": authz.ViewContent,
+
+	// Interests and skills (FR-4.2) are part of the own profile; suggestions (FR-4.3)
+	// read the shared tags.
+	"POST /api/v1/profiles/me/interests":           authz.ActAsMember,
+	"DELETE /api/v1/profiles/me/interests/{tagId}": authz.ActAsMember,
+	"POST /api/v1/profiles/me/skills":              authz.ActAsMember,
+	"DELETE /api/v1/profiles/me/skills/{tagId}":    authz.ActAsMember,
+	"GET /api/v1/tags/interests":                   authz.ViewContent,
+	"GET /api/v1/tags/skills":                      authz.ViewContent,
 }
 
 // guardPlatform runs httpx.RequirePlatform with the action platformGuards gives the

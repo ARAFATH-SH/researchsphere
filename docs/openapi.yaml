@@ -627,6 +627,228 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /profiles/me/interests:
+    post:
+      operationId: addMyInterest
+      summary: Add a research interest to the logged-in user's profile (FR-4.2)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). The name is normalized (see AddTagRequest) and matched
+        ignoring letter case: an existing tag is reused with its first spelling, otherwise
+        a new tag is created. A user has at most 20 interests.
+      tags: [profile]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddTagRequest"
+      responses:
+        "201":
+          description: The tag is now on the user's profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tag"
+        "200":
+          description: The user already had the tag; nothing changed. The body is the same as for 201.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tag"
+        "400":
+          description: |
+            The name is empty or longer than 60 characters after normalizing
+            (`invalid_tag_name`), or the body is not JSON (`bad_request`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: The user already has 20 interests (`tag_limit_reached`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /profiles/me/interests/{tagId}:
+    delete:
+      operationId: removeMyInterest
+      summary: Remove a research interest from the logged-in user's profile (FR-4.2)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Only the link to the user is removed; the tag stays for
+        other users and for suggestions.
+      tags: [profile]
+      parameters:
+        - $ref: "#/components/parameters/TagID"
+      responses:
+        "204":
+          description: The tag is no longer on the user's profile.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: The user does not have this tag (`not_found`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /tags/interests:
+    get:
+      operationId: suggestInterestTags
+      summary: Suggest existing research interest tags while the user types (FR-4.3)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed,
+        events and recommendations" (SRS 2.3). Matching ignores letter case. Names that
+        start with `q` come first, then names that contain it elsewhere; within each group
+        tags used by more users come first, then by name. `q` is normalized like a tag name;
+        an empty `q` gives an empty list.
+      tags: [profile]
+      parameters:
+        - $ref: "#/components/parameters/TagQuery"
+        - $ref: "#/components/parameters/TagLimit"
+      responses:
+        "200":
+          description: Matching tags, best first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TagSuggestions"
+        "400":
+          description: "`limit` is not a whole number of at least 1 (`bad_request`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /profiles/me/skills:
+    post:
+      operationId: addMySkill
+      summary: Add a skill to the logged-in user's profile (FR-4.2)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). The name is normalized (see AddTagRequest) and matched
+        ignoring letter case: an existing tag is reused with its first spelling, otherwise
+        a new tag is created. A user has at most 30 skills.
+      tags: [profile]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddTagRequest"
+      responses:
+        "201":
+          description: The tag is now on the user's profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tag"
+        "200":
+          description: The user already had the tag; nothing changed. The body is the same as for 201.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tag"
+        "400":
+          description: |
+            The name is empty or longer than 60 characters after normalizing
+            (`invalid_tag_name`), or the body is not JSON (`bad_request`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: The user already has 30 skills (`tag_limit_reached`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /profiles/me/skills/{tagId}:
+    delete:
+      operationId: removeMySkill
+      summary: Remove a skill from the logged-in user's profile (FR-4.2)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Only the link to the user is removed; the tag stays for
+        other users and for suggestions.
+      tags: [profile]
+      parameters:
+        - $ref: "#/components/parameters/TagID"
+      responses:
+        "204":
+          description: The tag is no longer on the user's profile.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: The user does not have this tag (`not_found`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /tags/skills:
+    get:
+      operationId: suggestSkillTags
+      summary: Suggest existing skill tags while the user types (FR-4.3)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed,
+        events and recommendations" (SRS 2.3). Matching ignores letter case. Names that
+        start with `q` come first, then names that contain it elsewhere; within each group
+        tags used by more users come first, then by name. `q` is normalized like a tag name;
+        an empty `q` gives an empty list.
+      tags: [profile]
+      parameters:
+        - $ref: "#/components/parameters/TagQuery"
+        - $ref: "#/components/parameters/TagLimit"
+      responses:
+        "200":
+          description: Matching tags, best first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TagSuggestions"
+        "400":
+          description: "`limit` is not a whole number of at least 1 (`bad_request`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
   securitySchemes:
     cookieAuth:
@@ -636,6 +858,34 @@ components:
       description: The access token set by `POST /auth/login`.
 
   parameters:
+    TagID:
+      name: tagId
+      in: path
+      required: true
+      description: |
+        The tag's ID, a UUID. It is declared as a plain string so that the login check runs
+        before it is read (FR-3.1); a value that is not a UUID names no tag the user has and
+        gets 404 `not_found`.
+      schema:
+        type: string
+    TagQuery:
+      name: q
+      in: query
+      required: false
+      description: The text typed so far. Empty or missing gives an empty list.
+      schema:
+        type: string
+    TagLimit:
+      name: limit
+      in: query
+      required: false
+      description: |
+        Suggestions to return, from 1. Defaults to 10. A larger value than 20 is reduced to
+        20.
+      schema:
+        type: integer
+        minimum: 1
+        default: 10
     RefreshCookie:
       name: rs_refresh
       in: cookie
@@ -864,10 +1114,9 @@ components:
     Profile:
       type: object
       description: |
-        A researcher's profile (FR-4.1, FR-4.5). The optional text fields are always
-        present and null when not set. `interests`, `skills`, `education`,
-        `publications` and `connectionStatus` are placeholders for now; later work fills
-        them in.
+        A researcher's profile (FR-4.1, FR-4.2, FR-4.5). The optional text fields are
+        always present and null when not set. `education`, `publications` and
+        `connectionStatus` are placeholders for now; later work fills them in.
       required:
         - userId
         - fullName
@@ -911,14 +1160,14 @@ components:
           example: DE
         interests:
           type: array
-          description: "Placeholder: always empty until research interests are added (FR-4.2)."
+          description: The user's research interests (FR-4.2), sorted by name ignoring letter case.
           items:
-            type: object
+            $ref: "#/components/schemas/Tag"
         skills:
           type: array
-          description: "Placeholder: always empty until skills are added (FR-4.2)."
+          description: The user's skills (FR-4.2), sorted by name ignoring letter case.
           items:
-            type: object
+            $ref: "#/components/schemas/Tag"
         education:
           type: array
           description: "Placeholder: always empty until education entries are added (FR-4.4)."
@@ -931,6 +1180,43 @@ components:
             type: object
         connectionStatus:
           $ref: "#/components/schemas/ConnectionStatus"
+
+    Tag:
+      type: object
+      description: |
+        A research interest or skill (FR-4.2). Tags are shared by all users; names that
+        differ only in letter case are the same tag, and the name keeps the spelling it was
+        first created with.
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: Machine Learning
+
+    AddTagRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          description: |
+            Trimmed, and every run of spaces, tabs or line breaks becomes one space; then 1 to
+            60 characters.
+          maxLength: 60
+          example: Machine Learning
+
+    TagSuggestions:
+      type: object
+      description: Existing tags that match the typed text (FR-4.3), best match first.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Tag"
 
     ConnectionStatus:
       type: string

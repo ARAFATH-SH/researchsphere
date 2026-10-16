@@ -11,6 +11,28 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countUserInterests = `-- name: CountUserInterests :one
+SELECT count(*) FROM user_interests WHERE user_id = $1
+`
+
+func (q *Queries) CountUserInterests(ctx context.Context, userID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countUserInterests, userID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countUserSkills = `-- name: CountUserSkills :one
+SELECT count(*) FROM user_skills WHERE user_id = $1
+`
+
+func (q *Queries) CountUserSkills(ctx context.Context, userID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countUserSkills, userID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const findAccount = `-- name: FindAccount :one
 SELECT u.id, u.email_verified_at, u.suspended_at,
        p.user_id AS profile_user_id, p.full_name, p.headline, p.bio, p.institution,
@@ -52,6 +74,265 @@ func (q *Queries) FindAccount(ctx context.Context, id pgtype.UUID) (FindAccountR
 		&i.Country,
 	)
 	return i, err
+}
+
+const findInterestByName = `-- name: FindInterestByName :one
+SELECT id, name FROM research_interests WHERE name = $1
+`
+
+func (q *Queries) FindInterestByName(ctx context.Context, name string) (ResearchInterest, error) {
+	row := q.db.QueryRow(ctx, findInterestByName, name)
+	var i ResearchInterest
+	err := row.Scan(&i.ID, &i.Name)
+	return i, err
+}
+
+const findSkillByName = `-- name: FindSkillByName :one
+SELECT id, name FROM skills WHERE name = $1
+`
+
+func (q *Queries) FindSkillByName(ctx context.Context, name string) (Skill, error) {
+	row := q.db.QueryRow(ctx, findSkillByName, name)
+	var i Skill
+	err := row.Scan(&i.ID, &i.Name)
+	return i, err
+}
+
+const insertInterestIfMissing = `-- name: InsertInterestIfMissing :exec
+
+INSERT INTO research_interests (name) VALUES ($1) ON CONFLICT (name) DO NOTHING
+`
+
+// Tags: research_interests and user_interests (FR-4.2, FR-4.3). The name column is citext, so = and the
+// unique constraint ignore letter case.
+// Creates the tag unless one with this name, ignoring letter case, exists. Another
+// transaction inserting the same name makes this wait, then do nothing; the select that
+// follows (FindInterestByName, a new statement) then sees its row.
+func (q *Queries) InsertInterestIfMissing(ctx context.Context, name string) error {
+	_, err := q.db.Exec(ctx, insertInterestIfMissing, name)
+	return err
+}
+
+const insertSkillIfMissing = `-- name: InsertSkillIfMissing :exec
+
+INSERT INTO skills (name) VALUES ($1) ON CONFLICT (name) DO NOTHING
+`
+
+// Tags: skills and user_skills (FR-4.2, FR-4.3). The name column is citext, so = and the
+// unique constraint ignore letter case.
+// Creates the tag unless one with this name, ignoring letter case, exists. Another
+// transaction inserting the same name makes this wait, then do nothing; the select that
+// follows (FindSkillByName, a new statement) then sees its row.
+func (q *Queries) InsertSkillIfMissing(ctx context.Context, name string) error {
+	_, err := q.db.Exec(ctx, insertSkillIfMissing, name)
+	return err
+}
+
+const linkUserInterest = `-- name: LinkUserInterest :exec
+INSERT INTO user_interests (user_id, interest_id) VALUES ($1, $2) ON CONFLICT DO NOTHING
+`
+
+type LinkUserInterestParams struct {
+	UserID pgtype.UUID
+	TagID  pgtype.UUID
+}
+
+func (q *Queries) LinkUserInterest(ctx context.Context, arg LinkUserInterestParams) error {
+	_, err := q.db.Exec(ctx, linkUserInterest, arg.UserID, arg.TagID)
+	return err
+}
+
+const linkUserSkill = `-- name: LinkUserSkill :exec
+INSERT INTO user_skills (user_id, skill_id) VALUES ($1, $2) ON CONFLICT DO NOTHING
+`
+
+type LinkUserSkillParams struct {
+	UserID pgtype.UUID
+	TagID  pgtype.UUID
+}
+
+func (q *Queries) LinkUserSkill(ctx context.Context, arg LinkUserSkillParams) error {
+	_, err := q.db.Exec(ctx, linkUserSkill, arg.UserID, arg.TagID)
+	return err
+}
+
+const listUserInterests = `-- name: ListUserInterests :many
+SELECT t.id, t.name
+FROM research_interests t
+JOIN user_interests l ON l.interest_id = t.id
+WHERE l.user_id = $1
+ORDER BY t.name, t.id
+`
+
+// citext sorts ignoring letter case; the id breaks ties.
+func (q *Queries) ListUserInterests(ctx context.Context, userID pgtype.UUID) ([]ResearchInterest, error) {
+	rows, err := q.db.Query(ctx, listUserInterests, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ResearchInterest
+	for rows.Next() {
+		var i ResearchInterest
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUserSkills = `-- name: ListUserSkills :many
+SELECT t.id, t.name
+FROM skills t
+JOIN user_skills l ON l.skill_id = t.id
+WHERE l.user_id = $1
+ORDER BY t.name, t.id
+`
+
+// citext sorts ignoring letter case; the id breaks ties.
+func (q *Queries) ListUserSkills(ctx context.Context, userID pgtype.UUID) ([]Skill, error) {
+	rows, err := q.db.Query(ctx, listUserSkills, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Skill
+	for rows.Next() {
+		var i Skill
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockUser = `-- name: LockUser :one
+SELECT id FROM users WHERE id = $1 FOR NO KEY UPDATE
+`
+
+// Taken before a tag is added, so two requests of one user cannot both pass the tag
+// limit. NO KEY UPDATE does not block the key-share lock the new link takes on the user.
+func (q *Queries) LockUser(ctx context.Context, id pgtype.UUID) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, lockUser, id)
+	var id_2 pgtype.UUID
+	err := row.Scan(&id_2)
+	return id_2, err
+}
+
+const suggestInterests = `-- name: SuggestInterests :many
+SELECT t.id, t.name
+FROM research_interests t
+WHERE strpos(lower(t.name::text), lower($1::text)) > 0
+ORDER BY starts_with(lower(t.name::text), lower($1::text)) DESC,
+         (SELECT count(*) FROM user_interests l WHERE l.interest_id = t.id) DESC,
+         t.name, t.id
+LIMIT $2
+`
+
+type SuggestInterestsParams struct {
+	Q          string
+	MaxResults int32
+}
+
+// strpos and starts_with on lower-cased text, not LIKE, so % and _ in q match only
+// themselves. Names that start with q first, then the most used, then by name.
+func (q *Queries) SuggestInterests(ctx context.Context, arg SuggestInterestsParams) ([]ResearchInterest, error) {
+	rows, err := q.db.Query(ctx, suggestInterests, arg.Q, arg.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ResearchInterest
+	for rows.Next() {
+		var i ResearchInterest
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const suggestSkills = `-- name: SuggestSkills :many
+SELECT t.id, t.name
+FROM skills t
+WHERE strpos(lower(t.name::text), lower($1::text)) > 0
+ORDER BY starts_with(lower(t.name::text), lower($1::text)) DESC,
+         (SELECT count(*) FROM user_skills l WHERE l.skill_id = t.id) DESC,
+         t.name, t.id
+LIMIT $2
+`
+
+type SuggestSkillsParams struct {
+	Q          string
+	MaxResults int32
+}
+
+// strpos and starts_with on lower-cased text, not LIKE, so % and _ in q match only
+// themselves. Names that start with q first, then the most used, then by name.
+func (q *Queries) SuggestSkills(ctx context.Context, arg SuggestSkillsParams) ([]Skill, error) {
+	rows, err := q.db.Query(ctx, suggestSkills, arg.Q, arg.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Skill
+	for rows.Next() {
+		var i Skill
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const unlinkUserInterest = `-- name: UnlinkUserInterest :execrows
+DELETE FROM user_interests WHERE user_id = $1 AND interest_id = $2
+`
+
+type UnlinkUserInterestParams struct {
+	UserID pgtype.UUID
+	TagID  pgtype.UUID
+}
+
+func (q *Queries) UnlinkUserInterest(ctx context.Context, arg UnlinkUserInterestParams) (int64, error) {
+	result, err := q.db.Exec(ctx, unlinkUserInterest, arg.UserID, arg.TagID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const unlinkUserSkill = `-- name: UnlinkUserSkill :execrows
+DELETE FROM user_skills WHERE user_id = $1 AND skill_id = $2
+`
+
+type UnlinkUserSkillParams struct {
+	UserID pgtype.UUID
+	TagID  pgtype.UUID
+}
+
+func (q *Queries) UnlinkUserSkill(ctx context.Context, arg UnlinkUserSkillParams) (int64, error) {
+	result, err := q.db.Exec(ctx, unlinkUserSkill, arg.UserID, arg.TagID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const upsertProfile = `-- name: UpsertProfile :one
@@ -114,4 +395,36 @@ func (q *Queries) UpsertProfile(ctx context.Context, arg UpsertProfileParams) (U
 		&i.Country,
 	)
 	return i, err
+}
+
+const userHasInterest = `-- name: UserHasInterest :one
+SELECT EXISTS (SELECT 1 FROM user_interests WHERE user_id = $1 AND interest_id = $2)
+`
+
+type UserHasInterestParams struct {
+	UserID pgtype.UUID
+	TagID  pgtype.UUID
+}
+
+func (q *Queries) UserHasInterest(ctx context.Context, arg UserHasInterestParams) (bool, error) {
+	row := q.db.QueryRow(ctx, userHasInterest, arg.UserID, arg.TagID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const userHasSkill = `-- name: UserHasSkill :one
+SELECT EXISTS (SELECT 1 FROM user_skills WHERE user_id = $1 AND skill_id = $2)
+`
+
+type UserHasSkillParams struct {
+	UserID pgtype.UUID
+	TagID  pgtype.UUID
+}
+
+func (q *Queries) UserHasSkill(ctx context.Context, arg UserHasSkillParams) (bool, error) {
+	row := q.db.QueryRow(ctx, userHasSkill, arg.UserID, arg.TagID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }

@@ -1,6 +1,7 @@
 // Package usecase holds the profile module's logic: reading the caller's own profile and
-// editing its basic fields (FR-4.1), and showing any user's profile to a logged-in user
-// (FR-4.5). It imports only the profile domain.
+// editing its basic fields (FR-4.1), research interests and skills as tags (FR-4.2) with
+// suggestions (FR-4.3), and showing any user's profile to a logged-in user (FR-4.5). It
+// imports only the profile domain.
 package usecase
 
 import (
@@ -27,7 +28,7 @@ func (s *Service) GetOwn(ctx context.Context, userID string) (domain.Profile, er
 	if err != nil {
 		return domain.Profile{}, err
 	}
-	return profileOf(a), nil
+	return s.withTags(ctx, profileOf(a))
 }
 
 // View returns any user's profile to a logged-in user (FR-4.5). An unknown, suspended or
@@ -40,7 +41,7 @@ func (s *Service) View(ctx context.Context, userID string) (domain.Profile, erro
 	if a.Suspended || !a.Verified {
 		return domain.Profile{}, domain.ErrNotFound
 	}
-	return profileOf(a), nil
+	return s.withTags(ctx, profileOf(a))
 }
 
 // UpdateInput is what a user sends to edit their profile. A nil optional field means
@@ -64,7 +65,11 @@ func (s *Service) UpdateOwn(ctx context.Context, userID string, in UpdateInput) 
 		return domain.Profile{}, err
 	}
 	p.UserID = userID
-	return s.store.UpsertProfile(ctx, p)
+	saved, err := s.store.UpsertProfile(ctx, p)
+	if err != nil {
+		return domain.Profile{}, err
+	}
+	return s.withTags(ctx, saved)
 }
 
 // profileOf returns the account's profile, or an empty one when it has no profile row.

@@ -100,6 +100,16 @@ func (e Role) Valid() bool {
 	}
 }
 
+// AddTagRequest defines model for AddTagRequest.
+type AddTagRequest struct {
+	// Name Trimmed, and every run of spaces, tabs or line breaks becomes one space; then 1 to
+	// 60 characters.
+	//
+	//
+	// Example: Machine Learning
+	Name string `json:"name"`
+}
+
 // AdminUser One user account as an administrator sees it in the users list.
 type AdminUser struct {
 	CreatedAt time.Time          `json:"createdAt"`
@@ -204,10 +214,9 @@ type PasswordResetRequest struct {
 	Email string `json:"email"`
 }
 
-// Profile A researcher's profile (FR-4.1, FR-4.5). The optional text fields are always
-// present and null when not set. `interests`, `skills`, `education`,
-// `publications` and `connectionStatus` are placeholders for now; later work fills
-// them in.
+// Profile A researcher's profile (FR-4.1, FR-4.2, FR-4.5). The optional text fields are
+// always present and null when not set. `education`, `publications` and
+// `connectionStatus` are placeholders for now; later work fills them in.
 type Profile struct {
 	Bio *string `json:"bio"`
 
@@ -229,16 +238,16 @@ type Profile struct {
 	Headline    *string `json:"headline"`
 	Institution *string `json:"institution"`
 
-	// Interests Placeholder: always empty until research interests are added (FR-4.2).
-	Interests []map[string]interface{} `json:"interests"`
-	JobTitle  *string                  `json:"jobTitle"`
+	// Interests The user's research interests (FR-4.2), sorted by name ignoring letter case.
+	Interests []Tag   `json:"interests"`
+	JobTitle  *string `json:"jobTitle"`
 
 	// Publications Placeholder: always empty until confirmed publications are shown (FR-5.5).
 	Publications []map[string]interface{} `json:"publications"`
 
-	// Skills Placeholder: always empty until skills are added (FR-4.2).
-	Skills []map[string]interface{} `json:"skills"`
-	UserId openapi_types.UUID       `json:"userId"`
+	// Skills The user's skills (FR-4.2), sorted by name ignoring letter case.
+	Skills []Tag              `json:"skills"`
+	UserId openapi_types.UUID `json:"userId"`
 }
 
 // ProfileUpdate The profile fields a user edits (FR-4.1). Every value is trimmed first. Lengths
@@ -305,6 +314,21 @@ type ResendVerificationRequest struct {
 // (`make admin`); no operation changes a role.
 type Role string
 
+// Tag A research interest or skill (FR-4.2). Tags are shared by all users; names that
+// differ only in letter case are the same tag, and the name keeps the spelling it was
+// first created with.
+type Tag struct {
+	Id openapi_types.UUID `json:"id"`
+
+	// Name Example: Machine Learning
+	Name string `json:"name"`
+}
+
+// TagSuggestions Existing tags that match the typed text (FR-4.3), best match first.
+type TagSuggestions struct {
+	Items []Tag `json:"items"`
+}
+
 // UserPage defines model for UserPage.
 type UserPage struct {
 	Items []AdminUser `json:"items"`
@@ -325,6 +349,15 @@ type VerifyEmailRequest struct {
 
 // RefreshCookie defines model for RefreshCookie.
 type RefreshCookie = string
+
+// TagID defines model for TagID.
+type TagID = string
+
+// TagLimit defines model for TagLimit.
+type TagLimit = int
+
+// TagQuery defines model for TagQuery.
+type TagQuery = string
 
 // Forbidden The shape of every error response (SRS 5.3).
 type Forbidden = Error
@@ -369,6 +402,26 @@ type RefreshSessionParams struct {
 	RsRefresh *RefreshCookie `form:"rs_refresh,omitempty" json:"rs_refresh,omitempty"`
 }
 
+// SuggestInterestTagsParams defines parameters for SuggestInterestTags.
+type SuggestInterestTagsParams struct {
+	// Q The text typed so far. Empty or missing gives an empty list.
+	Q *TagQuery `form:"q,omitempty" json:"q,omitempty"`
+
+	// Limit Suggestions to return, from 1. Defaults to 10. A larger value than 20 is reduced to
+	// 20.
+	Limit *TagLimit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// SuggestSkillTagsParams defines parameters for SuggestSkillTags.
+type SuggestSkillTagsParams struct {
+	// Q The text typed so far. Empty or missing gives an empty list.
+	Q *TagQuery `form:"q,omitempty" json:"q,omitempty"`
+
+	// Limit Suggestions to return, from 1. Defaults to 10. A larger value than 20 is reduced to
+	// 20.
+	Limit *TagLimit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // DeleteAccountJSONRequestBody defines body for DeleteAccount for application/json ContentType.
 type DeleteAccountJSONRequestBody = DeleteAccountRequest
 
@@ -395,6 +448,12 @@ type VerifyEmailJSONRequestBody = VerifyEmailRequest
 
 // UpdateMyProfileJSONRequestBody defines body for UpdateMyProfile for application/json ContentType.
 type UpdateMyProfileJSONRequestBody = ProfileUpdate
+
+// AddMyInterestJSONRequestBody defines body for AddMyInterest for application/json ContentType.
+type AddMyInterestJSONRequestBody = AddTagRequest
+
+// AddMySkillJSONRequestBody defines body for AddMySkill for application/json ContentType.
+type AddMySkillJSONRequestBody = AddTagRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
@@ -443,9 +502,27 @@ type ServerInterface interface {
 	// UpdateMyProfile Create or replace the logged-in user's profile fields (FR-4.1)
 	// (PUT /profiles/me)
 	UpdateMyProfile(w http.ResponseWriter, r *http.Request)
+	// AddMyInterest Add a research interest to the logged-in user's profile (FR-4.2)
+	// (POST /profiles/me/interests)
+	AddMyInterest(w http.ResponseWriter, r *http.Request)
+	// RemoveMyInterest Remove a research interest from the logged-in user's profile (FR-4.2)
+	// (DELETE /profiles/me/interests/{tagId})
+	RemoveMyInterest(w http.ResponseWriter, r *http.Request, tagId TagID)
+	// AddMySkill Add a skill to the logged-in user's profile (FR-4.2)
+	// (POST /profiles/me/skills)
+	AddMySkill(w http.ResponseWriter, r *http.Request)
+	// RemoveMySkill Remove a skill from the logged-in user's profile (FR-4.2)
+	// (DELETE /profiles/me/skills/{tagId})
+	RemoveMySkill(w http.ResponseWriter, r *http.Request, tagId TagID)
 	// GetProfile Return any user's profile to a logged-in user (FR-4.5)
 	// (GET /profiles/{userId})
 	GetProfile(w http.ResponseWriter, r *http.Request, userId string)
+	// SuggestInterestTags Suggest existing research interest tags while the user types (FR-4.3)
+	// (GET /tags/interests)
+	SuggestInterestTags(w http.ResponseWriter, r *http.Request, params SuggestInterestTagsParams)
+	// SuggestSkillTags Suggest existing skill tags while the user types (FR-4.3)
+	// (GET /tags/skills)
+	SuggestSkillTags(w http.ResponseWriter, r *http.Request, params SuggestSkillTagsParams)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -798,6 +875,110 @@ func (siw *ServerInterfaceWrapper) UpdateMyProfile(w http.ResponseWriter, r *htt
 	handler.ServeHTTP(w, r)
 }
 
+// AddMyInterest operation middleware
+func (siw *ServerInterfaceWrapper) AddMyInterest(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AddMyInterest(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RemoveMyInterest operation middleware
+func (siw *ServerInterfaceWrapper) RemoveMyInterest(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tagId" -------------
+	var tagId TagID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tagId", r.PathValue("tagId"), &tagId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tagId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RemoveMyInterest(w, r, tagId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AddMySkill operation middleware
+func (siw *ServerInterfaceWrapper) AddMySkill(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AddMySkill(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RemoveMySkill operation middleware
+func (siw *ServerInterfaceWrapper) RemoveMySkill(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tagId" -------------
+	var tagId TagID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tagId", r.PathValue("tagId"), &tagId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tagId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RemoveMySkill(w, r, tagId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetProfile operation middleware
 func (siw *ServerInterfaceWrapper) GetProfile(w http.ResponseWriter, r *http.Request) {
 
@@ -821,6 +1002,110 @@ func (siw *ServerInterfaceWrapper) GetProfile(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetProfile(w, r, userId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SuggestInterestTags operation middleware
+func (siw *ServerInterfaceWrapper) SuggestInterestTags(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SuggestInterestTagsParams
+
+	// ------------- Optional query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SuggestInterestTags(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SuggestSkillTags operation middleware
+func (siw *ServerInterfaceWrapper) SuggestSkillTags(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SuggestSkillTagsParams
+
+	// ------------- Optional query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SuggestSkillTags(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -966,6 +1251,12 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles/me", wrapper.GetMyProfile)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/profiles/me", wrapper.UpdateMyProfile)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles/{userId}", wrapper.GetProfile)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/profiles/me/interests", wrapper.AddMyInterest)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/profiles/me/interests/{tagId}", wrapper.RemoveMyInterest)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tags/interests", wrapper.SuggestInterestTags)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/profiles/me/skills", wrapper.AddMySkill)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/profiles/me/skills/{tagId}", wrapper.RemoveMySkill)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tags/skills", wrapper.SuggestSkillTags)
 
 	return m
 }
@@ -1948,6 +2239,362 @@ func (response UpdateMyProfile500JSONResponse) VisitUpdateMyProfileResponse(w ht
 	return err
 }
 
+type AddMyInterestRequestObject struct {
+	Body *AddMyInterestJSONRequestBody
+}
+
+type AddMyInterestResponseObject interface {
+	VisitAddMyInterestResponse(w http.ResponseWriter) error
+}
+
+type AddMyInterest200JSONResponse Tag
+
+func (response AddMyInterest200JSONResponse) VisitAddMyInterestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyInterest201JSONResponse Tag
+
+func (response AddMyInterest201JSONResponse) VisitAddMyInterestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyInterest400JSONResponse Error
+
+func (response AddMyInterest400JSONResponse) VisitAddMyInterestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyInterest401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response AddMyInterest401JSONResponse) VisitAddMyInterestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyInterest403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response AddMyInterest403JSONResponse) VisitAddMyInterestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyInterest409JSONResponse Error
+
+func (response AddMyInterest409JSONResponse) VisitAddMyInterestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyInterest500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response AddMyInterest500JSONResponse) VisitAddMyInterestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMyInterestRequestObject struct {
+	TagId TagID `json:"tagId"`
+}
+
+type RemoveMyInterestResponseObject interface {
+	VisitRemoveMyInterestResponse(w http.ResponseWriter) error
+}
+
+type RemoveMyInterest204Response struct {
+}
+
+func (response RemoveMyInterest204Response) VisitRemoveMyInterestResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RemoveMyInterest401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RemoveMyInterest401JSONResponse) VisitRemoveMyInterestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMyInterest403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response RemoveMyInterest403JSONResponse) VisitRemoveMyInterestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMyInterest404JSONResponse Error
+
+func (response RemoveMyInterest404JSONResponse) VisitRemoveMyInterestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMyInterest500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RemoveMyInterest500JSONResponse) VisitRemoveMyInterestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMySkillRequestObject struct {
+	Body *AddMySkillJSONRequestBody
+}
+
+type AddMySkillResponseObject interface {
+	VisitAddMySkillResponse(w http.ResponseWriter) error
+}
+
+type AddMySkill200JSONResponse Tag
+
+func (response AddMySkill200JSONResponse) VisitAddMySkillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMySkill201JSONResponse Tag
+
+func (response AddMySkill201JSONResponse) VisitAddMySkillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMySkill400JSONResponse Error
+
+func (response AddMySkill400JSONResponse) VisitAddMySkillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMySkill401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response AddMySkill401JSONResponse) VisitAddMySkillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMySkill403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response AddMySkill403JSONResponse) VisitAddMySkillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMySkill409JSONResponse Error
+
+func (response AddMySkill409JSONResponse) VisitAddMySkillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMySkill500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response AddMySkill500JSONResponse) VisitAddMySkillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMySkillRequestObject struct {
+	TagId TagID `json:"tagId"`
+}
+
+type RemoveMySkillResponseObject interface {
+	VisitRemoveMySkillResponse(w http.ResponseWriter) error
+}
+
+type RemoveMySkill204Response struct {
+}
+
+func (response RemoveMySkill204Response) VisitRemoveMySkillResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RemoveMySkill401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RemoveMySkill401JSONResponse) VisitRemoveMySkillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMySkill403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response RemoveMySkill403JSONResponse) VisitRemoveMySkillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMySkill404JSONResponse Error
+
+func (response RemoveMySkill404JSONResponse) VisitRemoveMySkillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMySkill500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RemoveMySkill500JSONResponse) VisitRemoveMySkillResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetProfileRequestObject struct {
 	UserId string `json:"userId"`
 }
@@ -2026,6 +2673,162 @@ func (response GetProfile500JSONResponse) VisitGetProfileResponse(w http.Respons
 	return err
 }
 
+type SuggestInterestTagsRequestObject struct {
+	Params SuggestInterestTagsParams
+}
+
+type SuggestInterestTagsResponseObject interface {
+	VisitSuggestInterestTagsResponse(w http.ResponseWriter) error
+}
+
+type SuggestInterestTags200JSONResponse TagSuggestions
+
+func (response SuggestInterestTags200JSONResponse) VisitSuggestInterestTagsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SuggestInterestTags400JSONResponse Error
+
+func (response SuggestInterestTags400JSONResponse) VisitSuggestInterestTagsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SuggestInterestTags401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response SuggestInterestTags401JSONResponse) VisitSuggestInterestTagsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SuggestInterestTags403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response SuggestInterestTags403JSONResponse) VisitSuggestInterestTagsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SuggestInterestTags500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response SuggestInterestTags500JSONResponse) VisitSuggestInterestTagsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SuggestSkillTagsRequestObject struct {
+	Params SuggestSkillTagsParams
+}
+
+type SuggestSkillTagsResponseObject interface {
+	VisitSuggestSkillTagsResponse(w http.ResponseWriter) error
+}
+
+type SuggestSkillTags200JSONResponse TagSuggestions
+
+func (response SuggestSkillTags200JSONResponse) VisitSuggestSkillTagsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SuggestSkillTags400JSONResponse Error
+
+func (response SuggestSkillTags400JSONResponse) VisitSuggestSkillTagsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SuggestSkillTags401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response SuggestSkillTags401JSONResponse) VisitSuggestSkillTagsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SuggestSkillTags403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response SuggestSkillTags403JSONResponse) VisitSuggestSkillTagsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SuggestSkillTags500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response SuggestSkillTags500JSONResponse) VisitSuggestSkillTagsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// DeleteAccount Delete the logged-in user's account after entering the password (FR-2.8, FR-2.9)
@@ -2073,9 +2876,27 @@ type StrictServerInterface interface {
 	// UpdateMyProfile Create or replace the logged-in user's profile fields (FR-4.1)
 	// (PUT /profiles/me)
 	UpdateMyProfile(ctx context.Context, request UpdateMyProfileRequestObject) (UpdateMyProfileResponseObject, error)
+	// AddMyInterest Add a research interest to the logged-in user's profile (FR-4.2)
+	// (POST /profiles/me/interests)
+	AddMyInterest(ctx context.Context, request AddMyInterestRequestObject) (AddMyInterestResponseObject, error)
+	// RemoveMyInterest Remove a research interest from the logged-in user's profile (FR-4.2)
+	// (DELETE /profiles/me/interests/{tagId})
+	RemoveMyInterest(ctx context.Context, request RemoveMyInterestRequestObject) (RemoveMyInterestResponseObject, error)
+	// AddMySkill Add a skill to the logged-in user's profile (FR-4.2)
+	// (POST /profiles/me/skills)
+	AddMySkill(ctx context.Context, request AddMySkillRequestObject) (AddMySkillResponseObject, error)
+	// RemoveMySkill Remove a skill from the logged-in user's profile (FR-4.2)
+	// (DELETE /profiles/me/skills/{tagId})
+	RemoveMySkill(ctx context.Context, request RemoveMySkillRequestObject) (RemoveMySkillResponseObject, error)
 	// GetProfile Return any user's profile to a logged-in user (FR-4.5)
 	// (GET /profiles/{userId})
 	GetProfile(ctx context.Context, request GetProfileRequestObject) (GetProfileResponseObject, error)
+	// SuggestInterestTags Suggest existing research interest tags while the user types (FR-4.3)
+	// (GET /tags/interests)
+	SuggestInterestTags(ctx context.Context, request SuggestInterestTagsRequestObject) (SuggestInterestTagsResponseObject, error)
+	// SuggestSkillTags Suggest existing skill tags while the user types (FR-4.3)
+	// (GET /tags/skills)
+	SuggestSkillTags(ctx context.Context, request SuggestSkillTagsRequestObject) (SuggestSkillTagsResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error)
@@ -2548,6 +3369,120 @@ func (sh *strictHandler) UpdateMyProfile(w http.ResponseWriter, r *http.Request)
 	}
 }
 
+// AddMyInterest operation middleware
+func (sh *strictHandler) AddMyInterest(w http.ResponseWriter, r *http.Request) {
+	var request AddMyInterestRequestObject
+
+	var body AddMyInterestJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AddMyInterest(ctx, request.(AddMyInterestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AddMyInterest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AddMyInterestResponseObject); ok {
+		if err := validResponse.VisitAddMyInterestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RemoveMyInterest operation middleware
+func (sh *strictHandler) RemoveMyInterest(w http.ResponseWriter, r *http.Request, tagId TagID) {
+	var request RemoveMyInterestRequestObject
+
+	request.TagId = tagId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RemoveMyInterest(ctx, request.(RemoveMyInterestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RemoveMyInterest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RemoveMyInterestResponseObject); ok {
+		if err := validResponse.VisitRemoveMyInterestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AddMySkill operation middleware
+func (sh *strictHandler) AddMySkill(w http.ResponseWriter, r *http.Request) {
+	var request AddMySkillRequestObject
+
+	var body AddMySkillJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AddMySkill(ctx, request.(AddMySkillRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AddMySkill")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AddMySkillResponseObject); ok {
+		if err := validResponse.VisitAddMySkillResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RemoveMySkill operation middleware
+func (sh *strictHandler) RemoveMySkill(w http.ResponseWriter, r *http.Request, tagId TagID) {
+	var request RemoveMySkillRequestObject
+
+	request.TagId = tagId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RemoveMySkill(ctx, request.(RemoveMySkillRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RemoveMySkill")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RemoveMySkillResponseObject); ok {
+		if err := validResponse.VisitRemoveMySkillResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetProfile operation middleware
 func (sh *strictHandler) GetProfile(w http.ResponseWriter, r *http.Request, userId string) {
 	var request GetProfileRequestObject
@@ -2567,6 +3502,58 @@ func (sh *strictHandler) GetProfile(w http.ResponseWriter, r *http.Request, user
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetProfileResponseObject); ok {
 		if err := validResponse.VisitGetProfileResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SuggestInterestTags operation middleware
+func (sh *strictHandler) SuggestInterestTags(w http.ResponseWriter, r *http.Request, params SuggestInterestTagsParams) {
+	var request SuggestInterestTagsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SuggestInterestTags(ctx, request.(SuggestInterestTagsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SuggestInterestTags")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SuggestInterestTagsResponseObject); ok {
+		if err := validResponse.VisitSuggestInterestTagsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SuggestSkillTags operation middleware
+func (sh *strictHandler) SuggestSkillTags(w http.ResponseWriter, r *http.Request, params SuggestSkillTagsParams) {
+	var request SuggestSkillTagsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SuggestSkillTags(ctx, request.(SuggestSkillTagsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SuggestSkillTags")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SuggestSkillTagsResponseObject); ok {
+		if err := validResponse.VisitSuggestSkillTagsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

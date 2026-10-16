@@ -19,6 +19,27 @@ type Profile struct {
 	Department  *string
 	JobTitle    *string
 	Country     *string // ISO 3166-1 alpha-2 code in capitals
+	// Interests and Skills are the user's tags sorted by name (FR-4.2). UpsertProfile
+	// ignores them; the usecase fills them when it reads a profile.
+	Interests []Tag
+	Skills    []Tag
+}
+
+// TagKind says which shared vocabulary a tag belongs to.
+type TagKind string
+
+// Tag kinds.
+const (
+	KindInterest TagKind = "interest" // research_interests, user_interests
+	KindSkill    TagKind = "skill"    // skills, user_skills
+)
+
+// Tag is a research interest or a skill (FR-4.2). Tags are shared by all users; names
+// that differ only in letter case are the same tag, and Name keeps the spelling the tag
+// was first created with.
+type Tag struct {
+	ID   string
+	Name string
 }
 
 // Account is a user as the profile module sees it: whether others may see the profile,
@@ -31,13 +52,44 @@ type Account struct {
 	Profile *Profile
 }
 
-// Store reads and writes profiles.
+// Store reads and writes profiles and the user's tags. Writes that must happen together
+// go through RunInTx.
 type Store interface {
+	// RunInTx runs fn in one database transaction. It commits when fn returns nil and
+	// rolls back otherwise, returning fn's error.
+	RunInTx(ctx context.Context, fn func(tx Tx) error) error
 	// FindAccount returns ErrNotFound when no user has the ID, or the ID is not a UUID.
 	FindAccount(ctx context.Context, userID string) (Account, error)
 	// UpsertProfile creates the user's profile row or replaces its edited fields, and
 	// returns what was stored. It returns ErrNotFound when the user does not exist.
 	UpsertProfile(ctx context.Context, p Profile) (Profile, error)
+	// ListTags returns the user's tags of kind, sorted by name ignoring letter case.
+	ListTags(ctx context.Context, userID string, kind TagKind) ([]Tag, error)
+	// RemoveTag unlinks the tag from the user; the tag itself stays. It returns
+	// ErrNotFound when the user does not have the tag, or tagID is not a UUID.
+	RemoveTag(ctx context.Context, userID string, kind TagKind, tagID string) error
+	// SuggestTags returns at most limit tags of kind whose name contains q, ignoring
+	// letter case (FR-4.3): names that start with q first, then by how many users have
+	// the tag (most first), then by name.
+	SuggestTags(ctx context.Context, kind TagKind, q string, limit int) ([]Tag, error)
+}
+
+// Tx is the set of steps available inside a transaction.
+type Tx interface {
+	// LockUser locks the user against other tag changes until the transaction ends, so
+	// two requests cannot both pass the tag limit. It returns ErrNotFound when the user
+	// does not exist.
+	LockUser(ctx context.Context, userID string) error
+	// FindOrCreateTag returns the tag of kind named name ignoring letter case, creating
+	// it with this spelling when there is none. A tag created at the same moment by
+	// another transaction is found, not duplicated.
+	FindOrCreateTag(ctx context.Context, kind TagKind, name string) (Tag, error)
+	// HasTag reports whether the user has the tag.
+	HasTag(ctx context.Context, userID string, kind TagKind, tagID string) (bool, error)
+	// CountTags returns how many tags of kind the user has.
+	CountTags(ctx context.Context, userID string, kind TagKind) (int, error)
+	// LinkTag adds the tag to the user's profile.
+	LinkTag(ctx context.Context, userID string, kind TagKind, tagID string) error
 }
 
 // Errors the usecase returns. The HTTP adapter turns each into an error code.
@@ -50,4 +102,7 @@ var (
 	ErrInvalidDepartment  = errors.New("department is too long or has a line break")
 	ErrInvalidJobTitle    = errors.New("job title is too long or has a line break")
 	ErrInvalidCountry     = errors.New("country is not an ISO 3166-1 alpha-2 code")
+	ErrInvalidTagName     = errors.New("tag name is empty or too long")
+	ErrTagLimitReached    = errors.New("user has the most tags of this kind allowed")
+	ErrInvalidLimit       = errors.New("limit is less than 1")
 )

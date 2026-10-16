@@ -83,6 +83,30 @@ func (fakeAPI) GetProfile(context.Context, gen.GetProfileRequestObject) (gen.Get
 	return gen.GetProfile200JSONResponse{}, nil
 }
 
+func (fakeAPI) AddMyInterest(context.Context, gen.AddMyInterestRequestObject) (gen.AddMyInterestResponseObject, error) {
+	return gen.AddMyInterest201JSONResponse{}, nil
+}
+
+func (fakeAPI) RemoveMyInterest(context.Context, gen.RemoveMyInterestRequestObject) (gen.RemoveMyInterestResponseObject, error) {
+	return gen.RemoveMyInterest204Response{}, nil
+}
+
+func (fakeAPI) AddMySkill(context.Context, gen.AddMySkillRequestObject) (gen.AddMySkillResponseObject, error) {
+	return gen.AddMySkill201JSONResponse{}, nil
+}
+
+func (fakeAPI) RemoveMySkill(context.Context, gen.RemoveMySkillRequestObject) (gen.RemoveMySkillResponseObject, error) {
+	return gen.RemoveMySkill204Response{}, nil
+}
+
+func (fakeAPI) SuggestInterestTags(context.Context, gen.SuggestInterestTagsRequestObject) (gen.SuggestInterestTagsResponseObject, error) {
+	return gen.SuggestInterestTags200JSONResponse{Items: []gen.Tag{}}, nil
+}
+
+func (fakeAPI) SuggestSkillTags(context.Context, gen.SuggestSkillTagsRequestObject) (gen.SuggestSkillTagsResponseObject, error) {
+	return gen.SuggestSkillTags200JSONResponse{Items: []gen.Tag{}}, nil
+}
+
 // GetCurrentUser echoes the user ID that the auth middleware put in the context.
 func (fakeAPI) GetCurrentUser(ctx context.Context, _ gen.GetCurrentUserRequestObject) (gen.GetCurrentUserResponseObject, error) {
 	id, _ := httpx.UserID(ctx)
@@ -301,8 +325,8 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 
 func TestRoutes(t *testing.T) {
 	got := Routes()
-	if len(got) != 16 {
-		t.Errorf("Routes() returned %d routes, want the 16 operations in the contract: %v", len(got), got)
+	if len(got) != 22 {
+		t.Errorf("Routes() returned %d routes, want the 22 operations in the contract: %v", len(got), got)
 	}
 	seen := map[string]bool{}
 	for _, p := range got {
