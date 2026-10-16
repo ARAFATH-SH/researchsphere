@@ -706,3 +706,39 @@ func TestSuspendedAtIsRead(t *testing.T) {
 		}
 	}
 }
+
+// TestRoleIsRead checks that the two reads whose role is signed into the access token,
+// at login and at refresh, return users.role, including after it changes (SRS 2.3).
+func TestRoleIsRead(t *testing.T) {
+	ctx := t.Context()
+	s, pool := newTestStore(t)
+	email := uniqueEmail(t, pool)
+	id, err := register(ctx, s, email, "Ada", rand.Text(), time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessHash := rand.Text()
+	if err := s.CreateSession(ctx, domain.NewSession{UserID: id, TokenHash: sessHash, ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, want := range []string{"researcher", "admin"} {
+		if _, err := pool.Exec(ctx, "UPDATE users SET role = $1 WHERE id = $2", want, id); err != nil {
+			t.Fatal(err)
+		}
+		c, err := s.FindCredentialsByEmail(ctx, email)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.Role != want {
+			t.Errorf("FindCredentialsByEmail: Role = %q, want %q", c.Role, want)
+		}
+		sess, err := findSession(t, s, sessHash)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if sess.UserRole != want {
+			t.Errorf("FindSessionForUpdate: UserRole = %q, want %q", sess.UserRole, want)
+		}
+	}
+}

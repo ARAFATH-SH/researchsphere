@@ -87,8 +87,9 @@ type PasswordHasher interface {
 
 // AccessTokenSigner issues the short-lived access token given at login (FR-2.1).
 type AccessTokenSigner interface {
-	// Sign returns a token for userID issued at now, and the time it expires.
-	Sign(userID string, now time.Time) (string, time.Time, error)
+	// Sign returns a token for userID with the platform role, issued at now, and the
+	// time it expires.
+	Sign(userID, role string, now time.Time) (string, time.Time, error)
 }
 
 // LoginAttempts counts failed logins per account and holds account locks (FR-2.7). key

@@ -248,7 +248,7 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 		t.Errorf("code = %q, want %q", code, httpx.CodeUnauthenticated)
 	}
 
-	token, _, err := testSigner.Sign("user-1", time.Now())
+	token, _, err := testSigner.Sign("user-1", "researcher", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}

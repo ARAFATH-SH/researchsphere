@@ -51,11 +51,11 @@ func TestEveryRouteRequiresLoginUnlessPublic(t *testing.T) {
 	}
 
 	signer := accesstoken.New([]byte(testSecret), accessTTL)
-	valid, _, err := signer.Sign(okUserID, time.Now())
+	valid, _, err := signer.Sign(okUserID, "researcher", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
-	expired, _, err := signer.Sign(okUserID, time.Now().Add(-accessTTL-time.Minute))
+	expired, _, err := signer.Sign(okUserID, "researcher", time.Now().Add(-accessTTL-time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}

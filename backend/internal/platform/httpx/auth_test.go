@@ -10,17 +10,18 @@ import (
 
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/api/gen"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/accesstoken"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/authz"
 )
 
 func TestRequireAuth(t *testing.T) {
 	start := time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC)
 	signer := accesstoken.New([]byte("test-secret-that-is-at-least-32-bytes-long"), 15*time.Minute)
 	other := accesstoken.New([]byte("another-secret-of-at-least-32-bytes!!"), 15*time.Minute)
-	valid, _, err := signer.Sign("user-1", start)
+	valid, _, err := signer.Sign("user-1", "admin", start)
 	if err != nil {
 		t.Fatal(err)
 	}
-	foreign, _, err := other.Sign("user-1", start)
+	foreign, _, err := other.Sign("user-1", "admin", start)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,9 +33,10 @@ func TestRequireAuth(t *testing.T) {
 		at        time.Time
 		wantCode  int
 		wantUser  string
+		wantRole  authz.Role
 		wantError string
 	}{
-		{name: "valid token", secured: true, cookie: AccessCookie + "=" + valid, at: start.Add(time.Minute), wantCode: 200, wantUser: "user-1"},
+		{name: "valid token", secured: true, cookie: AccessCookie + "=" + valid, at: start.Add(time.Minute), wantCode: 200, wantUser: "user-1", wantRole: authz.RoleAdmin},
 		{name: "missing cookie", secured: true, at: start, wantCode: 401, wantError: CodeUnauthenticated},
 		{name: "expired token", secured: true, cookie: AccessCookie + "=" + valid, at: start.Add(15 * time.Minute), wantCode: 401, wantError: CodeUnauthenticated},
 		{name: "token from another secret", secured: true, cookie: AccessCookie + "=" + foreign, at: start, wantCode: 401, wantError: CodeUnauthenticated},
@@ -45,10 +47,12 @@ func TestRequireAuth(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var gotUser string
+			var gotRole authz.Role
 			var reached bool
 			next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				reached = true
 				gotUser, _ = UserID(r.Context())
+				gotRole, _ = Role(r.Context())
 			})
 			h := RequireAuth(signer, func() time.Time { return tt.at })(next)
 
@@ -84,6 +88,9 @@ func TestRequireAuth(t *testing.T) {
 			}
 			if gotUser != tt.wantUser {
 				t.Errorf("user ID in context = %q, want %q", gotUser, tt.wantUser)
+			}
+			if gotRole != tt.wantRole {
+				t.Errorf("role in context = %q, want %q", gotRole, tt.wantRole)
 			}
 		})
 	}

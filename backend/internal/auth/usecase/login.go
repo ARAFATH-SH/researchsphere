@@ -97,7 +97,7 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (LoginResult, error)
 	refresh, hash := newToken()
 	res := LoginResult{User: creds.User, IssuedAt: now, RefreshToken: refresh, RefreshExpiresAt: now.Add(RefreshTTL)}
 	// Sign first, so a failure leaves no session behind.
-	if res.AccessToken, res.AccessExpiresAt, err = s.signer.Sign(creds.ID, now); err != nil {
+	if res.AccessToken, res.AccessExpiresAt, err = s.signer.Sign(creds.ID, creds.Role, now); err != nil {
 		return LoginResult{}, err
 	}
 	if err := s.store.CreateSession(ctx, domain.NewSession{UserID: creds.ID, TokenHash: hash, ExpiresAt: res.RefreshExpiresAt}); err != nil {

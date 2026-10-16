@@ -24,6 +24,9 @@ type User struct {
 	FullName        string
 	EmailVerifiedAt *time.Time // nil until the address is verified (FR-1.4)
 	SuspendedAt     *time.Time // set while the account is suspended (FR-3.4)
+	// Role is the platform role (users.role, SRS 2.3), signed into the access token.
+	// Only FindCredentialsByEmail fills it.
+	Role string
 }
 
 // Verified reports whether the user's email address has been verified.
@@ -81,6 +84,10 @@ type Session struct {
 	// UserSuspendedAt is the suspended time of the session's user (FR-3.4). Only
 	// FindSessionForUpdate fills it.
 	UserSuspendedAt *time.Time
+	// UserRole is the platform role of the session's user, signed into the new access
+	// token at refresh, so a role change takes effect there (SRS 2.3). Only
+	// FindSessionForUpdate fills it.
+	UserRole string
 }
 
 // VerificationEmail is the message that carries a verification link.

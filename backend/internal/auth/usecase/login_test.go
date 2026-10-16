@@ -40,7 +40,7 @@ func TestLoginSuccess(t *testing.T) {
 	if !res.IssuedAt.Equal(e.clock.t) {
 		t.Errorf("IssuedAt = %v, want %v", res.IssuedAt, e.clock.t)
 	}
-	if res.AccessToken != "access-for-"+id {
+	if res.AccessToken != "access-for-"+id+"-as-researcher" {
 		t.Errorf("AccessToken = %q, want the signer's token for the user", res.AccessToken)
 	}
 	if want := e.clock.t.Add(15 * time.Minute); !res.AccessExpiresAt.Equal(want) {

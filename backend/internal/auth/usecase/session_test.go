@@ -43,7 +43,7 @@ func TestRefreshRotatesTheToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Refresh() error = %v", err)
 	}
-	if res.AccessToken != "access-for-"+id {
+	if res.AccessToken != "access-for-"+id+"-as-researcher" {
 		t.Errorf("AccessToken = %q, want the signer's token for the user", res.AccessToken)
 	}
 	if !res.IssuedAt.Equal(e.clock.t) || !res.AccessExpiresAt.Equal(e.clock.t.Add(15*time.Minute)) {

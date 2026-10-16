@@ -78,6 +78,7 @@ func (s *Store) FindCredentialsByEmail(ctx context.Context, email string) (domai
 			FullName:        row.FullName,
 			EmailVerifiedAt: timePtr(row.EmailVerifiedAt),
 			SuspendedAt:     timePtr(row.SuspendedAt),
+			Role:            string(row.Role),
 		},
 		PasswordHash: row.PasswordHash,
 	}, nil
@@ -266,6 +267,7 @@ func (t tx) FindSessionForUpdate(ctx context.Context, hash string) (domain.Sessi
 	}
 	sess := session(row.ID, row.UserID, row.ExpiresAt, row.RevokedAt)
 	sess.UserSuspendedAt = timePtr(row.SuspendedAt)
+	sess.UserRole = string(row.Role)
 	return sess, nil
 }
 

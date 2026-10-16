@@ -147,7 +147,7 @@ func (q *Queries) DeleteUserPublicationLinks(ctx context.Context, userID pgtype.
 }
 
 const findCredentialsByEmail = `-- name: FindCredentialsByEmail :one
-SELECT u.id, u.email, u.password_hash, u.email_verified_at, u.suspended_at, p.full_name
+SELECT u.id, u.email, u.password_hash, u.email_verified_at, u.suspended_at, u.role, p.full_name
 FROM users u
 JOIN profiles p ON p.user_id = u.id
 WHERE u.email = $1
@@ -159,6 +159,7 @@ type FindCredentialsByEmailRow struct {
 	PasswordHash    string
 	EmailVerifiedAt pgtype.Timestamptz
 	SuspendedAt     pgtype.Timestamptz
+	Role            UserRole
 	FullName        string
 }
 
@@ -171,6 +172,7 @@ func (q *Queries) FindCredentialsByEmail(ctx context.Context, email string) (Fin
 		&i.PasswordHash,
 		&i.EmailVerifiedAt,
 		&i.SuspendedAt,
+		&i.Role,
 		&i.FullName,
 	)
 	return i, err
@@ -234,7 +236,7 @@ func (q *Queries) FindSessionByRetiredTokenForUpdate(ctx context.Context, tokenH
 }
 
 const findSessionForUpdate = `-- name: FindSessionForUpdate :one
-SELECT s.id, s.user_id, s.expires_at, s.revoked_at, u.suspended_at
+SELECT s.id, s.user_id, s.expires_at, s.revoked_at, u.suspended_at, u.role
 FROM sessions s
 JOIN users u ON u.id = s.user_id
 WHERE s.refresh_token_hash = $1
@@ -247,6 +249,7 @@ type FindSessionForUpdateRow struct {
 	ExpiresAt   pgtype.Timestamptz
 	RevokedAt   pgtype.Timestamptz
 	SuspendedAt pgtype.Timestamptz
+	Role        UserRole
 }
 
 func (q *Queries) FindSessionForUpdate(ctx context.Context, refreshTokenHash string) (FindSessionForUpdateRow, error) {
@@ -258,6 +261,7 @@ func (q *Queries) FindSessionForUpdate(ctx context.Context, refreshTokenHash str
 		&i.ExpiresAt,
 		&i.RevokedAt,
 		&i.SuspendedAt,
+		&i.Role,
 	)
 	return i, err
 }

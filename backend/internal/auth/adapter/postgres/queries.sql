@@ -36,7 +36,7 @@ UPDATE users SET email_verified_at = coalesce(email_verified_at, @verified_at)
 WHERE id = @id;
 
 -- name: FindCredentialsByEmail :one
-SELECT u.id, u.email, u.password_hash, u.email_verified_at, u.suspended_at, p.full_name
+SELECT u.id, u.email, u.password_hash, u.email_verified_at, u.suspended_at, u.role, p.full_name
 FROM users u
 JOIN profiles p ON p.user_id = u.id
 WHERE u.email = @email;
@@ -52,7 +52,7 @@ INSERT INTO sessions (user_id, refresh_token_hash, expires_at)
 VALUES (@user_id, @refresh_token_hash, @expires_at);
 
 -- name: FindSessionForUpdate :one
-SELECT s.id, s.user_id, s.expires_at, s.revoked_at, u.suspended_at
+SELECT s.id, s.user_id, s.expires_at, s.revoked_at, u.suspended_at, u.role
 FROM sessions s
 JOIN users u ON u.id = s.user_id
 WHERE s.refresh_token_hash = @refresh_token_hash

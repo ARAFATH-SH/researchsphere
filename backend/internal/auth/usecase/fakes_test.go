@@ -208,7 +208,8 @@ func (tx fakeTx) CreateUser(_ context.Context, u domain.NewUser) (string, error)
 		return "", domain.ErrEmailTaken
 	}
 	id := tx.s.id()
-	tx.s.users[key] = fakeUser{User: domain.User{ID: id, Email: u.Email}, passwordHash: u.PasswordHash}
+	// "researcher" is the users.role column default.
+	tx.s.users[key] = fakeUser{User: domain.User{ID: id, Email: u.Email, Role: "researcher"}, passwordHash: u.PasswordHash}
 	return id, nil
 }
 
@@ -284,6 +285,7 @@ func (tx fakeTx) FindSessionForUpdate(_ context.Context, hash string) (domain.Se
 			found := sess.Session
 			_, u, _ := tx.s.userByID(sess.UserID)
 			found.UserSuspendedAt = u.SuspendedAt // as the query's join with users
+			found.UserRole = u.Role
 			return found, nil
 		}
 	}
@@ -457,14 +459,14 @@ func (h *fakeHasher) Verify(password, encoded string) (bool, error) {
 	return encoded == "hashed:"+password, nil
 }
 
-// fakeSigner issues readable access tokens.
+// fakeSigner issues readable access tokens that name the user and the role.
 type fakeSigner struct{ err error }
 
-func (s fakeSigner) Sign(userID string, now time.Time) (string, time.Time, error) {
+func (s fakeSigner) Sign(userID, role string, now time.Time) (string, time.Time, error) {
 	if s.err != nil {
 		return "", time.Time{}, s.err
 	}
-	return "access-for-" + userID, now.Add(15 * time.Minute), nil
+	return "access-for-" + userID + "-as-" + role, now.Add(15 * time.Minute), nil
 }
 
 // fakeMailer records the messages it was asked to send.
