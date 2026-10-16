@@ -18,6 +18,9 @@ import (
 	authusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/usecase"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/accesstoken"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpx"
+	profilehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/http"
+	profiledomain "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/domain"
+	profileusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/usecase"
 )
 
 // freePort returns a TCP port that was free a moment ago.
@@ -121,6 +124,7 @@ const testSecret = "test-jwt-secret-0123456789abcdefghij"
 func testRouter() http.Handler {
 	up := pingerFunc(func(context.Context) error { return nil })
 	return newRouter(slog.New(slog.DiscardHandler), up, up, authhttp.NewHandler(okAuth{}, authhttp.CookieConfig{}),
+		profilehttp.NewHandler(profileusecase.New(okProfiles{})),
 		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
 }
 
@@ -216,6 +220,18 @@ func (okAuth) ListUsers(_ context.Context, page, pageSize int) (authdomain.UserP
 }
 
 const okUserID = "6f1c2b9e-1d2a-4c3b-9a8e-0f1e2d3c4b5a"
+
+// okProfiles is a profile store in which every ID belongs to a verified user named Ada
+// and every write succeeds.
+type okProfiles struct{}
+
+func (okProfiles) FindAccount(_ context.Context, id string) (profiledomain.Account, error) {
+	return profiledomain.Account{UserID: id, Verified: true, Profile: &profiledomain.Profile{UserID: id, FullName: "Ada"}}, nil
+}
+
+func (okProfiles) UpsertProfile(_ context.Context, p profiledomain.Profile) (profiledomain.Profile, error) {
+	return p, nil
+}
 
 // The wired router needs the access cookie for /auth/me and accepts a token it signed.
 func TestCurrentUserThroughRouter(t *testing.T) {

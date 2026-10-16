@@ -71,6 +71,18 @@ func (fakeAPI) ListUsers(context.Context, gen.ListUsersRequestObject) (gen.ListU
 	return gen.ListUsers200JSONResponse{Items: []gen.AdminUser{}}, nil
 }
 
+func (fakeAPI) GetMyProfile(context.Context, gen.GetMyProfileRequestObject) (gen.GetMyProfileResponseObject, error) {
+	return gen.GetMyProfile200JSONResponse{}, nil
+}
+
+func (fakeAPI) UpdateMyProfile(context.Context, gen.UpdateMyProfileRequestObject) (gen.UpdateMyProfileResponseObject, error) {
+	return gen.UpdateMyProfile200JSONResponse{}, nil
+}
+
+func (fakeAPI) GetProfile(context.Context, gen.GetProfileRequestObject) (gen.GetProfileResponseObject, error) {
+	return gen.GetProfile200JSONResponse{}, nil
+}
+
 // GetCurrentUser echoes the user ID that the auth middleware put in the context.
 func (fakeAPI) GetCurrentUser(ctx context.Context, _ gen.GetCurrentUserRequestObject) (gen.GetCurrentUserResponseObject, error) {
 	id, _ := httpx.UserID(ctx)
@@ -289,8 +301,8 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 
 func TestRoutes(t *testing.T) {
 	got := Routes()
-	if len(got) != 13 {
-		t.Errorf("Routes() returned %d routes, want the 12 operations in the contract: %v", len(got), got)
+	if len(got) != 16 {
+		t.Errorf("Routes() returned %d routes, want the 16 operations in the contract: %v", len(got), got)
 	}
 	seen := map[string]bool{}
 	for _, p := range got {

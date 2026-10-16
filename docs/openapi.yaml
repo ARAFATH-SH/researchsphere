@@ -530,6 +530,103 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /profiles/me:
+    get:
+      operationId: getMyProfile
+      summary: Return the logged-in user's profile (FR-4.1)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed,
+        events and recommendations" (SRS 2.3). An account without a profile row gets an
+        empty profile (every field null, `fullName` empty) instead of 404.
+      tags: [profile]
+      responses:
+        "200":
+          description: The caller's profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Profile"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    put:
+      operationId: updateMyProfile
+      summary: Create or replace the logged-in user's profile fields (FR-4.1)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Replaces every field in the body: an optional field that
+        is missing, null, or empty after trimming is stored as null. Each value is trimmed;
+        `country` is then upper-cased. Interests, skills, education and publications are
+        not changed here.
+      tags: [profile]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProfileUpdate"
+      responses:
+        "200":
+          description: The saved profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Profile"
+        "400":
+          description: |
+            A field is not valid. The code names the first invalid field, in this order:
+            `invalid_full_name`, `invalid_headline`, `invalid_bio`, `invalid_institution`,
+            `invalid_department`, `invalid_job_title`, `invalid_country`. A body that is not
+            JSON gets `bad_request`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /profiles/{userId}:
+    get:
+      operationId: getProfile
+      summary: Return any user's profile to a logged-in user (FR-4.5)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed,
+        events and recommendations" (SRS 2.3). An unknown, suspended or unverified account
+        gets the same 404 `not_found`, so the answer does not reveal which it is.
+      tags: [profile]
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          description: |
+            The user's ID, a UUID. It is declared as a plain string so that the login check
+            runs before it is read (FR-3.1); a value that is not a UUID names no user and
+            gets 404 `not_found`.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The user's profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Profile"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
   securitySchemes:
     cookieAuth:
@@ -763,6 +860,127 @@ components:
         total:
           type: integer
           description: The number of users on all pages.
+
+    Profile:
+      type: object
+      description: |
+        A researcher's profile (FR-4.1, FR-4.5). The optional text fields are always
+        present and null when not set. `interests`, `skills`, `education`,
+        `publications` and `connectionStatus` are placeholders for now; later work fills
+        them in.
+      required:
+        - userId
+        - fullName
+        - headline
+        - bio
+        - institution
+        - department
+        - jobTitle
+        - country
+        - interests
+        - skills
+        - education
+        - publications
+        - connectionStatus
+      properties:
+        userId:
+          type: string
+          format: uuid
+        fullName:
+          type: string
+          description: Empty only for an account that has no profile row yet.
+        headline:
+          type: string
+          nullable: true
+        bio:
+          type: string
+          nullable: true
+        institution:
+          type: string
+          nullable: true
+        department:
+          type: string
+          nullable: true
+        jobTitle:
+          type: string
+          nullable: true
+        country:
+          type: string
+          nullable: true
+          description: ISO 3166-1 alpha-2 code in capitals, such as DE.
+          example: DE
+        interests:
+          type: array
+          description: "Placeholder: always empty until research interests are added (FR-4.2)."
+          items:
+            type: object
+        skills:
+          type: array
+          description: "Placeholder: always empty until skills are added (FR-4.2)."
+          items:
+            type: object
+        education:
+          type: array
+          description: "Placeholder: always empty until education entries are added (FR-4.4)."
+          items:
+            type: object
+        publications:
+          type: array
+          description: "Placeholder: always empty until confirmed publications are shown (FR-5.5)."
+          items:
+            type: object
+        connectionStatus:
+          $ref: "#/components/schemas/ConnectionStatus"
+
+    ConnectionStatus:
+      type: string
+      description: |
+        The connection between the caller and the profile's owner (FR-4.5).
+        Placeholder: always `none` until connections are added (FR-7); more values come then.
+      enum: [none]
+
+    ProfileUpdate:
+      type: object
+      description: |
+        The profile fields a user edits (FR-4.1). Every value is trimmed first. Lengths
+        count characters after trimming.
+      required: [fullName]
+      properties:
+        fullName:
+          type: string
+          description: 1 to 200 characters, one line.
+          maxLength: 200
+          example: Ada Lovelace
+        headline:
+          type: string
+          nullable: true
+          description: At most 220 characters, one line.
+          maxLength: 220
+        bio:
+          type: string
+          nullable: true
+          description: At most 2000 characters; line breaks are kept.
+          maxLength: 2000
+        institution:
+          type: string
+          nullable: true
+          description: At most 200 characters, one line.
+          maxLength: 200
+        department:
+          type: string
+          nullable: true
+          description: At most 200 characters, one line.
+          maxLength: 200
+        jobTitle:
+          type: string
+          nullable: true
+          description: At most 200 characters, one line.
+          maxLength: 200
+        country:
+          type: string
+          nullable: true
+          description: An ISO 3166-1 alpha-2 code; letter case is ignored ("de" is stored as "DE").
+          example: DE
 
   responses:
     Forbidden:

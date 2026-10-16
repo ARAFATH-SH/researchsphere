@@ -312,6 +312,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/profiles/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Return the logged-in user's profile (FR-4.1)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed,
+         *     events and recommendations" (SRS 2.3). An account without a profile row gets an
+         *     empty profile (every field null, `fullName` empty) instead of 404.
+         */
+        get: operations["getMyProfile"];
+        /**
+         * Create or replace the logged-in user's profile fields (FR-4.1)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Replaces every field in the body: an optional field that
+         *     is missing, null, or empty after trimming is stored as null. Each value is trimmed;
+         *     `country` is then upper-cased. Interests, skills, education and publications are
+         *     not changed here.
+         */
+        put: operations["updateMyProfile"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/profiles/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Return any user's profile to a logged-in user (FR-4.5)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed,
+         *     events and recommendations" (SRS 2.3). An unknown, suspended or unverified account
+         *     gets the same 404 `not_found`, so the answer does not reveal which it is.
+         */
+        get: operations["getProfile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -439,6 +491,69 @@ export interface components {
             pageSize: number;
             /** @description The number of users on all pages. */
             total: number;
+        };
+        /**
+         * @description A researcher's profile (FR-4.1, FR-4.5). The optional text fields are always
+         *     present and null when not set. `interests`, `skills`, `education`,
+         *     `publications` and `connectionStatus` are placeholders for now; later work fills
+         *     them in.
+         */
+        Profile: {
+            /** Format: uuid */
+            userId: string;
+            /** @description Empty only for an account that has no profile row yet. */
+            fullName: string;
+            headline: string | null;
+            bio: string | null;
+            institution: string | null;
+            department: string | null;
+            jobTitle: string | null;
+            /**
+             * @description ISO 3166-1 alpha-2 code in capitals, such as DE.
+             * @example DE
+             */
+            country: string | null;
+            /** @description Placeholder: always empty until research interests are added (FR-4.2). */
+            interests: Record<string, never>[];
+            /** @description Placeholder: always empty until skills are added (FR-4.2). */
+            skills: Record<string, never>[];
+            /** @description Placeholder: always empty until education entries are added (FR-4.4). */
+            education: Record<string, never>[];
+            /** @description Placeholder: always empty until confirmed publications are shown (FR-5.5). */
+            publications: Record<string, never>[];
+            connectionStatus: components["schemas"]["ConnectionStatus"];
+        };
+        /**
+         * @description The connection between the caller and the profile's owner (FR-4.5).
+         *     Placeholder: always `none` until connections are added (FR-7); more values come then.
+         * @enum {string}
+         */
+        ConnectionStatus: "none";
+        /**
+         * @description The profile fields a user edits (FR-4.1). Every value is trimmed first. Lengths
+         *     count characters after trimming.
+         */
+        ProfileUpdate: {
+            /**
+             * @description 1 to 200 characters, one line.
+             * @example Ada Lovelace
+             */
+            fullName: string;
+            /** @description At most 220 characters, one line. */
+            headline?: string | null;
+            /** @description At most 2000 characters; line breaks are kept. */
+            bio?: string | null;
+            /** @description At most 200 characters, one line. */
+            institution?: string | null;
+            /** @description At most 200 characters, one line. */
+            department?: string | null;
+            /** @description At most 200 characters, one line. */
+            jobTitle?: string | null;
+            /**
+             * @description An ISO 3166-1 alpha-2 code; letter case is ignored ("de" is stored as "DE").
+             * @example DE
+             */
+            country?: string | null;
         };
     };
     responses: {
@@ -1035,6 +1150,101 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getMyProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's profile. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Profile"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    updateMyProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfileUpdate"];
+            };
+        };
+        responses: {
+            /** @description The saved profile. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Profile"];
+                };
+            };
+            /**
+             * @description A field is not valid. The code names the first invalid field, in this order:
+             *     `invalid_full_name`, `invalid_headline`, `invalid_bio`, `invalid_institution`,
+             *     `invalid_department`, `invalid_job_title`, `invalid_country`. A body that is not
+             *     JSON gets `bad_request`.
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The user's ID, a UUID. It is declared as a plain string so that the login check
+                 *     runs before it is read (FR-3.1); a value that is not a UUID names no user and
+                 *     gets 404 `not_found`.
+                 */
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The user's profile. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Profile"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             500: components["responses"]["InternalError"];
         };
     };

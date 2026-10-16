@@ -1,0 +1,171 @@
+// Package http serves the profile operations in docs/openapi.yaml: the caller's own
+// profile and editing its basic fields (FR-4.1), and any user's profile (FR-4.5). It
+// turns the usecase's errors into the error codes the web client shows next to each
+// field. cmd/api guards each route with its platform action (SRS 2.3) before it gets here.
+package http
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	openapi_types "github.com/oapi-codegen/runtime/types"
+
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/api/gen"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpx"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/profile/domain"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/profile/usecase"
+)
+
+// Error codes of the profile operations (docs/openapi.yaml).
+const (
+	CodeInvalidFullName    = "invalid_full_name"
+	CodeInvalidHeadline    = "invalid_headline"
+	CodeInvalidBio         = "invalid_bio"
+	CodeInvalidInstitution = "invalid_institution"
+	CodeInvalidDepartment  = "invalid_department"
+	CodeInvalidJobTitle    = "invalid_job_title"
+	CodeInvalidCountry     = "invalid_country"
+)
+
+// service is the part of usecase.Service this handler needs.
+type service interface {
+	GetOwn(ctx context.Context, userID string) (domain.Profile, error)
+	UpdateOwn(ctx context.Context, userID string, in usecase.UpdateInput) (domain.Profile, error)
+	View(ctx context.Context, userID string) (domain.Profile, error)
+}
+
+// Handler implements the profile operations of gen.StrictServerInterface.
+type Handler struct {
+	svc service
+}
+
+// NewHandler returns a Handler that calls svc.
+func NewHandler(svc service) *Handler {
+	return &Handler{svc: svc}
+}
+
+// inputErrors maps the usecase's validation errors to a code and a message for the user.
+var inputErrors = []struct {
+	err           error
+	code, message string
+}{
+	{domain.ErrInvalidFullName, CodeInvalidFullName, "Enter your full name on one line (at most 200 characters)."},
+	{domain.ErrInvalidHeadline, CodeInvalidHeadline, "The headline must be one line of at most 220 characters."},
+	{domain.ErrInvalidBio, CodeInvalidBio, "The bio must be at most 2000 characters long."},
+	{domain.ErrInvalidInstitution, CodeInvalidInstitution, "The institution must be one line of at most 200 characters."},
+	{domain.ErrInvalidDepartment, CodeInvalidDepartment, "The department must be one line of at most 200 characters."},
+	{domain.ErrInvalidJobTitle, CodeInvalidJobTitle, "The job title must be one line of at most 200 characters."},
+	{domain.ErrInvalidCountry, CodeInvalidCountry, "Choose a country from the list."},
+}
+
+func inputError(err error) (gen.Error, bool) {
+	for _, e := range inputErrors {
+		if errors.Is(err, e.err) {
+			return gen.Error{Code: e.code, Message: e.message}, true
+		}
+	}
+	return gen.Error{}, false
+}
+
+var unauthenticated = gen.UnauthorizedJSONResponse{Code: httpx.CodeUnauthenticated, Message: "Log in to continue."}
+
+// GetMyProfile returns the caller's profile (FR-4.1). A valid token for an account that
+// no longer exists is refused like a missing one, as GET /auth/me does.
+func (h *Handler) GetMyProfile(ctx context.Context, _ gen.GetMyProfileRequestObject) (gen.GetMyProfileResponseObject, error) {
+	id, ok := httpx.UserID(ctx)
+	if !ok {
+		return gen.GetMyProfile401JSONResponse{UnauthorizedJSONResponse: unauthenticated}, nil
+	}
+	p, err := h.svc.GetOwn(ctx, id)
+	if errors.Is(err, domain.ErrNotFound) {
+		return gen.GetMyProfile401JSONResponse{UnauthorizedJSONResponse: unauthenticated}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	body, err := profileBody(p)
+	if err != nil {
+		return nil, err
+	}
+	return gen.GetMyProfile200JSONResponse(body), nil
+}
+
+// UpdateMyProfile creates or replaces the caller's profile fields (FR-4.1).
+func (h *Handler) UpdateMyProfile(ctx context.Context, req gen.UpdateMyProfileRequestObject) (gen.UpdateMyProfileResponseObject, error) {
+	id, ok := httpx.UserID(ctx)
+	if !ok {
+		return gen.UpdateMyProfile401JSONResponse{UnauthorizedJSONResponse: unauthenticated}, nil
+	}
+	if req.Body == nil {
+		return gen.UpdateMyProfile400JSONResponse{Code: httpx.CodeBadRequest, Message: "The request is not valid."}, nil
+	}
+	p, err := h.svc.UpdateOwn(ctx, id, usecase.UpdateInput{
+		FullName:    req.Body.FullName,
+		Headline:    req.Body.Headline,
+		Bio:         req.Body.Bio,
+		Institution: req.Body.Institution,
+		Department:  req.Body.Department,
+		JobTitle:    req.Body.JobTitle,
+		Country:     req.Body.Country,
+	})
+	if e, ok := inputError(err); ok {
+		return gen.UpdateMyProfile400JSONResponse(e), nil
+	}
+	if errors.Is(err, domain.ErrNotFound) {
+		return gen.UpdateMyProfile401JSONResponse{UnauthorizedJSONResponse: unauthenticated}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	body, err := profileBody(p)
+	if err != nil {
+		return nil, err
+	}
+	return gen.UpdateMyProfile200JSONResponse(body), nil
+}
+
+// GetProfile returns any user's profile to a logged-in user (FR-4.5). Unknown, suspended
+// and unverified accounts get the same 404, so the answer reveals nothing about them. An
+// ID that is not a UUID names no user and gets the same 404.
+func (h *Handler) GetProfile(ctx context.Context, req gen.GetProfileRequestObject) (gen.GetProfileResponseObject, error) {
+	p, err := h.svc.View(ctx, req.UserId)
+	if errors.Is(err, domain.ErrNotFound) {
+		return gen.GetProfile404JSONResponse{NotFoundJSONResponse: gen.NotFoundJSONResponse{
+			Code: httpx.CodeNotFound, Message: "This profile does not exist.",
+		}}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	body, err := profileBody(p)
+	if err != nil {
+		return nil, err
+	}
+	return gen.GetProfile200JSONResponse(body), nil
+}
+
+// profileBody builds the response. The lists and the connection status are placeholders
+// until interests, skills (FR-4.2), education (FR-4.4), publications (FR-5.5) and
+// connections (FR-7) exist; the lists are empty, never null.
+func profileBody(p domain.Profile) (gen.Profile, error) {
+	var id openapi_types.UUID
+	if err := id.UnmarshalText([]byte(p.UserID)); err != nil {
+		return gen.Profile{}, fmt.Errorf("profile user id: %w", err)
+	}
+	return gen.Profile{
+		UserId:           id,
+		FullName:         p.FullName,
+		Headline:         p.Headline,
+		Bio:              p.Bio,
+		Institution:      p.Institution,
+		Department:       p.Department,
+		JobTitle:         p.JobTitle,
+		Country:          p.Country,
+		Interests:        []map[string]any{},
+		Skills:           []map[string]any{},
+		Education:        []map[string]any{},
+		Publications:     []map[string]any{},
+		ConnectionStatus: gen.None,
+	}, nil
+}

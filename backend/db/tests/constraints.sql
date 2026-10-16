@@ -107,6 +107,51 @@ SELECT pg_temp.expect_ok('Profile: a well-formed ORCID iD is accepted',
 SELECT pg_temp.expect_error('Profile: ORCID iD is unique',
     $s$UPDATE profiles SET orcid_id = '0000-0002-1825-0097' WHERE user_id = '00000000-0000-0000-0000-000000000002'$s$, '23505');
 
+-- Profile field limits (FR-4.1, migration 000003). Lengths count characters, so the
+-- accepted values use a two-byte letter.
+SELECT pg_temp.expect_error('Profile: full name must not be blank',
+    $s$UPDATE profiles SET full_name = '   ' WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_ok('Profile: full name of 200 characters is accepted',
+    $s$UPDATE profiles SET full_name = repeat('é', 200) WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$);
+SELECT pg_temp.expect_error('Profile: full name is at most 200 characters',
+    $s$UPDATE profiles SET full_name = repeat('a', 201) WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_ok('Profile: headline of 220 characters is accepted',
+    $s$UPDATE profiles SET headline = repeat('é', 220) WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$);
+SELECT pg_temp.expect_error('Profile: headline is at most 220 characters',
+    $s$UPDATE profiles SET headline = repeat('a', 221) WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_ok('Profile: bio of 2000 characters is accepted',
+    $s$UPDATE profiles SET bio = repeat('é', 2000) WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$);
+SELECT pg_temp.expect_error('Profile: bio is at most 2000 characters',
+    $s$UPDATE profiles SET bio = repeat('a', 2001) WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_ok('Profile: institution, department and job title of 200 characters are accepted',
+    $s$UPDATE profiles SET institution = repeat('é', 200), department = repeat('é', 200), job_title = repeat('é', 200)
+       WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$);
+SELECT pg_temp.expect_error('Profile: institution is at most 200 characters',
+    $s$UPDATE profiles SET institution = repeat('a', 201) WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_error('Profile: department is at most 200 characters',
+    $s$UPDATE profiles SET department = repeat('a', 201) WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_error('Profile: job title is at most 200 characters',
+    $s$UPDATE profiles SET job_title = repeat('a', 201) WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_error('Profile: headline is NULL, not blank',
+    $s$UPDATE profiles SET headline = ' ' WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_error('Profile: bio is NULL, not blank',
+    $s$UPDATE profiles SET bio = '' WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_error('Profile: institution is NULL, not blank',
+    $s$UPDATE profiles SET institution = '' WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_error('Profile: department is NULL, not blank',
+    $s$UPDATE profiles SET department = '' WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_error('Profile: job title is NULL, not blank',
+    $s$UPDATE profiles SET job_title = '' WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_ok('Profile: optional fields may be NULL',
+    $s$UPDATE profiles SET headline = NULL, bio = NULL, institution = NULL, department = NULL, job_title = NULL, country = NULL
+       WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$);
+SELECT pg_temp.expect_ok('Profile: country as two capital letters is accepted',
+    $s$UPDATE profiles SET country = 'DE' WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$);
+SELECT pg_temp.expect_error('Profile: country must be capitals',
+    $s$UPDATE profiles SET country = 'de' WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_error('Profile: country must be two letters',
+    $s$UPDATE profiles SET country = 'DEU' WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+
 -- ---------------------------------------------------------------------------
 -- Interest, skill, education
 -- ---------------------------------------------------------------------------
