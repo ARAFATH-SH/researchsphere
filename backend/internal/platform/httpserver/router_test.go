@@ -67,6 +67,10 @@ func (fakeAPI) DeleteAccount(context.Context, gen.DeleteAccountRequestObject) (g
 	return gen.DeleteAccount204Response{}, nil
 }
 
+func (fakeAPI) ListUsers(context.Context, gen.ListUsersRequestObject) (gen.ListUsersResponseObject, error) {
+	return gen.ListUsers200JSONResponse{Items: []gen.AdminUser{}}, nil
+}
+
 // GetCurrentUser echoes the user ID that the auth middleware put in the context.
 func (fakeAPI) GetCurrentUser(ctx context.Context, _ gen.GetCurrentUserRequestObject) (gen.GetCurrentUserResponseObject, error) {
 	id, _ := httpx.UserID(ctx)
@@ -248,7 +252,7 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 		t.Errorf("code = %q, want %q", code, httpx.CodeUnauthenticated)
 	}
 
-	token, _, err := testSigner.Sign("user-1", time.Now())
+	token, _, err := testSigner.Sign("user-1", "researcher", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -279,6 +283,25 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 	for _, path := range []string{"/api/v1/auth/refresh", "/api/v1/auth/logout"} {
 		if rec := serve(t, router, http.MethodPost, path); rec.Code != http.StatusNoContent {
 			t.Errorf("POST %s without an access cookie: status = %d, want 204", path, rec.Code)
+		}
+	}
+}
+
+func TestRoutes(t *testing.T) {
+	got := Routes()
+	if len(got) != 13 {
+		t.Errorf("Routes() returned %d routes, want the 12 operations in the contract: %v", len(got), got)
+	}
+	seen := map[string]bool{}
+	for _, p := range got {
+		if seen[p] {
+			t.Errorf("route %q registered twice", p)
+		}
+		seen[p] = true
+	}
+	for _, want := range []string{"GET /api/v1/health", "GET /api/v1/auth/me", "DELETE /api/v1/account"} {
+		if !seen[want] {
+			t.Errorf("Routes() lacks %q", want)
 		}
 	}
 }

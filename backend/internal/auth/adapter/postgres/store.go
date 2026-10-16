@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -58,6 +59,7 @@ func (s *Store) FindUserByEmail(ctx context.Context, email string) (domain.User,
 		Email:           row.Email,
 		FullName:        row.FullName,
 		EmailVerifiedAt: timePtr(row.EmailVerifiedAt),
+		SuspendedAt:     timePtr(row.SuspendedAt),
 	}, nil
 }
 
@@ -76,6 +78,8 @@ func (s *Store) FindCredentialsByEmail(ctx context.Context, email string) (domai
 			Email:           row.Email,
 			FullName:        row.FullName,
 			EmailVerifiedAt: timePtr(row.EmailVerifiedAt),
+			SuspendedAt:     timePtr(row.SuspendedAt),
+			Role:            string(row.Role),
 		},
 		PasswordHash: row.PasswordHash,
 	}, nil
@@ -99,7 +103,70 @@ func (s *Store) FindUserByID(ctx context.Context, userID string) (domain.User, e
 		Email:           row.Email,
 		FullName:        row.FullName,
 		EmailVerifiedAt: timePtr(row.EmailVerifiedAt),
+		SuspendedAt:     timePtr(row.SuspendedAt),
+		Role:            string(row.Role),
 	}, nil
+}
+
+// ListUsers returns at most limit users after skipping offset, newest first.
+func (s *Store) ListUsers(ctx context.Context, limit, offset int) ([]domain.User, error) {
+	l, err := int32Of(limit)
+	if err != nil {
+		return nil, err
+	}
+	o, err := int32Of(offset)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.q.ListUsers(ctx, sqlcgen.ListUsersParams{PageLimit: l, PageOffset: o})
+	if err != nil {
+		return nil, fmt.Errorf("list users: %w", err)
+	}
+	users := make([]domain.User, 0, len(rows))
+	for _, row := range rows {
+		users = append(users, domain.User{
+			ID:              uuidString(row.ID),
+			Email:           row.Email,
+			FullName:        row.FullName,
+			EmailVerifiedAt: timePtr(row.EmailVerifiedAt),
+			SuspendedAt:     timePtr(row.SuspendedAt),
+			Role:            string(row.Role),
+			CreatedAt:       row.CreatedAt.Time,
+		})
+	}
+	return users, nil
+}
+
+// CountUsers returns how many users exist.
+func (s *Store) CountUsers(ctx context.Context) (int, error) {
+	n, err := s.q.CountUsers(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("count users: %w", err)
+	}
+	return int(n), nil
+}
+
+// SetRoleByEmail gives the user with email the platform role, ignoring letter case in
+// the address. It returns domain.ErrNotFound when no user has the address. It is not
+// part of domain.Store on purpose: only the command line (cmd/setrole, `make admin`)
+// changes a role, never the API (docs/decisions.md).
+func (s *Store) SetRoleByEmail(ctx context.Context, email, role string) error {
+	n, err := s.q.SetUserRoleByEmail(ctx, sqlcgen.SetUserRoleByEmailParams{Email: email, Role: sqlcgen.UserRole(role)})
+	if err != nil {
+		return fmt.Errorf("set user role: %w", err)
+	}
+	if n == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+// int32Of converts n for a LIMIT or OFFSET parameter, refusing values that do not fit.
+func int32Of(n int) (int32, error) {
+	if n < 0 || n > math.MaxInt32 {
+		return 0, fmt.Errorf("value %d out of range for a query parameter", n)
+	}
+	return int32(n), nil
 }
 
 // FindCredentialsByID returns domain.ErrNotFound when no user has the ID, or the ID is
@@ -122,6 +189,7 @@ func (s *Store) FindCredentialsByID(ctx context.Context, userID string) (domain.
 			Email:           row.Email,
 			FullName:        row.FullName,
 			EmailVerifiedAt: timePtr(row.EmailVerifiedAt),
+			SuspendedAt:     timePtr(row.SuspendedAt),
 		},
 		PasswordHash: row.PasswordHash,
 	}, nil
@@ -225,6 +293,8 @@ func (t tx) FindTokenForUpdate(ctx context.Context, hash string, purpose domain.
 		UserID:    uuidString(row.UserID),
 		ExpiresAt: row.ExpiresAt.Time,
 		UsedAt:    timePtr(row.UsedAt),
+
+		UserSuspendedAt: timePtr(row.SuspendedAt),
 	}, nil
 }
 
@@ -258,7 +328,10 @@ func (t tx) FindSessionForUpdate(ctx context.Context, hash string) (domain.Sessi
 	if err != nil {
 		return domain.Session{}, fmt.Errorf("find session: %w", err)
 	}
-	return session(row.ID, row.UserID, row.ExpiresAt, row.RevokedAt), nil
+	sess := session(row.ID, row.UserID, row.ExpiresAt, row.RevokedAt)
+	sess.UserSuspendedAt = timePtr(row.SuspendedAt)
+	sess.UserRole = string(row.Role)
+	return sess, nil
 }
 
 func (t tx) FindSessionByRetiredTokenForUpdate(ctx context.Context, hash string) (domain.Session, error) {

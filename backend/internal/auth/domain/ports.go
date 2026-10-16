@@ -16,6 +16,11 @@ type Store interface {
 	FindCredentialsByEmail(ctx context.Context, email string) (Credentials, error)
 	// FindUserByID returns ErrNotFound when no user has the ID.
 	FindUserByID(ctx context.Context, id string) (User, error)
+	// ListUsers returns at most limit users after skipping offset, newest first, with
+	// CreatedAt filled (FR-15.3).
+	ListUsers(ctx context.Context, limit, offset int) ([]User, error)
+	// CountUsers returns how many users exist.
+	CountUsers(ctx context.Context) (int, error)
 	// FindCredentialsByID is FindUserByID with the password hash.
 	FindCredentialsByID(ctx context.Context, id string) (Credentials, error)
 	CreateSession(ctx context.Context, s NewSession) error
@@ -34,14 +39,15 @@ type Tx interface {
 	CreateToken(ctx context.Context, t NewToken) error
 	// DeleteUnusedTokens removes the user's tokens for purpose that have not been used.
 	DeleteUnusedTokens(ctx context.Context, userID string, purpose TokenPurpose) error
-	// FindTokenForUpdate locks the token with this hash until the transaction ends.
-	// It returns ErrNotFound when there is none.
+	// FindTokenForUpdate locks the token with this hash until the transaction ends, and
+	// fills its UserSuspendedAt. It returns ErrNotFound when there is none.
 	FindTokenForUpdate(ctx context.Context, hash string, purpose TokenPurpose) (Token, error)
 	MarkTokenUsed(ctx context.Context, tokenID string, at time.Time) error
 	// MarkEmailVerified sets the verified time unless it is already set.
 	MarkEmailVerified(ctx context.Context, userID string, at time.Time) error
 	// FindSessionForUpdate locks the session whose current refresh token has this hash
-	// until the transaction ends. It returns ErrNotFound when there is none.
+	// until the transaction ends, and fills its UserSuspendedAt. It returns ErrNotFound
+	// when there is none.
 	FindSessionForUpdate(ctx context.Context, hash string) (Session, error)
 	// FindSessionByRetiredTokenForUpdate locks the session that once had a refresh token
 	// with this hash and has since replaced it. It returns ErrNotFound when there is none.
@@ -86,8 +92,9 @@ type PasswordHasher interface {
 
 // AccessTokenSigner issues the short-lived access token given at login (FR-2.1).
 type AccessTokenSigner interface {
-	// Sign returns a token for userID issued at now, and the time it expires.
-	Sign(userID string, now time.Time) (string, time.Time, error)
+	// Sign returns a token for userID with the platform role, issued at now, and the
+	// time it expires.
+	Sign(userID, role string, now time.Time) (string, time.Time, error)
 }
 
 // LoginAttempts counts failed logins per account and holds account locks (FR-2.7). key

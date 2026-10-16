@@ -8,7 +8,7 @@ INSERT INTO profiles (user_id, full_name)
 VALUES (@user_id, @full_name);
 
 -- name: FindUserByEmail :one
-SELECT u.id, u.email, u.email_verified_at, p.full_name
+SELECT u.id, u.email, u.email_verified_at, u.suspended_at, p.full_name
 FROM users u
 JOIN profiles p ON p.user_id = u.id
 WHERE u.email = @email;
@@ -22,10 +22,11 @@ DELETE FROM auth_tokens
 WHERE user_id = @user_id AND purpose = @purpose AND used_at IS NULL;
 
 -- name: FindTokenForUpdate :one
-SELECT id, user_id, expires_at, used_at
-FROM auth_tokens
-WHERE token_hash = @token_hash AND purpose = @purpose
-FOR UPDATE;
+SELECT t.id, t.user_id, t.expires_at, t.used_at, u.suspended_at
+FROM auth_tokens t
+JOIN users u ON u.id = t.user_id
+WHERE t.token_hash = @token_hash AND t.purpose = @purpose
+FOR UPDATE OF t;
 
 -- name: MarkTokenUsed :exec
 UPDATE auth_tokens SET used_at = @used_at WHERE id = @id;
@@ -35,13 +36,13 @@ UPDATE users SET email_verified_at = coalesce(email_verified_at, @verified_at)
 WHERE id = @id;
 
 -- name: FindCredentialsByEmail :one
-SELECT u.id, u.email, u.password_hash, u.email_verified_at, p.full_name
+SELECT u.id, u.email, u.password_hash, u.email_verified_at, u.suspended_at, u.role, p.full_name
 FROM users u
 JOIN profiles p ON p.user_id = u.id
 WHERE u.email = @email;
 
 -- name: FindUserByID :one
-SELECT u.id, u.email, u.email_verified_at, p.full_name
+SELECT u.id, u.email, u.email_verified_at, u.suspended_at, u.role, p.full_name
 FROM users u
 JOIN profiles p ON p.user_id = u.id
 WHERE u.id = @id;
@@ -51,10 +52,11 @@ INSERT INTO sessions (user_id, refresh_token_hash, expires_at)
 VALUES (@user_id, @refresh_token_hash, @expires_at);
 
 -- name: FindSessionForUpdate :one
-SELECT id, user_id, expires_at, revoked_at
-FROM sessions
-WHERE refresh_token_hash = @refresh_token_hash
-FOR UPDATE;
+SELECT s.id, s.user_id, s.expires_at, s.revoked_at, u.suspended_at, u.role
+FROM sessions s
+JOIN users u ON u.id = s.user_id
+WHERE s.refresh_token_hash = @refresh_token_hash
+FOR UPDATE OF s;
 
 -- name: FindSessionByRetiredTokenForUpdate :one
 SELECT s.id, s.user_id, s.expires_at, s.revoked_at
@@ -89,7 +91,7 @@ WHERE refresh_token_hash = @refresh_token_hash AND revoked_at IS NULL
 RETURNING id, user_id, expires_at, revoked_at;
 
 -- name: FindCredentialsByID :one
-SELECT u.id, u.email, u.password_hash, u.email_verified_at, p.full_name
+SELECT u.id, u.email, u.password_hash, u.email_verified_at, u.suspended_at, p.full_name
 FROM users u
 JOIN profiles p ON p.user_id = u.id
 WHERE u.id = @id;
@@ -141,3 +143,20 @@ WHERE p.id = ANY(@ids::uuid[])
 
 -- name: DeleteUser :execrows
 DELETE FROM users WHERE id = @id;
+
+-- Administration (FR-15.3).
+
+-- name: ListUsers :many
+-- One page of users, newest first; the id breaks ties so pages never overlap.
+SELECT u.id, u.email, u.role, u.email_verified_at, u.suspended_at, u.created_at, p.full_name
+FROM users u
+JOIN profiles p ON p.user_id = u.id
+ORDER BY u.created_at DESC, u.id DESC
+LIMIT @page_limit OFFSET @page_offset;
+
+-- name: CountUsers :one
+SELECT count(*) FROM users;
+
+-- name: SetUserRoleByEmail :execrows
+-- Only `make admin` and `make unadmin` (cmd/setrole) run it; no API operation does.
+UPDATE users SET role = @role WHERE email = @email;

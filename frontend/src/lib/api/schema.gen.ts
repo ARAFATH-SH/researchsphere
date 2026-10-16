@@ -101,7 +101,8 @@ export interface paths {
          * @description Public. The response is the same whether or not the address is registered or
          *     verified. When it belongs to an account, a link is emailed to
          *     `/reset-password#token=...`; it works once and expires after 1 hour. A new link
-         *     makes the account's older unused reset links stop working.
+         *     makes the account's older unused reset links stop working. A suspended account
+         *     gets no email, and the response is the same (FR-3.4).
          */
         post: operations["requestPasswordReset"];
         delete?: never;
@@ -124,7 +125,8 @@ export interface paths {
          * @description Public. Sets the new password, marks the token used and the email address
          *     verified, and ends every session of the account, in one transaction. It also
          *     clears the account's failed logins (FR-2.7). Access tokens already issued stay
-         *     valid until they expire (at most 15 minutes).
+         *     valid until they expire (at most 15 minutes). A suspended account is refused and
+         *     nothing changes (FR-3.4).
          */
         post: operations["confirmPasswordReset"];
         delete?: never;
@@ -143,7 +145,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Log in with email address and password (FR-2.1, FR-1.4)
+         * Log in with email address and password (FR-2.1, FR-1.4, FR-3.4)
          * @description Public. On success the response sets two httpOnly, SameSite=Lax cookies (Secure
          *     when the site runs on HTTPS): `rs_access`, a signed access token valid for 15
          *     minutes (path `/`), and `rs_refresh`, a refresh token valid for 30 days (path
@@ -286,6 +288,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List every user account for an administrator (FR-15.3, FR-3.2)
+         * @description Needs the access cookie and the platform action "Suspend a user account" (SRS 2.3),
+         *     so only an administrator may call it; listing users is what an administrator needs
+         *     before suspending one. A researcher gets 403 with the one refusal body and no user
+         *     data (FR-3.3). Users are sorted newest first. Read only: suspending comes with
+         *     slice 27.
+         */
+        get: operations["listUsers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -384,9 +410,51 @@ export interface components {
             id: string;
             email: string;
             fullName: string;
+            role: components["schemas"]["Role"];
+        };
+        /**
+         * @description The platform role (SRS 2.2). Administrators are made only from the command line
+         *     (`make admin`); no operation changes a role.
+         * @enum {string}
+         */
+        Role: "researcher" | "admin";
+        /** @description One user account as an administrator sees it in the users list. */
+        AdminUser: {
+            /** Format: uuid */
+            id: string;
+            fullName: string;
+            email: string;
+            role: components["schemas"]["Role"];
+            /** @description The email address is verified (FR-1.4). */
+            verified: boolean;
+            /** @description The account is suspended (FR-3.4). */
+            suspended: boolean;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        UserPage: {
+            items: components["schemas"]["AdminUser"][];
+            page: number;
+            /** @description The page size used, at most 50. */
+            pageSize: number;
+            /** @description The number of users on all pages. */
+            total: number;
         };
     };
     responses: {
+        /**
+         * @description The user's role does not permit the action (FR-3.2). The body is always
+         *     `{"code":"forbidden","message":"You do not have permission to do this."}`, with no
+         *     resource data and no reason (FR-3.3).
+         */
+        Forbidden: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
         /** @description No valid access token was sent (`unauthenticated`). */
         Unauthorized: {
             headers: {
@@ -633,6 +701,18 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            /**
+             * @description The token is valid but the account is suspended (`account_suspended`, FR-3.4).
+             *     The token is not used up.
+             */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             500: components["responses"]["InternalError"];
         };
     };
@@ -682,8 +762,10 @@ export interface operations {
                 };
             };
             /**
-             * @description The password is right but the email address is not verified yet
-             *     (`email_not_verified`, FR-1.4).
+             * @description The password is right but the account is suspended (`account_suspended`,
+             *     FR-3.4) or its email address is not verified yet (`email_not_verified`,
+             *     FR-1.4). Suspension is checked first. A wrong password always gets 401, so
+             *     this answer never reveals a suspension to someone guessing.
              */
             403: {
                 headers: {
@@ -734,8 +816,9 @@ export interface operations {
                 content?: never;
             };
             /**
-             * @description The cookie is missing, or its session is unknown, expired, ended or was reused
-             *     (`session_invalid`). The answer does not say which, and clears both cookies.
+             * @description The cookie is missing, or its session is unknown, expired, ended or was reused,
+             *     or the account is suspended (`session_invalid`). A suspended account's session
+             *     is ended (FR-3.4). The answer does not say which, and clears both cookies.
              */
             401: {
                 headers: {
@@ -912,6 +995,46 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listUsers: {
+        parameters: {
+            query?: {
+                /** @description The page to return, from 1. Defaults to 1. */
+                page?: number;
+                /**
+                 * @description Users per page, from 1. Defaults to 20. A larger value than 50 is reduced to 50,
+                 *     and the response says which size was used.
+                 */
+                pageSize?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of users. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserPage"];
+                };
+            };
+            /** @description `page` or `pageSize` is not a whole number of at least 1 (`bad_request`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             500: components["responses"]["InternalError"];
         };
     };

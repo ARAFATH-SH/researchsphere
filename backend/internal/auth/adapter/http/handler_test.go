@@ -32,6 +32,9 @@ type fakeService struct {
 	password string                // new password given to ResetPassword
 	change   usecase.ChangePasswordInput
 	deleted  usecase.DeleteAccountInput
+	users    []domain.User // returned by ListUsers
+	page     int           // given to ListUsers
+	pageSize int           // given to ListUsers
 }
 
 func (f *fakeService) DeleteAccount(_ context.Context, in usecase.DeleteAccountInput) error {
@@ -82,6 +85,14 @@ func (f *fakeService) ResendVerification(_ context.Context, email string) error 
 func (f *fakeService) Login(_ context.Context, in usecase.LoginInput) (usecase.LoginResult, error) {
 	f.login = in
 	return f.result, f.err
+}
+
+func (f *fakeService) ListUsers(_ context.Context, page, pageSize int) (domain.UserPage, error) {
+	f.page, f.pageSize = page, pageSize
+	if f.err != nil {
+		return domain.UserPage{}, f.err
+	}
+	return domain.UserPage{Users: f.users, Page: page, PageSize: min(pageSize, usecase.MaxPageSize), Total: len(f.users)}, nil
 }
 
 func (f *fakeService) CurrentUser(_ context.Context, id string) (domain.User, error) {
@@ -277,6 +288,7 @@ func TestConfirmPasswordReset(t *testing.T) {
 		{"expired token", domain.ErrTokenExpired, http.StatusBadRequest, CodeTokenExpired},
 		{"short password", domain.ErrPasswordTooShort, http.StatusBadRequest, CodePasswordTooShort},
 		{"long password", domain.ErrPasswordTooLong, http.StatusBadRequest, CodePasswordTooLong},
+		{"suspended account", domain.ErrAccountSuspended, http.StatusForbidden, CodeAccountSuspended},
 		{"unexpected error", errors.New("database down"), http.StatusInternalServerError, ""},
 	}
 	for _, tt := range tests {
@@ -315,7 +327,7 @@ const userID = "6f1c2b9e-1d2a-4c3b-9a8e-0f1e2d3c4b5a"
 func loginResult() usecase.LoginResult {
 	issued := time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC)
 	return usecase.LoginResult{
-		User:             domain.User{ID: userID, Email: "ada@example.org", FullName: "Ada Lovelace"},
+		User:             domain.User{ID: userID, Email: "ada@example.org", FullName: "Ada Lovelace", Role: domain.RoleResearcher},
 		IssuedAt:         issued,
 		AccessToken:      "access-token",
 		AccessExpiresAt:  issued.Add(15 * time.Minute),
@@ -344,7 +356,7 @@ func TestLoginUserSetsCookies(t *testing.T) {
 			if svc.login != (usecase.LoginInput{Email: "ada@example.org", Password: "password1"}) {
 				t.Errorf("service got %+v", svc.login)
 			}
-			if got := decode(t, rec); got["id"] != userID || got["email"] != "ada@example.org" || got["fullName"] != "Ada Lovelace" || len(got) != 3 {
+			if got := decode(t, rec); got["id"] != userID || got["email"] != "ada@example.org" || got["fullName"] != "Ada Lovelace" || got["role"] != "researcher" || len(got) != 4 {
 				t.Errorf("body = %v", got)
 			}
 			if strings.Contains(rec.Body.String(), "token") {
@@ -394,6 +406,7 @@ func TestLoginUserRefused(t *testing.T) {
 	}{
 		{"wrong email or password", domain.ErrInvalidCredentials, http.StatusUnauthorized, CodeInvalidCredentials},
 		{"unverified email address", domain.ErrEmailNotVerified, http.StatusForbidden, CodeEmailNotVerified},
+		{"suspended account", domain.ErrAccountSuspended, http.StatusForbidden, CodeAccountSuspended},
 		{"unexpected error", errors.New("database down"), http.StatusInternalServerError, ""},
 	}
 	for _, tt := range tests {
@@ -458,7 +471,7 @@ func TestGetCurrentUser(t *testing.T) {
 	}
 
 	t.Run("logged in", func(t *testing.T) {
-		svc := &fakeService{user: domain.User{ID: userID, Email: "ada@example.org", FullName: "Ada Lovelace"}}
+		svc := &fakeService{user: domain.User{ID: userID, Email: "ada@example.org", FullName: "Ada Lovelace", Role: domain.RoleAdmin}}
 		rec := me(t, svc, userID)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200", rec.Code)
@@ -466,7 +479,7 @@ func TestGetCurrentUser(t *testing.T) {
 		if svc.userID != userID {
 			t.Errorf("service asked for %q, want %q", svc.userID, userID)
 		}
-		if got := decode(t, rec); got["id"] != userID || got["email"] != "ada@example.org" || got["fullName"] != "Ada Lovelace" {
+		if got := decode(t, rec); got["id"] != userID || got["email"] != "ada@example.org" || got["fullName"] != "Ada Lovelace" || got["role"] != "admin" {
 			t.Errorf("body = %v", got)
 		}
 	})

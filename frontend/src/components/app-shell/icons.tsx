@@ -71,3 +71,10 @@ export const SearchIcon = ({ className = "h-4 w-4" }: { className?: string }) =>
     <path d="m16 16 4.5 4.5" />
   </svg>
 );
+
+export const AdminIcon = () => (
+  <Icon>
+    <path d="M12 3.5 19 6v5.5c0 4.3-2.9 7.6-7 9-4.1-1.4-7-4.7-7-9V6z" />
+    <path d="m9 12 2 2 4-4" />
+  </Icon>
+);

@@ -44,7 +44,9 @@ type fakeStore struct {
 	pubs     map[string][]string // user IDs linked, by publication ID
 	nextID   int
 
-	failFind error // returned by the Find methods when set
+	listed [][2]int // limit and offset of each ListUsers call
+
+	failFind error // returned by the Find, List and Count methods when set
 	failTx   error // returned by every Tx write when set
 	txCount  int
 }
@@ -137,6 +139,36 @@ func (s *fakeStore) FindUserByID(_ context.Context, id string) (domain.User, err
 	return u.User, nil
 }
 
+// ListUsers returns the users newest first; a later ID is a newer user.
+func (s *fakeStore) ListUsers(_ context.Context, limit, offset int) ([]domain.User, error) {
+	if s.failFind != nil {
+		return nil, s.failFind
+	}
+	s.listed = append(s.listed, [2]int{limit, offset})
+	users := make([]domain.User, 0, len(s.users))
+	for _, u := range s.users {
+		users = append(users, u.User)
+	}
+	slices.SortFunc(users, func(a, b domain.User) int { return idNumber(b.ID) - idNumber(a.ID) })
+	if offset >= len(users) {
+		return nil, nil
+	}
+	return users[offset:min(offset+limit, len(users))], nil
+}
+
+func (s *fakeStore) CountUsers(context.Context) (int, error) {
+	if s.failFind != nil {
+		return 0, s.failFind
+	}
+	return len(s.users), nil
+}
+
+// idNumber returns n for an ID "id-n" made by fakeStore.id.
+func idNumber(id string) int {
+	n, _ := strconv.Atoi(strings.TrimPrefix(id, "id-"))
+	return n
+}
+
 func (s *fakeStore) FindCredentialsByID(_ context.Context, id string) (domain.Credentials, error) {
 	if s.failFind != nil {
 		return domain.Credentials{}, s.failFind
@@ -208,7 +240,8 @@ func (tx fakeTx) CreateUser(_ context.Context, u domain.NewUser) (string, error)
 		return "", domain.ErrEmailTaken
 	}
 	id := tx.s.id()
-	tx.s.users[key] = fakeUser{User: domain.User{ID: id, Email: u.Email}, passwordHash: u.PasswordHash}
+	// "researcher" is the users.role column default.
+	tx.s.users[key] = fakeUser{User: domain.User{ID: id, Email: u.Email, Role: "researcher"}, passwordHash: u.PasswordHash}
 	return id, nil
 }
 
@@ -250,7 +283,10 @@ func (tx fakeTx) DeleteUnusedTokens(_ context.Context, userID string, purpose do
 func (tx fakeTx) FindTokenForUpdate(_ context.Context, hash string, purpose domain.TokenPurpose) (domain.Token, error) {
 	for _, t := range tx.s.tokens {
 		if t.hash == hash && t.purpose == purpose {
-			return t.Token, nil
+			tok := t.Token
+			_, u, _ := tx.s.userByID(t.UserID)
+			tok.UserSuspendedAt = u.SuspendedAt // as the query's join with users
+			return tok, nil
 		}
 	}
 	return domain.Token{}, domain.ErrNotFound
@@ -278,7 +314,11 @@ func (tx fakeTx) MarkEmailVerified(_ context.Context, userID string, at time.Tim
 func (tx fakeTx) FindSessionForUpdate(_ context.Context, hash string) (domain.Session, error) {
 	for _, sess := range tx.s.sessions {
 		if sess.TokenHash == hash {
-			return sess.Session, nil
+			found := sess.Session
+			_, u, _ := tx.s.userByID(sess.UserID)
+			found.UserSuspendedAt = u.SuspendedAt // as the query's join with users
+			found.UserRole = u.Role
+			return found, nil
 		}
 	}
 	return domain.Session{}, domain.ErrNotFound
@@ -451,14 +491,14 @@ func (h *fakeHasher) Verify(password, encoded string) (bool, error) {
 	return encoded == "hashed:"+password, nil
 }
 
-// fakeSigner issues readable access tokens.
+// fakeSigner issues readable access tokens that name the user and the role.
 type fakeSigner struct{ err error }
 
-func (s fakeSigner) Sign(userID string, now time.Time) (string, time.Time, error) {
+func (s fakeSigner) Sign(userID, role string, now time.Time) (string, time.Time, error) {
 	if s.err != nil {
 		return "", time.Time{}, s.err
 	}
-	return "access-for-" + userID, now.Add(15 * time.Minute), nil
+	return "access-for-" + userID + "-as-" + role, now.Add(15 * time.Minute), nil
 }
 
 // fakeMailer records the messages it was asked to send.

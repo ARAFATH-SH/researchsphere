@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/api/gen"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/accesstoken"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/authz"
 )
 
 // Cookies set at login (docs/openapi.yaml, loginUser).
@@ -17,13 +19,16 @@ const (
 // CodeUnauthenticated is the error code for a request without a valid access token.
 const CodeUnauthenticated = "unauthenticated"
 
-// TokenVerifier checks an access token and returns the user ID it was issued to.
-// accesstoken.Signer implements it.
+// TokenVerifier checks an access token and returns its claims: the user ID it was
+// issued to and that user's platform role. accesstoken.Signer implements it.
 type TokenVerifier interface {
-	Verify(token string, now time.Time) (string, error)
+	Verify(token string, now time.Time) (accesstoken.Claims, error)
 }
 
-type userIDKey struct{}
+type (
+	userIDKey struct{}
+	roleKey   struct{}
+)
 
 // WithUserID returns a context that carries the logged-in user's ID.
 func WithUserID(ctx context.Context, userID string) context.Context {
@@ -36,11 +41,23 @@ func UserID(ctx context.Context) (string, bool) {
 	return id, ok && id != ""
 }
 
+// WithRole returns a context that carries the logged-in user's platform role.
+func WithRole(ctx context.Context, role authz.Role) context.Context {
+	return context.WithValue(ctx, roleKey{}, role)
+}
+
+// Role returns the logged-in user's platform role, which RequireAuth took from the
+// signed access token. It never comes from the request body or a header.
+func Role(ctx context.Context) (authz.Role, bool) {
+	role, ok := ctx.Value(roleKey{}).(authz.Role)
+	return role, ok && role != ""
+}
+
 // RequireAuth checks the access cookie on every operation that the contract secures
 // (FR-3.1). The generated wrapper marks those operations by putting gen.CookieAuthScopes
 // in the context, so the middleware must run inside it (StdHTTPServerOptions.Middlewares).
 // A missing, malformed or expired token gets 401; a valid one puts the user ID in the
-// context. Public operations pass through untouched.
+// context, with the role the token carries. Public operations pass through untouched.
 func RequireAuth(v TokenVerifier, now func() time.Time) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -53,12 +70,14 @@ func RequireAuth(v TokenVerifier, now func() time.Time) func(http.Handler) http.
 				WriteError(w, http.StatusUnauthorized, CodeUnauthenticated, "Log in to continue.")
 				return
 			}
-			userID, err := v.Verify(c.Value, now())
+			claims, err := v.Verify(c.Value, now())
 			if err != nil {
 				WriteError(w, http.StatusUnauthorized, CodeUnauthenticated, "Your session has ended. Log in again.")
 				return
 			}
-			next.ServeHTTP(w, r.WithContext(WithUserID(r.Context(), userID)))
+			ctx := WithUserID(r.Context(), claims.UserID)
+			ctx = WithRole(ctx, authz.Role(claims.Role))
+			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }

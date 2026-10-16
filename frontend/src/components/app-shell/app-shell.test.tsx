@@ -1,10 +1,13 @@
 import { render, screen, within } from "@testing-library/react";
 
+import type { Session } from "@/features/auth/session";
+
 import { AppShell } from "./app-shell";
 
 const mockPathname = jest.fn<string, []>();
 jest.mock("next/navigation", () => ({ usePathname: () => mockPathname(), useRouter: () => ({ replace: jest.fn() }) }));
-jest.mock("@/features/auth/session", () => ({ useSession: () => ({ status: "loading" }) }));
+const mockSession = jest.fn<Session, []>(() => ({ status: "loading" }));
+jest.mock("@/features/auth/session", () => ({ useSession: () => mockSession() }));
 jest.mock("@/features/auth/api");
 
 const want = [
@@ -42,6 +45,38 @@ describe("AppShell", () => {
       .getAllByRole("link")
       .filter((l) => l.getAttribute("aria-current") === "page");
     expect(current.map((l) => l.textContent)).toEqual([label]);
+  });
+
+  describe("Admin tab", () => {
+    const signedInAs = (role: "researcher" | "admin"): Session => ({
+      status: "signedIn",
+      user: { id: "0b8f4c1e-0000-4000-8000-000000000001", email: "ada@example.org", fullName: "Ada Lovelace", role },
+    });
+    afterEach(() => mockSession.mockReturnValue({ status: "loading" }));
+
+    it("is hidden from a researcher", () => {
+      mockPathname.mockReturnValue("/home");
+      mockSession.mockReturnValue(signedInAs("researcher"));
+      render(<AppShell>x</AppShell>);
+      expect(screen.queryAllByRole("link", { name: "Admin" })).toHaveLength(0);
+    });
+
+    it("is hidden while the session is loading", () => {
+      mockPathname.mockReturnValue("/home");
+      render(<AppShell>x</AppShell>);
+      expect(screen.queryAllByRole("link", { name: "Admin" })).toHaveLength(0);
+    });
+
+    it("shows to an administrator in both bars, before Me", () => {
+      mockPathname.mockReturnValue("/admin");
+      mockSession.mockReturnValue(signedInAs("admin"));
+      render(<AppShell>x</AppShell>);
+      for (const bar of screen.getAllByRole("navigation", { name: "Main" })) {
+        const links = within(bar).getAllByRole("link");
+        expect(links.map((l) => [l.textContent, l.getAttribute("href")])).toEqual([...want, ["Admin", "/admin"]]);
+        expect(within(bar).getByRole("link", { name: "Admin" }).getAttribute("aria-current")).toBe("page");
+      }
+    });
   });
 
   it("has a search box that goes to /search", () => {

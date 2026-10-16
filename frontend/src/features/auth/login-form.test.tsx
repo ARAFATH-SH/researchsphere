@@ -14,7 +14,7 @@ const mockSetSignedIn = jest.mocked(setSignedIn);
 const mockReplace = jest.fn();
 jest.mock("next/navigation", () => ({ useRouter: () => ({ replace: mockReplace }) }));
 
-const user = { id: "0b8f4c1e-0000-4000-8000-000000000001", email: "ada@example.org", fullName: "Ada Lovelace" };
+const user = { id: "0b8f4c1e-0000-4000-8000-000000000001", email: "ada@example.org", fullName: "Ada Lovelace", role: "researcher" as const };
 
 function fill(email: string, password: string) {
   fireEvent.change(screen.getByLabelText("Email"), { target: { value: email } });
@@ -82,6 +82,17 @@ describe("LoginForm", () => {
     fireEvent.click(screen.getByRole("button", { name: "Resend verification" }));
     await screen.findByText(SENT_MESSAGE);
     expect(mockResend).toHaveBeenCalledWith("ada@example.org");
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  it("says the account is suspended (403, FR-3.4)", async () => {
+    mockLogin.mockResolvedValue({ ok: false, code: "account_suspended", message: "Suspended." });
+    render(<LoginForm />);
+    fill("ada@example.org", "right password");
+    submit();
+    expect((await screen.findByRole("alert")).textContent).toBe("This account is suspended. Contact support.");
+    expect(screen.queryByRole("button", { name: "Resend verification" })).toBeNull();
+    expect(mockSetSignedIn).not.toHaveBeenCalled();
     expect(mockReplace).not.toHaveBeenCalled();
   });
 

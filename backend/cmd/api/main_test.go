@@ -206,6 +206,15 @@ func (okAuth) ChangePassword(context.Context, authusecase.ChangePasswordInput) e
 
 func (okAuth) DeleteAccount(context.Context, authusecase.DeleteAccountInput) error { return nil }
 
+func (okAuth) ListUsers(_ context.Context, page, pageSize int) (authdomain.UserPage, error) {
+	return authdomain.UserPage{
+		Users:    []authdomain.User{{ID: okUserID, Email: "ada@example.org", FullName: "Ada", Role: authdomain.RoleAdmin, CreatedAt: time.Now()}},
+		Page:     page,
+		PageSize: min(pageSize, authusecase.MaxPageSize),
+		Total:    1,
+	}, nil
+}
+
 const okUserID = "6f1c2b9e-1d2a-4c3b-9a8e-0f1e2d3c4b5a"
 
 // The wired router needs the access cookie for /auth/me and accepts a token it signed.
@@ -223,7 +232,7 @@ func TestCurrentUserThroughRouter(t *testing.T) {
 	if rec := get(""); rec.Code != http.StatusUnauthorized {
 		t.Errorf("without a cookie: status = %d, want 401", rec.Code)
 	}
-	token, _, err := accesstoken.New([]byte(testSecret), accessTTL).Sign(okUserID, time.Now())
+	token, _, err := accesstoken.New([]byte(testSecret), accessTTL).Sign(okUserID, "researcher", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +258,7 @@ func TestDeleteAccountThroughRouter(t *testing.T) {
 	if rec := del(""); rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), httpx.CodeUnauthenticated) {
 		t.Errorf("without a cookie: %d %s, want 401 unauthenticated", rec.Code, rec.Body)
 	}
-	token, _, err := accesstoken.New([]byte(testSecret), accessTTL).Sign(okUserID, time.Now())
+	token, _, err := accesstoken.New([]byte(testSecret), accessTTL).Sign(okUserID, "researcher", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}

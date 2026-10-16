@@ -11,6 +11,17 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countUsers = `-- name: CountUsers :one
+SELECT count(*) FROM users
+`
+
+func (q *Queries) CountUsers(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countUsers)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createProfile = `-- name: CreateProfile :exec
 INSERT INTO profiles (user_id, full_name)
 VALUES ($1, $2)
@@ -147,7 +158,7 @@ func (q *Queries) DeleteUserPublicationLinks(ctx context.Context, userID pgtype.
 }
 
 const findCredentialsByEmail = `-- name: FindCredentialsByEmail :one
-SELECT u.id, u.email, u.password_hash, u.email_verified_at, p.full_name
+SELECT u.id, u.email, u.password_hash, u.email_verified_at, u.suspended_at, u.role, p.full_name
 FROM users u
 JOIN profiles p ON p.user_id = u.id
 WHERE u.email = $1
@@ -158,6 +169,8 @@ type FindCredentialsByEmailRow struct {
 	Email           string
 	PasswordHash    string
 	EmailVerifiedAt pgtype.Timestamptz
+	SuspendedAt     pgtype.Timestamptz
+	Role            UserRole
 	FullName        string
 }
 
@@ -169,13 +182,15 @@ func (q *Queries) FindCredentialsByEmail(ctx context.Context, email string) (Fin
 		&i.Email,
 		&i.PasswordHash,
 		&i.EmailVerifiedAt,
+		&i.SuspendedAt,
+		&i.Role,
 		&i.FullName,
 	)
 	return i, err
 }
 
 const findCredentialsByID = `-- name: FindCredentialsByID :one
-SELECT u.id, u.email, u.password_hash, u.email_verified_at, p.full_name
+SELECT u.id, u.email, u.password_hash, u.email_verified_at, u.suspended_at, p.full_name
 FROM users u
 JOIN profiles p ON p.user_id = u.id
 WHERE u.id = $1
@@ -186,6 +201,7 @@ type FindCredentialsByIDRow struct {
 	Email           string
 	PasswordHash    string
 	EmailVerifiedAt pgtype.Timestamptz
+	SuspendedAt     pgtype.Timestamptz
 	FullName        string
 }
 
@@ -197,6 +213,7 @@ func (q *Queries) FindCredentialsByID(ctx context.Context, id pgtype.UUID) (Find
 		&i.Email,
 		&i.PasswordHash,
 		&i.EmailVerifiedAt,
+		&i.SuspendedAt,
 		&i.FullName,
 	)
 	return i, err
@@ -230,17 +247,20 @@ func (q *Queries) FindSessionByRetiredTokenForUpdate(ctx context.Context, tokenH
 }
 
 const findSessionForUpdate = `-- name: FindSessionForUpdate :one
-SELECT id, user_id, expires_at, revoked_at
-FROM sessions
-WHERE refresh_token_hash = $1
-FOR UPDATE
+SELECT s.id, s.user_id, s.expires_at, s.revoked_at, u.suspended_at, u.role
+FROM sessions s
+JOIN users u ON u.id = s.user_id
+WHERE s.refresh_token_hash = $1
+FOR UPDATE OF s
 `
 
 type FindSessionForUpdateRow struct {
-	ID        pgtype.UUID
-	UserID    pgtype.UUID
-	ExpiresAt pgtype.Timestamptz
-	RevokedAt pgtype.Timestamptz
+	ID          pgtype.UUID
+	UserID      pgtype.UUID
+	ExpiresAt   pgtype.Timestamptz
+	RevokedAt   pgtype.Timestamptz
+	SuspendedAt pgtype.Timestamptz
+	Role        UserRole
 }
 
 func (q *Queries) FindSessionForUpdate(ctx context.Context, refreshTokenHash string) (FindSessionForUpdateRow, error) {
@@ -251,6 +271,8 @@ func (q *Queries) FindSessionForUpdate(ctx context.Context, refreshTokenHash str
 		&i.UserID,
 		&i.ExpiresAt,
 		&i.RevokedAt,
+		&i.SuspendedAt,
+		&i.Role,
 	)
 	return i, err
 }
@@ -290,10 +312,11 @@ func (q *Queries) FindSharedOwnedProjects(ctx context.Context, userID pgtype.UUI
 }
 
 const findTokenForUpdate = `-- name: FindTokenForUpdate :one
-SELECT id, user_id, expires_at, used_at
-FROM auth_tokens
-WHERE token_hash = $1 AND purpose = $2
-FOR UPDATE
+SELECT t.id, t.user_id, t.expires_at, t.used_at, u.suspended_at
+FROM auth_tokens t
+JOIN users u ON u.id = t.user_id
+WHERE t.token_hash = $1 AND t.purpose = $2
+FOR UPDATE OF t
 `
 
 type FindTokenForUpdateParams struct {
@@ -302,10 +325,11 @@ type FindTokenForUpdateParams struct {
 }
 
 type FindTokenForUpdateRow struct {
-	ID        pgtype.UUID
-	UserID    pgtype.UUID
-	ExpiresAt pgtype.Timestamptz
-	UsedAt    pgtype.Timestamptz
+	ID          pgtype.UUID
+	UserID      pgtype.UUID
+	ExpiresAt   pgtype.Timestamptz
+	UsedAt      pgtype.Timestamptz
+	SuspendedAt pgtype.Timestamptz
 }
 
 func (q *Queries) FindTokenForUpdate(ctx context.Context, arg FindTokenForUpdateParams) (FindTokenForUpdateRow, error) {
@@ -316,12 +340,13 @@ func (q *Queries) FindTokenForUpdate(ctx context.Context, arg FindTokenForUpdate
 		&i.UserID,
 		&i.ExpiresAt,
 		&i.UsedAt,
+		&i.SuspendedAt,
 	)
 	return i, err
 }
 
 const findUserByEmail = `-- name: FindUserByEmail :one
-SELECT u.id, u.email, u.email_verified_at, p.full_name
+SELECT u.id, u.email, u.email_verified_at, u.suspended_at, p.full_name
 FROM users u
 JOIN profiles p ON p.user_id = u.id
 WHERE u.email = $1
@@ -331,6 +356,7 @@ type FindUserByEmailRow struct {
 	ID              pgtype.UUID
 	Email           string
 	EmailVerifiedAt pgtype.Timestamptz
+	SuspendedAt     pgtype.Timestamptz
 	FullName        string
 }
 
@@ -341,13 +367,14 @@ func (q *Queries) FindUserByEmail(ctx context.Context, email string) (FindUserBy
 		&i.ID,
 		&i.Email,
 		&i.EmailVerifiedAt,
+		&i.SuspendedAt,
 		&i.FullName,
 	)
 	return i, err
 }
 
 const findUserByID = `-- name: FindUserByID :one
-SELECT u.id, u.email, u.email_verified_at, p.full_name
+SELECT u.id, u.email, u.email_verified_at, u.suspended_at, u.role, p.full_name
 FROM users u
 JOIN profiles p ON p.user_id = u.id
 WHERE u.id = $1
@@ -357,6 +384,8 @@ type FindUserByIDRow struct {
 	ID              pgtype.UUID
 	Email           string
 	EmailVerifiedAt pgtype.Timestamptz
+	SuspendedAt     pgtype.Timestamptz
+	Role            UserRole
 	FullName        string
 }
 
@@ -367,6 +396,8 @@ func (q *Queries) FindUserByID(ctx context.Context, id pgtype.UUID) (FindUserByI
 		&i.ID,
 		&i.Email,
 		&i.EmailVerifiedAt,
+		&i.SuspendedAt,
+		&i.Role,
 		&i.FullName,
 	)
 	return i, err
@@ -386,6 +417,60 @@ type InsertRetiredTokenParams struct {
 func (q *Queries) InsertRetiredToken(ctx context.Context, arg InsertRetiredTokenParams) error {
 	_, err := q.db.Exec(ctx, insertRetiredToken, arg.TokenHash, arg.SessionID, arg.RetiredAt)
 	return err
+}
+
+const listUsers = `-- name: ListUsers :many
+
+SELECT u.id, u.email, u.role, u.email_verified_at, u.suspended_at, u.created_at, p.full_name
+FROM users u
+JOIN profiles p ON p.user_id = u.id
+ORDER BY u.created_at DESC, u.id DESC
+LIMIT $2 OFFSET $1
+`
+
+type ListUsersParams struct {
+	PageOffset int32
+	PageLimit  int32
+}
+
+type ListUsersRow struct {
+	ID              pgtype.UUID
+	Email           string
+	Role            UserRole
+	EmailVerifiedAt pgtype.Timestamptz
+	SuspendedAt     pgtype.Timestamptz
+	CreatedAt       pgtype.Timestamptz
+	FullName        string
+}
+
+// Administration (FR-15.3).
+// One page of users, newest first; the id breaks ties so pages never overlap.
+func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]ListUsersRow, error) {
+	rows, err := q.db.Query(ctx, listUsers, arg.PageOffset, arg.PageLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUsersRow
+	for rows.Next() {
+		var i ListUsersRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Email,
+			&i.Role,
+			&i.EmailVerifiedAt,
+			&i.SuspendedAt,
+			&i.CreatedAt,
+			&i.FullName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const lockOwnedProjects = `-- name: LockOwnedProjects :exec
@@ -538,6 +623,24 @@ type RevokeUserSessionsParams struct {
 func (q *Queries) RevokeUserSessions(ctx context.Context, arg RevokeUserSessionsParams) error {
 	_, err := q.db.Exec(ctx, revokeUserSessions, arg.RevokedAt, arg.UserID)
 	return err
+}
+
+const setUserRoleByEmail = `-- name: SetUserRoleByEmail :execrows
+UPDATE users SET role = $1 WHERE email = $2
+`
+
+type SetUserRoleByEmailParams struct {
+	Role  UserRole
+	Email string
+}
+
+// Only `make admin` and `make unadmin` (cmd/setrole) run it; no API operation does.
+func (q *Queries) SetUserRoleByEmail(ctx context.Context, arg SetUserRoleByEmailParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setUserRoleByEmail, arg.Role, arg.Email)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const updatePasswordHash = `-- name: UpdatePasswordHash :exec

@@ -15,6 +15,7 @@ import { type LoginErrors, type LoginValues, validateLogin } from "./validation"
 // One message for an unknown address and a wrong password, so the page does not reveal
 // which accounts exist (FR-2.1).
 export const INVALID_CREDENTIALS_MESSAGE = "The email address or password is incorrect.";
+const SUSPENDED_MESSAGE = "This account is suspended. Contact support.";
 
 // LoginForm signs a user in (FR-2.1) and goes to /home. An address that is not verified
 // yet is refused, with a button to send a new verification link (FR-1.4, FR-1.5). A
@@ -45,6 +46,7 @@ export function LoginForm() {
     }
     setSubmitting(false);
     if (res.code === "invalid_credentials") setFormError(INVALID_CREDENTIALS_MESSAGE);
+    else if (res.code === "account_suspended") setFormError(SUSPENDED_MESSAGE); // FR-3.4
     else if (res.code === "email_not_verified") setUnverified({ message: res.message, email });
     // The server's message says when the lock ends (FR-2.7).
     else if (res.code === "account_locked") setFormError(res.message);
