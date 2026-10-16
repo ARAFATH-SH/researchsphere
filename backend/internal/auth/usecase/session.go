@@ -23,7 +23,9 @@ type RefreshResult struct {
 // Refresh replaces the session's refresh token with a new one and issues a new access
 // token (FR-2.1). The old refresh token stops working. A missing, unknown, expired or
 // revoked session returns ErrSessionInvalid. So does a refresh token that was already
-// replaced, which also ends its session: either the user or a thief holds a copy.
+// replaced, which also ends its session: either the user or a thief holds a copy. So
+// does a session of a suspended account, which is ended too, so the login lasts only
+// until its access token expires (FR-3.4).
 func (s *Service) Refresh(ctx context.Context, token string) (RefreshResult, error) {
 	if !wellFormedToken(token) {
 		return RefreshResult{}, domain.ErrSessionInvalid
@@ -32,8 +34,9 @@ func (s *Service) Refresh(ctx context.Context, token string) (RefreshResult, err
 	now := s.now()
 
 	var (
-		res    RefreshResult
-		reused *domain.Session // set when a retired token was sent; the transaction commits its revocation
+		res       RefreshResult
+		reused    *domain.Session // set when a retired token was sent; the transaction commits its revocation
+		suspended *domain.Session // set when the account is suspended; likewise
 	)
 	err := s.store.RunInTx(ctx, func(tx domain.Tx) error {
 		sess, err := tx.FindSessionForUpdate(ctx, hash)
@@ -45,6 +48,13 @@ func (s *Service) Refresh(ctx context.Context, token string) (RefreshResult, err
 		}
 		if sess.RevokedAt != nil || !now.Before(sess.ExpiresAt) {
 			return domain.ErrSessionInvalid
+		}
+		if sess.UserSuspendedAt != nil {
+			if err := tx.RevokeSession(ctx, sess.ID, now); err != nil {
+				return fmt.Errorf("revoke session: %w", err)
+			}
+			suspended = &sess
+			return nil
 		}
 
 		res = RefreshResult{IssuedAt: now, RefreshExpiresAt: sess.ExpiresAt}
@@ -64,6 +74,11 @@ func (s *Service) Refresh(ctx context.Context, token string) (RefreshResult, err
 	if reused != nil {
 		s.logger.WarnContext(ctx, "refresh token reused; session ended",
 			slog.String("session_id", reused.ID), slog.String("user_id", reused.UserID))
+		return RefreshResult{}, domain.ErrSessionInvalid
+	}
+	if suspended != nil {
+		s.logger.InfoContext(ctx, "account suspended; session ended",
+			slog.String("session_id", suspended.ID), slog.String("user_id", suspended.UserID))
 		return RefreshResult{}, domain.ErrSessionInvalid
 	}
 	return res, nil

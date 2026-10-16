@@ -636,3 +636,73 @@ func TestRevokeOtherUserSessions(t *testing.T) {
 		t.Errorf("another user's session = %+v, %v; want it untouched", other, err)
 	}
 }
+
+// TestSuspendedAtIsRead sets suspended_at directly, as an administrator will (FR-15.3),
+// and checks that every read the auth usecase checks it with returns it (FR-3.4).
+func TestSuspendedAtIsRead(t *testing.T) {
+	ctx := t.Context()
+	s, pool := newTestStore(t)
+	email := uniqueEmail(t, pool)
+	tokenHash := rand.Text()
+	id, err := register(ctx, s, email, "Ada", tokenHash, time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessHash := rand.Text()
+	if err := s.CreateSession(ctx, domain.NewSession{UserID: id, TokenHash: sessHash, ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+
+	read := func(t *testing.T) map[string]*time.Time {
+		t.Helper()
+		got := map[string]*time.Time{}
+		u, err := s.FindUserByEmail(ctx, email)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got["FindUserByEmail"] = u.SuspendedAt
+		c, err := s.FindCredentialsByEmail(ctx, email)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got["FindCredentialsByEmail"] = c.SuspendedAt
+		if u, err = s.FindUserByID(ctx, id); err != nil {
+			t.Fatal(err)
+		}
+		got["FindUserByID"] = u.SuspendedAt
+		if c, err = s.FindCredentialsByID(ctx, id); err != nil {
+			t.Fatal(err)
+		}
+		got["FindCredentialsByID"] = c.SuspendedAt
+		sess, err := findSession(t, s, sessHash)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got["FindSessionForUpdate"] = sess.UserSuspendedAt
+		err = s.RunInTx(ctx, func(tx domain.Tx) error {
+			tok, err := tx.FindTokenForUpdate(ctx, tokenHash, domain.PurposeEmailVerification)
+			got["FindTokenForUpdate"] = tok.UserSuspendedAt
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+
+	for name, at := range read(t) {
+		if at != nil {
+			t.Errorf("%s: SuspendedAt = %v before suspension, want nil", name, at)
+		}
+	}
+
+	suspended := time.Now().Truncate(time.Microsecond)
+	if _, err := pool.Exec(ctx, "UPDATE users SET suspended_at = $1 WHERE id = $2", suspended, id); err != nil {
+		t.Fatal(err)
+	}
+	for name, at := range read(t) {
+		if at == nil || !at.Equal(suspended) {
+			t.Errorf("%s: SuspendedAt = %v, want %v", name, at, suspended)
+		}
+	}
+}

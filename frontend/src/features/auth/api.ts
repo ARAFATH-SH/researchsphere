@@ -100,7 +100,8 @@ function withUser(res: Result<CurrentUser | undefined>): Result<CurrentUser> {
 }
 
 // login signs a user in; the server sets the session cookies (FR-2.1). An unverified
-// address is refused with email_not_verified (FR-1.4).
+// address is refused with email_not_verified (FR-1.4), a suspended account with
+// account_suspended (FR-3.4).
 export async function login(body: LoginRequest): Promise<Result<CurrentUser>> {
   return withUser(await call(() => api.POST("/auth/login", { body })));
 }

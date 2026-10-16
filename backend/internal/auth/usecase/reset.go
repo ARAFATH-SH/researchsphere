@@ -17,8 +17,9 @@ const PasswordResetTTL = time.Hour
 // RequestPasswordReset emails a reset link when email belongs to an account, verified
 // or not, and makes the account's older unused reset links stop working (FR-2.3). So
 // that the reply never shows whether an address is registered, it returns nil for
-// unknown addresses and when anything fails; failures are logged (FR-2.4). Only a
-// malformed address gives ErrInvalidEmail.
+// unknown addresses and when anything fails; failures are logged (FR-2.4). A
+// suspended account gets no email and the same nil (FR-3.4). Only a malformed address
+// gives ErrInvalidEmail.
 func (s *Service) RequestPasswordReset(ctx context.Context, email string) error {
 	email, err := normalizeEmail(email)
 	if err != nil {
@@ -31,6 +32,10 @@ func (s *Service) RequestPasswordReset(ctx context.Context, email string) error 
 	}
 	if err != nil {
 		s.logger.ErrorContext(ctx, "request password reset: find user", slog.Any("error", err))
+		return nil
+	}
+	if user.Suspended() {
+		s.logger.InfoContext(ctx, "password reset not sent: account suspended", slog.String("user_id", user.ID))
 		return nil
 	}
 
@@ -69,7 +74,8 @@ func (s *Service) RequestPasswordReset(ctx context.Context, email string) error 
 //
 // It returns ErrTokenInvalid for an unknown, malformed or non-reset token,
 // ErrTokenUsed, ErrTokenExpired, and ErrPasswordTooShort or ErrPasswordTooLong for a
-// password registration would refuse (FR-1.2).
+// password registration would refuse (FR-1.2). A suspended account returns
+// ErrAccountSuspended and nothing changes; the token stays unused (FR-3.4).
 func (s *Service) ResetPassword(ctx context.Context, token, newPassword string) error {
 	if !wellFormedToken(token) {
 		return domain.ErrTokenInvalid
@@ -102,6 +108,9 @@ func (s *Service) ResetPassword(ctx context.Context, token, newPassword string) 
 		}
 		if !now.Before(t.ExpiresAt) {
 			return domain.ErrTokenExpired
+		}
+		if t.UserSuspendedAt != nil {
+			return domain.ErrAccountSuspended
 		}
 		if err := tx.MarkTokenUsed(ctx, t.ID, now); err != nil {
 			return err

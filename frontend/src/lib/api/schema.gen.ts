@@ -101,7 +101,8 @@ export interface paths {
          * @description Public. The response is the same whether or not the address is registered or
          *     verified. When it belongs to an account, a link is emailed to
          *     `/reset-password#token=...`; it works once and expires after 1 hour. A new link
-         *     makes the account's older unused reset links stop working.
+         *     makes the account's older unused reset links stop working. A suspended account
+         *     gets no email, and the response is the same (FR-3.4).
          */
         post: operations["requestPasswordReset"];
         delete?: never;
@@ -124,7 +125,8 @@ export interface paths {
          * @description Public. Sets the new password, marks the token used and the email address
          *     verified, and ends every session of the account, in one transaction. It also
          *     clears the account's failed logins (FR-2.7). Access tokens already issued stay
-         *     valid until they expire (at most 15 minutes).
+         *     valid until they expire (at most 15 minutes). A suspended account is refused and
+         *     nothing changes (FR-3.4).
          */
         post: operations["confirmPasswordReset"];
         delete?: never;
@@ -143,7 +145,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Log in with email address and password (FR-2.1, FR-1.4)
+         * Log in with email address and password (FR-2.1, FR-1.4, FR-3.4)
          * @description Public. On success the response sets two httpOnly, SameSite=Lax cookies (Secure
          *     when the site runs on HTTPS): `rs_access`, a signed access token valid for 15
          *     minutes (path `/`), and `rs_refresh`, a refresh token valid for 30 days (path
@@ -633,6 +635,18 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            /**
+             * @description The token is valid but the account is suspended (`account_suspended`, FR-3.4).
+             *     The token is not used up.
+             */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             500: components["responses"]["InternalError"];
         };
     };
@@ -682,8 +696,10 @@ export interface operations {
                 };
             };
             /**
-             * @description The password is right but the email address is not verified yet
-             *     (`email_not_verified`, FR-1.4).
+             * @description The password is right but the account is suspended (`account_suspended`,
+             *     FR-3.4) or its email address is not verified yet (`email_not_verified`,
+             *     FR-1.4). Suspension is checked first. A wrong password always gets 401, so
+             *     this answer never reveals a suspension to someone guessing.
              */
             403: {
                 headers: {
@@ -734,8 +750,9 @@ export interface operations {
                 content?: never;
             };
             /**
-             * @description The cookie is missing, or its session is unknown, expired, ended or was reused
-             *     (`session_invalid`). The answer does not say which, and clears both cookies.
+             * @description The cookie is missing, or its session is unknown, expired, ended or was reused,
+             *     or the account is suspended (`session_invalid`). A suspended account's session
+             *     is ended (FR-3.4). The answer does not say which, and clears both cookies.
              */
             401: {
                 headers: {

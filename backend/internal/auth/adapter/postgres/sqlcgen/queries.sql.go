@@ -147,7 +147,7 @@ func (q *Queries) DeleteUserPublicationLinks(ctx context.Context, userID pgtype.
 }
 
 const findCredentialsByEmail = `-- name: FindCredentialsByEmail :one
-SELECT u.id, u.email, u.password_hash, u.email_verified_at, p.full_name
+SELECT u.id, u.email, u.password_hash, u.email_verified_at, u.suspended_at, p.full_name
 FROM users u
 JOIN profiles p ON p.user_id = u.id
 WHERE u.email = $1
@@ -158,6 +158,7 @@ type FindCredentialsByEmailRow struct {
 	Email           string
 	PasswordHash    string
 	EmailVerifiedAt pgtype.Timestamptz
+	SuspendedAt     pgtype.Timestamptz
 	FullName        string
 }
 
@@ -169,13 +170,14 @@ func (q *Queries) FindCredentialsByEmail(ctx context.Context, email string) (Fin
 		&i.Email,
 		&i.PasswordHash,
 		&i.EmailVerifiedAt,
+		&i.SuspendedAt,
 		&i.FullName,
 	)
 	return i, err
 }
 
 const findCredentialsByID = `-- name: FindCredentialsByID :one
-SELECT u.id, u.email, u.password_hash, u.email_verified_at, p.full_name
+SELECT u.id, u.email, u.password_hash, u.email_verified_at, u.suspended_at, p.full_name
 FROM users u
 JOIN profiles p ON p.user_id = u.id
 WHERE u.id = $1
@@ -186,6 +188,7 @@ type FindCredentialsByIDRow struct {
 	Email           string
 	PasswordHash    string
 	EmailVerifiedAt pgtype.Timestamptz
+	SuspendedAt     pgtype.Timestamptz
 	FullName        string
 }
 
@@ -197,6 +200,7 @@ func (q *Queries) FindCredentialsByID(ctx context.Context, id pgtype.UUID) (Find
 		&i.Email,
 		&i.PasswordHash,
 		&i.EmailVerifiedAt,
+		&i.SuspendedAt,
 		&i.FullName,
 	)
 	return i, err
@@ -230,17 +234,19 @@ func (q *Queries) FindSessionByRetiredTokenForUpdate(ctx context.Context, tokenH
 }
 
 const findSessionForUpdate = `-- name: FindSessionForUpdate :one
-SELECT id, user_id, expires_at, revoked_at
-FROM sessions
-WHERE refresh_token_hash = $1
-FOR UPDATE
+SELECT s.id, s.user_id, s.expires_at, s.revoked_at, u.suspended_at
+FROM sessions s
+JOIN users u ON u.id = s.user_id
+WHERE s.refresh_token_hash = $1
+FOR UPDATE OF s
 `
 
 type FindSessionForUpdateRow struct {
-	ID        pgtype.UUID
-	UserID    pgtype.UUID
-	ExpiresAt pgtype.Timestamptz
-	RevokedAt pgtype.Timestamptz
+	ID          pgtype.UUID
+	UserID      pgtype.UUID
+	ExpiresAt   pgtype.Timestamptz
+	RevokedAt   pgtype.Timestamptz
+	SuspendedAt pgtype.Timestamptz
 }
 
 func (q *Queries) FindSessionForUpdate(ctx context.Context, refreshTokenHash string) (FindSessionForUpdateRow, error) {
@@ -251,6 +257,7 @@ func (q *Queries) FindSessionForUpdate(ctx context.Context, refreshTokenHash str
 		&i.UserID,
 		&i.ExpiresAt,
 		&i.RevokedAt,
+		&i.SuspendedAt,
 	)
 	return i, err
 }
@@ -290,10 +297,11 @@ func (q *Queries) FindSharedOwnedProjects(ctx context.Context, userID pgtype.UUI
 }
 
 const findTokenForUpdate = `-- name: FindTokenForUpdate :one
-SELECT id, user_id, expires_at, used_at
-FROM auth_tokens
-WHERE token_hash = $1 AND purpose = $2
-FOR UPDATE
+SELECT t.id, t.user_id, t.expires_at, t.used_at, u.suspended_at
+FROM auth_tokens t
+JOIN users u ON u.id = t.user_id
+WHERE t.token_hash = $1 AND t.purpose = $2
+FOR UPDATE OF t
 `
 
 type FindTokenForUpdateParams struct {
@@ -302,10 +310,11 @@ type FindTokenForUpdateParams struct {
 }
 
 type FindTokenForUpdateRow struct {
-	ID        pgtype.UUID
-	UserID    pgtype.UUID
-	ExpiresAt pgtype.Timestamptz
-	UsedAt    pgtype.Timestamptz
+	ID          pgtype.UUID
+	UserID      pgtype.UUID
+	ExpiresAt   pgtype.Timestamptz
+	UsedAt      pgtype.Timestamptz
+	SuspendedAt pgtype.Timestamptz
 }
 
 func (q *Queries) FindTokenForUpdate(ctx context.Context, arg FindTokenForUpdateParams) (FindTokenForUpdateRow, error) {
@@ -316,12 +325,13 @@ func (q *Queries) FindTokenForUpdate(ctx context.Context, arg FindTokenForUpdate
 		&i.UserID,
 		&i.ExpiresAt,
 		&i.UsedAt,
+		&i.SuspendedAt,
 	)
 	return i, err
 }
 
 const findUserByEmail = `-- name: FindUserByEmail :one
-SELECT u.id, u.email, u.email_verified_at, p.full_name
+SELECT u.id, u.email, u.email_verified_at, u.suspended_at, p.full_name
 FROM users u
 JOIN profiles p ON p.user_id = u.id
 WHERE u.email = $1
@@ -331,6 +341,7 @@ type FindUserByEmailRow struct {
 	ID              pgtype.UUID
 	Email           string
 	EmailVerifiedAt pgtype.Timestamptz
+	SuspendedAt     pgtype.Timestamptz
 	FullName        string
 }
 
@@ -341,13 +352,14 @@ func (q *Queries) FindUserByEmail(ctx context.Context, email string) (FindUserBy
 		&i.ID,
 		&i.Email,
 		&i.EmailVerifiedAt,
+		&i.SuspendedAt,
 		&i.FullName,
 	)
 	return i, err
 }
 
 const findUserByID = `-- name: FindUserByID :one
-SELECT u.id, u.email, u.email_verified_at, p.full_name
+SELECT u.id, u.email, u.email_verified_at, u.suspended_at, p.full_name
 FROM users u
 JOIN profiles p ON p.user_id = u.id
 WHERE u.id = $1
@@ -357,6 +369,7 @@ type FindUserByIDRow struct {
 	ID              pgtype.UUID
 	Email           string
 	EmailVerifiedAt pgtype.Timestamptz
+	SuspendedAt     pgtype.Timestamptz
 	FullName        string
 }
 
@@ -367,6 +380,7 @@ func (q *Queries) FindUserByID(ctx context.Context, id pgtype.UUID) (FindUserByI
 		&i.ID,
 		&i.Email,
 		&i.EmailVerifiedAt,
+		&i.SuspendedAt,
 		&i.FullName,
 	)
 	return i, err

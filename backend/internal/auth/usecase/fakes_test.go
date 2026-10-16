@@ -250,7 +250,10 @@ func (tx fakeTx) DeleteUnusedTokens(_ context.Context, userID string, purpose do
 func (tx fakeTx) FindTokenForUpdate(_ context.Context, hash string, purpose domain.TokenPurpose) (domain.Token, error) {
 	for _, t := range tx.s.tokens {
 		if t.hash == hash && t.purpose == purpose {
-			return t.Token, nil
+			tok := t.Token
+			_, u, _ := tx.s.userByID(t.UserID)
+			tok.UserSuspendedAt = u.SuspendedAt // as the query's join with users
+			return tok, nil
 		}
 	}
 	return domain.Token{}, domain.ErrNotFound
@@ -278,7 +281,10 @@ func (tx fakeTx) MarkEmailVerified(_ context.Context, userID string, at time.Tim
 func (tx fakeTx) FindSessionForUpdate(_ context.Context, hash string) (domain.Session, error) {
 	for _, sess := range tx.s.sessions {
 		if sess.TokenHash == hash {
-			return sess.Session, nil
+			found := sess.Session
+			_, u, _ := tx.s.userByID(sess.UserID)
+			found.UserSuspendedAt = u.SuspendedAt // as the query's join with users
+			return found, nil
 		}
 	}
 	return domain.Session{}, domain.ErrNotFound

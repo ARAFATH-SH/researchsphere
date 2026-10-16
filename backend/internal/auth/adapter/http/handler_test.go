@@ -277,6 +277,7 @@ func TestConfirmPasswordReset(t *testing.T) {
 		{"expired token", domain.ErrTokenExpired, http.StatusBadRequest, CodeTokenExpired},
 		{"short password", domain.ErrPasswordTooShort, http.StatusBadRequest, CodePasswordTooShort},
 		{"long password", domain.ErrPasswordTooLong, http.StatusBadRequest, CodePasswordTooLong},
+		{"suspended account", domain.ErrAccountSuspended, http.StatusForbidden, CodeAccountSuspended},
 		{"unexpected error", errors.New("database down"), http.StatusInternalServerError, ""},
 	}
 	for _, tt := range tests {
@@ -394,6 +395,7 @@ func TestLoginUserRefused(t *testing.T) {
 	}{
 		{"wrong email or password", domain.ErrInvalidCredentials, http.StatusUnauthorized, CodeInvalidCredentials},
 		{"unverified email address", domain.ErrEmailNotVerified, http.StatusForbidden, CodeEmailNotVerified},
+		{"suspended account", domain.ErrAccountSuspended, http.StatusForbidden, CodeAccountSuspended},
 		{"unexpected error", errors.New("database down"), http.StatusInternalServerError, ""},
 	}
 	for _, tt := range tests {

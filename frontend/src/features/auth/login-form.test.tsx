@@ -85,6 +85,17 @@ describe("LoginForm", () => {
     expect(mockReplace).not.toHaveBeenCalled();
   });
 
+  it("says the account is suspended (403, FR-3.4)", async () => {
+    mockLogin.mockResolvedValue({ ok: false, code: "account_suspended", message: "Suspended." });
+    render(<LoginForm />);
+    fill("ada@example.org", "right password");
+    submit();
+    expect((await screen.findByRole("alert")).textContent).toBe("This account is suspended. Contact support.");
+    expect(screen.queryByRole("button", { name: "Resend verification" })).toBeNull();
+    expect(mockSetSignedIn).not.toHaveBeenCalled();
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+
   it("says when to try again while the account is locked (429, FR-2.7)", async () => {
     const message = "This account is locked after too many failed login attempts. Try again in 15 minutes.";
     mockLogin.mockResolvedValue({ ok: false, code: "account_locked", message });

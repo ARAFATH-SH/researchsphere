@@ -34,14 +34,15 @@ type Tx interface {
 	CreateToken(ctx context.Context, t NewToken) error
 	// DeleteUnusedTokens removes the user's tokens for purpose that have not been used.
 	DeleteUnusedTokens(ctx context.Context, userID string, purpose TokenPurpose) error
-	// FindTokenForUpdate locks the token with this hash until the transaction ends.
-	// It returns ErrNotFound when there is none.
+	// FindTokenForUpdate locks the token with this hash until the transaction ends, and
+	// fills its UserSuspendedAt. It returns ErrNotFound when there is none.
 	FindTokenForUpdate(ctx context.Context, hash string, purpose TokenPurpose) (Token, error)
 	MarkTokenUsed(ctx context.Context, tokenID string, at time.Time) error
 	// MarkEmailVerified sets the verified time unless it is already set.
 	MarkEmailVerified(ctx context.Context, userID string, at time.Time) error
 	// FindSessionForUpdate locks the session whose current refresh token has this hash
-	// until the transaction ends. It returns ErrNotFound when there is none.
+	// until the transaction ends, and fills its UserSuspendedAt. It returns ErrNotFound
+	// when there is none.
 	FindSessionForUpdate(ctx context.Context, hash string) (Session, error)
 	// FindSessionByRetiredTokenForUpdate locks the session that once had a refresh token
 	// with this hash and has since replaced it. It returns ErrNotFound when there is none.

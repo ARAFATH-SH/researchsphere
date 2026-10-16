@@ -58,6 +58,7 @@ func (s *Store) FindUserByEmail(ctx context.Context, email string) (domain.User,
 		Email:           row.Email,
 		FullName:        row.FullName,
 		EmailVerifiedAt: timePtr(row.EmailVerifiedAt),
+		SuspendedAt:     timePtr(row.SuspendedAt),
 	}, nil
 }
 
@@ -76,6 +77,7 @@ func (s *Store) FindCredentialsByEmail(ctx context.Context, email string) (domai
 			Email:           row.Email,
 			FullName:        row.FullName,
 			EmailVerifiedAt: timePtr(row.EmailVerifiedAt),
+			SuspendedAt:     timePtr(row.SuspendedAt),
 		},
 		PasswordHash: row.PasswordHash,
 	}, nil
@@ -99,6 +101,7 @@ func (s *Store) FindUserByID(ctx context.Context, userID string) (domain.User, e
 		Email:           row.Email,
 		FullName:        row.FullName,
 		EmailVerifiedAt: timePtr(row.EmailVerifiedAt),
+		SuspendedAt:     timePtr(row.SuspendedAt),
 	}, nil
 }
 
@@ -122,6 +125,7 @@ func (s *Store) FindCredentialsByID(ctx context.Context, userID string) (domain.
 			Email:           row.Email,
 			FullName:        row.FullName,
 			EmailVerifiedAt: timePtr(row.EmailVerifiedAt),
+			SuspendedAt:     timePtr(row.SuspendedAt),
 		},
 		PasswordHash: row.PasswordHash,
 	}, nil
@@ -225,6 +229,8 @@ func (t tx) FindTokenForUpdate(ctx context.Context, hash string, purpose domain.
 		UserID:    uuidString(row.UserID),
 		ExpiresAt: row.ExpiresAt.Time,
 		UsedAt:    timePtr(row.UsedAt),
+
+		UserSuspendedAt: timePtr(row.SuspendedAt),
 	}, nil
 }
 
@@ -258,7 +264,9 @@ func (t tx) FindSessionForUpdate(ctx context.Context, hash string) (domain.Sessi
 	if err != nil {
 		return domain.Session{}, fmt.Errorf("find session: %w", err)
 	}
-	return session(row.ID, row.UserID, row.ExpiresAt, row.RevokedAt), nil
+	sess := session(row.ID, row.UserID, row.ExpiresAt, row.RevokedAt)
+	sess.UserSuspendedAt = timePtr(row.SuspendedAt)
+	return sess, nil
 }
 
 func (t tx) FindSessionByRetiredTokenForUpdate(ctx context.Context, hash string) (domain.Session, error) {

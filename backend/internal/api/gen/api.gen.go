@@ -239,7 +239,7 @@ type ServerInterface interface {
 	// DeleteAccount Delete the logged-in user's account after entering the password (FR-2.8, FR-2.9)
 	// (DELETE /account)
 	DeleteAccount(w http.ResponseWriter, r *http.Request)
-	// LoginUser Log in with email address and password (FR-2.1, FR-1.4)
+	// LoginUser Log in with email address and password (FR-2.1, FR-1.4, FR-3.4)
 	// (POST /auth/login)
 	LoginUser(w http.ResponseWriter, r *http.Request)
 	// LogoutUser End the session on this device (FR-2.2)
@@ -1088,6 +1088,20 @@ func (response ConfirmPasswordReset400JSONResponse) VisitConfirmPasswordResetRes
 	return err
 }
 
+type ConfirmPasswordReset403JSONResponse Error
+
+func (response ConfirmPasswordReset403JSONResponse) VisitConfirmPasswordResetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ConfirmPasswordReset500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response ConfirmPasswordReset500JSONResponse) VisitConfirmPasswordResetResponse(w http.ResponseWriter) error {
@@ -1414,7 +1428,7 @@ type StrictServerInterface interface {
 	// DeleteAccount Delete the logged-in user's account after entering the password (FR-2.8, FR-2.9)
 	// (DELETE /account)
 	DeleteAccount(ctx context.Context, request DeleteAccountRequestObject) (DeleteAccountResponseObject, error)
-	// LoginUser Log in with email address and password (FR-2.1, FR-1.4)
+	// LoginUser Log in with email address and password (FR-2.1, FR-1.4, FR-3.4)
 	// (POST /auth/login)
 	LoginUser(ctx context.Context, request LoginUserRequestObject) (LoginUserResponseObject, error)
 	// LogoutUser End the session on this device (FR-2.2)

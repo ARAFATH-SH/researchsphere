@@ -37,6 +37,7 @@ const (
 
 	CodeInvalidCredentials = "invalid_credentials" //nolint:gosec // an error code, not a credential
 	CodeEmailNotVerified   = "email_not_verified"
+	CodeAccountSuspended   = "account_suspended"
 	CodeSessionInvalid     = "session_invalid"
 	CodeAccountLocked      = "account_locked"
 
@@ -184,19 +185,23 @@ func (h *Handler) ConfirmPasswordReset(ctx context.Context, req gen.ConfirmPassw
 		return gen.ConfirmPasswordReset400JSONResponse{Code: CodeTokenUsed, Message: "This reset link has already been used. Ask for a new one if you still need it."}, nil
 	case errors.Is(err, domain.ErrTokenExpired):
 		return gen.ConfirmPasswordReset400JSONResponse{Code: CodeTokenExpired, Message: "This reset link has expired. Ask for a new one."}, nil
+	case errors.Is(err, domain.ErrAccountSuspended):
+		return gen.ConfirmPasswordReset403JSONResponse(accountSuspended), nil
 	}
 	return nil, err
 }
 
 // LoginUser checks the email address and password and sets the session cookies (FR-2.1).
 // A wrong password and an unknown address get the same answer; an unverified address is
-// refused only after the right password (FR-1.4). A locked account is refused with 429
-// (FR-2.7).
+// refused only after the right password (FR-1.4), and so is a suspended one (FR-3.4). A
+// locked account is refused with 429 (FR-2.7).
 func (h *Handler) LoginUser(ctx context.Context, req gen.LoginUserRequestObject) (gen.LoginUserResponseObject, error) {
 	res, err := h.svc.Login(ctx, usecase.LoginInput{Email: req.Body.Email, Password: req.Body.Password})
 	switch {
 	case errors.Is(err, domain.ErrInvalidCredentials):
 		return gen.LoginUser401JSONResponse{Code: CodeInvalidCredentials, Message: "The email address or password is wrong."}, nil
+	case errors.Is(err, domain.ErrAccountSuspended):
+		return gen.LoginUser403JSONResponse(accountSuspended), nil
 	case errors.Is(err, domain.ErrEmailNotVerified):
 		return gen.LoginUser403JSONResponse{
 			Code:    CodeEmailNotVerified,
@@ -223,6 +228,9 @@ func (h *Handler) LoginUser(ctx context.Context, req gen.LoginUserRequestObject)
 		},
 	}, nil
 }
+
+// accountSuspended refuses a login or a password reset of a suspended account (FR-3.4).
+var accountSuspended = gen.Error{Code: CodeAccountSuspended, Message: "This account is suspended. Contact support."}
 
 // accountLocked answers a login while the account is locked (FR-2.7).
 func accountLocked(left time.Duration) gen.LoginUser429JSONResponse {

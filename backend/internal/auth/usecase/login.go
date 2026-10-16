@@ -43,7 +43,9 @@ type LoginResult struct {
 // Login checks the email address and password and starts a new session (FR-2.1).
 // An unknown address and a wrong password both return ErrInvalidCredentials. An
 // account whose address is not verified returns ErrEmailNotVerified, but only after
-// the right password, so that answer cannot reveal an account either (FR-1.4).
+// the right password, so that answer cannot reveal an account either (FR-1.4). A
+// suspended account returns ErrAccountSuspended, also only after the right password,
+// and before the verification check (FR-3.4).
 //
 // A locked address returns a *domain.LockedError before the password is checked, so
 // even the right password is refused (FR-2.7). An unknown address and a wrong password
@@ -83,6 +85,9 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (LoginResult, error)
 	if !ok {
 		lock.recordFailure(ctx)
 		return LoginResult{}, domain.ErrInvalidCredentials
+	}
+	if creds.Suspended() {
+		return LoginResult{}, domain.ErrAccountSuspended
 	}
 	if !creds.Verified() {
 		return LoginResult{}, domain.ErrEmailNotVerified
