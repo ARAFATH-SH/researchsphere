@@ -13,7 +13,7 @@ DATABASE_URL  ?= postgres://researchsphere:devpassword@localhost:5433/researchsp
 MIGRATIONS_DIR := backend/db/migrations
 
 .DEFAULT_GOAL := help
-.PHONY: help up down logs ps psql check migrate migrate-down migrate-new api web web-clean generate check-generated test test-db test-go test-integration test-web lint lint-go lint-web
+.PHONY: help up down logs ps psql check migrate migrate-down migrate-new admin unadmin api web web-clean generate check-generated test test-db test-go test-integration test-web lint lint-go lint-web
 
 help: ## List the available commands
 	@grep -hE '^[a-zA-Z_-]+:.*## ' $(firstword $(MAKEFILE_LIST)) | awk 'BEGIN {FS = ":.*## "} {printf "  make %-16s %s\n", $$1, $$2}'
@@ -47,6 +47,16 @@ migrate-down: ## Undo the most recent migration
 migrate-new: ## Create a migration pair: make migrate-new name=add_users
 	@test -n "$(name)" || (echo "Usage: make migrate-new name=add_users" && exit 1)
 	migrate create -ext sql -dir $(MIGRATIONS_DIR) -seq $(name)
+
+# The address reaches the command through the environment (every variable is exported
+# above), never pasted into the shell command, so no character in it can change the command.
+admin: ## Make an account an administrator: make admin email=ada@example.org
+	@test -n "$$email" || (echo "Usage: make admin email=ada@example.org" && exit 1)
+	@cd backend && go run ./cmd/setrole -role admin -email "$$email"
+
+unadmin: ## Make an administrator a researcher again: make unadmin email=ada@example.org
+	@test -n "$$email" || (echo "Usage: make unadmin email=ada@example.org" && exit 1)
+	@cd backend && go run ./cmd/setrole -role researcher -email "$$email"
 
 api: ## Run the API server (needs make up; settings from .env)
 	cd backend && go run ./cmd/api

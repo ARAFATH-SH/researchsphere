@@ -1,11 +1,11 @@
-import { ComingSoon } from "@/components/coming-soon";
+import { AdminUsers } from "@/features/auth/admin-users";
+import { RequireAdmin } from "@/features/auth/require-admin";
 
+// Administration (FR-15). Only an administrator sees it; anyone else goes to /home.
 export default function Page() {
   return (
-    <ComingSoon
-      title="Admin"
-      purpose="Maintain venues, remove content and manage users."
-      requirements={["FR-15"]}
-    />
+    <RequireAdmin>
+      <AdminUsers />
+    </RequireAdmin>
   );
 }

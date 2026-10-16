@@ -67,6 +67,10 @@ func (fakeAPI) DeleteAccount(context.Context, gen.DeleteAccountRequestObject) (g
 	return gen.DeleteAccount204Response{}, nil
 }
 
+func (fakeAPI) ListUsers(context.Context, gen.ListUsersRequestObject) (gen.ListUsersResponseObject, error) {
+	return gen.ListUsers200JSONResponse{Items: []gen.AdminUser{}}, nil
+}
+
 // GetCurrentUser echoes the user ID that the auth middleware put in the context.
 func (fakeAPI) GetCurrentUser(ctx context.Context, _ gen.GetCurrentUserRequestObject) (gen.GetCurrentUserResponseObject, error) {
 	id, _ := httpx.UserID(ctx)
@@ -285,7 +289,7 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 
 func TestRoutes(t *testing.T) {
 	got := Routes()
-	if len(got) != 12 {
+	if len(got) != 13 {
 		t.Errorf("Routes() returned %d routes, want the 12 operations in the contract: %v", len(got), got)
 	}
 	seen := map[string]bool{}

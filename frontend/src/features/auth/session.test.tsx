@@ -27,7 +27,7 @@ function load(me: Awaited<ReturnType<typeof GetCurrentUser>>) {
   return { mod, getCurrentUser, Show, loseSession: () => lost() };
 }
 
-const user = { id: "0b8f4c1e-0000-4000-8000-000000000001", email: "ada@example.org", fullName: "Ada Lovelace" };
+const user = { id: "0b8f4c1e-0000-4000-8000-000000000001", email: "ada@example.org", fullName: "Ada Lovelace", role: "researcher" as const };
 
 describe("session", () => {
   afterEach(() => jest.resetModules());

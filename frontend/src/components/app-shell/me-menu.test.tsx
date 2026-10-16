@@ -14,7 +14,7 @@ const mockUseSession = jest.mocked(useSession);
 const mockReplace = jest.fn();
 jest.mock("next/navigation", () => ({ useRouter: () => ({ replace: mockReplace }) }));
 
-const user = { id: "0b8f4c1e-0000-4000-8000-000000000001", email: "ada@example.org", fullName: "Ada King Lovelace" };
+const user = { id: "0b8f4c1e-0000-4000-8000-000000000001", email: "ada@example.org", fullName: "Ada King Lovelace", role: "researcher" as const };
 
 describe("initials", () => {
   it.each([

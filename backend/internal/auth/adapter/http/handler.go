@@ -2,7 +2,7 @@
 // verification and new verification links (FR-1), login and the current user (FR-2.1),
 // refreshing and ending sessions (FR-2.2), password reset (FR-2.3 to FR-2.5), changing
 // the password (FR-2.6), the login lockout (FR-2.7), and deleting the account (FR-2.8,
-// FR-2.9).
+// FR-2.9), and the administrator's users list (FR-15.3).
 // It turns the usecase's errors into the error codes the web client shows next to each
 // field, and puts the login tokens in cookies.
 package http
@@ -65,6 +65,7 @@ type service interface {
 	ResetPassword(ctx context.Context, token, newPassword string) error
 	ChangePassword(ctx context.Context, in usecase.ChangePasswordInput) error
 	DeleteAccount(ctx context.Context, in usecase.DeleteAccountInput) error
+	ListUsers(ctx context.Context, page, pageSize int) (domain.UserPage, error)
 }
 
 // CookieConfig sets the attributes of the session cookies.
@@ -419,7 +420,44 @@ func currentUser(u domain.User) (gen.CurrentUser, error) {
 	if err := id.UnmarshalText([]byte(u.ID)); err != nil {
 		return gen.CurrentUser{}, fmt.Errorf("user id: %w", err)
 	}
-	return gen.CurrentUser{Id: id, Email: u.Email, FullName: u.FullName}, nil
+	return gen.CurrentUser{Id: id, Email: u.Email, FullName: u.FullName, Role: gen.Role(u.Role)}, nil
+}
+
+// ListUsers returns one page of users for an administrator (FR-15.3). Only an
+// administrator reaches it: cmd/api guards the route with
+// httpx.RequirePlatform(authz.SuspendUser), which answers 403 to anyone else (FR-3.3).
+func (h *Handler) ListUsers(ctx context.Context, req gen.ListUsersRequestObject) (gen.ListUsersResponseObject, error) {
+	page, pageSize := 1, usecase.DefaultPageSize
+	if req.Params.Page != nil {
+		page = *req.Params.Page
+	}
+	if req.Params.PageSize != nil {
+		pageSize = *req.Params.PageSize
+	}
+	res, err := h.svc.ListUsers(ctx, page, pageSize)
+	if errors.Is(err, domain.ErrInvalidPage) {
+		return gen.ListUsers400JSONResponse{Code: httpx.CodeBadRequest, Message: "Page and page size must be whole numbers of at least 1."}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	items := make([]gen.AdminUser, 0, len(res.Users))
+	for _, u := range res.Users {
+		var id openapi_types.UUID
+		if err := id.UnmarshalText([]byte(u.ID)); err != nil {
+			return nil, fmt.Errorf("user id: %w", err)
+		}
+		items = append(items, gen.AdminUser{
+			Id:        id,
+			FullName:  u.FullName,
+			Email:     u.Email,
+			Role:      gen.Role(u.Role),
+			Verified:  u.Verified(),
+			Suspended: u.Suspended(),
+			CreatedAt: u.CreatedAt,
+		})
+	}
+	return gen.ListUsers200JSONResponse{Items: items, Page: res.Page, PageSize: res.PageSize, Total: res.Total}, nil
 }
 
 // cookie returns an httpOnly, SameSite=Lax session cookie that lasts ttl.

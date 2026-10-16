@@ -35,6 +35,8 @@ Run these from the repository root. `make help` prints the current list.
 | `make psql` | Open a psql prompt in the database |
 | `make migrate` / `make migrate-down` | Apply all migrations, or undo the latest one |
 | `make migrate-new name=add_users` | Create a new migration pair |
+| `make admin email=...` | Give that account the admin role (the only way to make an administrator; there is no API for it). Prints a message and fails if no account has the address. Takes effect at the user's next token refresh or login |
+| `make unadmin email=...` | Set that account back to the researcher role |
 | `make api` | Run the API server (needs `make up`; settings from `.env`) |
 | `make web` | Run the web client dev server on port 3000; it forwards `/api/v1` to `API_URL` |
 | `make web-clean` | Delete the web client build cache (`frontend/.next`). Stop `make web` first; run it after switching branches if styles look broken |

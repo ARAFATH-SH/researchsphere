@@ -25,8 +25,24 @@ type User struct {
 	EmailVerifiedAt *time.Time // nil until the address is verified (FR-1.4)
 	SuspendedAt     *time.Time // set while the account is suspended (FR-3.4)
 	// Role is the platform role (users.role, SRS 2.3), signed into the access token.
-	// Only FindCredentialsByEmail fills it.
+	// FindCredentialsByEmail, FindUserByID and ListUsers fill it.
 	Role string
+	// CreatedAt is when the account was registered. Only ListUsers fills it.
+	CreatedAt time.Time
+}
+
+// Platform roles (SRS 2.2). The values match the user_role enum in the database.
+const (
+	RoleResearcher = "researcher"
+	RoleAdmin      = "admin"
+)
+
+// UserPage is one page of the users list an administrator sees (FR-15.3).
+type UserPage struct {
+	Users    []User
+	Page     int // from 1
+	PageSize int // the size used, at most 50
+	Total    int // users on all pages
 }
 
 // Verified reports whether the user's email address has been verified.
@@ -136,6 +152,9 @@ var (
 	// ErrSessionInvalid covers every refused refresh: a missing, unknown, expired, revoked
 	// or reused refresh token. The client is not told which (FR-2.2).
 	ErrSessionInvalid = errors.New("session is not valid")
+	// ErrInvalidPage refuses a list page or page size below 1, or a page so far out that
+	// its offset does not fit a query parameter.
+	ErrInvalidPage = errors.New("page or page size is not valid")
 	// ErrNotFound is returned by a Store or Tx when the row does not exist.
 	ErrNotFound = errors.New("not found")
 )

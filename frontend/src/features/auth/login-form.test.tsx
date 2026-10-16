@@ -14,7 +14,7 @@ const mockSetSignedIn = jest.mocked(setSignedIn);
 const mockReplace = jest.fn();
 jest.mock("next/navigation", () => ({ useRouter: () => ({ replace: mockReplace }) }));
 
-const user = { id: "0b8f4c1e-0000-4000-8000-000000000001", email: "ada@example.org", fullName: "Ada Lovelace" };
+const user = { id: "0b8f4c1e-0000-4000-8000-000000000001", email: "ada@example.org", fullName: "Ada Lovelace", role: "researcher" as const };
 
 function fill(email: string, password: string) {
   fireEvent.change(screen.getByLabelText("Email"), { target: { value: email } });

@@ -44,7 +44,9 @@ type fakeStore struct {
 	pubs     map[string][]string // user IDs linked, by publication ID
 	nextID   int
 
-	failFind error // returned by the Find methods when set
+	listed [][2]int // limit and offset of each ListUsers call
+
+	failFind error // returned by the Find, List and Count methods when set
 	failTx   error // returned by every Tx write when set
 	txCount  int
 }
@@ -135,6 +137,36 @@ func (s *fakeStore) FindUserByID(_ context.Context, id string) (domain.User, err
 		return domain.User{}, domain.ErrNotFound
 	}
 	return u.User, nil
+}
+
+// ListUsers returns the users newest first; a later ID is a newer user.
+func (s *fakeStore) ListUsers(_ context.Context, limit, offset int) ([]domain.User, error) {
+	if s.failFind != nil {
+		return nil, s.failFind
+	}
+	s.listed = append(s.listed, [2]int{limit, offset})
+	users := make([]domain.User, 0, len(s.users))
+	for _, u := range s.users {
+		users = append(users, u.User)
+	}
+	slices.SortFunc(users, func(a, b domain.User) int { return idNumber(b.ID) - idNumber(a.ID) })
+	if offset >= len(users) {
+		return nil, nil
+	}
+	return users[offset:min(offset+limit, len(users))], nil
+}
+
+func (s *fakeStore) CountUsers(context.Context) (int, error) {
+	if s.failFind != nil {
+		return 0, s.failFind
+	}
+	return len(s.users), nil
+}
+
+// idNumber returns n for an ID "id-n" made by fakeStore.id.
+func idNumber(id string) int {
+	n, _ := strconv.Atoi(strings.TrimPrefix(id, "id-"))
+	return n
 }
 
 func (s *fakeStore) FindCredentialsByID(_ context.Context, id string) (domain.Credentials, error) {

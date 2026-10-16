@@ -9,8 +9,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/oapi-codegen/runtime"
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -65,6 +67,42 @@ func (e HealthStatus) Valid() bool {
 	}
 }
 
+// Defines values for Role.
+const (
+	Admin      Role = "admin"
+	Researcher Role = "researcher"
+)
+
+// Valid indicates whether the value is a known member of the Role enum.
+func (e Role) Valid() bool {
+	switch e {
+	case Admin:
+		return true
+	case Researcher:
+		return true
+	default:
+		return false
+	}
+}
+
+// AdminUser One user account as an administrator sees it in the users list.
+type AdminUser struct {
+	CreatedAt time.Time          `json:"createdAt"`
+	Email     string             `json:"email"`
+	FullName  string             `json:"fullName"`
+	Id        openapi_types.UUID `json:"id"`
+
+	// Role The platform role (SRS 2.2). Administrators are made only from the command line
+	// (`make admin`); no operation changes a role.
+	Role Role `json:"role"`
+
+	// Suspended The account is suspended (FR-3.4).
+	Suspended bool `json:"suspended"`
+
+	// Verified The email address is verified (FR-1.4).
+	Verified bool `json:"verified"`
+}
+
 // ChangePasswordRequest defines model for ChangePasswordRequest.
 type ChangePasswordRequest struct {
 	CurrentPassword string `json:"currentPassword"`
@@ -78,6 +116,10 @@ type CurrentUser struct {
 	Email    string             `json:"email"`
 	FullName string             `json:"fullName"`
 	Id       openapi_types.UUID `json:"id"`
+
+	// Role The platform role (SRS 2.2). Administrators are made only from the command line
+	// (`make admin`); no operation changes a role.
+	Role Role `json:"role"`
 }
 
 // DeleteAccountRequest defines model for DeleteAccountRequest.
@@ -174,6 +216,22 @@ type ResendVerificationRequest struct {
 	Email string `json:"email"`
 }
 
+// Role The platform role (SRS 2.2). Administrators are made only from the command line
+// (`make admin`); no operation changes a role.
+type Role string
+
+// UserPage defines model for UserPage.
+type UserPage struct {
+	Items []AdminUser `json:"items"`
+	Page  int         `json:"page"`
+
+	// PageSize The page size used, at most 50.
+	PageSize int `json:"pageSize"`
+
+	// Total The number of users on all pages.
+	Total int `json:"total"`
+}
+
 // VerifyEmailRequest defines model for VerifyEmailRequest.
 type VerifyEmailRequest struct {
 	// Token The token from the verification link.
@@ -183,6 +241,9 @@ type VerifyEmailRequest struct {
 // RefreshCookie defines model for RefreshCookie.
 type RefreshCookie = string
 
+// Forbidden The shape of every error response (SRS 5.3).
+type Forbidden = Error
+
 // InternalError The shape of every error response (SRS 5.3).
 type InternalError = Error
 
@@ -191,6 +252,16 @@ type Unauthorized = Error
 
 // cookieAuthContextKey is the context key for cookieAuth security scheme
 type cookieAuthContextKey string
+
+// ListUsersParams defines parameters for ListUsers.
+type ListUsersParams struct {
+	// Page The page to return, from 1. Defaults to 1.
+	Page *int `form:"page,omitempty" json:"page,omitempty"`
+
+	// PageSize Users per page, from 1. Defaults to 20. A larger value than 50 is reduced to 50,
+	// and the response says which size was used.
+	PageSize *int `form:"pageSize,omitempty" json:"pageSize,omitempty"`
+}
 
 // LogoutUserParams defines parameters for LogoutUser.
 type LogoutUserParams struct {
@@ -239,6 +310,9 @@ type ServerInterface interface {
 	// DeleteAccount Delete the logged-in user's account after entering the password (FR-2.8, FR-2.9)
 	// (DELETE /account)
 	DeleteAccount(w http.ResponseWriter, r *http.Request)
+	// ListUsers List every user account for an administrator (FR-15.3, FR-3.2)
+	// (GET /admin/users)
+	ListUsers(w http.ResponseWriter, r *http.Request, params ListUsersParams)
 	// LoginUser Log in with email address and password (FR-2.1, FR-1.4, FR-3.4)
 	// (POST /auth/login)
 	LoginUser(w http.ResponseWriter, r *http.Request)
@@ -294,6 +368,58 @@ func (siw *ServerInterfaceWrapper) DeleteAccount(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.DeleteAccount(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListUsers operation middleware
+func (siw *ServerInterfaceWrapper) ListUsers(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListUsersParams
+
+	// ------------- Optional query parameter "page" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "page", r.URL.Query(), &params.Page, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "page"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "pageSize" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "pageSize", r.URL.Query(), &params.PageSize, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "pageSize"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "pageSize", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListUsers(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -664,9 +790,12 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/auth/password", wrapper.ChangePassword)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/auth/me", wrapper.GetCurrentUser)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/account", wrapper.DeleteAccount)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/admin/users", wrapper.ListUsers)
 
 	return m
 }
+
+type ForbiddenJSONResponse Error
 
 type InternalErrorJSONResponse Error
 
@@ -765,6 +894,84 @@ func (response DeleteAccount429JSONResponse) VisitDeleteAccountResponse(w http.R
 type DeleteAccount500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response DeleteAccount500JSONResponse) VisitDeleteAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListUsersRequestObject struct {
+	Params ListUsersParams
+}
+
+type ListUsersResponseObject interface {
+	VisitListUsersResponse(w http.ResponseWriter) error
+}
+
+type ListUsers200JSONResponse UserPage
+
+func (response ListUsers200JSONResponse) VisitListUsersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListUsers400JSONResponse Error
+
+func (response ListUsers400JSONResponse) VisitListUsersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListUsers401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListUsers401JSONResponse) VisitListUsersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListUsers403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListUsers403JSONResponse) VisitListUsersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListUsers500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ListUsers500JSONResponse) VisitListUsersResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -1428,6 +1635,9 @@ type StrictServerInterface interface {
 	// DeleteAccount Delete the logged-in user's account after entering the password (FR-2.8, FR-2.9)
 	// (DELETE /account)
 	DeleteAccount(ctx context.Context, request DeleteAccountRequestObject) (DeleteAccountResponseObject, error)
+	// ListUsers List every user account for an administrator (FR-15.3, FR-3.2)
+	// (GET /admin/users)
+	ListUsers(ctx context.Context, request ListUsersRequestObject) (ListUsersResponseObject, error)
 	// LoginUser Log in with email address and password (FR-2.1, FR-1.4, FR-3.4)
 	// (POST /auth/login)
 	LoginUser(ctx context.Context, request LoginUserRequestObject) (LoginUserResponseObject, error)
@@ -1526,6 +1736,32 @@ func (sh *strictHandler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(DeleteAccountResponseObject); ok {
 		if err := validResponse.VisitDeleteAccountResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListUsers operation middleware
+func (sh *strictHandler) ListUsers(w http.ResponseWriter, r *http.Request, params ListUsersParams) {
+	var request ListUsersRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListUsers(ctx, request.(ListUsersRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListUsers")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListUsersResponseObject); ok {
+		if err := validResponse.VisitListUsersResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

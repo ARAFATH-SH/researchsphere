@@ -16,6 +16,11 @@ type Store interface {
 	FindCredentialsByEmail(ctx context.Context, email string) (Credentials, error)
 	// FindUserByID returns ErrNotFound when no user has the ID.
 	FindUserByID(ctx context.Context, id string) (User, error)
+	// ListUsers returns at most limit users after skipping offset, newest first, with
+	// CreatedAt filled (FR-15.3).
+	ListUsers(ctx context.Context, limit, offset int) ([]User, error)
+	// CountUsers returns how many users exist.
+	CountUsers(ctx context.Context) (int, error)
 	// FindCredentialsByID is FindUserByID with the password hash.
 	FindCredentialsByID(ctx context.Context, id string) (Credentials, error)
 	CreateSession(ctx context.Context, s NewSession) error

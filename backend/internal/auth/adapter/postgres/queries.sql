@@ -42,7 +42,7 @@ JOIN profiles p ON p.user_id = u.id
 WHERE u.email = @email;
 
 -- name: FindUserByID :one
-SELECT u.id, u.email, u.email_verified_at, u.suspended_at, p.full_name
+SELECT u.id, u.email, u.email_verified_at, u.suspended_at, u.role, p.full_name
 FROM users u
 JOIN profiles p ON p.user_id = u.id
 WHERE u.id = @id;
@@ -143,3 +143,20 @@ WHERE p.id = ANY(@ids::uuid[])
 
 -- name: DeleteUser :execrows
 DELETE FROM users WHERE id = @id;
+
+-- Administration (FR-15.3).
+
+-- name: ListUsers :many
+-- One page of users, newest first; the id breaks ties so pages never overlap.
+SELECT u.id, u.email, u.role, u.email_verified_at, u.suspended_at, u.created_at, p.full_name
+FROM users u
+JOIN profiles p ON p.user_id = u.id
+ORDER BY u.created_at DESC, u.id DESC
+LIMIT @page_limit OFFSET @page_offset;
+
+-- name: CountUsers :one
+SELECT count(*) FROM users;
+
+-- name: SetUserRoleByEmail :execrows
+-- Only `make admin` and `make unadmin` (cmd/setrole) run it; no API operation does.
+UPDATE users SET role = @role WHERE email = @email;

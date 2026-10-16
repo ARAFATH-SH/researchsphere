@@ -288,6 +288,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List every user account for an administrator (FR-15.3, FR-3.2)
+         * @description Needs the access cookie and the platform action "Suspend a user account" (SRS 2.3),
+         *     so only an administrator may call it; listing users is what an administrator needs
+         *     before suspending one. A researcher gets 403 with the one refusal body and no user
+         *     data (FR-3.3). Users are sorted newest first. Read only: suspending comes with
+         *     slice 27.
+         */
+        get: operations["listUsers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -386,9 +410,51 @@ export interface components {
             id: string;
             email: string;
             fullName: string;
+            role: components["schemas"]["Role"];
+        };
+        /**
+         * @description The platform role (SRS 2.2). Administrators are made only from the command line
+         *     (`make admin`); no operation changes a role.
+         * @enum {string}
+         */
+        Role: "researcher" | "admin";
+        /** @description One user account as an administrator sees it in the users list. */
+        AdminUser: {
+            /** Format: uuid */
+            id: string;
+            fullName: string;
+            email: string;
+            role: components["schemas"]["Role"];
+            /** @description The email address is verified (FR-1.4). */
+            verified: boolean;
+            /** @description The account is suspended (FR-3.4). */
+            suspended: boolean;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        UserPage: {
+            items: components["schemas"]["AdminUser"][];
+            page: number;
+            /** @description The page size used, at most 50. */
+            pageSize: number;
+            /** @description The number of users on all pages. */
+            total: number;
         };
     };
     responses: {
+        /**
+         * @description The user's role does not permit the action (FR-3.2). The body is always
+         *     `{"code":"forbidden","message":"You do not have permission to do this."}`, with no
+         *     resource data and no reason (FR-3.3).
+         */
+        Forbidden: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
         /** @description No valid access token was sent (`unauthenticated`). */
         Unauthorized: {
             headers: {
@@ -929,6 +995,46 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listUsers: {
+        parameters: {
+            query?: {
+                /** @description The page to return, from 1. Defaults to 1. */
+                page?: number;
+                /**
+                 * @description Users per page, from 1. Defaults to 20. A larger value than 50 is reduced to 50,
+                 *     and the response says which size was used.
+                 */
+                pageSize?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of users. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserPage"];
+                };
+            };
+            /** @description `page` or `pageSize` is not a whole number of at least 1 (`bad_request`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             500: components["responses"]["InternalError"];
         };
     };

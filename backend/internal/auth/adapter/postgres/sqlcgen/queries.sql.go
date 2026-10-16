@@ -11,6 +11,17 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countUsers = `-- name: CountUsers :one
+SELECT count(*) FROM users
+`
+
+func (q *Queries) CountUsers(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countUsers)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createProfile = `-- name: CreateProfile :exec
 INSERT INTO profiles (user_id, full_name)
 VALUES ($1, $2)
@@ -363,7 +374,7 @@ func (q *Queries) FindUserByEmail(ctx context.Context, email string) (FindUserBy
 }
 
 const findUserByID = `-- name: FindUserByID :one
-SELECT u.id, u.email, u.email_verified_at, u.suspended_at, p.full_name
+SELECT u.id, u.email, u.email_verified_at, u.suspended_at, u.role, p.full_name
 FROM users u
 JOIN profiles p ON p.user_id = u.id
 WHERE u.id = $1
@@ -374,6 +385,7 @@ type FindUserByIDRow struct {
 	Email           string
 	EmailVerifiedAt pgtype.Timestamptz
 	SuspendedAt     pgtype.Timestamptz
+	Role            UserRole
 	FullName        string
 }
 
@@ -385,6 +397,7 @@ func (q *Queries) FindUserByID(ctx context.Context, id pgtype.UUID) (FindUserByI
 		&i.Email,
 		&i.EmailVerifiedAt,
 		&i.SuspendedAt,
+		&i.Role,
 		&i.FullName,
 	)
 	return i, err
@@ -404,6 +417,60 @@ type InsertRetiredTokenParams struct {
 func (q *Queries) InsertRetiredToken(ctx context.Context, arg InsertRetiredTokenParams) error {
 	_, err := q.db.Exec(ctx, insertRetiredToken, arg.TokenHash, arg.SessionID, arg.RetiredAt)
 	return err
+}
+
+const listUsers = `-- name: ListUsers :many
+
+SELECT u.id, u.email, u.role, u.email_verified_at, u.suspended_at, u.created_at, p.full_name
+FROM users u
+JOIN profiles p ON p.user_id = u.id
+ORDER BY u.created_at DESC, u.id DESC
+LIMIT $2 OFFSET $1
+`
+
+type ListUsersParams struct {
+	PageOffset int32
+	PageLimit  int32
+}
+
+type ListUsersRow struct {
+	ID              pgtype.UUID
+	Email           string
+	Role            UserRole
+	EmailVerifiedAt pgtype.Timestamptz
+	SuspendedAt     pgtype.Timestamptz
+	CreatedAt       pgtype.Timestamptz
+	FullName        string
+}
+
+// Administration (FR-15.3).
+// One page of users, newest first; the id breaks ties so pages never overlap.
+func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]ListUsersRow, error) {
+	rows, err := q.db.Query(ctx, listUsers, arg.PageOffset, arg.PageLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUsersRow
+	for rows.Next() {
+		var i ListUsersRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Email,
+			&i.Role,
+			&i.EmailVerifiedAt,
+			&i.SuspendedAt,
+			&i.CreatedAt,
+			&i.FullName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const lockOwnedProjects = `-- name: LockOwnedProjects :exec
@@ -556,6 +623,24 @@ type RevokeUserSessionsParams struct {
 func (q *Queries) RevokeUserSessions(ctx context.Context, arg RevokeUserSessionsParams) error {
 	_, err := q.db.Exec(ctx, revokeUserSessions, arg.RevokedAt, arg.UserID)
 	return err
+}
+
+const setUserRoleByEmail = `-- name: SetUserRoleByEmail :execrows
+UPDATE users SET role = $1 WHERE email = $2
+`
+
+type SetUserRoleByEmailParams struct {
+	Role  UserRole
+	Email string
+}
+
+// Only `make admin` and `make unadmin` (cmd/setrole) run it; no API operation does.
+func (q *Queries) SetUserRoleByEmail(ctx context.Context, arg SetUserRoleByEmailParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setUserRoleByEmail, arg.Role, arg.Email)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const updatePasswordHash = `-- name: UpdatePasswordHash :exec

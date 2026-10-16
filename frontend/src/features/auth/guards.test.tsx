@@ -11,7 +11,7 @@ jest.mock("next/navigation", () => ({ useRouter: () => ({ replace: mockReplace }
 
 const signedIn: Session = {
   status: "signedIn",
-  user: { id: "0b8f4c1e-0000-4000-8000-000000000001", email: "ada@example.org", fullName: "Ada Lovelace" },
+  user: { id: "0b8f4c1e-0000-4000-8000-000000000001", email: "ada@example.org", fullName: "Ada Lovelace", role: "researcher" as const },
 };
 
 describe("RequireSession", () => {

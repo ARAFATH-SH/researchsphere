@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { useSession } from "@/features/auth/session";
+
 import { MeMenu } from "./me-menu";
-import { isActive, tabs } from "./tabs";
+import { isActive, tabsFor } from "./tabs";
 
 export type TabListVariant = "top" | "bottom";
 
@@ -14,12 +16,16 @@ export function CurrentTabList({ variant }: { variant: TabListVariant }) {
   return <TabList pathname={usePathname() ?? ""} variant={variant} />;
 }
 
-// TabList shows the six tabs with icons and labels; the one for pathname is current.
+// TabList shows the tabs with icons and labels; the one for pathname is current. The
+// Admin tab shows only when GET /auth/me says the user is an administrator.
 export function TabList({ pathname, variant }: { pathname: string; variant: TabListVariant }) {
-  const list = variant === "top" ? "flex h-full items-stretch" : "grid grid-cols-6";
+  const session = useSession();
+  const visible = tabsFor(session.status === "signedIn" ? session.user.role : undefined);
+  const columns = visible.length === 7 ? "grid-cols-7" : "grid-cols-6";
+  const list = variant === "top" ? "flex h-full items-stretch" : `grid ${columns}`;
   return (
     <ul className={list}>
-      {tabs.map((tab) => {
+      {visible.map((tab) => {
         const active = isActive(tab, pathname);
         const color = active ? "text-primary" : "text-text-muted hover:text-text";
         const underline =

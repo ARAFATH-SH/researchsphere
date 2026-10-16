@@ -5,6 +5,9 @@ export type LoginRequest = components["schemas"]["LoginRequest"];
 export type CurrentUser = components["schemas"]["CurrentUser"];
 export type ChangePasswordRequest = components["schemas"]["ChangePasswordRequest"];
 export type ProjectRef = components["schemas"]["ProjectRef"];
+export type Role = components["schemas"]["Role"];
+export type AdminUser = components["schemas"]["AdminUser"];
+export type UserPage = components["schemas"]["UserPage"];
 
 // ApiError is the error shape every API error uses (SRS 5.3).
 export type ApiError = components["schemas"]["Error"];
@@ -115,4 +118,12 @@ export async function getCurrentUser(): Promise<Result<CurrentUser>> {
 export async function logout(): Promise<Result<undefined>> {
   const res = await call(() => api.POST("/auth/logout"));
   return res.ok ? { ok: true, data: undefined } : res;
+}
+
+// listUsers returns one page of users for an administrator (FR-15.3). The server
+// refuses everyone else with 403 forbidden (FR-3.3) and caps the page size at 50.
+export async function listUsers(page: number, pageSize: number): Promise<Result<UserPage>> {
+  const res = await call(() => api.GET("/admin/users", { params: { query: { page, pageSize } } }));
+  if (!res.ok) return res;
+  return res.data ? { ok: true, data: res.data } : { ok: false, ...unexpectedError };
 }

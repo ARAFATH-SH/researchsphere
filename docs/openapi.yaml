@@ -480,6 +480,56 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /admin/users:
+    get:
+      operationId: listUsers
+      summary: List every user account for an administrator (FR-15.3, FR-3.2)
+      description: |
+        Needs the access cookie and the platform action "Suspend a user account" (SRS 2.3),
+        so only an administrator may call it; listing users is what an administrator needs
+        before suspending one. A researcher gets 403 with the one refusal body and no user
+        data (FR-3.3). Users are sorted newest first. Read only: suspending comes with
+        slice 27.
+      tags: [admin]
+      parameters:
+        - name: page
+          in: query
+          required: false
+          description: The page to return, from 1. Defaults to 1.
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: pageSize
+          in: query
+          required: false
+          description: |
+            Users per page, from 1. Defaults to 20. A larger value than 50 is reduced to 50,
+            and the response says which size was used.
+          schema:
+            type: integer
+            minimum: 1
+            default: 20
+      responses:
+        "200":
+          description: One page of users.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserPage"
+        "400":
+          description: "`page` or `pageSize` is not a whole number of at least 1 (`bad_request`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
   securitySchemes:
     cookieAuth:
@@ -654,7 +704,7 @@ components:
 
     CurrentUser:
       type: object
-      required: [id, email, fullName]
+      required: [id, email, fullName, role]
       properties:
         id:
           type: string
@@ -663,8 +713,67 @@ components:
           type: string
         fullName:
           type: string
+        role:
+          $ref: "#/components/schemas/Role"
+
+    Role:
+      type: string
+      description: |
+        The platform role (SRS 2.2). Administrators are made only from the command line
+        (`make admin`); no operation changes a role.
+      enum: [researcher, admin]
+
+    AdminUser:
+      type: object
+      description: One user account as an administrator sees it in the users list.
+      required: [id, fullName, email, role, verified, suspended, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        fullName:
+          type: string
+        email:
+          type: string
+        role:
+          $ref: "#/components/schemas/Role"
+        verified:
+          type: boolean
+          description: The email address is verified (FR-1.4).
+        suspended:
+          type: boolean
+          description: The account is suspended (FR-3.4).
+        createdAt:
+          type: string
+          format: date-time
+
+    UserPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminUser"
+        page:
+          type: integer
+        pageSize:
+          type: integer
+          description: The page size used, at most 50.
+        total:
+          type: integer
+          description: The number of users on all pages.
 
   responses:
+    Forbidden:
+      description: |
+        The user's role does not permit the action (FR-3.2). The body is always
+        `{"code":"forbidden","message":"You do not have permission to do this."}`, with no
+        resource data and no reason (FR-3.3).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
     Unauthorized:
       description: No valid access token was sent (`unauthenticated`).
       content:
