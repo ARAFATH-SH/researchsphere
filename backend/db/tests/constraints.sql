@@ -12,7 +12,7 @@ SET client_min_messages = notice;
 BEGIN;
 
 -- expect_error runs one statement and passes only when it fails with the given SQLSTATE:
--- 23505 unique_violation, 23514 check_violation, 22000 data_exception.
+-- 23502 not_null_violation, 23505 unique_violation, 23514 check_violation, 22000 data_exception.
 CREATE FUNCTION pg_temp.expect_error(label text, stmt text, expected text) RETURNS void
 LANGUAGE plpgsql AS $$
 BEGIN
@@ -107,6 +107,51 @@ SELECT pg_temp.expect_ok('Profile: a well-formed ORCID iD is accepted',
 SELECT pg_temp.expect_error('Profile: ORCID iD is unique',
     $s$UPDATE profiles SET orcid_id = '0000-0002-1825-0097' WHERE user_id = '00000000-0000-0000-0000-000000000002'$s$, '23505');
 
+-- Profile field limits (FR-4.1, migration 000003). Lengths count characters, so the
+-- accepted values use a two-byte letter.
+SELECT pg_temp.expect_error('Profile: full name must not be blank',
+    $s$UPDATE profiles SET full_name = '   ' WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_ok('Profile: full name of 200 characters is accepted',
+    $s$UPDATE profiles SET full_name = repeat('é', 200) WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$);
+SELECT pg_temp.expect_error('Profile: full name is at most 200 characters',
+    $s$UPDATE profiles SET full_name = repeat('a', 201) WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_ok('Profile: headline of 220 characters is accepted',
+    $s$UPDATE profiles SET headline = repeat('é', 220) WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$);
+SELECT pg_temp.expect_error('Profile: headline is at most 220 characters',
+    $s$UPDATE profiles SET headline = repeat('a', 221) WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_ok('Profile: bio of 2000 characters is accepted',
+    $s$UPDATE profiles SET bio = repeat('é', 2000) WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$);
+SELECT pg_temp.expect_error('Profile: bio is at most 2000 characters',
+    $s$UPDATE profiles SET bio = repeat('a', 2001) WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_ok('Profile: institution, department and job title of 200 characters are accepted',
+    $s$UPDATE profiles SET institution = repeat('é', 200), department = repeat('é', 200), job_title = repeat('é', 200)
+       WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$);
+SELECT pg_temp.expect_error('Profile: institution is at most 200 characters',
+    $s$UPDATE profiles SET institution = repeat('a', 201) WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_error('Profile: department is at most 200 characters',
+    $s$UPDATE profiles SET department = repeat('a', 201) WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_error('Profile: job title is at most 200 characters',
+    $s$UPDATE profiles SET job_title = repeat('a', 201) WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_error('Profile: headline is NULL, not blank',
+    $s$UPDATE profiles SET headline = ' ' WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_error('Profile: bio is NULL, not blank',
+    $s$UPDATE profiles SET bio = '' WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_error('Profile: institution is NULL, not blank',
+    $s$UPDATE profiles SET institution = '' WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_error('Profile: department is NULL, not blank',
+    $s$UPDATE profiles SET department = '' WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_error('Profile: job title is NULL, not blank',
+    $s$UPDATE profiles SET job_title = '' WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_ok('Profile: optional fields may be NULL',
+    $s$UPDATE profiles SET headline = NULL, bio = NULL, institution = NULL, department = NULL, job_title = NULL, country = NULL
+       WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$);
+SELECT pg_temp.expect_ok('Profile: country as two capital letters is accepted',
+    $s$UPDATE profiles SET country = 'DE' WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$);
+SELECT pg_temp.expect_error('Profile: country must be capitals',
+    $s$UPDATE profiles SET country = 'de' WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_error('Profile: country must be two letters',
+    $s$UPDATE profiles SET country = 'DEU' WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+
 -- ---------------------------------------------------------------------------
 -- Interest, skill, education
 -- ---------------------------------------------------------------------------
@@ -117,9 +162,137 @@ SELECT pg_temp.expect_error('Interest: name is unique ignoring letter case (FR-4
     $s$INSERT INTO research_interests (name) VALUES ('nlp')$s$, '23505');
 SELECT pg_temp.expect_error('Skill: name is unique ignoring letter case (FR-4.2)',
     $s$INSERT INTO skills (name) VALUES ('pytorch')$s$, '23505');
+
+-- Tag name limits (FR-4.2, migration 000004): at most 60 characters, trimmed, single
+-- spaces only. The accepted values use a two-byte letter, since lengths count characters.
+SELECT pg_temp.expect_ok('Interest: name of 60 characters with single spaces is accepted',
+    $s$INSERT INTO research_interests (name) VALUES (repeat('é', 29) || ' ' || repeat('é', 30))$s$);
+SELECT pg_temp.expect_error('Interest: name is at most 60 characters',
+    $s$INSERT INTO research_interests (name) VALUES (repeat('a', 61))$s$, '23514');
+SELECT pg_temp.expect_error('Interest: name has no leading space',
+    $s$INSERT INTO research_interests (name) VALUES (' Robotics')$s$, '23514');
+SELECT pg_temp.expect_error('Interest: name has no trailing space',
+    $s$INSERT INTO research_interests (name) VALUES ('Robotics ')$s$, '23514');
+SELECT pg_temp.expect_error('Interest: name has no double space',
+    $s$INSERT INTO research_interests (name) VALUES ('Machine  Learning')$s$, '23514');
+SELECT pg_temp.expect_error('Interest: name has no tab or line break',
+    $s$INSERT INTO research_interests (name) VALUES (E'Machine\tLearning')$s$, '23514');
+SELECT pg_temp.expect_ok('Skill: name of 60 characters with single spaces is accepted',
+    $s$INSERT INTO skills (name) VALUES (repeat('é', 29) || ' ' || repeat('é', 30))$s$);
+SELECT pg_temp.expect_error('Skill: name is at most 60 characters',
+    $s$INSERT INTO skills (name) VALUES (repeat('a', 61))$s$, '23514');
+SELECT pg_temp.expect_error('Skill: name has no leading space',
+    $s$INSERT INTO skills (name) VALUES (' Go')$s$, '23514');
+SELECT pg_temp.expect_error('Skill: name has no trailing space',
+    $s$INSERT INTO skills (name) VALUES ('Go ')$s$, '23514');
+SELECT pg_temp.expect_error('Skill: name has no double space',
+    $s$INSERT INTO skills (name) VALUES ('Data  Analysis')$s$, '23514');
+SELECT pg_temp.expect_error('Skill: name has no tab or line break',
+    $s$INSERT INTO skills (name) VALUES (E'Data\nAnalysis')$s$, '23514');
 SELECT pg_temp.expect_error('Education: end year is not before start year',
     $s$INSERT INTO education (user_id, institution, degree, start_year, end_year)
        VALUES ('00000000-0000-0000-0000-000000000001', 'MIT', 'BSc', 2020, 2019)$s$, '23514');
+
+-- Education fields (FR-4.4, migration 000005): the start year is required, the degree and
+-- field are optional, text is at most 200 (institution) or 100 characters and never blank.
+SELECT pg_temp.expect_ok('Education: degree, field and end year may be NULL',
+    $s$INSERT INTO education (user_id, institution, start_year)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'MIT', 2020)$s$);
+SELECT pg_temp.expect_error('Education: start year is required',
+    $s$INSERT INTO education (user_id, institution, degree)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'MIT', 'BSc')$s$, '23502');
+SELECT pg_temp.expect_ok('Education: institution of 200 and degree and field of 100 characters are accepted',
+    $s$INSERT INTO education (user_id, institution, degree, field_of_study, start_year)
+       VALUES ('00000000-0000-0000-0000-000000000001', repeat('é', 200), repeat('é', 100), repeat('é', 100), 2020)$s$);
+SELECT pg_temp.expect_error('Education: institution is at most 200 characters',
+    $s$INSERT INTO education (user_id, institution, start_year)
+       VALUES ('00000000-0000-0000-0000-000000000001', repeat('a', 201), 2020)$s$, '23514');
+SELECT pg_temp.expect_error('Education: degree is at most 100 characters',
+    $s$INSERT INTO education (user_id, institution, degree, start_year)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'MIT', repeat('a', 101), 2020)$s$, '23514');
+SELECT pg_temp.expect_error('Education: field of study is at most 100 characters',
+    $s$INSERT INTO education (user_id, institution, field_of_study, start_year)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'MIT', repeat('a', 101), 2020)$s$, '23514');
+SELECT pg_temp.expect_error('Education: institution is not blank',
+    $s$INSERT INTO education (user_id, institution, start_year)
+       VALUES ('00000000-0000-0000-0000-000000000001', '  ', 2020)$s$, '23514');
+SELECT pg_temp.expect_error('Education: degree is NULL, not blank',
+    $s$INSERT INTO education (user_id, institution, degree, start_year)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'MIT', '', 2020)$s$, '23514');
+SELECT pg_temp.expect_error('Education: field of study is NULL, not blank',
+    $s$INSERT INTO education (user_id, institution, field_of_study, start_year)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'MIT', ' ', 2020)$s$, '23514');
+
+-- ---------------------------------------------------------------------------
+-- Contact info and links (FR-4.7, migration 000006)
+-- ---------------------------------------------------------------------------
+
+SELECT pg_temp.expect_ok('Contact: a row with only the user takes the defaults',
+    $s$INSERT INTO profile_contact (user_id) VALUES ('00000000-0000-0000-0000-000000000001')$s$);
+SELECT pg_temp.expect_true('Contact: every visibility defaults to only_me and nothing is set', $q$
+    SELECT email_visibility = 'only_me' AND phone_visibility = 'only_me' AND birthday_visibility = 'only_me'
+       AND phone IS NULL AND birth_month IS NULL AND birth_day IS NULL
+      FROM profile_contact WHERE user_id = '00000000-0000-0000-0000-000000000001'$q$);
+SELECT pg_temp.expect_error('Contact: one row per user',
+    $s$INSERT INTO profile_contact (user_id) VALUES ('00000000-0000-0000-0000-000000000001')$s$, '23505');
+SELECT pg_temp.expect_ok('Contact: an E.164 phone is accepted',
+    $s$UPDATE profile_contact SET phone = '+8801712345678' WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$);
+SELECT pg_temp.expect_error('Contact: phone starts with +',
+    $s$UPDATE profile_contact SET phone = '8801712345678' WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_error('Contact: phone has no spaces',
+    $s$UPDATE profile_contact SET phone = '+880 1712345678' WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_error('Contact: phone has at most 15 digits',
+    $s$UPDATE profile_contact SET phone = '+1234567890123456' WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_error('Contact: phone country code does not start with 0',
+    $s$UPDATE profile_contact SET phone = '+0123456789' WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_ok('Contact: 29 February is accepted',
+    $s$UPDATE profile_contact SET birth_month = 2, birth_day = 29 WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$);
+SELECT pg_temp.expect_ok('Contact: 31 December is accepted',
+    $s$UPDATE profile_contact SET birth_month = 12, birth_day = 31 WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$);
+SELECT pg_temp.expect_error('Contact: 30 February is refused',
+    $s$UPDATE profile_contact SET birth_month = 2, birth_day = 30 WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_error('Contact: 31 April is refused',
+    $s$UPDATE profile_contact SET birth_month = 4, birth_day = 31 WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_error('Contact: month 13 is refused',
+    $s$UPDATE profile_contact SET birth_month = 13, birth_day = 1 WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_error('Contact: day 0 is refused',
+    $s$UPDATE profile_contact SET birth_month = 1, birth_day = 0 WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_error('Contact: a month without a day is refused',
+    $s$UPDATE profile_contact SET birth_month = 5, birth_day = NULL WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_error('Contact: a day without a month is refused',
+    $s$UPDATE profile_contact SET birth_month = NULL, birth_day = 5 WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_ok('Contact: logged_in visibility is accepted',
+    $s$UPDATE profile_contact SET email_visibility = 'logged_in', phone_visibility = 'logged_in', birthday_visibility = 'logged_in'
+       WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$);
+SELECT pg_temp.expect_error('Contact: email visibility is only_me or logged_in',
+    $s$UPDATE profile_contact SET email_visibility = 'everyone' WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_error('Contact: phone visibility is only_me or logged_in',
+    $s$UPDATE profile_contact SET phone_visibility = 'connections' WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_error('Contact: birthday visibility is only_me or logged_in',
+    $s$UPDATE profile_contact SET birthday_visibility = '' WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+
+SELECT pg_temp.expect_ok('Link: an https URL of 300 characters is accepted',
+    $s$INSERT INTO profile_links (user_id, kind, url)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'website', 'https://' || repeat('é', 292))$s$);
+SELECT pg_temp.expect_error('Link: URL is at most 300 characters',
+    $s$INSERT INTO profile_links (user_id, kind, url)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'website', 'https://' || repeat('a', 293))$s$, '23514');
+SELECT pg_temp.expect_error('Link: http is refused',
+    $s$INSERT INTO profile_links (user_id, kind, url)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'website', 'http://example.org')$s$, '23514');
+SELECT pg_temp.expect_error('Link: URL has no whitespace',
+    $s$INSERT INTO profile_links (user_id, kind, url)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'website', 'https://example.org/a b')$s$, '23514');
+SELECT pg_temp.expect_error('Link: URL is more than the scheme',
+    $s$INSERT INTO profile_links (user_id, kind, url)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'website', 'https://')$s$, '23514');
+SELECT pg_temp.expect_error('Link: kind is one of the six',
+    $s$INSERT INTO profile_links (user_id, kind, url)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'twitter', 'https://example.org')$s$, '23514');
+SELECT pg_temp.expect_ok('Link: every kind is accepted',
+    $s$INSERT INTO profile_links (user_id, kind, url)
+       SELECT '00000000-0000-0000-0000-000000000002', k, 'https://example.org/' || k
+         FROM unnest(ARRAY['website', 'google_scholar', 'researchgate', 'linkedin', 'github', 'other']) AS k$s$);
 
 -- ---------------------------------------------------------------------------
 -- Publication
@@ -327,7 +500,9 @@ INSERT INTO auth_tokens (user_id, purpose, token_hash, expires_at) VALUES
     ('00000000-0000-0000-0000-000000000003', 'password_reset', 'at-3', now() + interval '1 hour');
 INSERT INTO user_interests (user_id, interest_id) SELECT '00000000-0000-0000-0000-000000000003', id FROM research_interests;
 INSERT INTO user_skills (user_id, skill_id) SELECT '00000000-0000-0000-0000-000000000003', id FROM skills;
-INSERT INTO education (user_id, institution, degree) VALUES ('00000000-0000-0000-0000-000000000003', 'MIT', 'BSc');
+INSERT INTO education (user_id, institution, degree, start_year) VALUES ('00000000-0000-0000-0000-000000000003', 'MIT', 'BSc', 2015);
+INSERT INTO profile_contact (user_id, phone) VALUES ('00000000-0000-0000-0000-000000000003', '+8801712345678');
+INSERT INTO profile_links (user_id, kind, url) VALUES ('00000000-0000-0000-0000-000000000003', 'github', 'https://github.com/cy');
 INSERT INTO user_publications (user_id, publication_id, confirmed_at) VALUES
     ('00000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-0000000000c1', now()),
     ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-0000000000c1', now());
@@ -348,11 +523,13 @@ INSERT INTO notifications (user_id, type, actor_id) VALUES
 
 DELETE FROM users WHERE id = '00000000-0000-0000-0000-000000000003';
 
-SELECT pg_temp.expect_true('Deletion: profile, interests, skills, education removed (FR-2.8)', $q$
-    SELECT NOT EXISTS (SELECT 1 FROM profiles       WHERE user_id = '00000000-0000-0000-0000-000000000003')
-       AND NOT EXISTS (SELECT 1 FROM user_interests WHERE user_id = '00000000-0000-0000-0000-000000000003')
-       AND NOT EXISTS (SELECT 1 FROM user_skills    WHERE user_id = '00000000-0000-0000-0000-000000000003')
-       AND NOT EXISTS (SELECT 1 FROM education      WHERE user_id = '00000000-0000-0000-0000-000000000003')$q$);
+SELECT pg_temp.expect_true('Deletion: profile, interests, skills, education, contact info and links removed (FR-2.8)', $q$
+    SELECT NOT EXISTS (SELECT 1 FROM profiles        WHERE user_id = '00000000-0000-0000-0000-000000000003')
+       AND NOT EXISTS (SELECT 1 FROM user_interests  WHERE user_id = '00000000-0000-0000-0000-000000000003')
+       AND NOT EXISTS (SELECT 1 FROM user_skills     WHERE user_id = '00000000-0000-0000-0000-000000000003')
+       AND NOT EXISTS (SELECT 1 FROM education       WHERE user_id = '00000000-0000-0000-0000-000000000003')
+       AND NOT EXISTS (SELECT 1 FROM profile_contact WHERE user_id = '00000000-0000-0000-0000-000000000003')
+       AND NOT EXISTS (SELECT 1 FROM profile_links   WHERE user_id = '00000000-0000-0000-0000-000000000003')$q$);
 SELECT pg_temp.expect_true('Deletion: sessions, retired refresh tokens and one-time tokens removed', $q$
     SELECT NOT EXISTS (SELECT 1 FROM sessions    WHERE user_id = '00000000-0000-0000-0000-000000000003')
        AND NOT EXISTS (SELECT 1 FROM auth_tokens WHERE user_id = '00000000-0000-0000-0000-000000000003')

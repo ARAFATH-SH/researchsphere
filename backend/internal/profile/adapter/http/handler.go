@@ -1,0 +1,219 @@
+// Package http serves the profile operations in docs/openapi.yaml: the caller's own
+// profile and editing its basic fields (FR-4.1), research interests and skills (FR-4.2)
+// with suggestions (FR-4.3), education entries (FR-4.4), contact info and links (FR-4.7),
+// and any user's profile (FR-4.5). It
+// turns the usecase's errors into the error codes the web client shows next to each
+// field. cmd/api guards each route with its platform action (SRS 2.3) before it gets here.
+package http
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	openapi_types "github.com/oapi-codegen/runtime/types"
+
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/api/gen"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpx"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/profile/domain"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/profile/usecase"
+)
+
+// Error codes of the profile operations (docs/openapi.yaml).
+const (
+	CodeInvalidFullName    = "invalid_full_name"
+	CodeInvalidHeadline    = "invalid_headline"
+	CodeInvalidBio         = "invalid_bio"
+	CodeInvalidInstitution = "invalid_institution"
+	CodeInvalidDepartment  = "invalid_department"
+	CodeInvalidJobTitle    = "invalid_job_title"
+	CodeInvalidCountry     = "invalid_country"
+	CodeInvalidTagName     = "invalid_tag_name"
+	CodeTagLimitReached    = "tag_limit_reached"
+
+	CodeInvalidDegree         = "invalid_degree"
+	CodeInvalidFieldOfStudy   = "invalid_field_of_study"
+	CodeInvalidStartYear      = "invalid_start_year"
+	CodeInvalidEndYear        = "invalid_end_year"
+	CodeEducationLimitReached = "education_limit_reached"
+
+	CodeInvalidPhone      = "invalid_phone"
+	CodeInvalidBirthday   = "invalid_birthday"
+	CodeInvalidVisibility = "invalid_visibility"
+	CodeInvalidLinkKind   = "invalid_link_kind"
+	CodeInvalidLinkURL    = "invalid_link_url"
+	CodeLinkLimitReached  = "link_limit_reached"
+)
+
+// service is the part of usecase.Service this handler needs.
+type service interface {
+	GetOwn(ctx context.Context, userID string) (domain.Profile, error)
+	UpdateOwn(ctx context.Context, userID string, in usecase.UpdateInput) (domain.Profile, error)
+	View(ctx context.Context, viewerID, userID string) (domain.Profile, error)
+	AddTag(ctx context.Context, userID string, kind domain.TagKind, name string) (domain.Tag, bool, error)
+	RemoveTag(ctx context.Context, userID string, kind domain.TagKind, tagID string) error
+	SuggestTags(ctx context.Context, kind domain.TagKind, q string, limit int) ([]domain.Tag, error)
+	AddEducation(ctx context.Context, userID string, in usecase.EducationInput) (domain.Education, error)
+	UpdateEducation(ctx context.Context, userID, id string, patch usecase.EducationPatch) (domain.Education, error)
+	RemoveEducation(ctx context.Context, userID, id string) error
+	GetContact(ctx context.Context, userID string) (domain.Contact, error)
+	UpdateContact(ctx context.Context, userID string, in usecase.ContactInput) (domain.Contact, error)
+	AddLink(ctx context.Context, userID string, kind domain.LinkKind, url string) (domain.Link, error)
+	RemoveLink(ctx context.Context, userID, id string) error
+}
+
+// Handler implements the profile operations of gen.StrictServerInterface.
+type Handler struct {
+	svc service
+}
+
+// NewHandler returns a Handler that calls svc.
+func NewHandler(svc service) *Handler {
+	return &Handler{svc: svc}
+}
+
+// inputErrors maps the usecase's validation errors to a code and a message for the user.
+var inputErrors = []struct {
+	err           error
+	code, message string
+}{
+	{domain.ErrInvalidFullName, CodeInvalidFullName, "Enter your full name on one line (at most 200 characters)."},
+	{domain.ErrInvalidHeadline, CodeInvalidHeadline, "The headline must be one line of at most 220 characters."},
+	{domain.ErrInvalidBio, CodeInvalidBio, "The bio must be at most 2000 characters long."},
+	{domain.ErrInvalidInstitution, CodeInvalidInstitution, "The institution must be one line of at most 200 characters."},
+	{domain.ErrInvalidDepartment, CodeInvalidDepartment, "The department must be one line of at most 200 characters."},
+	{domain.ErrInvalidJobTitle, CodeInvalidJobTitle, "The job title must be one line of at most 200 characters."},
+	{domain.ErrInvalidCountry, CodeInvalidCountry, "Choose a country from the list."},
+}
+
+func inputError(err error) (gen.Error, bool) {
+	for _, e := range inputErrors {
+		if errors.Is(err, e.err) {
+			return gen.Error{Code: e.code, Message: e.message}, true
+		}
+	}
+	return gen.Error{}, false
+}
+
+var unauthenticated = gen.UnauthorizedJSONResponse{Code: httpx.CodeUnauthenticated, Message: "Log in to continue."}
+
+// GetMyProfile returns the caller's profile (FR-4.1). A valid token for an account that
+// no longer exists is refused like a missing one, as GET /auth/me does.
+func (h *Handler) GetMyProfile(ctx context.Context, _ gen.GetMyProfileRequestObject) (gen.GetMyProfileResponseObject, error) {
+	id, ok := httpx.UserID(ctx)
+	if !ok {
+		return gen.GetMyProfile401JSONResponse{UnauthorizedJSONResponse: unauthenticated}, nil
+	}
+	p, err := h.svc.GetOwn(ctx, id)
+	if errors.Is(err, domain.ErrNotFound) {
+		return gen.GetMyProfile401JSONResponse{UnauthorizedJSONResponse: unauthenticated}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	body, err := profileBody(p)
+	if err != nil {
+		return nil, err
+	}
+	return gen.GetMyProfile200JSONResponse(body), nil
+}
+
+// UpdateMyProfile creates or replaces the caller's profile fields (FR-4.1).
+func (h *Handler) UpdateMyProfile(ctx context.Context, req gen.UpdateMyProfileRequestObject) (gen.UpdateMyProfileResponseObject, error) {
+	id, ok := httpx.UserID(ctx)
+	if !ok {
+		return gen.UpdateMyProfile401JSONResponse{UnauthorizedJSONResponse: unauthenticated}, nil
+	}
+	if req.Body == nil {
+		return gen.UpdateMyProfile400JSONResponse{Code: httpx.CodeBadRequest, Message: "The request is not valid."}, nil
+	}
+	p, err := h.svc.UpdateOwn(ctx, id, usecase.UpdateInput{
+		FullName:    req.Body.FullName,
+		Headline:    req.Body.Headline,
+		Bio:         req.Body.Bio,
+		Institution: req.Body.Institution,
+		Department:  req.Body.Department,
+		JobTitle:    req.Body.JobTitle,
+		Country:     req.Body.Country,
+	})
+	if e, ok := inputError(err); ok {
+		return gen.UpdateMyProfile400JSONResponse(e), nil
+	}
+	if errors.Is(err, domain.ErrNotFound) {
+		return gen.UpdateMyProfile401JSONResponse{UnauthorizedJSONResponse: unauthenticated}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	body, err := profileBody(p)
+	if err != nil {
+		return nil, err
+	}
+	return gen.UpdateMyProfile200JSONResponse(body), nil
+}
+
+// GetProfile returns any user's profile to a logged-in user (FR-4.5), with the contact
+// info the caller may see (FR-4.7). Unknown, suspended and unverified accounts get the
+// same 404, so the answer reveals nothing about them. An ID that is not a UUID names no
+// user and gets the same 404.
+func (h *Handler) GetProfile(ctx context.Context, req gen.GetProfileRequestObject) (gen.GetProfileResponseObject, error) {
+	viewer, ok := httpx.UserID(ctx)
+	if !ok {
+		return gen.GetProfile401JSONResponse{UnauthorizedJSONResponse: unauthenticated}, nil
+	}
+	p, err := h.svc.View(ctx, viewer, req.UserId)
+	if errors.Is(err, domain.ErrNotFound) {
+		return gen.GetProfile404JSONResponse{NotFoundJSONResponse: gen.NotFoundJSONResponse{
+			Code: httpx.CodeNotFound, Message: "This profile does not exist.",
+		}}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	body, err := profileBody(p)
+	if err != nil {
+		return nil, err
+	}
+	return gen.GetProfile200JSONResponse(body), nil
+}
+
+// profileBody builds the response. Publications and the connection status are
+// placeholders until publications (FR-5.5) and connections (FR-7) exist. Every list is empty, never null, when there is nothing in it.
+func profileBody(p domain.Profile) (gen.Profile, error) {
+	var id openapi_types.UUID
+	if err := id.UnmarshalText([]byte(p.UserID)); err != nil {
+		return gen.Profile{}, fmt.Errorf("profile user id: %w", err)
+	}
+	interests, err := tagBodies(p.Interests)
+	if err != nil {
+		return gen.Profile{}, err
+	}
+	skills, err := tagBodies(p.Skills)
+	if err != nil {
+		return gen.Profile{}, err
+	}
+	education, err := educationBodies(p.Education)
+	if err != nil {
+		return gen.Profile{}, err
+	}
+	contact, err := publicContactBody(p.Contact)
+	if err != nil {
+		return gen.Profile{}, err
+	}
+	return gen.Profile{
+		UserId:           id,
+		FullName:         p.FullName,
+		Headline:         p.Headline,
+		Bio:              p.Bio,
+		Institution:      p.Institution,
+		Department:       p.Department,
+		JobTitle:         p.JobTitle,
+		Country:          p.Country,
+		Interests:        interests,
+		Skills:           skills,
+		Education:        education,
+		Publications:     []map[string]any{},
+		ConnectionStatus: gen.None,
+		Contact:          contact,
+	}, nil
+}

@@ -54,6 +54,12 @@ linters:
           allow:
             - $gostd
             - github.com/ARAFATH-SH/researchsphere/backend/internal/auth/domain
+        usecase-profile:
+          files: ["**/internal/profile/usecase/**"]
+          list-mode: strict
+          allow:
+            - $gostd
+            - github.com/ARAFATH-SH/researchsphere/backend/internal/profile/domain
     sloglint:
       attr-only: false
       no-mixed-args: true

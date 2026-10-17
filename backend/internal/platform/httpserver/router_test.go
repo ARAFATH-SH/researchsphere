@@ -71,6 +71,70 @@ func (fakeAPI) ListUsers(context.Context, gen.ListUsersRequestObject) (gen.ListU
 	return gen.ListUsers200JSONResponse{Items: []gen.AdminUser{}}, nil
 }
 
+func (fakeAPI) GetMyProfile(context.Context, gen.GetMyProfileRequestObject) (gen.GetMyProfileResponseObject, error) {
+	return gen.GetMyProfile200JSONResponse{}, nil
+}
+
+func (fakeAPI) UpdateMyProfile(context.Context, gen.UpdateMyProfileRequestObject) (gen.UpdateMyProfileResponseObject, error) {
+	return gen.UpdateMyProfile200JSONResponse{}, nil
+}
+
+func (fakeAPI) GetProfile(context.Context, gen.GetProfileRequestObject) (gen.GetProfileResponseObject, error) {
+	return gen.GetProfile200JSONResponse{}, nil
+}
+
+func (fakeAPI) AddMyInterest(context.Context, gen.AddMyInterestRequestObject) (gen.AddMyInterestResponseObject, error) {
+	return gen.AddMyInterest201JSONResponse{}, nil
+}
+
+func (fakeAPI) RemoveMyInterest(context.Context, gen.RemoveMyInterestRequestObject) (gen.RemoveMyInterestResponseObject, error) {
+	return gen.RemoveMyInterest204Response{}, nil
+}
+
+func (fakeAPI) AddMySkill(context.Context, gen.AddMySkillRequestObject) (gen.AddMySkillResponseObject, error) {
+	return gen.AddMySkill201JSONResponse{}, nil
+}
+
+func (fakeAPI) RemoveMySkill(context.Context, gen.RemoveMySkillRequestObject) (gen.RemoveMySkillResponseObject, error) {
+	return gen.RemoveMySkill204Response{}, nil
+}
+
+func (fakeAPI) AddMyEducation(context.Context, gen.AddMyEducationRequestObject) (gen.AddMyEducationResponseObject, error) {
+	return gen.AddMyEducation201JSONResponse{}, nil
+}
+
+func (fakeAPI) UpdateMyEducation(context.Context, gen.UpdateMyEducationRequestObject) (gen.UpdateMyEducationResponseObject, error) {
+	return gen.UpdateMyEducation200JSONResponse{}, nil
+}
+
+func (fakeAPI) RemoveMyEducation(context.Context, gen.RemoveMyEducationRequestObject) (gen.RemoveMyEducationResponseObject, error) {
+	return gen.RemoveMyEducation204Response{}, nil
+}
+
+func (fakeAPI) GetMyContact(context.Context, gen.GetMyContactRequestObject) (gen.GetMyContactResponseObject, error) {
+	return gen.GetMyContact200JSONResponse{}, nil
+}
+
+func (fakeAPI) UpdateMyContact(context.Context, gen.UpdateMyContactRequestObject) (gen.UpdateMyContactResponseObject, error) {
+	return gen.UpdateMyContact200JSONResponse{}, nil
+}
+
+func (fakeAPI) AddMyLink(context.Context, gen.AddMyLinkRequestObject) (gen.AddMyLinkResponseObject, error) {
+	return gen.AddMyLink201JSONResponse{}, nil
+}
+
+func (fakeAPI) RemoveMyLink(context.Context, gen.RemoveMyLinkRequestObject) (gen.RemoveMyLinkResponseObject, error) {
+	return gen.RemoveMyLink204Response{}, nil
+}
+
+func (fakeAPI) SuggestInterestTags(context.Context, gen.SuggestInterestTagsRequestObject) (gen.SuggestInterestTagsResponseObject, error) {
+	return gen.SuggestInterestTags200JSONResponse{Items: []gen.Tag{}}, nil
+}
+
+func (fakeAPI) SuggestSkillTags(context.Context, gen.SuggestSkillTagsRequestObject) (gen.SuggestSkillTagsResponseObject, error) {
+	return gen.SuggestSkillTags200JSONResponse{Items: []gen.Tag{}}, nil
+}
+
 // GetCurrentUser echoes the user ID that the auth middleware put in the context.
 func (fakeAPI) GetCurrentUser(ctx context.Context, _ gen.GetCurrentUserRequestObject) (gen.GetCurrentUserResponseObject, error) {
 	id, _ := httpx.UserID(ctx)
@@ -289,8 +353,8 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 
 func TestRoutes(t *testing.T) {
 	got := Routes()
-	if len(got) != 13 {
-		t.Errorf("Routes() returned %d routes, want the 12 operations in the contract: %v", len(got), got)
+	if len(got) != 29 {
+		t.Errorf("Routes() returned %d routes, want the 29 operations in the contract: %v", len(got), got)
 	}
 	seen := map[string]bool{}
 	for _, p := range got {

@@ -18,6 +18,9 @@ import (
 	authusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/usecase"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/accesstoken"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpx"
+	profilehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/http"
+	profiledomain "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/domain"
+	profileusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/usecase"
 )
 
 // freePort returns a TCP port that was free a moment ago.
@@ -121,6 +124,7 @@ const testSecret = "test-jwt-secret-0123456789abcdefghij"
 func testRouter() http.Handler {
 	up := pingerFunc(func(context.Context) error { return nil })
 	return newRouter(slog.New(slog.DiscardHandler), up, up, authhttp.NewHandler(okAuth{}, authhttp.CookieConfig{}),
+		profilehttp.NewHandler(profileusecase.New(okProfiles{})),
 		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
 }
 
@@ -216,6 +220,95 @@ func (okAuth) ListUsers(_ context.Context, page, pageSize int) (authdomain.UserP
 }
 
 const okUserID = "6f1c2b9e-1d2a-4c3b-9a8e-0f1e2d3c4b5a"
+
+// okProfiles is a profile store in which every ID belongs to a verified user named Ada,
+// every write succeeds and every tag is new to the user.
+type okProfiles struct{}
+
+func (okProfiles) FindAccount(_ context.Context, id string) (profiledomain.Account, error) {
+	return profiledomain.Account{UserID: id, Verified: true, Profile: &profiledomain.Profile{UserID: id, FullName: "Ada"}}, nil
+}
+
+func (okProfiles) UpsertProfile(_ context.Context, p profiledomain.Profile) (profiledomain.Profile, error) {
+	return p, nil
+}
+
+func (okProfiles) RunInTx(ctx context.Context, fn func(profiledomain.Tx) error) error {
+	return fn(okProfiles{})
+}
+
+func (okProfiles) ListTags(context.Context, string, profiledomain.TagKind) ([]profiledomain.Tag, error) {
+	return nil, nil
+}
+
+func (okProfiles) RemoveTag(context.Context, string, profiledomain.TagKind, string) error { return nil }
+
+func (okProfiles) SuggestTags(context.Context, profiledomain.TagKind, string, int) ([]profiledomain.Tag, error) {
+	return []profiledomain.Tag{{ID: okTagID, Name: "Machine Learning"}}, nil
+}
+
+func (okProfiles) LockUser(context.Context, string) error { return nil }
+
+func (okProfiles) FindOrCreateTag(_ context.Context, _ profiledomain.TagKind, name string) (profiledomain.Tag, error) {
+	return profiledomain.Tag{ID: okTagID, Name: name}, nil
+}
+
+func (okProfiles) HasTag(context.Context, string, profiledomain.TagKind, string) (bool, error) {
+	return false, nil
+}
+
+func (okProfiles) CountTags(context.Context, string, profiledomain.TagKind) (int, error) {
+	return 0, nil
+}
+
+func (okProfiles) LinkTag(context.Context, string, profiledomain.TagKind, string) error { return nil }
+
+func (okProfiles) ListEducation(context.Context, string) ([]profiledomain.Education, error) {
+	return nil, nil
+}
+
+func (okProfiles) DeleteEducation(context.Context, string, string) error { return nil }
+
+func (okProfiles) CountEducation(context.Context, string) (int, error) { return 0, nil }
+
+func (okProfiles) InsertEducation(_ context.Context, e profiledomain.Education) (profiledomain.Education, error) {
+	e.ID = okEducationID
+	return e, nil
+}
+
+func (okProfiles) FindEducationForUpdate(_ context.Context, userID, id string) (profiledomain.Education, error) {
+	return profiledomain.Education{ID: id, UserID: userID, Institution: "MIT", StartYear: 2020}, nil
+}
+
+func (okProfiles) UpdateEducation(_ context.Context, e profiledomain.Education) (profiledomain.Education, error) {
+	return e, nil
+}
+
+func (okProfiles) FindContact(_ context.Context, userID string) (profiledomain.Contact, error) {
+	return profiledomain.Contact{
+		UserID: userID, Email: "ada@example.org", EmailVisibility: profiledomain.OnlyMe,
+		PhoneVisibility: profiledomain.OnlyMe, BirthdayVisibility: profiledomain.OnlyMe,
+	}, nil
+}
+
+func (okProfiles) UpsertContact(context.Context, profiledomain.Contact) error { return nil }
+
+func (okProfiles) ListLinks(context.Context, string) ([]profiledomain.Link, error) { return nil, nil }
+
+func (okProfiles) DeleteLink(context.Context, string, string) error { return nil }
+
+func (okProfiles) CountLinks(context.Context, string) (int, error) { return 0, nil }
+
+func (okProfiles) InsertLink(_ context.Context, l profiledomain.Link) (profiledomain.Link, error) {
+	l.ID = okLinkID
+	return l, nil
+}
+
+const okEducationID = "8b3e4d5c-6f7a-4b2c-9d0e-1f2a3b4c5d6e"
+
+const okLinkID = "9c4f5e6d-7a8b-4c3d-8e1f-2a3b4c5d6e7f"
+
+const okTagID = "7a2d3c4b-5e6f-4a1b-8c9d-0e1f2a3b4c5d"
 
 // The wired router needs the access cookie for /auth/me and accepts a token it signed.
 func TestCurrentUserThroughRouter(t *testing.T) {

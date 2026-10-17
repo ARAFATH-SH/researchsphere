@@ -12,3 +12,12 @@ sql:
         out: internal/auth/adapter/postgres/sqlcgen
         sql_package: pgx/v5
         omit_unused_structs: true  # only the types the queries use; no pgvector-go needed yet
+  - engine: postgresql
+    schema: db/migrations
+    queries: internal/profile/adapter/postgres/queries.sql
+    gen:
+      go:
+        package: sqlcgen
+        out: internal/profile/adapter/postgres/sqlcgen
+        sql_package: pgx/v5
+        omit_unused_structs: true

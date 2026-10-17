@@ -1,11 +1,14 @@
-import { ComingSoon } from "@/components/coming-soon";
+import { Suspense } from "react";
 
+import { ProfileSkeleton } from "@/features/profile/profile-skeleton";
+import { ProfileView } from "@/features/profile/profile-view";
+
+// The signed-in user's own profile (FR-4.5); the "Me" tab links here. ?edit=<section>
+// opens that section's edit dialog (FR-4.1 to FR-4.4); reading it needs Suspense.
 export default function Page() {
   return (
-    <ComingSoon
-      title="Profile"
-      purpose="View a profile, or edit your own, including publications."
-      requirements={["FR-4", "FR-5"]}
-    />
+    <Suspense fallback={<ProfileSkeleton />}>
+      <ProfileView />
+    </Suspense>
   );
 }

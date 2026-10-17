@@ -312,6 +312,323 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/profiles/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Return the logged-in user's profile (FR-4.1)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed,
+         *     events and recommendations" (SRS 2.3). An account without a profile row gets an
+         *     empty profile (every field null, `fullName` empty) instead of 404.
+         */
+        get: operations["getMyProfile"];
+        /**
+         * Create or replace the logged-in user's profile fields (FR-4.1)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Replaces every field in the body: an optional field that
+         *     is missing, null, or empty after trimming is stored as null. Each value is trimmed;
+         *     `country` is then upper-cased. Interests, skills, education and publications are
+         *     not changed here.
+         */
+        put: operations["updateMyProfile"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/profiles/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Return any user's profile to a logged-in user (FR-4.5)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed,
+         *     events and recommendations" (SRS 2.3). An unknown, suspended or unverified account
+         *     gets the same 404 `not_found`, so the answer does not reveal which it is.
+         */
+        get: operations["getProfile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/profiles/me/interests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add a research interest to the logged-in user's profile (FR-4.2)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). The name is normalized (see AddTagRequest) and matched
+         *     ignoring letter case: an existing tag is reused with its first spelling, otherwise
+         *     a new tag is created. A user has at most 20 interests.
+         */
+        post: operations["addMyInterest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/profiles/me/interests/{tagId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a research interest from the logged-in user's profile (FR-4.2)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Only the link to the user is removed; the tag stays for
+         *     other users and for suggestions.
+         */
+        delete: operations["removeMyInterest"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tags/interests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Suggest existing research interest tags while the user types (FR-4.3)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed,
+         *     events and recommendations" (SRS 2.3). Matching ignores letter case. Names that
+         *     start with `q` come first, then names that contain it elsewhere; within each group
+         *     tags used by more users come first, then by name. `q` is normalized like a tag name;
+         *     an empty `q` gives an empty list.
+         */
+        get: operations["suggestInterestTags"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/profiles/me/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add a skill to the logged-in user's profile (FR-4.2)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). The name is normalized (see AddTagRequest) and matched
+         *     ignoring letter case: an existing tag is reused with its first spelling, otherwise
+         *     a new tag is created. A user has at most 30 skills.
+         */
+        post: operations["addMySkill"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/profiles/me/skills/{tagId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a skill from the logged-in user's profile (FR-4.2)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Only the link to the user is removed; the tag stays for
+         *     other users and for suggestions.
+         */
+        delete: operations["removeMySkill"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tags/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Suggest existing skill tags while the user types (FR-4.3)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed,
+         *     events and recommendations" (SRS 2.3). Matching ignores letter case. Names that
+         *     start with `q` come first, then names that contain it elsewhere; within each group
+         *     tags used by more users come first, then by name. `q` is normalized like a tag name;
+         *     an empty `q` gives an empty list.
+         */
+        get: operations["suggestSkillTags"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/profiles/me/education": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add an education entry to the logged-in user's profile (FR-4.4)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Text is trimmed; an optional text field that is missing,
+         *     null or empty after trimming is stored as null. A missing or null `endYear` means
+         *     the entry is current. A user has at most 20 education entries.
+         */
+        post: operations["addMyEducation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/profiles/me/education/{educationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove one of the logged-in user's education entries (FR-4.4)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). An entry that does not exist and one that belongs to
+         *     someone else both get 404 `not_found`.
+         */
+        delete: operations["removeMyEducation"];
+        options?: never;
+        head?: never;
+        /**
+         * Change some fields of one of the logged-in user's education entries (FR-4.4)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). A field that is missing keeps its value; `null` clears
+         *     `degree`, `fieldOfStudy` or `endYear` (a null `endYear` makes the entry current).
+         *     The rules of EducationCreate apply to the entry after the change, so `endYear`
+         *     must not be before `startYear` whichever of the two is changed. An entry that does
+         *     not exist and one that belongs to someone else both get 404 `not_found`.
+         */
+        patch: operations["updateMyEducation"];
+        trace?: never;
+    };
+    "/profiles/me/contact": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Return the logged-in user's contact info and who may see each item (FR-4.7)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed,
+         *     events and recommendations" (SRS 2.3). A user who never saved contact info gets
+         *     no phone, no birthday, every visibility `only_me` and no links.
+         */
+        get: operations["getMyContact"];
+        /**
+         * Replace the logged-in user's phone, birthday and visibility settings (FR-4.7)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Replaces every field in the body: a missing or null
+         *     `phone` or `birthday` clears it. The email address itself is changed nowhere here;
+         *     only who may see it. Links are not changed here.
+         */
+        put: operations["updateMyContact"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/profiles/me/links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add a link to the logged-in user's profile (FR-4.7)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). The URL is trimmed. A user has at most 5 links. Links
+         *     are visible to every logged-in user.
+         */
+        post: operations["addMyLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/profiles/me/links/{linkId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove one of the logged-in user's links (FR-4.7)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). A link that does not exist and one that belongs to
+         *     someone else both get 404 `not_found`.
+         */
+        delete: operations["removeMyLink"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -440,6 +757,217 @@ export interface components {
             /** @description The number of users on all pages. */
             total: number;
         };
+        /**
+         * @description A researcher's profile (FR-4.1, FR-4.2, FR-4.4, FR-4.5, FR-4.7). The optional text fields are
+         *     always present and null when not set. `publications` and `connectionStatus` are
+         *     placeholders for now; later work fills them in.
+         */
+        Profile: {
+            /** Format: uuid */
+            userId: string;
+            /** @description Empty only for an account that has no profile row yet. */
+            fullName: string;
+            headline: string | null;
+            bio: string | null;
+            institution: string | null;
+            department: string | null;
+            jobTitle: string | null;
+            /**
+             * @description ISO 3166-1 alpha-2 code in capitals, such as DE.
+             * @example DE
+             */
+            country: string | null;
+            /** @description The user's research interests (FR-4.2), sorted by name ignoring letter case. */
+            interests: components["schemas"]["Tag"][];
+            /** @description The user's skills (FR-4.2), sorted by name ignoring letter case. */
+            skills: components["schemas"]["Tag"][];
+            /**
+             * @description The user's education entries (FR-4.4): current entries (no `endYear`) first,
+             *     then by `endYear`, latest first, then by `startYear`, latest first.
+             */
+            education: components["schemas"]["Education"][];
+            /** @description Placeholder: always empty until confirmed publications are shown (FR-5.5). */
+            publications: Record<string, never>[];
+            connectionStatus: components["schemas"]["ConnectionStatus"];
+            contact: components["schemas"]["PublicContact"];
+        };
+        /**
+         * @description A research interest or skill (FR-4.2). Tags are shared by all users; names that
+         *     differ only in letter case are the same tag, and the name keeps the spelling it was
+         *     first created with.
+         */
+        Tag: {
+            /** Format: uuid */
+            id: string;
+            /** @example Machine Learning */
+            name: string;
+        };
+        AddTagRequest: {
+            /**
+             * @description Trimmed, and every run of spaces, tabs or line breaks becomes one space; then 1 to
+             *     60 characters.
+             * @example Machine Learning
+             */
+            name: string;
+        };
+        /** @description Existing tags that match the typed text (FR-4.3), best match first. */
+        TagSuggestions: {
+            items: components["schemas"]["Tag"][];
+        };
+        /**
+         * @description The connection between the caller and the profile's owner (FR-4.5).
+         *     Placeholder: always `none` until connections are added (FR-7); more values come then.
+         * @enum {string}
+         */
+        ConnectionStatus: "none";
+        /**
+         * @description The profile fields a user edits (FR-4.1). Every value is trimmed first. Lengths
+         *     count characters after trimming.
+         */
+        ProfileUpdate: {
+            /**
+             * @description 1 to 200 characters, one line.
+             * @example Ada Lovelace
+             */
+            fullName: string;
+            /** @description At most 220 characters, one line. */
+            headline?: string | null;
+            /** @description At most 2000 characters; line breaks are kept. */
+            bio?: string | null;
+            /** @description At most 200 characters, one line. */
+            institution?: string | null;
+            /** @description At most 200 characters, one line. */
+            department?: string | null;
+            /** @description At most 200 characters, one line. */
+            jobTitle?: string | null;
+            /**
+             * @description An ISO 3166-1 alpha-2 code; letter case is ignored ("de" is stored as "DE").
+             * @example DE
+             */
+            country?: string | null;
+        };
+        /**
+         * @description Who may see a contact item (FR-4.7): only its owner, or every logged-in user.
+         *     "Connections only" comes with connections (slice 13).
+         * @enum {string}
+         */
+        Visibility: "only_me" | "logged_in";
+        /** @description A birthday without a year. `day` is a real day of `month`; 29 February is allowed. */
+        Birthday: {
+            month: number;
+            day: number;
+        };
+        /**
+         * @description What a profile link points to; the client shows a label and icon for it.
+         * @enum {string}
+         */
+        LinkKind: "website" | "google_scholar" | "researchgate" | "linkedin" | "github" | "other";
+        /** @description A link on a profile (FR-4.7), visible to every logged-in user. */
+        ProfileLink: {
+            /** Format: uuid */
+            id: string;
+            kind: components["schemas"]["LinkKind"];
+            /** @example https://scholar.example.org/ada */
+            url: string;
+        };
+        AddLinkRequest: {
+            kind: components["schemas"]["LinkKind"];
+            /** @description An https URL with a host, without whitespace, at most 300 characters after trimming. */
+            url: string;
+        };
+        /**
+         * @description The owner's contact info with who may see each item (FR-4.7). `email` is the
+         *     account's address. `phone` and `birthday` are always present and null when not set.
+         */
+        Contact: {
+            /** Format: email */
+            email: string;
+            emailVisibility: components["schemas"]["Visibility"];
+            /**
+             * @description E.164 format, such as +8801712345678.
+             * @example +8801712345678
+             */
+            phone: string | null;
+            phoneVisibility: components["schemas"]["Visibility"];
+            birthday: components["schemas"]["Birthday"] | null;
+            birthdayVisibility: components["schemas"]["Visibility"];
+            /** @description The user's links, oldest first. */
+            links: components["schemas"]["ProfileLink"][];
+        };
+        /**
+         * @description The contact fields a user edits (FR-4.7). A missing or null `phone` or `birthday`
+         *     clears it.
+         */
+        ContactUpdate: {
+            emailVisibility: components["schemas"]["Visibility"];
+            /**
+             * @description E.164 format: `+`, then 2 to 15 digits, the first not 0. Spaces and hyphens are
+             *     removed first, so "+880 1712-345678" is stored as "+8801712345678".
+             */
+            phone?: string | null;
+            phoneVisibility: components["schemas"]["Visibility"];
+            birthday?: components["schemas"]["Birthday"] | null;
+            birthdayVisibility: components["schemas"]["Visibility"];
+        };
+        /**
+         * @description The contact info the viewer of a profile may see (FR-4.7). An item that is hidden
+         *     from the viewer, or not set, is left out; it is never null. The owner sees every
+         *     item that is set. Links are visible to every logged-in user.
+         */
+        PublicContact: {
+            /** Format: email */
+            email?: string;
+            phone?: string;
+            birthday?: components["schemas"]["Birthday"];
+            links: components["schemas"]["ProfileLink"][];
+        };
+        /** @description One education entry (FR-4.4). The optional fields are always present and null when not set. */
+        Education: {
+            /** Format: uuid */
+            id: string;
+            /** @example University of Cambridge */
+            institution: string;
+            /** @example PhD */
+            degree: string | null;
+            /** @example Computer Science */
+            fieldOfStudy: string | null;
+            /** @example 2019 */
+            startYear: number;
+            /**
+             * @description Null while the entry is current.
+             * @example 2023
+             */
+            endYear: number | null;
+        };
+        /**
+         * @description A new education entry (FR-4.4). Text is trimmed first and every text field must be
+         *     one line; lengths count characters after trimming. Years run from 1950 to ten years
+         *     after the current year, and `endYear` is not before `startYear`.
+         */
+        EducationCreate: {
+            /** @description 1 to 200 characters. */
+            institution: string;
+            /** @description At most 100 characters; empty means not set. */
+            degree?: string | null;
+            /** @description At most 100 characters; empty means not set. */
+            fieldOfStudy?: string | null;
+            startYear: number;
+            /** @description Missing or null while the entry is current. */
+            endYear?: number | null;
+        };
+        /**
+         * @description The fields to change in an education entry (FR-4.4). A missing field keeps its
+         *     value. `null` clears `degree`, `fieldOfStudy` or `endYear`; `null` for
+         *     `institution` or `startYear` is refused, because both are required. The rules of
+         *     EducationCreate apply to the entry after the change.
+         */
+        EducationUpdate: {
+            institution?: string | null;
+            degree?: string | null;
+            fieldOfStudy?: string | null;
+            startYear?: number | null;
+            endYear?: number | null;
+        };
     };
     responses: {
         /**
@@ -473,6 +1001,20 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
+        /**
+         * @description A field is not valid. The code names the first invalid field, in this order:
+         *     `invalid_institution`, `invalid_degree`, `invalid_field_of_study`,
+         *     `invalid_start_year`, `invalid_end_year` (also when `endYear` is before
+         *     `startYear`). A body that is not JSON gets `bad_request`.
+         */
+        InvalidEducation: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
         /** @description An unexpected error on the server. */
         InternalError: {
             headers: {
@@ -484,6 +1026,31 @@ export interface components {
         };
     };
     parameters: {
+        /**
+         * @description The entry's ID, a UUID. It is declared as a plain string so that the login check
+         *     runs before it is read (FR-3.1); a value that is not a UUID names no entry of the
+         *     user and gets 404 `not_found`.
+         */
+        EducationID: string;
+        /**
+         * @description The link's ID, a UUID. It is declared as a plain string so that the login check
+         *     runs before it is read (FR-3.1); a value that is not a UUID names no link of the
+         *     user and gets 404 `not_found`.
+         */
+        LinkID: string;
+        /**
+         * @description The tag's ID, a UUID. It is declared as a plain string so that the login check runs
+         *     before it is read (FR-3.1); a value that is not a UUID names no tag the user has and
+         *     gets 404 `not_found`.
+         */
+        TagID: string;
+        /** @description The text typed so far. Empty or missing gives an empty list. */
+        TagQuery: string;
+        /**
+         * @description Suggestions to return, from 1. Defaults to 10. A larger value than 20 is reduced to
+         *     20.
+         */
+        TagLimit: number;
         /** @description The refresh token set by `POST /auth/login` or `POST /auth/refresh`. */
         RefreshCookie: string;
     };
@@ -1035,6 +1602,636 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getMyProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's profile. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Profile"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    updateMyProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfileUpdate"];
+            };
+        };
+        responses: {
+            /** @description The saved profile. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Profile"];
+                };
+            };
+            /**
+             * @description A field is not valid. The code names the first invalid field, in this order:
+             *     `invalid_full_name`, `invalid_headline`, `invalid_bio`, `invalid_institution`,
+             *     `invalid_department`, `invalid_job_title`, `invalid_country`. A body that is not
+             *     JSON gets `bad_request`.
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The user's ID, a UUID. It is declared as a plain string so that the login check
+                 *     runs before it is read (FR-3.1); a value that is not a UUID names no user and
+                 *     gets 404 `not_found`.
+                 */
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The user's profile. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Profile"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    addMyInterest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddTagRequest"];
+            };
+        };
+        responses: {
+            /** @description The user already had the tag; nothing changed. The body is the same as for 201. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tag"];
+                };
+            };
+            /** @description The tag is now on the user's profile. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tag"];
+                };
+            };
+            /**
+             * @description The name is empty or longer than 60 characters after normalizing
+             *     (`invalid_tag_name`), or the body is not JSON (`bad_request`).
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The user already has 20 interests (`tag_limit_reached`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    removeMyInterest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The tag's ID, a UUID. It is declared as a plain string so that the login check runs
+                 *     before it is read (FR-3.1); a value that is not a UUID names no tag the user has and
+                 *     gets 404 `not_found`.
+                 */
+                tagId: components["parameters"]["TagID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tag is no longer on the user's profile. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The user does not have this tag (`not_found`). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    suggestInterestTags: {
+        parameters: {
+            query?: {
+                /** @description The text typed so far. Empty or missing gives an empty list. */
+                q?: components["parameters"]["TagQuery"];
+                /**
+                 * @description Suggestions to return, from 1. Defaults to 10. A larger value than 20 is reduced to
+                 *     20.
+                 */
+                limit?: components["parameters"]["TagLimit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Matching tags, best first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TagSuggestions"];
+                };
+            };
+            /** @description `limit` is not a whole number of at least 1 (`bad_request`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    addMySkill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddTagRequest"];
+            };
+        };
+        responses: {
+            /** @description The user already had the tag; nothing changed. The body is the same as for 201. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tag"];
+                };
+            };
+            /** @description The tag is now on the user's profile. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tag"];
+                };
+            };
+            /**
+             * @description The name is empty or longer than 60 characters after normalizing
+             *     (`invalid_tag_name`), or the body is not JSON (`bad_request`).
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The user already has 30 skills (`tag_limit_reached`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    removeMySkill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The tag's ID, a UUID. It is declared as a plain string so that the login check runs
+                 *     before it is read (FR-3.1); a value that is not a UUID names no tag the user has and
+                 *     gets 404 `not_found`.
+                 */
+                tagId: components["parameters"]["TagID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tag is no longer on the user's profile. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The user does not have this tag (`not_found`). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    suggestSkillTags: {
+        parameters: {
+            query?: {
+                /** @description The text typed so far. Empty or missing gives an empty list. */
+                q?: components["parameters"]["TagQuery"];
+                /**
+                 * @description Suggestions to return, from 1. Defaults to 10. A larger value than 20 is reduced to
+                 *     20.
+                 */
+                limit?: components["parameters"]["TagLimit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Matching tags, best first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TagSuggestions"];
+                };
+            };
+            /** @description `limit` is not a whole number of at least 1 (`bad_request`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    addMyEducation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EducationCreate"];
+            };
+        };
+        responses: {
+            /** @description The stored entry. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Education"];
+                };
+            };
+            400: components["responses"]["InvalidEducation"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The user already has 20 education entries (`education_limit_reached`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    removeMyEducation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The entry's ID, a UUID. It is declared as a plain string so that the login check
+                 *     runs before it is read (FR-3.1); a value that is not a UUID names no entry of the
+                 *     user and gets 404 `not_found`.
+                 */
+                educationId: components["parameters"]["EducationID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The entry is removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The user has no education entry with this ID (`not_found`). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    updateMyEducation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The entry's ID, a UUID. It is declared as a plain string so that the login check
+                 *     runs before it is read (FR-3.1); a value that is not a UUID names no entry of the
+                 *     user and gets 404 `not_found`.
+                 */
+                educationId: components["parameters"]["EducationID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EducationUpdate"];
+            };
+        };
+        responses: {
+            /** @description The entry after the change. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Education"];
+                };
+            };
+            400: components["responses"]["InvalidEducation"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The user has no education entry with this ID (`not_found`). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getMyContact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's contact info. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contact"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    updateMyContact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ContactUpdate"];
+            };
+        };
+        responses: {
+            /** @description The saved contact info. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contact"];
+                };
+            };
+            /**
+             * @description A field is not valid. The code names the first invalid field, in this order:
+             *     `invalid_phone`, `invalid_birthday`, `invalid_visibility`. A body that is not
+             *     JSON gets `bad_request`.
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    addMyLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddLinkRequest"];
+            };
+        };
+        responses: {
+            /** @description The stored link. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProfileLink"];
+                };
+            };
+            /**
+             * @description The kind is not one of the listed kinds (`invalid_link_kind`), the URL is not an
+             *     https URL with a host, has whitespace or is longer than 300 characters
+             *     (`invalid_link_url`), or the body is not JSON (`bad_request`).
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The user already has 5 links (`link_limit_reached`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    removeMyLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The link's ID, a UUID. It is declared as a plain string so that the login check
+                 *     runs before it is read (FR-3.1); a value that is not a UUID names no link of the
+                 *     user and gets 404 `not_found`.
+                 */
+                linkId: components["parameters"]["LinkID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The link is removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The user has no link with this ID (`not_found`). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             500: components["responses"]["InternalError"];
         };
     };

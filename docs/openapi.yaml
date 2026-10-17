@@ -530,6 +530,561 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /profiles/me:
+    get:
+      operationId: getMyProfile
+      summary: Return the logged-in user's profile (FR-4.1)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed,
+        events and recommendations" (SRS 2.3). An account without a profile row gets an
+        empty profile (every field null, `fullName` empty) instead of 404.
+      tags: [profile]
+      responses:
+        "200":
+          description: The caller's profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Profile"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    put:
+      operationId: updateMyProfile
+      summary: Create or replace the logged-in user's profile fields (FR-4.1)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Replaces every field in the body: an optional field that
+        is missing, null, or empty after trimming is stored as null. Each value is trimmed;
+        `country` is then upper-cased. Interests, skills, education and publications are
+        not changed here.
+      tags: [profile]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProfileUpdate"
+      responses:
+        "200":
+          description: The saved profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Profile"
+        "400":
+          description: |
+            A field is not valid. The code names the first invalid field, in this order:
+            `invalid_full_name`, `invalid_headline`, `invalid_bio`, `invalid_institution`,
+            `invalid_department`, `invalid_job_title`, `invalid_country`. A body that is not
+            JSON gets `bad_request`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /profiles/{userId}:
+    get:
+      operationId: getProfile
+      summary: Return any user's profile to a logged-in user (FR-4.5)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed,
+        events and recommendations" (SRS 2.3). An unknown, suspended or unverified account
+        gets the same 404 `not_found`, so the answer does not reveal which it is.
+      tags: [profile]
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          description: |
+            The user's ID, a UUID. It is declared as a plain string so that the login check
+            runs before it is read (FR-3.1); a value that is not a UUID names no user and
+            gets 404 `not_found`.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The user's profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Profile"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /profiles/me/interests:
+    post:
+      operationId: addMyInterest
+      summary: Add a research interest to the logged-in user's profile (FR-4.2)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). The name is normalized (see AddTagRequest) and matched
+        ignoring letter case: an existing tag is reused with its first spelling, otherwise
+        a new tag is created. A user has at most 20 interests.
+      tags: [profile]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddTagRequest"
+      responses:
+        "201":
+          description: The tag is now on the user's profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tag"
+        "200":
+          description: The user already had the tag; nothing changed. The body is the same as for 201.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tag"
+        "400":
+          description: |
+            The name is empty or longer than 60 characters after normalizing
+            (`invalid_tag_name`), or the body is not JSON (`bad_request`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: The user already has 20 interests (`tag_limit_reached`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /profiles/me/interests/{tagId}:
+    delete:
+      operationId: removeMyInterest
+      summary: Remove a research interest from the logged-in user's profile (FR-4.2)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Only the link to the user is removed; the tag stays for
+        other users and for suggestions.
+      tags: [profile]
+      parameters:
+        - $ref: "#/components/parameters/TagID"
+      responses:
+        "204":
+          description: The tag is no longer on the user's profile.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: The user does not have this tag (`not_found`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /tags/interests:
+    get:
+      operationId: suggestInterestTags
+      summary: Suggest existing research interest tags while the user types (FR-4.3)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed,
+        events and recommendations" (SRS 2.3). Matching ignores letter case. Names that
+        start with `q` come first, then names that contain it elsewhere; within each group
+        tags used by more users come first, then by name. `q` is normalized like a tag name;
+        an empty `q` gives an empty list.
+      tags: [profile]
+      parameters:
+        - $ref: "#/components/parameters/TagQuery"
+        - $ref: "#/components/parameters/TagLimit"
+      responses:
+        "200":
+          description: Matching tags, best first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TagSuggestions"
+        "400":
+          description: "`limit` is not a whole number of at least 1 (`bad_request`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /profiles/me/skills:
+    post:
+      operationId: addMySkill
+      summary: Add a skill to the logged-in user's profile (FR-4.2)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). The name is normalized (see AddTagRequest) and matched
+        ignoring letter case: an existing tag is reused with its first spelling, otherwise
+        a new tag is created. A user has at most 30 skills.
+      tags: [profile]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddTagRequest"
+      responses:
+        "201":
+          description: The tag is now on the user's profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tag"
+        "200":
+          description: The user already had the tag; nothing changed. The body is the same as for 201.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tag"
+        "400":
+          description: |
+            The name is empty or longer than 60 characters after normalizing
+            (`invalid_tag_name`), or the body is not JSON (`bad_request`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: The user already has 30 skills (`tag_limit_reached`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /profiles/me/skills/{tagId}:
+    delete:
+      operationId: removeMySkill
+      summary: Remove a skill from the logged-in user's profile (FR-4.2)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Only the link to the user is removed; the tag stays for
+        other users and for suggestions.
+      tags: [profile]
+      parameters:
+        - $ref: "#/components/parameters/TagID"
+      responses:
+        "204":
+          description: The tag is no longer on the user's profile.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: The user does not have this tag (`not_found`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /tags/skills:
+    get:
+      operationId: suggestSkillTags
+      summary: Suggest existing skill tags while the user types (FR-4.3)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed,
+        events and recommendations" (SRS 2.3). Matching ignores letter case. Names that
+        start with `q` come first, then names that contain it elsewhere; within each group
+        tags used by more users come first, then by name. `q` is normalized like a tag name;
+        an empty `q` gives an empty list.
+      tags: [profile]
+      parameters:
+        - $ref: "#/components/parameters/TagQuery"
+        - $ref: "#/components/parameters/TagLimit"
+      responses:
+        "200":
+          description: Matching tags, best first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TagSuggestions"
+        "400":
+          description: "`limit` is not a whole number of at least 1 (`bad_request`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /profiles/me/education:
+    post:
+      operationId: addMyEducation
+      summary: Add an education entry to the logged-in user's profile (FR-4.4)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Text is trimmed; an optional text field that is missing,
+        null or empty after trimming is stored as null. A missing or null `endYear` means
+        the entry is current. A user has at most 20 education entries.
+      tags: [profile]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EducationCreate"
+      responses:
+        "201":
+          description: The stored entry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Education"
+        "400":
+          $ref: "#/components/responses/InvalidEducation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: The user already has 20 education entries (`education_limit_reached`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /profiles/me/education/{educationId}:
+    patch:
+      operationId: updateMyEducation
+      summary: Change some fields of one of the logged-in user's education entries (FR-4.4)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). A field that is missing keeps its value; `null` clears
+        `degree`, `fieldOfStudy` or `endYear` (a null `endYear` makes the entry current).
+        The rules of EducationCreate apply to the entry after the change, so `endYear`
+        must not be before `startYear` whichever of the two is changed. An entry that does
+        not exist and one that belongs to someone else both get 404 `not_found`.
+      tags: [profile]
+      parameters:
+        - $ref: "#/components/parameters/EducationID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EducationUpdate"
+      responses:
+        "200":
+          description: The entry after the change.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Education"
+        "400":
+          $ref: "#/components/responses/InvalidEducation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: The user has no education entry with this ID (`not_found`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: removeMyEducation
+      summary: Remove one of the logged-in user's education entries (FR-4.4)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). An entry that does not exist and one that belongs to
+        someone else both get 404 `not_found`.
+      tags: [profile]
+      parameters:
+        - $ref: "#/components/parameters/EducationID"
+      responses:
+        "204":
+          description: The entry is removed.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: The user has no education entry with this ID (`not_found`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /profiles/me/contact:
+    get:
+      operationId: getMyContact
+      summary: Return the logged-in user's contact info and who may see each item (FR-4.7)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed,
+        events and recommendations" (SRS 2.3). A user who never saved contact info gets
+        no phone, no birthday, every visibility `only_me` and no links.
+      tags: [profile]
+      responses:
+        "200":
+          description: The caller's contact info.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contact"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    put:
+      operationId: updateMyContact
+      summary: Replace the logged-in user's phone, birthday and visibility settings (FR-4.7)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Replaces every field in the body: a missing or null
+        `phone` or `birthday` clears it. The email address itself is changed nowhere here;
+        only who may see it. Links are not changed here.
+      tags: [profile]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContactUpdate"
+      responses:
+        "200":
+          description: The saved contact info.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contact"
+        "400":
+          description: |
+            A field is not valid. The code names the first invalid field, in this order:
+            `invalid_phone`, `invalid_birthday`, `invalid_visibility`. A body that is not
+            JSON gets `bad_request`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /profiles/me/links:
+    post:
+      operationId: addMyLink
+      summary: Add a link to the logged-in user's profile (FR-4.7)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). The URL is trimmed. A user has at most 5 links. Links
+        are visible to every logged-in user.
+      tags: [profile]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddLinkRequest"
+      responses:
+        "201":
+          description: The stored link.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfileLink"
+        "400":
+          description: |
+            The kind is not one of the listed kinds (`invalid_link_kind`), the URL is not an
+            https URL with a host, has whitespace or is longer than 300 characters
+            (`invalid_link_url`), or the body is not JSON (`bad_request`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: The user already has 5 links (`link_limit_reached`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /profiles/me/links/{linkId}:
+    delete:
+      operationId: removeMyLink
+      summary: Remove one of the logged-in user's links (FR-4.7)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). A link that does not exist and one that belongs to
+        someone else both get 404 `not_found`.
+      tags: [profile]
+      parameters:
+        - $ref: "#/components/parameters/LinkID"
+      responses:
+        "204":
+          description: The link is removed.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: The user has no link with this ID (`not_found`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
   securitySchemes:
     cookieAuth:
@@ -539,6 +1094,54 @@ components:
       description: The access token set by `POST /auth/login`.
 
   parameters:
+    EducationID:
+      name: educationId
+      in: path
+      required: true
+      description: |
+        The entry's ID, a UUID. It is declared as a plain string so that the login check
+        runs before it is read (FR-3.1); a value that is not a UUID names no entry of the
+        user and gets 404 `not_found`.
+      schema:
+        type: string
+    LinkID:
+      name: linkId
+      in: path
+      required: true
+      description: |
+        The link's ID, a UUID. It is declared as a plain string so that the login check
+        runs before it is read (FR-3.1); a value that is not a UUID names no link of the
+        user and gets 404 `not_found`.
+      schema:
+        type: string
+    TagID:
+      name: tagId
+      in: path
+      required: true
+      description: |
+        The tag's ID, a UUID. It is declared as a plain string so that the login check runs
+        before it is read (FR-3.1); a value that is not a UUID names no tag the user has and
+        gets 404 `not_found`.
+      schema:
+        type: string
+    TagQuery:
+      name: q
+      in: query
+      required: false
+      description: The text typed so far. Empty or missing gives an empty list.
+      schema:
+        type: string
+    TagLimit:
+      name: limit
+      in: query
+      required: false
+      description: |
+        Suggestions to return, from 1. Defaults to 10. A larger value than 20 is reduced to
+        20.
+      schema:
+        type: integer
+        minimum: 1
+        default: 10
     RefreshCookie:
       name: rs_refresh
       in: cookie
@@ -764,6 +1367,398 @@ components:
           type: integer
           description: The number of users on all pages.
 
+    Profile:
+      type: object
+      description: |
+        A researcher's profile (FR-4.1, FR-4.2, FR-4.4, FR-4.5, FR-4.7). The optional text fields are
+        always present and null when not set. `publications` and `connectionStatus` are
+        placeholders for now; later work fills them in.
+      required:
+        - userId
+        - fullName
+        - headline
+        - bio
+        - institution
+        - department
+        - jobTitle
+        - country
+        - interests
+        - skills
+        - education
+        - publications
+        - connectionStatus
+        - contact
+      properties:
+        userId:
+          type: string
+          format: uuid
+        fullName:
+          type: string
+          description: Empty only for an account that has no profile row yet.
+        headline:
+          type: string
+          nullable: true
+        bio:
+          type: string
+          nullable: true
+        institution:
+          type: string
+          nullable: true
+        department:
+          type: string
+          nullable: true
+        jobTitle:
+          type: string
+          nullable: true
+        country:
+          type: string
+          nullable: true
+          description: ISO 3166-1 alpha-2 code in capitals, such as DE.
+          example: DE
+        interests:
+          type: array
+          description: The user's research interests (FR-4.2), sorted by name ignoring letter case.
+          items:
+            $ref: "#/components/schemas/Tag"
+        skills:
+          type: array
+          description: The user's skills (FR-4.2), sorted by name ignoring letter case.
+          items:
+            $ref: "#/components/schemas/Tag"
+        education:
+          type: array
+          description: |
+            The user's education entries (FR-4.4): current entries (no `endYear`) first,
+            then by `endYear`, latest first, then by `startYear`, latest first.
+          items:
+            $ref: "#/components/schemas/Education"
+        publications:
+          type: array
+          description: "Placeholder: always empty until confirmed publications are shown (FR-5.5)."
+          items:
+            type: object
+        connectionStatus:
+          $ref: "#/components/schemas/ConnectionStatus"
+        contact:
+          $ref: "#/components/schemas/PublicContact"
+
+    Tag:
+      type: object
+      description: |
+        A research interest or skill (FR-4.2). Tags are shared by all users; names that
+        differ only in letter case are the same tag, and the name keeps the spelling it was
+        first created with.
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: Machine Learning
+
+    AddTagRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          description: |
+            Trimmed, and every run of spaces, tabs or line breaks becomes one space; then 1 to
+            60 characters.
+          maxLength: 60
+          example: Machine Learning
+
+    TagSuggestions:
+      type: object
+      description: Existing tags that match the typed text (FR-4.3), best match first.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Tag"
+
+    ConnectionStatus:
+      type: string
+      description: |
+        The connection between the caller and the profile's owner (FR-4.5).
+        Placeholder: always `none` until connections are added (FR-7); more values come then.
+      enum: [none]
+
+    ProfileUpdate:
+      type: object
+      description: |
+        The profile fields a user edits (FR-4.1). Every value is trimmed first. Lengths
+        count characters after trimming.
+      required: [fullName]
+      properties:
+        fullName:
+          type: string
+          description: 1 to 200 characters, one line.
+          maxLength: 200
+          example: Ada Lovelace
+        headline:
+          type: string
+          nullable: true
+          description: At most 220 characters, one line.
+          maxLength: 220
+        bio:
+          type: string
+          nullable: true
+          description: At most 2000 characters; line breaks are kept.
+          maxLength: 2000
+        institution:
+          type: string
+          nullable: true
+          description: At most 200 characters, one line.
+          maxLength: 200
+        department:
+          type: string
+          nullable: true
+          description: At most 200 characters, one line.
+          maxLength: 200
+        jobTitle:
+          type: string
+          nullable: true
+          description: At most 200 characters, one line.
+          maxLength: 200
+        country:
+          type: string
+          nullable: true
+          description: An ISO 3166-1 alpha-2 code; letter case is ignored ("de" is stored as "DE").
+          example: DE
+
+    Visibility:
+      type: string
+      description: |
+        Who may see a contact item (FR-4.7): only its owner, or every logged-in user.
+        "Connections only" comes with connections (slice 13).
+      enum: [only_me, logged_in]
+
+    Birthday:
+      type: object
+      description: A birthday without a year. `day` is a real day of `month`; 29 February is allowed.
+      required: [month, day]
+      properties:
+        month:
+          type: integer
+          minimum: 1
+          maximum: 12
+        day:
+          type: integer
+          minimum: 1
+          maximum: 31
+
+    LinkKind:
+      type: string
+      description: What a profile link points to; the client shows a label and icon for it.
+      enum: [website, google_scholar, researchgate, linkedin, github, other]
+
+    ProfileLink:
+      type: object
+      description: A link on a profile (FR-4.7), visible to every logged-in user.
+      required: [id, kind, url]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          $ref: "#/components/schemas/LinkKind"
+        url:
+          type: string
+          example: https://scholar.example.org/ada
+
+    AddLinkRequest:
+      type: object
+      required: [kind, url]
+      properties:
+        kind:
+          $ref: "#/components/schemas/LinkKind"
+        url:
+          type: string
+          description: An https URL with a host, without whitespace, at most 300 characters after trimming.
+          maxLength: 300
+
+    Contact:
+      type: object
+      description: |
+        The owner's contact info with who may see each item (FR-4.7). `email` is the
+        account's address. `phone` and `birthday` are always present and null when not set.
+      required: [email, emailVisibility, phone, phoneVisibility, birthday, birthdayVisibility, links]
+      properties:
+        email:
+          type: string
+          format: email
+        emailVisibility:
+          $ref: "#/components/schemas/Visibility"
+        phone:
+          type: string
+          nullable: true
+          description: E.164 format, such as +8801712345678.
+          example: "+8801712345678"
+        phoneVisibility:
+          $ref: "#/components/schemas/Visibility"
+        birthday:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/Birthday"
+        birthdayVisibility:
+          $ref: "#/components/schemas/Visibility"
+        links:
+          type: array
+          description: The user's links, oldest first.
+          items:
+            $ref: "#/components/schemas/ProfileLink"
+
+    ContactUpdate:
+      type: object
+      description: |
+        The contact fields a user edits (FR-4.7). A missing or null `phone` or `birthday`
+        clears it.
+      required: [emailVisibility, phoneVisibility, birthdayVisibility]
+      properties:
+        emailVisibility:
+          $ref: "#/components/schemas/Visibility"
+        phone:
+          type: string
+          nullable: true
+          description: |
+            E.164 format: `+`, then 2 to 15 digits, the first not 0. Spaces and hyphens are
+            removed first, so "+880 1712-345678" is stored as "+8801712345678".
+        phoneVisibility:
+          $ref: "#/components/schemas/Visibility"
+        birthday:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/Birthday"
+        birthdayVisibility:
+          $ref: "#/components/schemas/Visibility"
+
+    PublicContact:
+      type: object
+      description: |
+        The contact info the viewer of a profile may see (FR-4.7). An item that is hidden
+        from the viewer, or not set, is left out; it is never null. The owner sees every
+        item that is set. Links are visible to every logged-in user.
+      required: [links]
+      properties:
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        birthday:
+          $ref: "#/components/schemas/Birthday"
+        links:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProfileLink"
+
+    Education:
+      type: object
+      description: One education entry (FR-4.4). The optional fields are always present and null when not set.
+      required: [id, institution, degree, fieldOfStudy, startYear, endYear]
+      properties:
+        id:
+          type: string
+          format: uuid
+        institution:
+          type: string
+          example: University of Cambridge
+        degree:
+          type: string
+          nullable: true
+          example: PhD
+        fieldOfStudy:
+          type: string
+          nullable: true
+          example: Computer Science
+        startYear:
+          type: integer
+          example: 2019
+        endYear:
+          type: integer
+          nullable: true
+          description: Null while the entry is current.
+          example: 2023
+
+    EducationCreate:
+      type: object
+      description: |
+        A new education entry (FR-4.4). Text is trimmed first and every text field must be
+        one line; lengths count characters after trimming. Years run from 1950 to ten years
+        after the current year, and `endYear` is not before `startYear`.
+      required: [institution, startYear]
+      properties:
+        institution:
+          type: string
+          description: 1 to 200 characters.
+          maxLength: 200
+        degree:
+          type: string
+          nullable: true
+          description: At most 100 characters; empty means not set.
+          maxLength: 100
+        fieldOfStudy:
+          type: string
+          nullable: true
+          description: At most 100 characters; empty means not set.
+          maxLength: 100
+        startYear:
+          type: integer
+        endYear:
+          type: integer
+          nullable: true
+          description: Missing or null while the entry is current.
+
+    EducationUpdate:
+      type: object
+      description: |
+        The fields to change in an education entry (FR-4.4). A missing field keeps its
+        value. `null` clears `degree`, `fieldOfStudy` or `endYear`; `null` for
+        `institution` or `startYear` is refused, because both are required. The rules of
+        EducationCreate apply to the entry after the change.
+      properties:
+        institution:
+          type: string
+          nullable: true
+          maxLength: 200
+          x-go-type: nullable.Nullable[string]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        degree:
+          type: string
+          nullable: true
+          maxLength: 100
+          x-go-type: nullable.Nullable[string]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        fieldOfStudy:
+          type: string
+          nullable: true
+          maxLength: 100
+          x-go-type: nullable.Nullable[string]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        startYear:
+          type: integer
+          nullable: true
+          x-go-type: nullable.Nullable[int]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        endYear:
+          type: integer
+          nullable: true
+          x-go-type: nullable.Nullable[int]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+
   responses:
     Forbidden:
       description: |
@@ -782,6 +1777,16 @@ components:
             $ref: "#/components/schemas/Error"
     NotFound:
       description: No such route or resource.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    InvalidEducation:
+      description: |
+        A field is not valid. The code names the first invalid field, in this order:
+        `invalid_institution`, `invalid_degree`, `invalid_field_of_study`,
+        `invalid_start_year`, `invalid_end_year` (also when `endYear` is before
+        `startYear`). A body that is not JSON gets `bad_request`.
       content:
         application/json:
           schema:

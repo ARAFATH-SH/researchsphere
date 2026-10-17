@@ -30,6 +30,9 @@ import (
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/logging"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/postgres"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/redis"
+	profilehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/http"
+	profilepg "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/postgres"
+	profileusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/usecase"
 )
 
 // accessTTL is how long an access token is valid (FR-2.1).
@@ -86,6 +89,7 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 	)
 	handler := newRouter(logger, healthpg.NewPinger(pool), healthredis.NewPinger(rdb),
 		authhttp.NewHandler(auth, authhttp.CookieConfig{Secure: cfg.CookieSecure}),
+		profilehttp.NewHandler(profileusecase.New(profilepg.NewStore(pool))),
 		httpx.RequireAuth(tokens, time.Now))
 
 	var lc net.ListenConfig
