@@ -12,7 +12,7 @@ SET client_min_messages = notice;
 BEGIN;
 
 -- expect_error runs one statement and passes only when it fails with the given SQLSTATE:
--- 23505 unique_violation, 23514 check_violation, 22000 data_exception.
+-- 23502 not_null_violation, 23505 unique_violation, 23514 check_violation, 22000 data_exception.
 CREATE FUNCTION pg_temp.expect_error(label text, stmt text, expected text) RETURNS void
 LANGUAGE plpgsql AS $$
 BEGIN
@@ -192,6 +192,36 @@ SELECT pg_temp.expect_error('Skill: name has no tab or line break',
 SELECT pg_temp.expect_error('Education: end year is not before start year',
     $s$INSERT INTO education (user_id, institution, degree, start_year, end_year)
        VALUES ('00000000-0000-0000-0000-000000000001', 'MIT', 'BSc', 2020, 2019)$s$, '23514');
+
+-- Education fields (FR-4.4, migration 000005): the start year is required, the degree and
+-- field are optional, text is at most 200 (institution) or 100 characters and never blank.
+SELECT pg_temp.expect_ok('Education: degree, field and end year may be NULL',
+    $s$INSERT INTO education (user_id, institution, start_year)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'MIT', 2020)$s$);
+SELECT pg_temp.expect_error('Education: start year is required',
+    $s$INSERT INTO education (user_id, institution, degree)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'MIT', 'BSc')$s$, '23502');
+SELECT pg_temp.expect_ok('Education: institution of 200 and degree and field of 100 characters are accepted',
+    $s$INSERT INTO education (user_id, institution, degree, field_of_study, start_year)
+       VALUES ('00000000-0000-0000-0000-000000000001', repeat('é', 200), repeat('é', 100), repeat('é', 100), 2020)$s$);
+SELECT pg_temp.expect_error('Education: institution is at most 200 characters',
+    $s$INSERT INTO education (user_id, institution, start_year)
+       VALUES ('00000000-0000-0000-0000-000000000001', repeat('a', 201), 2020)$s$, '23514');
+SELECT pg_temp.expect_error('Education: degree is at most 100 characters',
+    $s$INSERT INTO education (user_id, institution, degree, start_year)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'MIT', repeat('a', 101), 2020)$s$, '23514');
+SELECT pg_temp.expect_error('Education: field of study is at most 100 characters',
+    $s$INSERT INTO education (user_id, institution, field_of_study, start_year)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'MIT', repeat('a', 101), 2020)$s$, '23514');
+SELECT pg_temp.expect_error('Education: institution is not blank',
+    $s$INSERT INTO education (user_id, institution, start_year)
+       VALUES ('00000000-0000-0000-0000-000000000001', '  ', 2020)$s$, '23514');
+SELECT pg_temp.expect_error('Education: degree is NULL, not blank',
+    $s$INSERT INTO education (user_id, institution, degree, start_year)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'MIT', '', 2020)$s$, '23514');
+SELECT pg_temp.expect_error('Education: field of study is NULL, not blank',
+    $s$INSERT INTO education (user_id, institution, field_of_study, start_year)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'MIT', ' ', 2020)$s$, '23514');
 
 -- ---------------------------------------------------------------------------
 -- Publication
@@ -399,7 +429,7 @@ INSERT INTO auth_tokens (user_id, purpose, token_hash, expires_at) VALUES
     ('00000000-0000-0000-0000-000000000003', 'password_reset', 'at-3', now() + interval '1 hour');
 INSERT INTO user_interests (user_id, interest_id) SELECT '00000000-0000-0000-0000-000000000003', id FROM research_interests;
 INSERT INTO user_skills (user_id, skill_id) SELECT '00000000-0000-0000-0000-000000000003', id FROM skills;
-INSERT INTO education (user_id, institution, degree) VALUES ('00000000-0000-0000-0000-000000000003', 'MIT', 'BSc');
+INSERT INTO education (user_id, institution, degree, start_year) VALUES ('00000000-0000-0000-0000-000000000003', 'MIT', 'BSc', 2015);
 INSERT INTO user_publications (user_id, publication_id, confirmed_at) VALUES
     ('00000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-0000000000c1', now()),
     ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-0000000000c1', now());

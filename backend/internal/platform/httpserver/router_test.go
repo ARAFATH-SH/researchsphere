@@ -99,6 +99,18 @@ func (fakeAPI) RemoveMySkill(context.Context, gen.RemoveMySkillRequestObject) (g
 	return gen.RemoveMySkill204Response{}, nil
 }
 
+func (fakeAPI) AddMyEducation(context.Context, gen.AddMyEducationRequestObject) (gen.AddMyEducationResponseObject, error) {
+	return gen.AddMyEducation201JSONResponse{}, nil
+}
+
+func (fakeAPI) UpdateMyEducation(context.Context, gen.UpdateMyEducationRequestObject) (gen.UpdateMyEducationResponseObject, error) {
+	return gen.UpdateMyEducation200JSONResponse{}, nil
+}
+
+func (fakeAPI) RemoveMyEducation(context.Context, gen.RemoveMyEducationRequestObject) (gen.RemoveMyEducationResponseObject, error) {
+	return gen.RemoveMyEducation204Response{}, nil
+}
+
 func (fakeAPI) SuggestInterestTags(context.Context, gen.SuggestInterestTagsRequestObject) (gen.SuggestInterestTagsResponseObject, error) {
 	return gen.SuggestInterestTags200JSONResponse{Items: []gen.Tag{}}, nil
 }
@@ -325,8 +337,8 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 
 func TestRoutes(t *testing.T) {
 	got := Routes()
-	if len(got) != 22 {
-		t.Errorf("Routes() returned %d routes, want the 22 operations in the contract: %v", len(got), got)
+	if len(got) != 25 {
+		t.Errorf("Routes() returned %d routes, want the 25 operations in the contract: %v", len(got), got)
 	}
 	seen := map[string]bool{}
 	for _, p := range got {

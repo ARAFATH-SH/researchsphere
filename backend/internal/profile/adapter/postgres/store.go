@@ -192,7 +192,7 @@ func (s *Store) SuggestTags(ctx context.Context, kind domain.TagKind, q string, 
 	return tags(rows), nil
 }
 
-// tx runs the steps of adding a tag inside one transaction.
+// tx runs the steps of adding a tag or changing education inside one transaction.
 type tx struct {
 	q *sqlcgen.Queries
 }
@@ -342,7 +342,7 @@ func parseIDs(userID, tagID string) (pgtype.UUID, pgtype.UUID, error) {
 
 func int32Of(n int) (int32, error) {
 	if n < 0 || n > math.MaxInt32 {
-		return 0, fmt.Errorf("limit %d out of range", n)
+		return 0, fmt.Errorf("%d out of range", n)
 	}
 	return int32(n), nil
 }

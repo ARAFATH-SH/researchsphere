@@ -1,10 +1,12 @@
 package usecase
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"slices"
 	"strings"
 
@@ -28,6 +30,9 @@ type fakeStore struct {
 	suggestMax int
 	suggests   int // SuggestTags calls
 	suggestion []domain.Tag
+
+	education     map[string]domain.Education // by ID
+	nextEducation int
 }
 
 func newFakeStore(accounts ...domain.Account) *fakeStore {
@@ -35,6 +40,8 @@ func newFakeStore(accounts ...domain.Account) *fakeStore {
 		accounts: map[string]domain.Account{},
 		tags:     map[domain.TagKind][]domain.Tag{},
 		links:    map[domain.TagKind]map[string]map[string]bool{domain.KindInterest: {}, domain.KindSkill: {}},
+
+		education: map[string]domain.Education{},
 	}
 	for _, a := range accounts {
 		s.accounts[a.UserID] = a
@@ -74,8 +81,10 @@ func (s *fakeStore) RunInTx(_ context.Context, fn func(domain.Tx) error) error {
 		return s.err
 	}
 	tags, links, next := s.snapshot()
+	education, nextEducation := maps.Clone(s.education), s.nextEducation
 	if err := fn(s); err != nil {
 		s.tags, s.links, s.nextTag = tags, links, next
+		s.education, s.nextEducation = education, nextEducation
 		return err
 	}
 	return nil
@@ -178,6 +187,83 @@ func (s *fakeStore) giveTags(userID string, kind domain.TagKind, n int) {
 		t, _ := s.FindOrCreateTag(context.Background(), kind, fmt.Sprintf("Existing %s %d", kind, i))
 		_ = s.LinkTag(context.Background(), userID, kind, t.ID)
 	}
+}
+
+func (s *fakeStore) CountEducation(_ context.Context, userID string) (int, error) {
+	n := 0
+	for _, e := range s.education {
+		if e.UserID == userID {
+			n++
+		}
+	}
+	return n, nil
+}
+
+func (s *fakeStore) InsertEducation(_ context.Context, e domain.Education) (domain.Education, error) {
+	s.nextEducation++
+	e.ID = fmt.Sprintf("00000000-0000-0000-0000-0000000e%04d", s.nextEducation)
+	s.education[e.ID] = e
+	return e, nil
+}
+
+// FindEducationForUpdate matches the owner too, as the owner-scoped query does.
+func (s *fakeStore) FindEducationForUpdate(_ context.Context, userID, id string) (domain.Education, error) {
+	e, ok := s.education[id]
+	if !ok || e.UserID != userID {
+		return domain.Education{}, domain.ErrNotFound
+	}
+	return e, nil
+}
+
+func (s *fakeStore) UpdateEducation(_ context.Context, e domain.Education) (domain.Education, error) {
+	old, ok := s.education[e.ID]
+	if !ok || old.UserID != e.UserID {
+		return domain.Education{}, domain.ErrNotFound
+	}
+	s.education[e.ID] = e
+	return e, nil
+}
+
+func (s *fakeStore) DeleteEducation(_ context.Context, userID, id string) error {
+	if s.err != nil {
+		return s.err
+	}
+	e, ok := s.education[id]
+	if !ok || e.UserID != userID {
+		return domain.ErrNotFound
+	}
+	delete(s.education, id)
+	return nil
+}
+
+// ListEducation sorts like the query: current first, then the latest end year, then the
+// latest start year, then by ID.
+func (s *fakeStore) ListEducation(_ context.Context, userID string) ([]domain.Education, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	var out []domain.Education
+	for _, e := range s.education {
+		if e.UserID == userID {
+			out = append(out, e)
+		}
+	}
+	end := func(e domain.Education) int {
+		if e.EndYear == nil {
+			return math.MaxInt
+		}
+		return *e.EndYear
+	}
+	slices.SortFunc(out, func(a, b domain.Education) int {
+		if c := cmp.Compare(end(b), end(a)); c != 0 {
+			return c
+		}
+		if c := cmp.Compare(b.StartYear, a.StartYear); c != 0 {
+			return c
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
+	return out, nil
 }
 
 var errDatabase = errors.New("database down")

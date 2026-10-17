@@ -11,6 +11,20 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countUserEducation = `-- name: CountUserEducation :one
+
+SELECT count(*) FROM education WHERE user_id = $1
+`
+
+// Education entries (FR-4.4). Every query names the owner in its WHERE clause, so an entry
+// of another user is never read, changed or deleted: it is simply not found.
+func (q *Queries) CountUserEducation(ctx context.Context, userID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countUserEducation, userID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countUserInterests = `-- name: CountUserInterests :one
 SELECT count(*) FROM user_interests WHERE user_id = $1
 `
@@ -31,6 +45,23 @@ func (q *Queries) CountUserSkills(ctx context.Context, userID pgtype.UUID) (int6
 	var count int64
 	err := row.Scan(&count)
 	return count, err
+}
+
+const deleteUserEducation = `-- name: DeleteUserEducation :execrows
+DELETE FROM education WHERE id = $1 AND user_id = $2
+`
+
+type DeleteUserEducationParams struct {
+	ID     pgtype.UUID
+	UserID pgtype.UUID
+}
+
+func (q *Queries) DeleteUserEducation(ctx context.Context, arg DeleteUserEducationParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteUserEducation, arg.ID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const findAccount = `-- name: FindAccount :one
@@ -98,6 +129,92 @@ func (q *Queries) FindSkillByName(ctx context.Context, name string) (Skill, erro
 	return i, err
 }
 
+const findUserEducationForUpdate = `-- name: FindUserEducationForUpdate :one
+SELECT id, user_id, institution, degree, field_of_study, start_year, end_year
+FROM education
+WHERE id = $1 AND user_id = $2
+FOR UPDATE
+`
+
+type FindUserEducationForUpdateParams struct {
+	ID     pgtype.UUID
+	UserID pgtype.UUID
+}
+
+type FindUserEducationForUpdateRow struct {
+	ID           pgtype.UUID
+	UserID       pgtype.UUID
+	Institution  string
+	Degree       pgtype.Text
+	FieldOfStudy pgtype.Text
+	StartYear    int32
+	EndYear      pgtype.Int4
+}
+
+// Locks the entry until the transaction ends, so two changes to it cannot both pass the
+// end-year check against an old start year.
+func (q *Queries) FindUserEducationForUpdate(ctx context.Context, arg FindUserEducationForUpdateParams) (FindUserEducationForUpdateRow, error) {
+	row := q.db.QueryRow(ctx, findUserEducationForUpdate, arg.ID, arg.UserID)
+	var i FindUserEducationForUpdateRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Institution,
+		&i.Degree,
+		&i.FieldOfStudy,
+		&i.StartYear,
+		&i.EndYear,
+	)
+	return i, err
+}
+
+const insertEducation = `-- name: InsertEducation :one
+INSERT INTO education (user_id, institution, degree, field_of_study, start_year, end_year)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, user_id, institution, degree, field_of_study, start_year, end_year
+`
+
+type InsertEducationParams struct {
+	UserID       pgtype.UUID
+	Institution  string
+	Degree       pgtype.Text
+	FieldOfStudy pgtype.Text
+	StartYear    int32
+	EndYear      pgtype.Int4
+}
+
+type InsertEducationRow struct {
+	ID           pgtype.UUID
+	UserID       pgtype.UUID
+	Institution  string
+	Degree       pgtype.Text
+	FieldOfStudy pgtype.Text
+	StartYear    int32
+	EndYear      pgtype.Int4
+}
+
+func (q *Queries) InsertEducation(ctx context.Context, arg InsertEducationParams) (InsertEducationRow, error) {
+	row := q.db.QueryRow(ctx, insertEducation,
+		arg.UserID,
+		arg.Institution,
+		arg.Degree,
+		arg.FieldOfStudy,
+		arg.StartYear,
+		arg.EndYear,
+	)
+	var i InsertEducationRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Institution,
+		&i.Degree,
+		&i.FieldOfStudy,
+		&i.StartYear,
+		&i.EndYear,
+	)
+	return i, err
+}
+
 const insertInterestIfMissing = `-- name: InsertInterestIfMissing :exec
 
 INSERT INTO research_interests (name) VALUES ($1) ON CONFLICT (name) DO NOTHING
@@ -154,6 +271,53 @@ type LinkUserSkillParams struct {
 func (q *Queries) LinkUserSkill(ctx context.Context, arg LinkUserSkillParams) error {
 	_, err := q.db.Exec(ctx, linkUserSkill, arg.UserID, arg.TagID)
 	return err
+}
+
+const listUserEducation = `-- name: ListUserEducation :many
+SELECT id, user_id, institution, degree, field_of_study, start_year, end_year
+FROM education
+WHERE user_id = $1
+ORDER BY end_year DESC NULLS FIRST, start_year DESC, created_at DESC, id
+`
+
+type ListUserEducationRow struct {
+	ID           pgtype.UUID
+	UserID       pgtype.UUID
+	Institution  string
+	Degree       pgtype.Text
+	FieldOfStudy pgtype.Text
+	StartYear    int32
+	EndYear      pgtype.Int4
+}
+
+// Current entries (no end year) first, then the latest end year, then the latest start
+// year; creation time and id make the order stable.
+func (q *Queries) ListUserEducation(ctx context.Context, userID pgtype.UUID) ([]ListUserEducationRow, error) {
+	rows, err := q.db.Query(ctx, listUserEducation, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUserEducationRow
+	for rows.Next() {
+		var i ListUserEducationRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.Institution,
+			&i.Degree,
+			&i.FieldOfStudy,
+			&i.StartYear,
+			&i.EndYear,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listUserInterests = `-- name: ListUserInterests :many
@@ -333,6 +497,60 @@ func (q *Queries) UnlinkUserSkill(ctx context.Context, arg UnlinkUserSkillParams
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const updateUserEducation = `-- name: UpdateUserEducation :one
+UPDATE education SET
+    institution    = $1,
+    degree         = $2,
+    field_of_study = $3,
+    start_year     = $4,
+    end_year       = $5
+WHERE id = $6 AND user_id = $7
+RETURNING id, user_id, institution, degree, field_of_study, start_year, end_year
+`
+
+type UpdateUserEducationParams struct {
+	Institution  string
+	Degree       pgtype.Text
+	FieldOfStudy pgtype.Text
+	StartYear    int32
+	EndYear      pgtype.Int4
+	ID           pgtype.UUID
+	UserID       pgtype.UUID
+}
+
+type UpdateUserEducationRow struct {
+	ID           pgtype.UUID
+	UserID       pgtype.UUID
+	Institution  string
+	Degree       pgtype.Text
+	FieldOfStudy pgtype.Text
+	StartYear    int32
+	EndYear      pgtype.Int4
+}
+
+func (q *Queries) UpdateUserEducation(ctx context.Context, arg UpdateUserEducationParams) (UpdateUserEducationRow, error) {
+	row := q.db.QueryRow(ctx, updateUserEducation,
+		arg.Institution,
+		arg.Degree,
+		arg.FieldOfStudy,
+		arg.StartYear,
+		arg.EndYear,
+		arg.ID,
+		arg.UserID,
+	)
+	var i UpdateUserEducationRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Institution,
+		&i.Degree,
+		&i.FieldOfStudy,
+		&i.StartYear,
+		&i.EndYear,
+	)
+	return i, err
 }
 
 const upsertProfile = `-- name: UpsertProfile :one

@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/oapi-codegen/nullable"
 	"github.com/oapi-codegen/runtime"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
@@ -156,6 +157,57 @@ type DeleteAccountRequest struct {
 	Password string `json:"password"`
 }
 
+// Education One education entry (FR-4.4). The optional fields are always present and null when not set.
+type Education struct {
+	// Degree Example: PhD
+	Degree *string `json:"degree"`
+
+	// EndYear Null while the entry is current.
+	//
+	// Example: 2023
+	EndYear *int `json:"endYear"`
+
+	// FieldOfStudy Example: Computer Science
+	FieldOfStudy *string            `json:"fieldOfStudy"`
+	Id           openapi_types.UUID `json:"id"`
+
+	// Institution Example: University of Cambridge
+	Institution string `json:"institution"`
+
+	// StartYear Example: 2019
+	StartYear int `json:"startYear"`
+}
+
+// EducationCreate A new education entry (FR-4.4). Text is trimmed first and every text field must be
+// one line; lengths count characters after trimming. Years run from 1950 to ten years
+// after the current year, and `endYear` is not before `startYear`.
+type EducationCreate struct {
+	// Degree At most 100 characters; empty means not set.
+	Degree *string `json:"degree,omitempty"`
+
+	// EndYear Missing or null while the entry is current.
+	EndYear *int `json:"endYear,omitempty"`
+
+	// FieldOfStudy At most 100 characters; empty means not set.
+	FieldOfStudy *string `json:"fieldOfStudy,omitempty"`
+
+	// Institution 1 to 200 characters.
+	Institution string `json:"institution"`
+	StartYear   int    `json:"startYear"`
+}
+
+// EducationUpdate The fields to change in an education entry (FR-4.4). A missing field keeps its
+// value. `null` clears `degree`, `fieldOfStudy` or `endYear`; `null` for
+// `institution` or `startYear` is refused, because both are required. The rules of
+// EducationCreate apply to the entry after the change.
+type EducationUpdate struct {
+	Degree       nullable.Nullable[string] `json:"degree,omitempty"`
+	EndYear      nullable.Nullable[int]    `json:"endYear,omitempty"`
+	FieldOfStudy nullable.Nullable[string] `json:"fieldOfStudy,omitempty"`
+	Institution  nullable.Nullable[string] `json:"institution,omitempty"`
+	StartYear    nullable.Nullable[int]    `json:"startYear,omitempty"`
+}
+
 // Error The shape of every error response (SRS 5.3).
 type Error struct {
 	// Code Short machine-readable code, in snake_case.
@@ -214,9 +266,9 @@ type PasswordResetRequest struct {
 	Email string `json:"email"`
 }
 
-// Profile A researcher's profile (FR-4.1, FR-4.2, FR-4.5). The optional text fields are
-// always present and null when not set. `education`, `publications` and
-// `connectionStatus` are placeholders for now; later work fills them in.
+// Profile A researcher's profile (FR-4.1, FR-4.2, FR-4.4, FR-4.5). The optional text fields are
+// always present and null when not set. `publications` and `connectionStatus` are
+// placeholders for now; later work fills them in.
 type Profile struct {
 	Bio *string `json:"bio"`
 
@@ -230,8 +282,9 @@ type Profile struct {
 	Country    *string `json:"country"`
 	Department *string `json:"department"`
 
-	// Education Placeholder: always empty until education entries are added (FR-4.4).
-	Education []map[string]interface{} `json:"education"`
+	// Education The user's education entries (FR-4.4): current entries (no `endYear`) first,
+	// then by `endYear`, latest first, then by `startYear`, latest first.
+	Education []Education `json:"education"`
 
 	// FullName Empty only for an account that has no profile row yet.
 	FullName    string  `json:"fullName"`
@@ -347,6 +400,9 @@ type VerifyEmailRequest struct {
 	Token string `json:"token"`
 }
 
+// EducationID defines model for EducationID.
+type EducationID = string
+
 // RefreshCookie defines model for RefreshCookie.
 type RefreshCookie = string
 
@@ -364,6 +420,9 @@ type Forbidden = Error
 
 // InternalError The shape of every error response (SRS 5.3).
 type InternalError = Error
+
+// InvalidEducation The shape of every error response (SRS 5.3).
+type InvalidEducation = Error
 
 // NotFound The shape of every error response (SRS 5.3).
 type NotFound = Error
@@ -449,6 +508,12 @@ type VerifyEmailJSONRequestBody = VerifyEmailRequest
 // UpdateMyProfileJSONRequestBody defines body for UpdateMyProfile for application/json ContentType.
 type UpdateMyProfileJSONRequestBody = ProfileUpdate
 
+// AddMyEducationJSONRequestBody defines body for AddMyEducation for application/json ContentType.
+type AddMyEducationJSONRequestBody = EducationCreate
+
+// UpdateMyEducationJSONRequestBody defines body for UpdateMyEducation for application/json ContentType.
+type UpdateMyEducationJSONRequestBody = EducationUpdate
+
 // AddMyInterestJSONRequestBody defines body for AddMyInterest for application/json ContentType.
 type AddMyInterestJSONRequestBody = AddTagRequest
 
@@ -502,6 +567,15 @@ type ServerInterface interface {
 	// UpdateMyProfile Create or replace the logged-in user's profile fields (FR-4.1)
 	// (PUT /profiles/me)
 	UpdateMyProfile(w http.ResponseWriter, r *http.Request)
+	// AddMyEducation Add an education entry to the logged-in user's profile (FR-4.4)
+	// (POST /profiles/me/education)
+	AddMyEducation(w http.ResponseWriter, r *http.Request)
+	// RemoveMyEducation Remove one of the logged-in user's education entries (FR-4.4)
+	// (DELETE /profiles/me/education/{educationId})
+	RemoveMyEducation(w http.ResponseWriter, r *http.Request, educationId EducationID)
+	// UpdateMyEducation Change some fields of one of the logged-in user's education entries (FR-4.4)
+	// (PATCH /profiles/me/education/{educationId})
+	UpdateMyEducation(w http.ResponseWriter, r *http.Request, educationId EducationID)
 	// AddMyInterest Add a research interest to the logged-in user's profile (FR-4.2)
 	// (POST /profiles/me/interests)
 	AddMyInterest(w http.ResponseWriter, r *http.Request)
@@ -866,6 +940,90 @@ func (siw *ServerInterfaceWrapper) UpdateMyProfile(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateMyProfile(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AddMyEducation operation middleware
+func (siw *ServerInterfaceWrapper) AddMyEducation(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AddMyEducation(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RemoveMyEducation operation middleware
+func (siw *ServerInterfaceWrapper) RemoveMyEducation(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "educationId" -------------
+	var educationId EducationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "educationId", r.PathValue("educationId"), &educationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "educationId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RemoveMyEducation(w, r, educationId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateMyEducation operation middleware
+func (siw *ServerInterfaceWrapper) UpdateMyEducation(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "educationId" -------------
+	var educationId EducationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "educationId", r.PathValue("educationId"), &educationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "educationId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateMyEducation(w, r, educationId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1257,6 +1415,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/profiles/me/skills", wrapper.AddMySkill)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/profiles/me/skills/{tagId}", wrapper.RemoveMySkill)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tags/skills", wrapper.SuggestSkillTags)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/profiles/me/education", wrapper.AddMyEducation)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/profiles/me/education/{educationId}", wrapper.RemoveMyEducation)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/profiles/me/education/{educationId}", wrapper.UpdateMyEducation)
 
 	return m
 }
@@ -1264,6 +1425,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 type ForbiddenJSONResponse Error
 
 type InternalErrorJSONResponse Error
+
+type InvalidEducationJSONResponse Error
 
 type NotFoundJSONResponse Error
 
@@ -2239,6 +2402,263 @@ func (response UpdateMyProfile500JSONResponse) VisitUpdateMyProfileResponse(w ht
 	return err
 }
 
+type AddMyEducationRequestObject struct {
+	Body *AddMyEducationJSONRequestBody
+}
+
+type AddMyEducationResponseObject interface {
+	VisitAddMyEducationResponse(w http.ResponseWriter) error
+}
+
+type AddMyEducation201JSONResponse Education
+
+func (response AddMyEducation201JSONResponse) VisitAddMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyEducation400JSONResponse struct{ InvalidEducationJSONResponse }
+
+func (response AddMyEducation400JSONResponse) VisitAddMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyEducation401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response AddMyEducation401JSONResponse) VisitAddMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyEducation403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response AddMyEducation403JSONResponse) VisitAddMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyEducation409JSONResponse Error
+
+func (response AddMyEducation409JSONResponse) VisitAddMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyEducation500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response AddMyEducation500JSONResponse) VisitAddMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMyEducationRequestObject struct {
+	EducationId EducationID `json:"educationId"`
+}
+
+type RemoveMyEducationResponseObject interface {
+	VisitRemoveMyEducationResponse(w http.ResponseWriter) error
+}
+
+type RemoveMyEducation204Response struct {
+}
+
+func (response RemoveMyEducation204Response) VisitRemoveMyEducationResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RemoveMyEducation401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RemoveMyEducation401JSONResponse) VisitRemoveMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMyEducation403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response RemoveMyEducation403JSONResponse) VisitRemoveMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMyEducation404JSONResponse Error
+
+func (response RemoveMyEducation404JSONResponse) VisitRemoveMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMyEducation500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RemoveMyEducation500JSONResponse) VisitRemoveMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMyEducationRequestObject struct {
+	EducationId EducationID `json:"educationId"`
+	Body        *UpdateMyEducationJSONRequestBody
+}
+
+type UpdateMyEducationResponseObject interface {
+	VisitUpdateMyEducationResponse(w http.ResponseWriter) error
+}
+
+type UpdateMyEducation200JSONResponse Education
+
+func (response UpdateMyEducation200JSONResponse) VisitUpdateMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMyEducation400JSONResponse struct{ InvalidEducationJSONResponse }
+
+func (response UpdateMyEducation400JSONResponse) VisitUpdateMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMyEducation401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response UpdateMyEducation401JSONResponse) VisitUpdateMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMyEducation403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response UpdateMyEducation403JSONResponse) VisitUpdateMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMyEducation404JSONResponse Error
+
+func (response UpdateMyEducation404JSONResponse) VisitUpdateMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMyEducation500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response UpdateMyEducation500JSONResponse) VisitUpdateMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type AddMyInterestRequestObject struct {
 	Body *AddMyInterestJSONRequestBody
 }
@@ -2876,6 +3296,15 @@ type StrictServerInterface interface {
 	// UpdateMyProfile Create or replace the logged-in user's profile fields (FR-4.1)
 	// (PUT /profiles/me)
 	UpdateMyProfile(ctx context.Context, request UpdateMyProfileRequestObject) (UpdateMyProfileResponseObject, error)
+	// AddMyEducation Add an education entry to the logged-in user's profile (FR-4.4)
+	// (POST /profiles/me/education)
+	AddMyEducation(ctx context.Context, request AddMyEducationRequestObject) (AddMyEducationResponseObject, error)
+	// RemoveMyEducation Remove one of the logged-in user's education entries (FR-4.4)
+	// (DELETE /profiles/me/education/{educationId})
+	RemoveMyEducation(ctx context.Context, request RemoveMyEducationRequestObject) (RemoveMyEducationResponseObject, error)
+	// UpdateMyEducation Change some fields of one of the logged-in user's education entries (FR-4.4)
+	// (PATCH /profiles/me/education/{educationId})
+	UpdateMyEducation(ctx context.Context, request UpdateMyEducationRequestObject) (UpdateMyEducationResponseObject, error)
 	// AddMyInterest Add a research interest to the logged-in user's profile (FR-4.2)
 	// (POST /profiles/me/interests)
 	AddMyInterest(ctx context.Context, request AddMyInterestRequestObject) (AddMyInterestResponseObject, error)
@@ -3362,6 +3791,96 @@ func (sh *strictHandler) UpdateMyProfile(w http.ResponseWriter, r *http.Request)
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateMyProfileResponseObject); ok {
 		if err := validResponse.VisitUpdateMyProfileResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AddMyEducation operation middleware
+func (sh *strictHandler) AddMyEducation(w http.ResponseWriter, r *http.Request) {
+	var request AddMyEducationRequestObject
+
+	var body AddMyEducationJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AddMyEducation(ctx, request.(AddMyEducationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AddMyEducation")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AddMyEducationResponseObject); ok {
+		if err := validResponse.VisitAddMyEducationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RemoveMyEducation operation middleware
+func (sh *strictHandler) RemoveMyEducation(w http.ResponseWriter, r *http.Request, educationId EducationID) {
+	var request RemoveMyEducationRequestObject
+
+	request.EducationId = educationId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RemoveMyEducation(ctx, request.(RemoveMyEducationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RemoveMyEducation")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RemoveMyEducationResponseObject); ok {
+		if err := validResponse.VisitRemoveMyEducationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateMyEducation operation middleware
+func (sh *strictHandler) UpdateMyEducation(w http.ResponseWriter, r *http.Request, educationId EducationID) {
+	var request UpdateMyEducationRequestObject
+
+	request.EducationId = educationId
+
+	var body UpdateMyEducationJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateMyEducation(ctx, request.(UpdateMyEducationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateMyEducation")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateMyEducationResponseObject); ok {
+		if err := validResponse.VisitUpdateMyEducationResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -1,11 +1,12 @@
 // Package usecase holds the profile module's logic: reading the caller's own profile and
 // editing its basic fields (FR-4.1), research interests and skills as tags (FR-4.2) with
-// suggestions (FR-4.3), and showing any user's profile to a logged-in user (FR-4.5). It
+// suggestions (FR-4.3), education entries (FR-4.4), and showing any user's profile to a logged-in user (FR-4.5). It
 // imports only the profile domain.
 package usecase
 
 import (
 	"context"
+	"time"
 
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/profile/domain"
 )
@@ -13,11 +14,12 @@ import (
 // Service reads and edits profiles.
 type Service struct {
 	store domain.Store
+	now   func() time.Time // the clock for the education year range
 }
 
 // New returns a Service.
 func New(store domain.Store) *Service {
-	return &Service{store: store}
+	return &Service{store: store, now: time.Now}
 }
 
 // GetOwn returns the caller's profile. An account without a profile row gets an empty
@@ -28,7 +30,7 @@ func (s *Service) GetOwn(ctx context.Context, userID string) (domain.Profile, er
 	if err != nil {
 		return domain.Profile{}, err
 	}
-	return s.withTags(ctx, profileOf(a))
+	return s.withDetails(ctx, profileOf(a))
 }
 
 // View returns any user's profile to a logged-in user (FR-4.5). An unknown, suspended or
@@ -41,7 +43,7 @@ func (s *Service) View(ctx context.Context, userID string) (domain.Profile, erro
 	if a.Suspended || !a.Verified {
 		return domain.Profile{}, domain.ErrNotFound
 	}
-	return s.withTags(ctx, profileOf(a))
+	return s.withDetails(ctx, profileOf(a))
 }
 
 // UpdateInput is what a user sends to edit their profile. A nil optional field means
@@ -69,7 +71,7 @@ func (s *Service) UpdateOwn(ctx context.Context, userID string, in UpdateInput) 
 	if err != nil {
 		return domain.Profile{}, err
 	}
-	return s.withTags(ctx, saved)
+	return s.withDetails(ctx, saved)
 }
 
 // profileOf returns the account's profile, or an empty one when it has no profile row.
@@ -78,4 +80,19 @@ func profileOf(a domain.Account) domain.Profile {
 		return domain.Profile{UserID: a.UserID}
 	}
 	return *a.Profile
+}
+
+// withDetails fills the profile's interests, skills and education entries.
+func (s *Service) withDetails(ctx context.Context, p domain.Profile) (domain.Profile, error) {
+	var err error
+	if p.Interests, err = s.store.ListTags(ctx, p.UserID, domain.KindInterest); err != nil {
+		return domain.Profile{}, err
+	}
+	if p.Skills, err = s.store.ListTags(ctx, p.UserID, domain.KindSkill); err != nil {
+		return domain.Profile{}, err
+	}
+	if p.Education, err = s.store.ListEducation(ctx, p.UserID); err != nil {
+		return domain.Profile{}, err
+	}
+	return p, nil
 }

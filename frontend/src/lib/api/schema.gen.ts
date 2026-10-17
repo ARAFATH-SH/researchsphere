@@ -502,6 +502,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/profiles/me/education": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add an education entry to the logged-in user's profile (FR-4.4)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Text is trimmed; an optional text field that is missing,
+         *     null or empty after trimming is stored as null. A missing or null `endYear` means
+         *     the entry is current. A user has at most 20 education entries.
+         */
+        post: operations["addMyEducation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/profiles/me/education/{educationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove one of the logged-in user's education entries (FR-4.4)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). An entry that does not exist and one that belongs to
+         *     someone else both get 404 `not_found`.
+         */
+        delete: operations["removeMyEducation"];
+        options?: never;
+        head?: never;
+        /**
+         * Change some fields of one of the logged-in user's education entries (FR-4.4)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). A field that is missing keeps its value; `null` clears
+         *     `degree`, `fieldOfStudy` or `endYear` (a null `endYear` makes the entry current).
+         *     The rules of EducationCreate apply to the entry after the change, so `endYear`
+         *     must not be before `startYear` whichever of the two is changed. An entry that does
+         *     not exist and one that belongs to someone else both get 404 `not_found`.
+         */
+        patch: operations["updateMyEducation"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -631,9 +685,9 @@ export interface components {
             total: number;
         };
         /**
-         * @description A researcher's profile (FR-4.1, FR-4.2, FR-4.5). The optional text fields are
-         *     always present and null when not set. `education`, `publications` and
-         *     `connectionStatus` are placeholders for now; later work fills them in.
+         * @description A researcher's profile (FR-4.1, FR-4.2, FR-4.4, FR-4.5). The optional text fields are
+         *     always present and null when not set. `publications` and `connectionStatus` are
+         *     placeholders for now; later work fills them in.
          */
         Profile: {
             /** Format: uuid */
@@ -654,8 +708,11 @@ export interface components {
             interests: components["schemas"]["Tag"][];
             /** @description The user's skills (FR-4.2), sorted by name ignoring letter case. */
             skills: components["schemas"]["Tag"][];
-            /** @description Placeholder: always empty until education entries are added (FR-4.4). */
-            education: Record<string, never>[];
+            /**
+             * @description The user's education entries (FR-4.4): current entries (no `endYear`) first,
+             *     then by `endYear`, latest first, then by `startYear`, latest first.
+             */
+            education: components["schemas"]["Education"][];
             /** @description Placeholder: always empty until confirmed publications are shown (FR-5.5). */
             publications: Record<string, never>[];
             connectionStatus: components["schemas"]["ConnectionStatus"];
@@ -715,6 +772,53 @@ export interface components {
              */
             country?: string | null;
         };
+        /** @description One education entry (FR-4.4). The optional fields are always present and null when not set. */
+        Education: {
+            /** Format: uuid */
+            id: string;
+            /** @example University of Cambridge */
+            institution: string;
+            /** @example PhD */
+            degree: string | null;
+            /** @example Computer Science */
+            fieldOfStudy: string | null;
+            /** @example 2019 */
+            startYear: number;
+            /**
+             * @description Null while the entry is current.
+             * @example 2023
+             */
+            endYear: number | null;
+        };
+        /**
+         * @description A new education entry (FR-4.4). Text is trimmed first and every text field must be
+         *     one line; lengths count characters after trimming. Years run from 1950 to ten years
+         *     after the current year, and `endYear` is not before `startYear`.
+         */
+        EducationCreate: {
+            /** @description 1 to 200 characters. */
+            institution: string;
+            /** @description At most 100 characters; empty means not set. */
+            degree?: string | null;
+            /** @description At most 100 characters; empty means not set. */
+            fieldOfStudy?: string | null;
+            startYear: number;
+            /** @description Missing or null while the entry is current. */
+            endYear?: number | null;
+        };
+        /**
+         * @description The fields to change in an education entry (FR-4.4). A missing field keeps its
+         *     value. `null` clears `degree`, `fieldOfStudy` or `endYear`; `null` for
+         *     `institution` or `startYear` is refused, because both are required. The rules of
+         *     EducationCreate apply to the entry after the change.
+         */
+        EducationUpdate: {
+            institution?: string | null;
+            degree?: string | null;
+            fieldOfStudy?: string | null;
+            startYear?: number | null;
+            endYear?: number | null;
+        };
     };
     responses: {
         /**
@@ -748,6 +852,20 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
+        /**
+         * @description A field is not valid. The code names the first invalid field, in this order:
+         *     `invalid_institution`, `invalid_degree`, `invalid_field_of_study`,
+         *     `invalid_start_year`, `invalid_end_year` (also when `endYear` is before
+         *     `startYear`). A body that is not JSON gets `bad_request`.
+         */
+        InvalidEducation: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
         /** @description An unexpected error on the server. */
         InternalError: {
             headers: {
@@ -759,6 +877,12 @@ export interface components {
         };
     };
     parameters: {
+        /**
+         * @description The entry's ID, a UUID. It is declared as a plain string so that the login check
+         *     runs before it is read (FR-3.1); a value that is not a UUID names no entry of the
+         *     user and gets 404 `not_found`.
+         */
+        EducationID: string;
         /**
          * @description The tag's ID, a UUID. It is declared as a plain string so that the login check runs
          *     before it is read (FR-3.1); a value that is not a UUID names no tag the user has and
@@ -1686,6 +1810,124 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    addMyEducation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EducationCreate"];
+            };
+        };
+        responses: {
+            /** @description The stored entry. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Education"];
+                };
+            };
+            400: components["responses"]["InvalidEducation"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The user already has 20 education entries (`education_limit_reached`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    removeMyEducation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The entry's ID, a UUID. It is declared as a plain string so that the login check
+                 *     runs before it is read (FR-3.1); a value that is not a UUID names no entry of the
+                 *     user and gets 404 `not_found`.
+                 */
+                educationId: components["parameters"]["EducationID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The entry is removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The user has no education entry with this ID (`not_found`). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    updateMyEducation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The entry's ID, a UUID. It is declared as a plain string so that the login check
+                 *     runs before it is read (FR-3.1); a value that is not a UUID names no entry of the
+                 *     user and gets 404 `not_found`.
+                 */
+                educationId: components["parameters"]["EducationID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EducationUpdate"];
+            };
+        };
+        responses: {
+            /** @description The entry after the change. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Education"];
+                };
+            };
+            400: components["responses"]["InvalidEducation"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The user has no education entry with this ID (`not_found`). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             500: components["responses"]["InternalError"];
         };
     };

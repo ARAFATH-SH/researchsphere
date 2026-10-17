@@ -263,6 +263,29 @@ func (okProfiles) CountTags(context.Context, string, profiledomain.TagKind) (int
 
 func (okProfiles) LinkTag(context.Context, string, profiledomain.TagKind, string) error { return nil }
 
+func (okProfiles) ListEducation(context.Context, string) ([]profiledomain.Education, error) {
+	return nil, nil
+}
+
+func (okProfiles) DeleteEducation(context.Context, string, string) error { return nil }
+
+func (okProfiles) CountEducation(context.Context, string) (int, error) { return 0, nil }
+
+func (okProfiles) InsertEducation(_ context.Context, e profiledomain.Education) (profiledomain.Education, error) {
+	e.ID = okEducationID
+	return e, nil
+}
+
+func (okProfiles) FindEducationForUpdate(_ context.Context, userID, id string) (profiledomain.Education, error) {
+	return profiledomain.Education{ID: id, UserID: userID, Institution: "MIT", StartYear: 2020}, nil
+}
+
+func (okProfiles) UpdateEducation(_ context.Context, e profiledomain.Education) (profiledomain.Education, error) {
+	return e, nil
+}
+
+const okEducationID = "8b3e4d5c-6f7a-4b2c-9d0e-1f2a3b4c5d6e"
+
 const okTagID = "7a2d3c4b-5e6f-4a1b-8c9d-0e1f2a3b4c5d"
 
 // The wired router needs the access cookie for /auth/me and accepts a token it signed.

@@ -99,15 +99,3 @@ func (s *Service) SuggestTags(ctx context.Context, kind domain.TagKind, q string
 	}
 	return s.store.SuggestTags(ctx, kind, q, limit)
 }
-
-// withTags fills the profile's interests and skills.
-func (s *Service) withTags(ctx context.Context, p domain.Profile) (domain.Profile, error) {
-	var err error
-	if p.Interests, err = s.store.ListTags(ctx, p.UserID, domain.KindInterest); err != nil {
-		return domain.Profile{}, err
-	}
-	if p.Skills, err = s.store.ListTags(ctx, p.UserID, domain.KindSkill); err != nil {
-		return domain.Profile{}, err
-	}
-	return p, nil
-}

@@ -1,6 +1,6 @@
 // Package http serves the profile operations in docs/openapi.yaml: the caller's own
 // profile and editing its basic fields (FR-4.1), research interests and skills (FR-4.2)
-// with suggestions (FR-4.3), and any user's profile (FR-4.5). It
+// with suggestions (FR-4.3), education entries (FR-4.4), and any user's profile (FR-4.5). It
 // turns the usecase's errors into the error codes the web client shows next to each
 // field. cmd/api guards each route with its platform action (SRS 2.3) before it gets here.
 package http
@@ -29,6 +29,12 @@ const (
 	CodeInvalidCountry     = "invalid_country"
 	CodeInvalidTagName     = "invalid_tag_name"
 	CodeTagLimitReached    = "tag_limit_reached"
+
+	CodeInvalidDegree         = "invalid_degree"
+	CodeInvalidFieldOfStudy   = "invalid_field_of_study"
+	CodeInvalidStartYear      = "invalid_start_year"
+	CodeInvalidEndYear        = "invalid_end_year"
+	CodeEducationLimitReached = "education_limit_reached"
 )
 
 // service is the part of usecase.Service this handler needs.
@@ -39,6 +45,9 @@ type service interface {
 	AddTag(ctx context.Context, userID string, kind domain.TagKind, name string) (domain.Tag, bool, error)
 	RemoveTag(ctx context.Context, userID string, kind domain.TagKind, tagID string) error
 	SuggestTags(ctx context.Context, kind domain.TagKind, q string, limit int) ([]domain.Tag, error)
+	AddEducation(ctx context.Context, userID string, in usecase.EducationInput) (domain.Education, error)
+	UpdateEducation(ctx context.Context, userID, id string, patch usecase.EducationPatch) (domain.Education, error)
+	RemoveEducation(ctx context.Context, userID, id string) error
 }
 
 // Handler implements the profile operations of gen.StrictServerInterface.
@@ -151,9 +160,8 @@ func (h *Handler) GetProfile(ctx context.Context, req gen.GetProfileRequestObjec
 	return gen.GetProfile200JSONResponse(body), nil
 }
 
-// profileBody builds the response. Education, publications and the connection status are
-// placeholders until education (FR-4.4), publications (FR-5.5) and connections (FR-7)
-// exist. Every list is empty, never null, when there is nothing in it.
+// profileBody builds the response. Publications and the connection status are
+// placeholders until publications (FR-5.5) and connections (FR-7) exist. Every list is empty, never null, when there is nothing in it.
 func profileBody(p domain.Profile) (gen.Profile, error) {
 	var id openapi_types.UUID
 	if err := id.UnmarshalText([]byte(p.UserID)); err != nil {
@@ -164,6 +172,10 @@ func profileBody(p domain.Profile) (gen.Profile, error) {
 		return gen.Profile{}, err
 	}
 	skills, err := tagBodies(p.Skills)
+	if err != nil {
+		return gen.Profile{}, err
+	}
+	education, err := educationBodies(p.Education)
 	if err != nil {
 		return gen.Profile{}, err
 	}
@@ -178,7 +190,7 @@ func profileBody(p domain.Profile) (gen.Profile, error) {
 		Country:          p.Country,
 		Interests:        interests,
 		Skills:           skills,
-		Education:        []map[string]any{},
+		Education:        education,
 		Publications:     []map[string]any{},
 		ConnectionStatus: gen.None,
 	}, nil

@@ -83,6 +83,10 @@ func TestProfileRoutesAreGuarded(t *testing.T) {
 		"DELETE /api/v1/profiles/me/skills/{tagId}":    authz.ActAsMember,
 		"GET /api/v1/tags/interests":                   authz.ViewContent,
 		"GET /api/v1/tags/skills":                      authz.ViewContent,
+
+		"POST /api/v1/profiles/me/education":                 authz.ActAsMember,
+		"PATCH /api/v1/profiles/me/education/{educationId}":  authz.ActAsMember,
+		"DELETE /api/v1/profiles/me/education/{educationId}": authz.ActAsMember,
 	}
 	for route, action := range want {
 		if got := platformGuards[route]; got != action {

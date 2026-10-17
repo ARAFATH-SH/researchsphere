@@ -36,6 +36,26 @@ type fakeService struct {
 	tagID       string         // given to RemoveTag
 	q           string         // given to SuggestTags
 	limit       int            // given to SuggestTags
+
+	education      domain.Education       // returned by the education operations
+	educationIn    usecase.EducationInput // given to AddEducation
+	educationPatch usecase.EducationPatch // given to UpdateEducation
+	educationID    string                 // given to UpdateEducation and RemoveEducation
+}
+
+func (f *fakeService) AddEducation(_ context.Context, userID string, in usecase.EducationInput) (domain.Education, error) {
+	f.userID, f.educationIn = userID, in
+	return f.education, f.err
+}
+
+func (f *fakeService) UpdateEducation(_ context.Context, userID, id string, patch usecase.EducationPatch) (domain.Education, error) {
+	f.userID, f.educationID, f.educationPatch = userID, id, patch
+	return f.education, f.err
+}
+
+func (f *fakeService) RemoveEducation(_ context.Context, userID, id string) error {
+	f.userID, f.educationID = userID, id
+	return f.err
 }
 
 func (f *fakeService) AddTag(_ context.Context, userID string, kind domain.TagKind, name string) (domain.Tag, bool, error) {
