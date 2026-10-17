@@ -1,11 +1,6 @@
-import { ComingSoon } from "@/components/coming-soon";
+import { ProfileView } from "@/features/profile/profile-view";
 
+// The signed-in user's own profile (FR-4.5); the "Me" tab links here.
 export default function Page() {
-  return (
-    <ComingSoon
-      title="Profile"
-      purpose="View a profile, or edit your own, including publications."
-      requirements={["FR-4", "FR-5"]}
-    />
-  );
+  return <ProfileView />;
 }
