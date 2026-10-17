@@ -79,6 +79,14 @@ describe("AppShell", () => {
     });
   });
 
+  it("puts the signed-in footer inside the main column, after the page", () => {
+    mockPathname.mockReturnValue("/home");
+    render(<AppShell>content</AppShell>);
+    const main = within(screen.getByRole("main"));
+    expect(main.getByRole("navigation", { name: "Footer" })).toBeTruthy();
+    expect(main.getByRole("link", { name: "Go to your Settings" }).getAttribute("href")).toBe("/settings/account");
+  });
+
   it("has a search box that goes to /search", () => {
     mockPathname.mockReturnValue("/home");
     render(<AppShell>x</AppShell>);

@@ -1,17 +1,18 @@
 import { ComingSoon } from "@/components/coming-soon";
 import { Card } from "@/components/ui/card";
 import { AccessNotice } from "@/features/auth/access-notice";
+import { HomeProfileCard } from "@/features/profile/home-profile-card";
 
-// Home reserves the three-column grid of docs/ui-guidelines.md: profile card, feed,
-// recommendations. Each column is filled by a later slice. AccessNotice shows the
-// message of a guard that sent the user here, such as RequireAdmin.
+// Home is the three-column grid of docs/ui-guidelines.md: the profile card, then the feed
+// and recommendations, which later slices fill. AccessNotice shows the message of a guard
+// that sent the user here, such as RequireAdmin.
 export default function Page() {
   return (
     <>
       <AccessNotice />
-      <div className="grid gap-6 md:grid-cols-[225px_minmax(0,1fr)] lg:grid-cols-[225px_minmax(0,1fr)_300px]">
+      <div className="grid gap-6 md:grid-cols-[240px_minmax(0,1fr)] lg:grid-cols-[240px_minmax(0,1fr)_320px]">
         <aside aria-label="Your profile">
-          <Card className="h-40 p-4 text-sm text-text-muted">Your profile card (FR-4)</Card>
+          <HomeProfileCard />
         </aside>
         <section aria-label="Feed">
           <ComingSoon

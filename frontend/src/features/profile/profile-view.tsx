@@ -66,8 +66,8 @@ function OtherProfile({ profile }: { profile: Profile }) {
   const showContact = hasVisibleContact(profile.contact);
   return (
     <>
-      <div className="grid gap-6 md:grid-cols-3">
-        <div className="space-y-4 md:col-span-2">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="min-w-0 space-y-4">
           <ProfileHeader profile={profile} onContact={showContact ? () => setContactOpen(true) : undefined} />
           <ProfileSections profile={profile} />
         </div>
@@ -124,8 +124,8 @@ function OwnProfile({ profile, reload }: { profile: Profile; reload: () => void 
   const common = { profile, onClose: close, returnFocusId: open ? editButtonId(open) : undefined };
   return (
     <>
-      <div className="grid gap-6 md:grid-cols-3">
-        <div className="space-y-4 md:col-span-2">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="min-w-0 space-y-4">
           <ProfileHeader profile={profile} edit={edit} onContact={() => setEditing("contact")} />
           <ProfileSections profile={profile} edit={edit} />
         </div>

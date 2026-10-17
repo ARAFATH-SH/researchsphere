@@ -47,9 +47,21 @@ Components use only these names, for example `bg-background`, `bg-surface`,
   | Pages | `size` | Max width |
   | --- | --- | --- |
   | Landing and other signed-out (marketing) pages, including auth | `marketing` | 1280px (`max-w-marketing`) |
-  | Signed-in app pages (feed, profile, projects …) | `app` | 1128px (`max-w-page`) |
+  | Signed-in app pages (home, profile, network, projects, events, messaging) | `app` | 1280px (`max-w-page`) |
   | Editor workspace (slice 22) | `full` | none |
 
+  Auth and not-found cards stay about 400px wide inside the `marketing` Container (see
+  Narrow cards). `app` and `marketing` are both 1280px but stay two tokens, so either can
+  change alone.
+- **Page grids:** signed-in pages divide the Container with a grid; only the grid sets
+  column widths, never a section.
+
+  | Page | From 1024px | 768–1023px | Below 768px |
+  | --- | --- | --- | --- |
+  | Profile (`/profile`, `/profile/[userId]`) | main column, then a 320px sidebar: `lg:grid-cols-[minmax(0,1fr)_320px]` | one column, the sidebar under the main column | one column |
+  | Home (`/home`) | left 240px, center flexible, right 320px: `lg:grid-cols-[240px_minmax(0,1fr)_320px]` | left 240px and center; the right column moves under the center | one column |
+
+  The gap is 24px (`gap-6`).
 - **Side padding:** 16px on phones, 24px from 768px (tablets), 32px from 1024px (desktop).
   Container adds it; sections add none.
 - **Full-bleed backgrounds:** the hero, CTA band and footer backgrounds span the whole screen.
@@ -130,9 +142,30 @@ Landing, register, check-email, verify-email, sign-in and reset-password.
 - **Logo:** the mark plus the "ResearchSphere" wordmark. To leave room for search and tabs,
   the signed-in top bar shows only the mark below 1024px, and the signed-out top bar below
   640px; the name stays available to screen readers. Buttons never wrap their text.
-- **Home layout** (reserved now, built later): a three-column grid — left a profile card
-  (about 225px), center the feed, right recommendations (about 300px). Below 1024px the right
-  column moves under the feed; below 768px everything is one column.
+- **Home layout:** the three-column grid of [Page grids](#layout-widths): left the profile
+  card (240px), center the feed, right recommendations (320px). The feed and
+  recommendations are built by later slices.
+- **Home profile card:** the left column of `/home` loads `GET /profiles/me` and shows a
+  cover band, the initials avatar, name, headline, "job title, institution", country and
+  "Profile strength: N%" (the same value as the profile sidebar). The name, the avatar and
+  the strength line link to `/profile`. A skeleton shows while it loads.
+- **Profile header:** on 768px and wider, the right side lists the current institution and
+  the latest education entry, each with a square initial badge (`primary-soft`, no logos).
+  Beside the pencil or Connect is a "…" (More) button whose menu has "Copy profile link"
+  (copies `/profile/<userId>` and shows a toast); ArrowDown opens it, Escape closes it and
+  the focus goes back to the button.
+- **Sticky profile bar:** once the header card scrolls behind the top bar
+  (IntersectionObserver), a slim `surface` bar under the top bar repeats the avatar, the
+  name, the headline on one line and the header's buttons.
+- **Show all:** long lists in profile cards show their first entries (Education 2, Skills
+  6) and then a full-width "Show all N →" row at the bottom of the card that expands the
+  list in place. The About card ends with a "Top skills" box: the first 5 skills joined by
+  " • ", linking to the Skills card.
+- **Footer:** every signed-in page except the editor workspace ends with the signed-in footer
+  inside the main Container (not full-bleed): three columns of small `text-muted` links,
+  three help rows with icons (Help Center, Settings at `/settings/account`, AI
+  transparency), a Language select with only English (SRS 2.5) and "ResearchSphere © 2026"
+  with the logo mark. Links without a page go to `#`.
 - **Unbuilt pages** show a "Coming soon" card that names the requirements the page will
   cover.
 - The project workspace (slice 22) is the only page allowed to need more than 768px (SRS 5.1).

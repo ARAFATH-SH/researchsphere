@@ -17,7 +17,7 @@
 
   /* Layout widths (docs/ui-guidelines.md): only Container sets page width. */
   --container-marketing: 80rem; /* 1280px: landing and other signed-out pages */
-  --container-page: 70.5rem; /* 1128px: signed-in pages */
+  --container-page: 80rem; /* 1280px: signed-in pages */
   --container-intro: 45rem; /* 720px: section headings, intros, the FAQ list */
   --container-text: 70ch; /* running paragraphs */
 
