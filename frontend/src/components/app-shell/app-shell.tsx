@@ -1,5 +1,6 @@
 import { type ReactNode, Suspense } from "react";
 
+import { CurrentAppFooter } from "@/components/app-footer";
 import { Container } from "@/components/Container";
 import { Logo } from "@/components/logo";
 
@@ -7,7 +8,8 @@ import { SearchIcon } from "./icons";
 import { CurrentTabList, TabList, type TabListVariant } from "./tab-list";
 
 // AppShell is the signed-in frame: a fixed white top bar with the logo, search and icon
-// tabs, and below 768px a fixed bottom bar with the same tabs (docs/ui-guidelines.md).
+// tabs, below 768px a fixed bottom bar with the same tabs, and the signed-in footer under
+// the page (docs/ui-guidelines.md).
 export function AppShell({ children }: { children: ReactNode }) {
   return (
     <>
@@ -23,6 +25,9 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <Container as="main" size="app" className="flex-1 pt-20 pb-24 md:pb-10">
         {children}
+        <Suspense fallback={null}>
+          <CurrentAppFooter />
+        </Suspense>
       </Container>
 
       <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-surface md:hidden">

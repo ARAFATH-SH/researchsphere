@@ -9,8 +9,8 @@ export function ProfileSkeleton() {
       <p role="status" className="sr-only">
         Loading profile…
       </p>
-      <div aria-hidden="true" className="grid gap-6 md:grid-cols-3">
-        <div className="space-y-4 md:col-span-2">
+      <div aria-hidden="true" className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="min-w-0 space-y-4">
           <Card className="overflow-hidden">
             <div className="h-24 animate-pulse bg-primary-soft md:h-32" />
             <div className="space-y-3 px-4 pb-6 md:px-6">

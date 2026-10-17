@@ -1,6 +1,6 @@
 import "@/test/dialog-polyfill";
 
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import { useSession } from "@/features/auth/session";
 
@@ -316,5 +316,124 @@ describe("ProfileView, contact info", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Contact info" }));
     expect(screen.getByRole("dialog", { name: "Contact info" })).toBeTruthy();
     expect(await screen.findByText("ada@example.org")).toBeTruthy();
+  });
+});
+
+describe("ProfileView, header", () => {
+  it("lists the current institution and the latest education entry", async () => {
+    mockGetProfile.mockResolvedValue({ status: "ok", profile: fullProfile(bobID, "Bob Babbage") });
+    render(<ProfileView userId={bobID} />);
+    const list = within(await screen.findByRole("list", { name: "Affiliations" }));
+    expect(list.getAllByRole("listitem").map((li) => li.textContent)).toEqual(["UUniversity of London", "EETH Zürich"]);
+  });
+
+  it("has no affiliations list when there is neither", async () => {
+    mockGetProfile.mockResolvedValue({ status: "ok", profile: emptyProfile(bobID, "Bob Babbage") });
+    render(<ProfileView userId={bobID} />);
+    await screen.findByRole("heading", { level: 1 });
+    expect(screen.queryByRole("list", { name: "Affiliations" })).toBeNull();
+  });
+
+  it("copies the own profile link as /profile/<own id> from More", async () => {
+    const writeText = jest.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    mockGetMyProfile.mockResolvedValue({ status: "ok", profile: fullProfile(adaID, "Ada Lovelace") });
+    render(<ProfileView />);
+    fireEvent.click(await screen.findByRole("button", { name: "More" }));
+    await act(async () => fireEvent.click(screen.getByRole("menuitem", { name: "Copy profile link" })));
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/profile/${adaID}`);
+    expect(screen.getByRole("status").textContent).toBe("Link copied");
+  });
+
+  describe("sticky bar", () => {
+    let report: (entry: Partial<IntersectionObserverEntry>) => void;
+    beforeEach(() => {
+      window.IntersectionObserver = jest.fn((callback: IntersectionObserverCallback) => {
+        report = (entry) => callback([entry as IntersectionObserverEntry], {} as IntersectionObserver);
+        return { observe: jest.fn(), disconnect: jest.fn() };
+      }) as unknown as typeof IntersectionObserver;
+    });
+    afterEach(() => {
+      delete (window as { IntersectionObserver?: unknown }).IntersectionObserver;
+    });
+
+    it("shows the name, headline and buttons once the header scrolls past the top bar", async () => {
+      mockGetProfile.mockResolvedValue({ status: "ok", profile: fullProfile(bobID, "Bob Babbage") });
+      render(<ProfileView userId={bobID} />);
+      await screen.findByRole("heading", { level: 1 });
+      expect(screen.queryByRole("region", { name: "Profile summary" })).toBeNull();
+
+      act(() => report({ isIntersecting: false, boundingClientRect: { top: -200 } as DOMRect }));
+      const bar = within(screen.getByRole("region", { name: "Profile summary" }));
+      expect(bar.getByText("Bob Babbage")).toBeTruthy();
+      expect(bar.getByText("Analyst of engines")).toBeTruthy();
+      expect(bar.getByRole("button", { name: "Connect" })).toBeTruthy();
+      expect(bar.getByRole("button", { name: "More" })).toBeTruthy();
+
+      act(() => report({ isIntersecting: true, boundingClientRect: { top: 80 } as DOMRect }));
+      expect(screen.queryByRole("region", { name: "Profile summary" })).toBeNull();
+    });
+
+    it("stays hidden while the header is below the screen", async () => {
+      mockGetProfile.mockResolvedValue({ status: "ok", profile: fullProfile(bobID, "Bob Babbage") });
+      render(<ProfileView userId={bobID} />);
+      await screen.findByRole("heading", { level: 1 });
+      act(() => report({ isIntersecting: false, boundingClientRect: { top: 2000 } as DOMRect }));
+      expect(screen.queryByRole("region", { name: "Profile summary" })).toBeNull();
+    });
+  });
+});
+
+describe("ProfileView, Top skills and Show all", () => {
+  const skills = ["A", "B", "C", "D", "E", "F", "G"].map((name, i) => ({ id: `s${i}`, name }));
+
+  it("names the first five skills under the bio and links to the Skills card", async () => {
+    const p = { ...fullProfile(bobID, "Bob Babbage"), skills };
+    mockGetProfile.mockResolvedValue({ status: "ok", profile: p });
+    render(<ProfileView userId={bobID} />);
+    const about = within(await screen.findByRole("region", { name: "About" }));
+    const top = about.getByRole("link", { name: /Top skills/ });
+    expect(top.textContent).toContain("A • B • C • D • E");
+    expect(top.textContent).not.toContain("F");
+    expect(top.getAttribute("href")).toBe("#skills");
+    expect(screen.getByRole("region", { name: "Skills" }).closest("#skills")).toBeTruthy();
+  });
+
+  it("shows six skills, then all of them after Show all", async () => {
+    mockGetProfile.mockResolvedValue({ status: "ok", profile: { ...fullProfile(bobID, "Bob Babbage"), skills } });
+    render(<ProfileView userId={bobID} />);
+    const region = within(await screen.findByRole("region", { name: "Skills" }));
+    expect(within(region.getByRole("list", { name: "Skills" })).getAllByRole("listitem")).toHaveLength(6);
+
+    const more = region.getByRole("button", { name: "Show all 7" });
+    expect(more.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(more);
+    expect(within(region.getByRole("list", { name: "Skills" })).getAllByRole("listitem")).toHaveLength(7);
+    expect(region.queryByRole("button", { name: /Show all/ })).toBeNull();
+  });
+
+  it("shows two education entries, then all of them after Show all", async () => {
+    const p = fullProfile(adaID, "Ada Lovelace");
+    p.education = [
+      ...p.education,
+      { id: "e3", institution: "Cambridge", degree: null, fieldOfStudy: null, startYear: 2018, endYear: 2021 },
+    ];
+    mockGetMyProfile.mockResolvedValue({ status: "ok", profile: p });
+    render(<ProfileView />);
+    const region = within(await screen.findByRole("region", { name: "Education" }));
+    expect(region.getAllByRole("listitem")).toHaveLength(2);
+    fireEvent.click(region.getByRole("button", { name: "Show all 3" }));
+    expect(region.getAllByRole("listitem").map((li) => li.firstChild?.textContent)).toEqual([
+      "ETH Zürich",
+      "MIT",
+      "Cambridge",
+    ]);
+  });
+
+  it("has no Show all row when everything fits", async () => {
+    mockGetProfile.mockResolvedValue({ status: "ok", profile: fullProfile(bobID, "Bob Babbage") });
+    render(<ProfileView userId={bobID} />);
+    await screen.findByRole("heading", { level: 1 });
+    expect(screen.queryByRole("button", { name: /Show all/ })).toBeNull();
   });
 });
