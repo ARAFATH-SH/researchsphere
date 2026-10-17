@@ -6,31 +6,40 @@ import { type ReactNode, useId, useState } from "react";
 import { Card } from "@/components/ui/card";
 
 import type { Education, Profile, Tag } from "./api";
+import { EditButton, editButtonId, type EditSection, editHref } from "./edit-button";
 import { yearRange } from "./format";
 
-// The main column's sections, one card each. On the owner's profile an empty section
-// shows a prompt to fill it in; on anyone else's it is hidden, except Publications.
+// EditControls are given only on the owner's profile: open shows a section's dialog.
+export type EditControls = { open: (section: EditSection) => void };
 
-const editHref = "/profile/edit";
-
-export function ProfileSections({ profile, own }: { profile: Profile; own: boolean }) {
+// The main column's sections, one card each. On the owner's profile each has a pencil
+// and an empty section shows a prompt to fill it in; on anyone else's an empty section is
+// hidden, except Publications.
+export function ProfileSections({ profile, edit }: { profile: Profile; edit?: EditControls }) {
   return (
     <>
-      <Section title="About" empty={!profile.bio} own={own} prompt="Write a short bio">
+      <Section title="About" section="about" empty={!profile.bio} edit={edit} prompt="Write a short bio">
         {profile.bio && <Bio text={profile.bio} />}
       </Section>
       <Section
         title="Research interests"
+        section="interests"
         empty={profile.interests.length === 0}
-        own={own}
+        edit={edit}
         prompt="Add your research interests"
       >
         <Chips label="Research interests" tags={profile.interests} chipClass="bg-primary-soft text-primary" />
       </Section>
-      <Section title="Skills" empty={profile.skills.length === 0} own={own} prompt="Add your skills">
+      <Section title="Skills" section="skills" empty={profile.skills.length === 0} edit={edit} prompt="Add your skills">
         <Chips label="Skills" tags={profile.skills} chipClass="border border-border bg-background text-text" />
       </Section>
-      <Section title="Education" empty={profile.education.length === 0} own={own} prompt="Add your education">
+      <Section
+        title="Education"
+        section="education"
+        empty={profile.education.length === 0}
+        edit={edit}
+        prompt="Add your education"
+      >
         <EducationList entries={profile.education} />
       </Section>
       {/* Confirmed publications arrive with slice 11 (FR-5.5). */}
@@ -41,14 +50,24 @@ export function ProfileSections({ profile, own }: { profile: Profile; own: boole
   );
 }
 
-type SectionProps = { title: string; empty: boolean; own: boolean; prompt: string; children: ReactNode };
+type SectionProps = {
+  title: string;
+  section: EditSection;
+  empty: boolean;
+  edit?: EditControls;
+  prompt: string;
+  children: ReactNode;
+};
 
-function Section({ title, empty, own, prompt, children }: SectionProps) {
-  if (empty && !own) return null;
+function Section({ title, section, empty, edit, prompt, children }: SectionProps) {
+  if (empty && !edit) return null;
+  const action = edit && (
+    <EditButton id={editButtonId(section)} label={`Edit ${title.toLowerCase()}`} onClick={() => edit.open(section)} />
+  );
   return (
-    <SectionCard title={title}>
+    <SectionCard title={title} action={action}>
       {empty ? (
-        <Link href={editHref} className="text-sm text-secondary hover:underline">
+        <Link href={editHref(section)} className="text-sm text-secondary hover:underline">
           {prompt}
         </Link>
       ) : (
@@ -58,14 +77,19 @@ function Section({ title, empty, own, prompt, children }: SectionProps) {
   );
 }
 
-export function SectionCard({ title, children }: { title: string; children: ReactNode }) {
+// SectionCard is a card with a titled section; action, such as a pencil, sits at the
+// end of the title row.
+export function SectionCard({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
   const headingId = useId();
   return (
     <Card className="p-4 md:p-6">
       <section aria-labelledby={headingId}>
-        <h2 id={headingId} className="text-lg font-semibold text-text">
-          {title}
-        </h2>
+        <div className="-my-2 flex items-center justify-between gap-4">
+          <h2 id={headingId} className="py-2 text-lg font-semibold text-text">
+            {title}
+          </h2>
+          {action}
+        </div>
         <div className="mt-3">{children}</div>
       </section>
     </Card>

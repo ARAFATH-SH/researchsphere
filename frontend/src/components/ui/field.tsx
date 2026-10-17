@@ -12,22 +12,22 @@ export const inputClass =
   "focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/25 " +
   "aria-invalid:border-danger aria-invalid:focus:ring-danger/25";
 
-// Field is a label above an input, with an optional hint and an error in red under it.
-// The input points to both with aria-describedby (docs/ui-guidelines.md, Forms).
-export function Field({ id, label, hint, error, className = "", ...input }: FieldProps) {
+type Described = { id: string; label: string; hint?: ReactNode; error?: string };
+
+// describe gives the aria props that link a control to its hint and error.
+function describe({ id, hint, error }: Described) {
   const describedBy = [error ? `${id}-error` : "", hint ? `${id}-hint` : ""].join(" ").trim();
+  return { "aria-invalid": error ? true : undefined, "aria-describedby": describedBy || undefined };
+}
+
+// Labelled is the label above a control and the hint and error under it.
+function Labelled({ id, label, hint, error, className, children }: Described & { className: string; children: ReactNode }) {
   return (
     <div className={className}>
       <label htmlFor={id} className="block text-sm font-semibold">
         {label}
       </label>
-      <input
-        id={id}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={describedBy || undefined}
-        className={inputClass}
-        {...input}
-      />
+      {children}
       {hint ? (
         <p id={`${id}-hint`} className="mt-1 text-sm text-text-muted">
           {hint}
@@ -39,6 +39,40 @@ export function Field({ id, label, hint, error, className = "", ...input }: Fiel
         </p>
       ) : null}
     </div>
+  );
+}
+
+// Field is a label above an input, with an optional hint and an error in red under it.
+// The input points to both with aria-describedby (docs/ui-guidelines.md, Forms).
+export function Field({ id, label, hint, error, className = "", ...input }: FieldProps) {
+  return (
+    <Labelled id={id} label={label} hint={hint} error={error} className={className}>
+      <input id={id} {...describe({ id, label, hint, error })} className={inputClass} {...input} />
+    </Labelled>
+  );
+}
+
+type TextAreaFieldProps = Omit<ComponentProps<"textarea">, "id"> & Omit<Described, "hint"> & { hint?: ReactNode };
+
+// TextAreaField is Field for text of several lines. hint may be live text, such as a counter.
+export function TextAreaField({ id, label, hint, error, className = "", ...textarea }: TextAreaFieldProps) {
+  return (
+    <Labelled id={id} label={label} hint={hint} error={error} className={className}>
+      <textarea id={id} {...describe({ id, label, hint, error })} className={inputClass} {...textarea} />
+    </Labelled>
+  );
+}
+
+type SelectFieldProps = Omit<ComponentProps<"select">, "id"> & Described;
+
+// SelectField is Field for a choice from a list.
+export function SelectField({ id, label, hint, error, className = "", children, ...select }: SelectFieldProps) {
+  return (
+    <Labelled id={id} label={label} hint={hint} error={error} className={className}>
+      <select id={id} {...describe({ id, label, hint, error })} className={inputClass} {...select}>
+        {children}
+      </select>
+    </Labelled>
   );
 }
 

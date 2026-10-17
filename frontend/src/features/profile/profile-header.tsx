@@ -1,18 +1,19 @@
 "use client";
 
-import Link from "next/link";
 import { useId } from "react";
 
 import { buttonClass } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
 import type { Profile } from "./api";
+import { EditButton, editButtonId } from "./edit-button";
 import { affiliation, countryName, initials } from "./format";
+import type { EditControls } from "./profile-sections";
 
 // ProfileHeader is the top card: a cover band, the avatar, the name and where the
-// researcher works. The owner gets "Edit profile"; anyone else a Connect button that
-// waits for connections (slice 13).
-export function ProfileHeader({ profile, own }: { profile: Profile; own: boolean }) {
+// researcher works. The owner gets a pencil that opens the intro dialog; anyone else a
+// Connect button that waits for connections (slice 13).
+export function ProfileHeader({ profile, edit }: { profile: Profile; edit?: EditControls }) {
   const works = affiliation(profile);
   return (
     <Card className="overflow-hidden">
@@ -26,7 +27,13 @@ export function ProfileHeader({ profile, own }: { profile: Profile; own: boolean
           >
             {initials(profile.fullName)}
           </div>
-          <div className="pt-4">{own ? <EditProfileLink /> : <ConnectButton />}</div>
+          <div className="pt-4">
+            {edit ? (
+              <EditButton id={editButtonId("intro")} label="Edit intro" onClick={() => edit.open("intro")} />
+            ) : (
+              <ConnectButton />
+            )}
+          </div>
         </div>
         <h1 className="mt-4 text-2xl font-semibold break-words text-text md:text-3xl">{profile.fullName}</h1>
         {profile.headline && <p className="mt-1 text-base text-text">{profile.headline}</p>}
@@ -37,14 +44,6 @@ export function ProfileHeader({ profile, own }: { profile: Profile; own: boolean
         </div>
       </div>
     </Card>
-  );
-}
-
-function EditProfileLink() {
-  return (
-    <Link href="/profile/edit" className={buttonClass({ variant: "outline", size: "md" })}>
-      Edit profile
-    </Link>
   );
 }
 

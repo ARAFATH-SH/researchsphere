@@ -1,4 +1,7 @@
+import { type ApiError, call, type Result, unexpectedError } from "@/lib/api/call";
 import { api, type components } from "@/lib/api/client";
+
+export type { ApiError, Result };
 
 export type RegisterRequest = components["schemas"]["RegisterRequest"];
 export type LoginRequest = components["schemas"]["LoginRequest"];
@@ -8,36 +11,6 @@ export type ProjectRef = components["schemas"]["ProjectRef"];
 export type Role = components["schemas"]["Role"];
 export type AdminUser = components["schemas"]["AdminUser"];
 export type UserPage = components["schemas"]["UserPage"];
-
-// ApiError is the error shape every API error uses (SRS 5.3).
-export type ApiError = components["schemas"]["Error"];
-
-export type Result<T> = { ok: true; data: T } | ({ ok: false } & ApiError);
-
-const networkError: ApiError = {
-  code: "network_error",
-  message: "Could not reach the server. Check your connection and try again.",
-};
-
-const unexpectedError: ApiError = {
-  code: "internal_error",
-  message: "Something went wrong on our side. Please try again.",
-};
-
-// call runs one request and turns every outcome, including a network failure or a
-// reply that is not in the error shape, into a Result.
-async function call<T>(
-  request: () => Promise<{ data?: T; error?: ApiError; response: Response }>,
-): Promise<Result<T | undefined>> {
-  try {
-    const { data, error, response } = await request();
-    if (response.ok) return { ok: true, data };
-    if (error?.code && error.message) return { ok: false, code: error.code, message: error.message };
-    return { ok: false, ...unexpectedError };
-  } catch {
-    return { ok: false, ...networkError };
-  }
-}
 
 // register creates an account and sends a verification link (FR-1.1 to FR-1.3).
 export async function register(body: RegisterRequest): Promise<Result<undefined>> {

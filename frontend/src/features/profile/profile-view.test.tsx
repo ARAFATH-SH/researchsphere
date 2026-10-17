@@ -1,13 +1,21 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import "@/test/dialog-polyfill";
+
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import { useSession } from "@/features/auth/session";
 
-import { getMyProfile, getProfile } from "./api";
+import { getMyProfile, getProfile, updateMyProfile } from "./api";
 import { ProfileView } from "./profile-view";
 import { adaID, bobID, emptyProfile, fullProfile } from "./test-profiles";
 
 jest.mock("./api");
 jest.mock("@/features/auth/session");
+const mockReplace = jest.fn();
+let mockSearch = "";
+jest.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: mockReplace }),
+  useSearchParams: () => new URLSearchParams(mockSearch),
+}));
 const mockGetMyProfile = jest.mocked(getMyProfile);
 const mockGetProfile = jest.mocked(getProfile);
 
@@ -18,14 +26,17 @@ beforeEach(() => {
     user: { id: adaID, email: "ada@example.org", fullName: "Ada Lovelace", role: "researcher" },
   });
 });
-afterEach(() => jest.resetAllMocks());
+afterEach(() => {
+  jest.resetAllMocks();
+  mockSearch = "";
+});
 
 function headings(level: number) {
   return screen.getAllByRole("heading", { level }).map((h) => h.textContent);
 }
 
 describe("ProfileView, own profile", () => {
-  it("shows the profile with Edit profile and the strength card", async () => {
+  it("shows the profile with pencils and the strength card", async () => {
     mockGetMyProfile.mockResolvedValue({ status: "ok", profile: fullProfile(adaID, "Ada Lovelace") });
     render(<ProfileView />);
 
@@ -37,8 +48,9 @@ describe("ProfileView, own profile", () => {
     expect(screen.getByText("Mathematics")).toBeTruthy();
     expect(screen.getByText("United Kingdom")).toBeTruthy();
 
-    const edit = screen.getByRole("link", { name: "Edit profile" });
-    expect(edit.getAttribute("href")).toBe("/profile/edit");
+    for (const name of ["Edit intro", "Edit about", "Edit research interests", "Edit skills", "Edit education"]) {
+      expect(screen.getByRole("button", { name })).toBeTruthy();
+    }
     expect(screen.queryByRole("button", { name: /connect/i })).toBeNull();
 
     expect(screen.getByRole("heading", { level: 2, name: "Profile strength" })).toBeTruthy();
@@ -81,28 +93,34 @@ describe("ProfileView, own profile", () => {
     render(<ProfileView />);
     await screen.findByRole("heading", { level: 1 });
 
-    for (const [section, prompt] of [
-      ["About", "Write a short bio"],
-      ["Research interests", "Add your research interests"],
-      ["Skills", "Add your skills"],
-      ["Education", "Add your education"],
+    for (const [section, prompt, href] of [
+      ["About", "Write a short bio", "/profile?edit=about"],
+      ["Research interests", "Add your research interests", "/profile?edit=interests"],
+      ["Skills", "Add your skills", "/profile?edit=skills"],
+      ["Education", "Add your education", "/profile?edit=education"],
     ]) {
       const region = within(screen.getByRole("region", { name: section }));
-      expect(region.getByRole("link", { name: prompt }).getAttribute("href")).toBe("/profile/edit");
+      expect(region.getByRole("link", { name: prompt }).getAttribute("href")).toBe(href);
     }
     expect(screen.getByText("No publications yet.")).toBeTruthy();
 
     expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("0");
     const checklist = screen.getByRole("list", { name: "Profile checklist" });
     const missing = within(checklist).getAllByRole("link");
-    expect(missing).toHaveLength(6);
-    expect(missing.every((a) => a.getAttribute("href") === "/profile/edit")).toBe(true);
+    expect(missing.map((a) => a.getAttribute("href"))).toEqual([
+      "/profile?edit=intro",
+      "/profile?edit=about",
+      "/profile?edit=intro",
+      "/profile?edit=interests",
+      "/profile?edit=skills",
+      "/profile?edit=education",
+    ]);
   });
 
   it("shows the own version for /profile/<own id>", async () => {
     mockGetMyProfile.mockResolvedValue({ status: "ok", profile: fullProfile(adaID, "Ada Lovelace") });
     render(<ProfileView userId={adaID} />);
-    expect(await screen.findByRole("link", { name: "Edit profile" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Edit intro" })).toBeTruthy();
     expect(mockGetMyProfile).toHaveBeenCalled();
     expect(mockGetProfile).not.toHaveBeenCalled();
   });
@@ -117,7 +135,7 @@ describe("ProfileView, another user's profile", () => {
     expect(connect.getAttribute("aria-disabled")).toBe("true");
     expect(screen.getByRole("tooltip", { hidden: true }).textContent).toBe("Available soon");
     expect(connect.getAttribute("aria-describedby")).toBe(screen.getByRole("tooltip", { hidden: true }).id);
-    expect(screen.queryByRole("link", { name: "Edit profile" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Edit / })).toBeNull();
     expect(screen.queryByText("Profile strength")).toBeNull();
     expect(screen.getByText("More researchers like this will appear here")).toBeTruthy();
     expect(mockGetProfile).toHaveBeenCalledWith(bobID);
@@ -182,5 +200,59 @@ describe("ProfileView, states", () => {
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByRole("heading", { level: 1, name: "Bob Babbage" })).toBeTruthy();
     expect(mockGetProfile).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("ProfileView, editing", () => {
+  it("opens a section's dialog from its pencil and gives the focus back on close", async () => {
+    mockGetMyProfile.mockResolvedValue({ status: "ok", profile: fullProfile(adaID, "Ada Lovelace") });
+    render(<ProfileView />);
+    const pencil = await screen.findByRole("button", { name: "Edit about" });
+    fireEvent.click(pencil);
+    expect(screen.getByRole("dialog", { name: "Edit about" })).toBeTruthy();
+    expect(screen.getByText("24 / 2000")).toBeTruthy();
+    fireEvent.change(screen.getByRole("textbox", { name: "Bio" }), { target: { value: "Hello" } });
+    expect(screen.getByText("5 / 2000")).toBeTruthy();
+    fireEvent.change(screen.getByRole("textbox", { name: "Bio" }), { target: { value: "First line.\nSecond line." } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(pencil);
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  it("opens the dialog named by ?edit= and clears it on close", async () => {
+    mockSearch = "edit=skills";
+    mockGetMyProfile.mockResolvedValue({ status: "ok", profile: fullProfile(adaID, "Ada Lovelace") });
+    render(<ProfileView />);
+    expect(await screen.findByRole("dialog", { name: "Edit skills" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(mockReplace).toHaveBeenCalledWith("/profile", { scroll: false });
+  });
+
+  it("ignores ?edit= on someone else's profile", async () => {
+    mockSearch = "edit=skills";
+    mockGetProfile.mockResolvedValue({ status: "ok", profile: fullProfile(bobID, "Bob Babbage") });
+    render(<ProfileView userId={bobID} />);
+    await screen.findByRole("heading", { level: 1, name: "Bob Babbage" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("closes after saving, reloads the profile and shows Saved", async () => {
+    mockGetMyProfile.mockResolvedValue({ status: "ok", profile: fullProfile(adaID, "Ada Lovelace") });
+    jest.mocked(updateMyProfile).mockResolvedValue({ ok: true, data: undefined });
+    render(<ProfileView />);
+    fireEvent.click(await screen.findByRole("button", { name: "Edit intro" }));
+
+    const reloaded = { ...fullProfile(adaID, "Ada King"), headline: "Countess" };
+    mockGetMyProfile.mockResolvedValue({ status: "ok", profile: reloaded });
+    fireEvent.change(screen.getByRole("textbox", { name: "Full name" }), { target: { value: "Ada King" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect((await screen.findByRole("status")).textContent).toBe("Saved");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Ada King"));
+    expect(mockGetMyProfile).toHaveBeenCalledTimes(2);
   });
 });

@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import type { Profile } from "./api";
+import { editHref } from "./edit-button";
 import { SectionCard } from "./profile-sections";
 import { profileStrength } from "./strength";
 
@@ -35,7 +36,7 @@ function StrengthCard({ profile }: { profile: Profile }) {
                 <span className="sr-only"> (done)</span>
               </span>
             ) : (
-              <Link href="/profile/edit" className="text-secondary hover:underline">
+              <Link href={editHref(item.section)} className="text-secondary hover:underline">
                 {item.action}
               </Link>
             )}
