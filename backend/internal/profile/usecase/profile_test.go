@@ -9,6 +9,13 @@ import (
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/profile/domain"
 )
 
+// withContact gives p the contact info of a user who never saved any: nothing to see
+// and no links.
+func withContact(p domain.Profile) domain.Profile {
+	p.Contact = domain.VisibleContact{Links: []domain.Link{}}
+	return p
+}
+
 func TestGetOwn(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -16,10 +23,10 @@ func TestGetOwn(t *testing.T) {
 		want    domain.Profile
 		wantErr error
 	}{
-		{"profile row exists", adaID, *testAccounts()[0].Profile, nil},
-		{"no profile row gives an empty profile, not an error", bobID, domain.Profile{UserID: bobID}, nil},
+		{"profile row exists", adaID, withContact(*testAccounts()[0].Profile), nil},
+		{"no profile row gives an empty profile, not an error", bobID, withContact(domain.Profile{UserID: bobID}), nil},
 		// The caller's own token is still valid for up to 15 minutes after suspension.
-		{"suspended caller still reads their own profile", carlID, domain.Profile{UserID: carlID, FullName: "Carl Suspended"}, nil},
+		{"suspended caller still reads their own profile", carlID, withContact(domain.Profile{UserID: carlID, FullName: "Carl Suspended"}), nil},
 		{"account no longer exists", nobody, domain.Profile{}, domain.ErrNotFound},
 	}
 	for _, tt := range tests {
@@ -45,8 +52,8 @@ func TestView(t *testing.T) {
 		want    domain.Profile
 		wantErr error
 	}{
-		{"another user's profile", adaID, *testAccounts()[0].Profile, nil},
-		{"verified user without a profile row", bobID, domain.Profile{UserID: bobID}, nil},
+		{"another user's profile", adaID, withContact(*testAccounts()[0].Profile), nil},
+		{"verified user without a profile row", bobID, withContact(domain.Profile{UserID: bobID}), nil},
 		{"unknown user", nobody, domain.Profile{}, domain.ErrNotFound},
 		{"malformed ID", "not-a-uuid", domain.Profile{}, domain.ErrNotFound},
 		{"suspended user", carlID, domain.Profile{}, domain.ErrNotFound},
@@ -55,7 +62,7 @@ func TestView(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			svc := New(newFakeStore(testAccounts()...))
-			got, err := svc.View(t.Context(), tt.userID)
+			got, err := svc.View(t.Context(), eveID, tt.userID)
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("err = %v, want %v", err, tt.wantErr)
 			}
@@ -76,7 +83,7 @@ func TestUpdateOwnCreatesAndUpdates(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := domain.Profile{UserID: bobID, FullName: "Bob Builder", Headline: ptr("Structures"), Country: ptr("NL")}
+		want := withContact(domain.Profile{UserID: bobID, FullName: "Bob Builder", Headline: ptr("Structures"), Country: ptr("NL")})
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("got %+v, want %+v", got, want)
 		}
@@ -92,7 +99,7 @@ func TestUpdateOwnCreatesAndUpdates(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := domain.Profile{UserID: adaID, FullName: "Augusta Ada King", Bio: ptr("Countess.")}
+		want := withContact(domain.Profile{UserID: adaID, FullName: "Augusta Ada King", Bio: ptr("Countess.")})
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("got %+v, want %+v", got, want)
 		}
@@ -129,10 +136,10 @@ func TestUpdateOwnNormalizes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := domain.Profile{
+	want := withContact(domain.Profile{
 		UserID: eveID, FullName: "Eve Example", Bio: ptr("Line one\nline two"),
 		JobTitle: ptr("Lecturer"), Country: ptr("DE"),
-	}
+	})
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}

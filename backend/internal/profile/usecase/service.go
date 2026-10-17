@@ -1,6 +1,7 @@
 // Package usecase holds the profile module's logic: reading the caller's own profile and
 // editing its basic fields (FR-4.1), research interests and skills as tags (FR-4.2) with
-// suggestions (FR-4.3), education entries (FR-4.4), and showing any user's profile to a logged-in user (FR-4.5). It
+// suggestions (FR-4.3), education entries (FR-4.4), contact info and links with who may
+// see them (FR-4.7), and showing any user's profile to a logged-in user (FR-4.5). It
 // imports only the profile domain.
 package usecase
 
@@ -30,12 +31,13 @@ func (s *Service) GetOwn(ctx context.Context, userID string) (domain.Profile, er
 	if err != nil {
 		return domain.Profile{}, err
 	}
-	return s.withDetails(ctx, profileOf(a))
+	return s.withDetails(ctx, profileOf(a), userID)
 }
 
-// View returns any user's profile to a logged-in user (FR-4.5). An unknown, suspended or
-// unverified account gives domain.ErrNotFound, so the caller cannot tell them apart.
-func (s *Service) View(ctx context.Context, userID string) (domain.Profile, error) {
+// View returns any user's profile to the logged-in user viewerID (FR-4.5), with the
+// contact info viewerID may see (FR-4.7). An unknown, suspended or unverified account
+// gives domain.ErrNotFound, so the caller cannot tell them apart.
+func (s *Service) View(ctx context.Context, viewerID, userID string) (domain.Profile, error) {
 	a, err := s.store.FindAccount(ctx, userID)
 	if err != nil {
 		return domain.Profile{}, err
@@ -43,7 +45,7 @@ func (s *Service) View(ctx context.Context, userID string) (domain.Profile, erro
 	if a.Suspended || !a.Verified {
 		return domain.Profile{}, domain.ErrNotFound
 	}
-	return s.withDetails(ctx, profileOf(a))
+	return s.withDetails(ctx, profileOf(a), viewerID)
 }
 
 // UpdateInput is what a user sends to edit their profile. A nil optional field means
@@ -71,7 +73,7 @@ func (s *Service) UpdateOwn(ctx context.Context, userID string, in UpdateInput) 
 	if err != nil {
 		return domain.Profile{}, err
 	}
-	return s.withDetails(ctx, saved)
+	return s.withDetails(ctx, saved, userID)
 }
 
 // profileOf returns the account's profile, or an empty one when it has no profile row.
@@ -82,8 +84,9 @@ func profileOf(a domain.Account) domain.Profile {
 	return *a.Profile
 }
 
-// withDetails fills the profile's interests, skills and education entries.
-func (s *Service) withDetails(ctx context.Context, p domain.Profile) (domain.Profile, error) {
+// withDetails fills the profile's interests, skills, education entries and the contact
+// info viewerID may see.
+func (s *Service) withDetails(ctx context.Context, p domain.Profile, viewerID string) (domain.Profile, error) {
 	var err error
 	if p.Interests, err = s.store.ListTags(ctx, p.UserID, domain.KindInterest); err != nil {
 		return domain.Profile{}, err
@@ -94,5 +97,10 @@ func (s *Service) withDetails(ctx context.Context, p domain.Profile) (domain.Pro
 	if p.Education, err = s.store.ListEducation(ctx, p.UserID); err != nil {
 		return domain.Profile{}, err
 	}
+	c, err := s.GetContact(ctx, p.UserID)
+	if err != nil {
+		return domain.Profile{}, err
+	}
+	p.Contact = VisibleTo(viewerID, c)
 	return p, nil
 }

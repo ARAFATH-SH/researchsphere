@@ -954,6 +954,137 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /profiles/me/contact:
+    get:
+      operationId: getMyContact
+      summary: Return the logged-in user's contact info and who may see each item (FR-4.7)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed,
+        events and recommendations" (SRS 2.3). A user who never saved contact info gets
+        no phone, no birthday, every visibility `only_me` and no links.
+      tags: [profile]
+      responses:
+        "200":
+          description: The caller's contact info.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contact"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    put:
+      operationId: updateMyContact
+      summary: Replace the logged-in user's phone, birthday and visibility settings (FR-4.7)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Replaces every field in the body: a missing or null
+        `phone` or `birthday` clears it. The email address itself is changed nowhere here;
+        only who may see it. Links are not changed here.
+      tags: [profile]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContactUpdate"
+      responses:
+        "200":
+          description: The saved contact info.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contact"
+        "400":
+          description: |
+            A field is not valid. The code names the first invalid field, in this order:
+            `invalid_phone`, `invalid_birthday`, `invalid_visibility`. A body that is not
+            JSON gets `bad_request`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /profiles/me/links:
+    post:
+      operationId: addMyLink
+      summary: Add a link to the logged-in user's profile (FR-4.7)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). The URL is trimmed. A user has at most 5 links. Links
+        are visible to every logged-in user.
+      tags: [profile]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddLinkRequest"
+      responses:
+        "201":
+          description: The stored link.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfileLink"
+        "400":
+          description: |
+            The kind is not one of the listed kinds (`invalid_link_kind`), the URL is not an
+            https URL with a host, has whitespace or is longer than 300 characters
+            (`invalid_link_url`), or the body is not JSON (`bad_request`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: The user already has 5 links (`link_limit_reached`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /profiles/me/links/{linkId}:
+    delete:
+      operationId: removeMyLink
+      summary: Remove one of the logged-in user's links (FR-4.7)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). A link that does not exist and one that belongs to
+        someone else both get 404 `not_found`.
+      tags: [profile]
+      parameters:
+        - $ref: "#/components/parameters/LinkID"
+      responses:
+        "204":
+          description: The link is removed.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: The user has no link with this ID (`not_found`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
   securitySchemes:
     cookieAuth:
@@ -970,6 +1101,16 @@ components:
       description: |
         The entry's ID, a UUID. It is declared as a plain string so that the login check
         runs before it is read (FR-3.1); a value that is not a UUID names no entry of the
+        user and gets 404 `not_found`.
+      schema:
+        type: string
+    LinkID:
+      name: linkId
+      in: path
+      required: true
+      description: |
+        The link's ID, a UUID. It is declared as a plain string so that the login check
+        runs before it is read (FR-3.1); a value that is not a UUID names no link of the
         user and gets 404 `not_found`.
       schema:
         type: string
@@ -1229,7 +1370,7 @@ components:
     Profile:
       type: object
       description: |
-        A researcher's profile (FR-4.1, FR-4.2, FR-4.4, FR-4.5). The optional text fields are
+        A researcher's profile (FR-4.1, FR-4.2, FR-4.4, FR-4.5, FR-4.7). The optional text fields are
         always present and null when not set. `publications` and `connectionStatus` are
         placeholders for now; later work fills them in.
       required:
@@ -1246,6 +1387,7 @@ components:
         - education
         - publications
         - connectionStatus
+        - contact
       properties:
         userId:
           type: string
@@ -1297,6 +1439,8 @@ components:
             type: object
         connectionStatus:
           $ref: "#/components/schemas/ConnectionStatus"
+        contact:
+          $ref: "#/components/schemas/PublicContact"
 
     Tag:
       type: object
@@ -1384,6 +1528,132 @@ components:
           nullable: true
           description: An ISO 3166-1 alpha-2 code; letter case is ignored ("de" is stored as "DE").
           example: DE
+
+    Visibility:
+      type: string
+      description: |
+        Who may see a contact item (FR-4.7): only its owner, or every logged-in user.
+        "Connections only" comes with connections (slice 13).
+      enum: [only_me, logged_in]
+
+    Birthday:
+      type: object
+      description: A birthday without a year. `day` is a real day of `month`; 29 February is allowed.
+      required: [month, day]
+      properties:
+        month:
+          type: integer
+          minimum: 1
+          maximum: 12
+        day:
+          type: integer
+          minimum: 1
+          maximum: 31
+
+    LinkKind:
+      type: string
+      description: What a profile link points to; the client shows a label and icon for it.
+      enum: [website, google_scholar, researchgate, linkedin, github, other]
+
+    ProfileLink:
+      type: object
+      description: A link on a profile (FR-4.7), visible to every logged-in user.
+      required: [id, kind, url]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          $ref: "#/components/schemas/LinkKind"
+        url:
+          type: string
+          example: https://scholar.example.org/ada
+
+    AddLinkRequest:
+      type: object
+      required: [kind, url]
+      properties:
+        kind:
+          $ref: "#/components/schemas/LinkKind"
+        url:
+          type: string
+          description: An https URL with a host, without whitespace, at most 300 characters after trimming.
+          maxLength: 300
+
+    Contact:
+      type: object
+      description: |
+        The owner's contact info with who may see each item (FR-4.7). `email` is the
+        account's address. `phone` and `birthday` are always present and null when not set.
+      required: [email, emailVisibility, phone, phoneVisibility, birthday, birthdayVisibility, links]
+      properties:
+        email:
+          type: string
+          format: email
+        emailVisibility:
+          $ref: "#/components/schemas/Visibility"
+        phone:
+          type: string
+          nullable: true
+          description: E.164 format, such as +8801712345678.
+          example: "+8801712345678"
+        phoneVisibility:
+          $ref: "#/components/schemas/Visibility"
+        birthday:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/Birthday"
+        birthdayVisibility:
+          $ref: "#/components/schemas/Visibility"
+        links:
+          type: array
+          description: The user's links, oldest first.
+          items:
+            $ref: "#/components/schemas/ProfileLink"
+
+    ContactUpdate:
+      type: object
+      description: |
+        The contact fields a user edits (FR-4.7). A missing or null `phone` or `birthday`
+        clears it.
+      required: [emailVisibility, phoneVisibility, birthdayVisibility]
+      properties:
+        emailVisibility:
+          $ref: "#/components/schemas/Visibility"
+        phone:
+          type: string
+          nullable: true
+          description: |
+            E.164 format: `+`, then 2 to 15 digits, the first not 0. Spaces and hyphens are
+            removed first, so "+880 1712-345678" is stored as "+8801712345678".
+        phoneVisibility:
+          $ref: "#/components/schemas/Visibility"
+        birthday:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/Birthday"
+        birthdayVisibility:
+          $ref: "#/components/schemas/Visibility"
+
+    PublicContact:
+      type: object
+      description: |
+        The contact info the viewer of a profile may see (FR-4.7). An item that is hidden
+        from the viewer, or not set, is left out; it is never null. The owner sees every
+        item that is set. Links are visible to every logged-in user.
+      required: [links]
+      properties:
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        birthday:
+          $ref: "#/components/schemas/Birthday"
+        links:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProfileLink"
 
     Education:
       type: object

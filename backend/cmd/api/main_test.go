@@ -284,7 +284,29 @@ func (okProfiles) UpdateEducation(_ context.Context, e profiledomain.Education) 
 	return e, nil
 }
 
+func (okProfiles) FindContact(_ context.Context, userID string) (profiledomain.Contact, error) {
+	return profiledomain.Contact{
+		UserID: userID, Email: "ada@example.org", EmailVisibility: profiledomain.OnlyMe,
+		PhoneVisibility: profiledomain.OnlyMe, BirthdayVisibility: profiledomain.OnlyMe,
+	}, nil
+}
+
+func (okProfiles) UpsertContact(context.Context, profiledomain.Contact) error { return nil }
+
+func (okProfiles) ListLinks(context.Context, string) ([]profiledomain.Link, error) { return nil, nil }
+
+func (okProfiles) DeleteLink(context.Context, string, string) error { return nil }
+
+func (okProfiles) CountLinks(context.Context, string) (int, error) { return 0, nil }
+
+func (okProfiles) InsertLink(_ context.Context, l profiledomain.Link) (profiledomain.Link, error) {
+	l.ID = okLinkID
+	return l, nil
+}
+
 const okEducationID = "8b3e4d5c-6f7a-4b2c-9d0e-1f2a3b4c5d6e"
+
+const okLinkID = "9c4f5e6d-7a8b-4c3d-8e1f-2a3b4c5d6e7f"
 
 const okTagID = "7a2d3c4b-5e6f-4a1b-8c9d-0e1f2a3b4c5d"
 

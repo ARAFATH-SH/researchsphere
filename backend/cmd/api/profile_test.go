@@ -13,7 +13,7 @@ import (
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpx"
 )
 
-// The profile and tag routes go through authz (FR-3.2, SRS 2.3): both platform roles may
+// The profile, tag and contact routes go through authz (FR-3.2, SRS 2.3): both platform roles may
 // view profiles and tags and edit their own, and any other role gets exactly the FR-3.3
 // refusal.
 func TestProfileRoutesThroughRouter(t *testing.T) {
@@ -30,6 +30,11 @@ func TestProfileRoutesThroughRouter(t *testing.T) {
 		{http.MethodDelete, "/api/v1/profiles/me/skills/" + okTagID, ""},
 		{http.MethodGet, "/api/v1/tags/interests?q=mach", ""},
 		{http.MethodGet, "/api/v1/tags/skills?q=g&limit=50", ""},
+		{http.MethodGet, "/api/v1/profiles/me/contact", ""},
+		{http.MethodPut, "/api/v1/profiles/me/contact",
+			`{"emailVisibility":"logged_in","phone":"+8801712345678","phoneVisibility":"only_me","birthday":{"month":2,"day":29},"birthdayVisibility":"only_me"}`},
+		{http.MethodPost, "/api/v1/profiles/me/links", `{"kind":"github","url":"https://github.com/ada"}`},
+		{http.MethodDelete, "/api/v1/profiles/me/links/" + okLinkID, ""},
 	}
 	send := func(t *testing.T, method, path, body, role string) *httptest.ResponseRecorder {
 		t.Helper()
@@ -87,6 +92,11 @@ func TestProfileRoutesAreGuarded(t *testing.T) {
 		"POST /api/v1/profiles/me/education":                 authz.ActAsMember,
 		"PATCH /api/v1/profiles/me/education/{educationId}":  authz.ActAsMember,
 		"DELETE /api/v1/profiles/me/education/{educationId}": authz.ActAsMember,
+
+		"GET /api/v1/profiles/me/contact":           authz.ViewContent,
+		"PUT /api/v1/profiles/me/contact":           authz.ActAsMember,
+		"POST /api/v1/profiles/me/links":            authz.ActAsMember,
+		"DELETE /api/v1/profiles/me/links/{linkId}": authz.ActAsMember,
 	}
 	for route, action := range want {
 		if got := platformGuards[route]; got != action {

@@ -224,6 +224,77 @@ SELECT pg_temp.expect_error('Education: field of study is NULL, not blank',
        VALUES ('00000000-0000-0000-0000-000000000001', 'MIT', ' ', 2020)$s$, '23514');
 
 -- ---------------------------------------------------------------------------
+-- Contact info and links (FR-4.7, migration 000006)
+-- ---------------------------------------------------------------------------
+
+SELECT pg_temp.expect_ok('Contact: a row with only the user takes the defaults',
+    $s$INSERT INTO profile_contact (user_id) VALUES ('00000000-0000-0000-0000-000000000001')$s$);
+SELECT pg_temp.expect_true('Contact: every visibility defaults to only_me and nothing is set', $q$
+    SELECT email_visibility = 'only_me' AND phone_visibility = 'only_me' AND birthday_visibility = 'only_me'
+       AND phone IS NULL AND birth_month IS NULL AND birth_day IS NULL
+      FROM profile_contact WHERE user_id = '00000000-0000-0000-0000-000000000001'$q$);
+SELECT pg_temp.expect_error('Contact: one row per user',
+    $s$INSERT INTO profile_contact (user_id) VALUES ('00000000-0000-0000-0000-000000000001')$s$, '23505');
+SELECT pg_temp.expect_ok('Contact: an E.164 phone is accepted',
+    $s$UPDATE profile_contact SET phone = '+8801712345678' WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$);
+SELECT pg_temp.expect_error('Contact: phone starts with +',
+    $s$UPDATE profile_contact SET phone = '8801712345678' WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_error('Contact: phone has no spaces',
+    $s$UPDATE profile_contact SET phone = '+880 1712345678' WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_error('Contact: phone has at most 15 digits',
+    $s$UPDATE profile_contact SET phone = '+1234567890123456' WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_error('Contact: phone country code does not start with 0',
+    $s$UPDATE profile_contact SET phone = '+0123456789' WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_ok('Contact: 29 February is accepted',
+    $s$UPDATE profile_contact SET birth_month = 2, birth_day = 29 WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$);
+SELECT pg_temp.expect_ok('Contact: 31 December is accepted',
+    $s$UPDATE profile_contact SET birth_month = 12, birth_day = 31 WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$);
+SELECT pg_temp.expect_error('Contact: 30 February is refused',
+    $s$UPDATE profile_contact SET birth_month = 2, birth_day = 30 WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_error('Contact: 31 April is refused',
+    $s$UPDATE profile_contact SET birth_month = 4, birth_day = 31 WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_error('Contact: month 13 is refused',
+    $s$UPDATE profile_contact SET birth_month = 13, birth_day = 1 WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_error('Contact: day 0 is refused',
+    $s$UPDATE profile_contact SET birth_month = 1, birth_day = 0 WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_error('Contact: a month without a day is refused',
+    $s$UPDATE profile_contact SET birth_month = 5, birth_day = NULL WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_error('Contact: a day without a month is refused',
+    $s$UPDATE profile_contact SET birth_month = NULL, birth_day = 5 WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_ok('Contact: logged_in visibility is accepted',
+    $s$UPDATE profile_contact SET email_visibility = 'logged_in', phone_visibility = 'logged_in', birthday_visibility = 'logged_in'
+       WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$);
+SELECT pg_temp.expect_error('Contact: email visibility is only_me or logged_in',
+    $s$UPDATE profile_contact SET email_visibility = 'everyone' WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_error('Contact: phone visibility is only_me or logged_in',
+    $s$UPDATE profile_contact SET phone_visibility = 'connections' WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_error('Contact: birthday visibility is only_me or logged_in',
+    $s$UPDATE profile_contact SET birthday_visibility = '' WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+
+SELECT pg_temp.expect_ok('Link: an https URL of 300 characters is accepted',
+    $s$INSERT INTO profile_links (user_id, kind, url)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'website', 'https://' || repeat('é', 292))$s$);
+SELECT pg_temp.expect_error('Link: URL is at most 300 characters',
+    $s$INSERT INTO profile_links (user_id, kind, url)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'website', 'https://' || repeat('a', 293))$s$, '23514');
+SELECT pg_temp.expect_error('Link: http is refused',
+    $s$INSERT INTO profile_links (user_id, kind, url)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'website', 'http://example.org')$s$, '23514');
+SELECT pg_temp.expect_error('Link: URL has no whitespace',
+    $s$INSERT INTO profile_links (user_id, kind, url)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'website', 'https://example.org/a b')$s$, '23514');
+SELECT pg_temp.expect_error('Link: URL is more than the scheme',
+    $s$INSERT INTO profile_links (user_id, kind, url)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'website', 'https://')$s$, '23514');
+SELECT pg_temp.expect_error('Link: kind is one of the six',
+    $s$INSERT INTO profile_links (user_id, kind, url)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'twitter', 'https://example.org')$s$, '23514');
+SELECT pg_temp.expect_ok('Link: every kind is accepted',
+    $s$INSERT INTO profile_links (user_id, kind, url)
+       SELECT '00000000-0000-0000-0000-000000000002', k, 'https://example.org/' || k
+         FROM unnest(ARRAY['website', 'google_scholar', 'researchgate', 'linkedin', 'github', 'other']) AS k$s$);
+
+-- ---------------------------------------------------------------------------
 -- Publication
 -- ---------------------------------------------------------------------------
 
@@ -430,6 +501,8 @@ INSERT INTO auth_tokens (user_id, purpose, token_hash, expires_at) VALUES
 INSERT INTO user_interests (user_id, interest_id) SELECT '00000000-0000-0000-0000-000000000003', id FROM research_interests;
 INSERT INTO user_skills (user_id, skill_id) SELECT '00000000-0000-0000-0000-000000000003', id FROM skills;
 INSERT INTO education (user_id, institution, degree, start_year) VALUES ('00000000-0000-0000-0000-000000000003', 'MIT', 'BSc', 2015);
+INSERT INTO profile_contact (user_id, phone) VALUES ('00000000-0000-0000-0000-000000000003', '+8801712345678');
+INSERT INTO profile_links (user_id, kind, url) VALUES ('00000000-0000-0000-0000-000000000003', 'github', 'https://github.com/cy');
 INSERT INTO user_publications (user_id, publication_id, confirmed_at) VALUES
     ('00000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-0000000000c1', now()),
     ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-0000000000c1', now());
@@ -450,11 +523,13 @@ INSERT INTO notifications (user_id, type, actor_id) VALUES
 
 DELETE FROM users WHERE id = '00000000-0000-0000-0000-000000000003';
 
-SELECT pg_temp.expect_true('Deletion: profile, interests, skills, education removed (FR-2.8)', $q$
-    SELECT NOT EXISTS (SELECT 1 FROM profiles       WHERE user_id = '00000000-0000-0000-0000-000000000003')
-       AND NOT EXISTS (SELECT 1 FROM user_interests WHERE user_id = '00000000-0000-0000-0000-000000000003')
-       AND NOT EXISTS (SELECT 1 FROM user_skills    WHERE user_id = '00000000-0000-0000-0000-000000000003')
-       AND NOT EXISTS (SELECT 1 FROM education      WHERE user_id = '00000000-0000-0000-0000-000000000003')$q$);
+SELECT pg_temp.expect_true('Deletion: profile, interests, skills, education, contact info and links removed (FR-2.8)', $q$
+    SELECT NOT EXISTS (SELECT 1 FROM profiles        WHERE user_id = '00000000-0000-0000-0000-000000000003')
+       AND NOT EXISTS (SELECT 1 FROM user_interests  WHERE user_id = '00000000-0000-0000-0000-000000000003')
+       AND NOT EXISTS (SELECT 1 FROM user_skills     WHERE user_id = '00000000-0000-0000-0000-000000000003')
+       AND NOT EXISTS (SELECT 1 FROM education       WHERE user_id = '00000000-0000-0000-0000-000000000003')
+       AND NOT EXISTS (SELECT 1 FROM profile_contact WHERE user_id = '00000000-0000-0000-0000-000000000003')
+       AND NOT EXISTS (SELECT 1 FROM profile_links   WHERE user_id = '00000000-0000-0000-0000-000000000003')$q$);
 SELECT pg_temp.expect_true('Deletion: sessions, retired refresh tokens and one-time tokens removed', $q$
     SELECT NOT EXISTS (SELECT 1 FROM sessions    WHERE user_id = '00000000-0000-0000-0000-000000000003')
        AND NOT EXISTS (SELECT 1 FROM auth_tokens WHERE user_id = '00000000-0000-0000-0000-000000000003')

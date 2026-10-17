@@ -33,6 +33,11 @@ type fakeStore struct {
 
 	education     map[string]domain.Education // by ID
 	nextEducation int
+
+	emails       map[string]string         // the account's address, by user ID
+	contacts     map[string]domain.Contact // by user ID, without links
+	profileLinks map[string]domain.Link    // by ID
+	nextLink     int
 }
 
 func newFakeStore(accounts ...domain.Account) *fakeStore {
@@ -42,6 +47,10 @@ func newFakeStore(accounts ...domain.Account) *fakeStore {
 		links:    map[domain.TagKind]map[string]map[string]bool{domain.KindInterest: {}, domain.KindSkill: {}},
 
 		education: map[string]domain.Education{},
+
+		emails:       map[string]string{},
+		contacts:     map[string]domain.Contact{},
+		profileLinks: map[string]domain.Link{},
 	}
 	for _, a := range accounts {
 		s.accounts[a.UserID] = a
@@ -82,9 +91,11 @@ func (s *fakeStore) RunInTx(_ context.Context, fn func(domain.Tx) error) error {
 	}
 	tags, links, next := s.snapshot()
 	education, nextEducation := maps.Clone(s.education), s.nextEducation
+	profileLinks, nextLink := maps.Clone(s.profileLinks), s.nextLink
 	if err := fn(s); err != nil {
 		s.tags, s.links, s.nextTag = tags, links, next
 		s.education, s.nextEducation = education, nextEducation
+		s.profileLinks, s.nextLink = profileLinks, nextLink
 		return err
 	}
 	return nil
@@ -276,6 +287,83 @@ const (
 	eveID   = "00000000-0000-0000-0000-000000000005"
 	nobody  = "00000000-0000-0000-0000-0000000000ff"
 )
+
+func (s *fakeStore) FindContact(_ context.Context, userID string) (domain.Contact, error) {
+	if s.err != nil {
+		return domain.Contact{}, s.err
+	}
+	if _, ok := s.accounts[userID]; !ok {
+		return domain.Contact{}, domain.ErrNotFound
+	}
+	c, ok := s.contacts[userID]
+	if !ok {
+		c = domain.Contact{UserID: userID, EmailVisibility: domain.OnlyMe, PhoneVisibility: domain.OnlyMe, BirthdayVisibility: domain.OnlyMe}
+	}
+	c.Email = s.emails[userID]
+	return c, nil
+}
+
+func (s *fakeStore) UpsertContact(_ context.Context, c domain.Contact) error {
+	if s.err != nil {
+		return s.err
+	}
+	if _, ok := s.accounts[c.UserID]; !ok {
+		return domain.ErrNotFound
+	}
+	c.Email, c.Links = "", nil
+	s.contacts[c.UserID] = c
+	return nil
+}
+
+func (s *fakeStore) ListLinks(_ context.Context, userID string) ([]domain.Link, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	var out []domain.Link
+	for _, l := range s.profileLinks {
+		if l.UserID == userID {
+			out = append(out, l)
+		}
+	}
+	slices.SortFunc(out, func(a, b domain.Link) int { return cmp.Compare(a.ID, b.ID) })
+	return out, nil
+}
+
+func (s *fakeStore) DeleteLink(_ context.Context, userID, id string) error {
+	if s.err != nil {
+		return s.err
+	}
+	l, ok := s.profileLinks[id]
+	if !ok || l.UserID != userID {
+		return domain.ErrNotFound
+	}
+	delete(s.profileLinks, id)
+	return nil
+}
+
+func (s *fakeStore) CountLinks(_ context.Context, userID string) (int, error) {
+	links, err := s.ListLinks(context.Background(), userID)
+	return len(links), err
+}
+
+func (s *fakeStore) InsertLink(_ context.Context, l domain.Link) (domain.Link, error) {
+	if _, ok := s.accounts[l.UserID]; !ok {
+		return domain.Link{}, domain.ErrNotFound
+	}
+	s.nextLink++
+	l.ID = fmt.Sprintf("link-%02d", s.nextLink)
+	s.profileLinks[l.ID] = l
+	return l, nil
+}
+
+// giveLinks adds n links to the user, as earlier requests would have.
+func (s *fakeStore) giveLinks(userID string, n int) {
+	for range n {
+		s.nextLink++
+		id := fmt.Sprintf("link-%02d", s.nextLink)
+		s.profileLinks[id] = domain.Link{ID: id, UserID: userID, Kind: domain.LinkWebsite, URL: "https://example.org/" + id}
+	}
+}
 
 func ptr(s string) *string { return &s }
 

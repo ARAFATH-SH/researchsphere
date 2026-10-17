@@ -1,6 +1,7 @@
 // Package http serves the profile operations in docs/openapi.yaml: the caller's own
 // profile and editing its basic fields (FR-4.1), research interests and skills (FR-4.2)
-// with suggestions (FR-4.3), education entries (FR-4.4), and any user's profile (FR-4.5). It
+// with suggestions (FR-4.3), education entries (FR-4.4), contact info and links (FR-4.7),
+// and any user's profile (FR-4.5). It
 // turns the usecase's errors into the error codes the web client shows next to each
 // field. cmd/api guards each route with its platform action (SRS 2.3) before it gets here.
 package http
@@ -35,19 +36,30 @@ const (
 	CodeInvalidStartYear      = "invalid_start_year"
 	CodeInvalidEndYear        = "invalid_end_year"
 	CodeEducationLimitReached = "education_limit_reached"
+
+	CodeInvalidPhone      = "invalid_phone"
+	CodeInvalidBirthday   = "invalid_birthday"
+	CodeInvalidVisibility = "invalid_visibility"
+	CodeInvalidLinkKind   = "invalid_link_kind"
+	CodeInvalidLinkURL    = "invalid_link_url"
+	CodeLinkLimitReached  = "link_limit_reached"
 )
 
 // service is the part of usecase.Service this handler needs.
 type service interface {
 	GetOwn(ctx context.Context, userID string) (domain.Profile, error)
 	UpdateOwn(ctx context.Context, userID string, in usecase.UpdateInput) (domain.Profile, error)
-	View(ctx context.Context, userID string) (domain.Profile, error)
+	View(ctx context.Context, viewerID, userID string) (domain.Profile, error)
 	AddTag(ctx context.Context, userID string, kind domain.TagKind, name string) (domain.Tag, bool, error)
 	RemoveTag(ctx context.Context, userID string, kind domain.TagKind, tagID string) error
 	SuggestTags(ctx context.Context, kind domain.TagKind, q string, limit int) ([]domain.Tag, error)
 	AddEducation(ctx context.Context, userID string, in usecase.EducationInput) (domain.Education, error)
 	UpdateEducation(ctx context.Context, userID, id string, patch usecase.EducationPatch) (domain.Education, error)
 	RemoveEducation(ctx context.Context, userID, id string) error
+	GetContact(ctx context.Context, userID string) (domain.Contact, error)
+	UpdateContact(ctx context.Context, userID string, in usecase.ContactInput) (domain.Contact, error)
+	AddLink(ctx context.Context, userID string, kind domain.LinkKind, url string) (domain.Link, error)
+	RemoveLink(ctx context.Context, userID, id string) error
 }
 
 // Handler implements the profile operations of gen.StrictServerInterface.
@@ -140,11 +152,16 @@ func (h *Handler) UpdateMyProfile(ctx context.Context, req gen.UpdateMyProfileRe
 	return gen.UpdateMyProfile200JSONResponse(body), nil
 }
 
-// GetProfile returns any user's profile to a logged-in user (FR-4.5). Unknown, suspended
-// and unverified accounts get the same 404, so the answer reveals nothing about them. An
-// ID that is not a UUID names no user and gets the same 404.
+// GetProfile returns any user's profile to a logged-in user (FR-4.5), with the contact
+// info the caller may see (FR-4.7). Unknown, suspended and unverified accounts get the
+// same 404, so the answer reveals nothing about them. An ID that is not a UUID names no
+// user and gets the same 404.
 func (h *Handler) GetProfile(ctx context.Context, req gen.GetProfileRequestObject) (gen.GetProfileResponseObject, error) {
-	p, err := h.svc.View(ctx, req.UserId)
+	viewer, ok := httpx.UserID(ctx)
+	if !ok {
+		return gen.GetProfile401JSONResponse{UnauthorizedJSONResponse: unauthenticated}, nil
+	}
+	p, err := h.svc.View(ctx, viewer, req.UserId)
 	if errors.Is(err, domain.ErrNotFound) {
 		return gen.GetProfile404JSONResponse{NotFoundJSONResponse: gen.NotFoundJSONResponse{
 			Code: httpx.CodeNotFound, Message: "This profile does not exist.",
@@ -179,6 +196,10 @@ func profileBody(p domain.Profile) (gen.Profile, error) {
 	if err != nil {
 		return gen.Profile{}, err
 	}
+	contact, err := publicContactBody(p.Contact)
+	if err != nil {
+		return gen.Profile{}, err
+	}
 	return gen.Profile{
 		UserId:           id,
 		FullName:         p.FullName,
@@ -193,5 +214,6 @@ func profileBody(p domain.Profile) (gen.Profile, error) {
 		Education:        education,
 		Publications:     []map[string]any{},
 		ConnectionStatus: gen.None,
+		Contact:          contact,
 	}, nil
 }

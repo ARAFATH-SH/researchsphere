@@ -41,6 +41,34 @@ type fakeService struct {
 	educationIn    usecase.EducationInput // given to AddEducation
 	educationPatch usecase.EducationPatch // given to UpdateEducation
 	educationID    string                 // given to UpdateEducation and RemoveEducation
+
+	viewerID  string               // given to View
+	contact   domain.Contact       // returned by GetContact and UpdateContact
+	contactIn usecase.ContactInput // given to UpdateContact
+	link      domain.Link          // returned by AddLink
+	linkKind  domain.LinkKind      // given to AddLink
+	linkURL   string               // given to AddLink
+	linkID    string               // given to RemoveLink
+}
+
+func (f *fakeService) GetContact(_ context.Context, userID string) (domain.Contact, error) {
+	f.userID = userID
+	return f.contact, f.err
+}
+
+func (f *fakeService) UpdateContact(_ context.Context, userID string, in usecase.ContactInput) (domain.Contact, error) {
+	f.userID, f.contactIn = userID, in
+	return f.contact, f.err
+}
+
+func (f *fakeService) AddLink(_ context.Context, userID string, kind domain.LinkKind, url string) (domain.Link, error) {
+	f.userID, f.linkKind, f.linkURL = userID, kind, url
+	return f.link, f.err
+}
+
+func (f *fakeService) RemoveLink(_ context.Context, userID, id string) error {
+	f.userID, f.linkID = userID, id
+	return f.err
 }
 
 func (f *fakeService) AddEducation(_ context.Context, userID string, in usecase.EducationInput) (domain.Education, error) {
@@ -83,8 +111,8 @@ func (f *fakeService) UpdateOwn(_ context.Context, userID string, in usecase.Upd
 	return f.profile, f.err
 }
 
-func (f *fakeService) View(_ context.Context, userID string) (domain.Profile, error) {
-	f.userID = userID
+func (f *fakeService) View(_ context.Context, viewerID, userID string) (domain.Profile, error) {
+	f.viewerID, f.userID = viewerID, userID
 	return f.profile, f.err
 }
 
@@ -137,7 +165,8 @@ var ada = domain.Profile{
 	UserID: callerID, FullName: "Ada Lovelace", Headline: ptr("Analyst"), Country: ptr("GB"),
 }
 
-// The body has every field, nulls for unset ones, and the placeholders (FR-4.5).
+// The body has every field, nulls for unset ones, the placeholders (FR-4.5) and the
+// contact info the viewer may see, here only the empty list of links (FR-4.7).
 func checkProfileBody(t *testing.T, rec *httptest.ResponseRecorder, wantID string) {
 	t.Helper()
 	got := decode(t, rec)
@@ -145,7 +174,7 @@ func checkProfileBody(t *testing.T, rec *httptest.ResponseRecorder, wantID strin
 		"userId": wantID, "fullName": "Ada Lovelace", "headline": "Analyst", "bio": nil,
 		"institution": nil, "department": nil, "jobTitle": nil, "country": "GB",
 		"interests": []any{}, "skills": []any{}, "education": []any{}, "publications": []any{},
-		"connectionStatus": "none",
+		"connectionStatus": "none", "contact": map[string]any{"links": []any{}},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("body = %v\nwant   %v", got, want)
@@ -259,8 +288,8 @@ func TestGetProfile(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200; body %s", rec.Code, rec.Body)
 		}
-		if svc.userID != otherID {
-			t.Errorf("service asked for %q, want %q", svc.userID, otherID)
+		if svc.userID != otherID || svc.viewerID != callerID {
+			t.Errorf("service asked for %q as %q, want %q as the caller %q", svc.userID, svc.viewerID, otherID, callerID)
 		}
 		checkProfileBody(t, rec, otherID)
 	})

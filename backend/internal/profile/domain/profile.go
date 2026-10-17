@@ -25,6 +25,69 @@ type Profile struct {
 	Interests []Tag
 	Skills    []Tag
 	Education []Education
+	// Contact is the contact info the viewer of the profile may see (FR-4.7). The
+	// usecase fills it when it reads a profile.
+	Contact VisibleContact
+}
+
+// Visibility says who may see a contact item (FR-4.7). Slice 13 adds "connections only".
+type Visibility string
+
+// Visibilities.
+const (
+	OnlyMe   Visibility = "only_me"   // the owner only; the default
+	LoggedIn Visibility = "logged_in" // every logged-in user
+)
+
+// Birthday is a day of the year without a year (FR-4.7).
+type Birthday struct {
+	Month int
+	Day   int
+}
+
+// Contact is a user's contact info with who may see each item (FR-4.7). Email is the
+// account's address; the profile module stores only its visibility. A nil Phone or
+// Birthday is not set.
+type Contact struct {
+	UserID             string
+	Email              string
+	EmailVisibility    Visibility
+	Phone              *string // E.164, such as +8801712345678
+	PhoneVisibility    Visibility
+	Birthday           *Birthday
+	BirthdayVisibility Visibility
+	Links              []Link
+}
+
+// VisibleContact is the part of a user's contact info one viewer may see. A nil item is
+// hidden from the viewer or not set; the response leaves it out. Links are visible to
+// every logged-in user.
+type VisibleContact struct {
+	Email    *string
+	Phone    *string
+	Birthday *Birthday
+	Links    []Link
+}
+
+// LinkKind says what a profile link points to.
+type LinkKind string
+
+// Link kinds.
+const (
+	LinkWebsite       LinkKind = "website"
+	LinkGoogleScholar LinkKind = "google_scholar"
+	LinkResearchGate  LinkKind = "researchgate"
+	LinkLinkedIn      LinkKind = "linkedin"
+	LinkGitHub        LinkKind = "github"
+	LinkOther         LinkKind = "other"
+)
+
+// Link is a link on a user's profile (FR-4.7).
+type Link struct {
+	ID     string
+	UserID string
+	Kind   LinkKind
+	URL    string // https only
 }
 
 // Education is one entry of a user's education (FR-4.4). An optional field is nil when
@@ -66,7 +129,7 @@ type Account struct {
 	Profile *Profile
 }
 
-// Store reads and writes profiles, the user's tags and education entries. Writes that must happen together
+// Store reads and writes profiles, the user's tags, education entries, contact info and links. Writes that must happen together
 // go through RunInTx.
 type Store interface {
 	// RunInTx runs fn in one database transaction. It commits when fn returns nil and
@@ -93,11 +156,24 @@ type Store interface {
 	// no entry with the ID, including one that belongs to someone else, or the ID is not
 	// a UUID.
 	DeleteEducation(ctx context.Context, userID, id string) error
+	// FindContact returns the user's contact info without links. A user who never saved
+	// any gets no phone, no birthday and every visibility OnlyMe. It returns ErrNotFound
+	// when the user does not exist.
+	FindContact(ctx context.Context, userID string) (Contact, error)
+	// UpsertContact creates the user's contact row or replaces its phone, birthday and
+	// visibilities. It returns ErrNotFound when the user does not exist.
+	UpsertContact(ctx context.Context, c Contact) error
+	// ListLinks returns the user's links, oldest first.
+	ListLinks(ctx context.Context, userID string) ([]Link, error)
+	// DeleteLink removes the user's link. It returns ErrNotFound when the user has no
+	// link with the ID, including one that belongs to someone else, or the ID is not a
+	// UUID.
+	DeleteLink(ctx context.Context, userID, id string) error
 }
 
 // Tx is the set of steps available inside a transaction.
 type Tx interface {
-	// LockUser locks the user against other tag and education changes until the
+	// LockUser locks the user against other tag, education and link changes until the
 	// transaction ends, so two requests cannot both pass a limit. It returns ErrNotFound when the user
 	// does not exist.
 	LockUser(ctx context.Context, userID string) error
@@ -122,6 +198,10 @@ type Tx interface {
 	// UpdateEducation replaces the fields of the entry e.ID that belongs to e.UserID and
 	// returns what was stored. It returns ErrNotFound when there is no such entry.
 	UpdateEducation(ctx context.Context, e Education) (Education, error)
+	// CountLinks returns how many links the user has.
+	CountLinks(ctx context.Context, userID string) (int, error)
+	// InsertLink stores a new link for l.UserID and returns it with its ID.
+	InsertLink(ctx context.Context, l Link) (Link, error)
 }
 
 // Errors the usecase returns. The HTTP adapter turns each into an error code.
@@ -144,4 +224,11 @@ var (
 	ErrInvalidStartYear            = errors.New("start year is missing or out of range")
 	ErrInvalidEndYear              = errors.New("end year is out of range or before the start year")
 	ErrEducationLimitReached       = errors.New("user has the most education entries allowed")
+
+	ErrInvalidPhone      = errors.New("phone is not in E.164 format")
+	ErrInvalidBirthday   = errors.New("birthday is not a day of the year")
+	ErrInvalidVisibility = errors.New("visibility is not one of the allowed values")
+	ErrInvalidLinkKind   = errors.New("link kind is not one of the allowed kinds")
+	ErrInvalidLinkURL    = errors.New("link URL is not an https URL of at most 300 characters")
+	ErrLinkLimitReached  = errors.New("user has the most links allowed")
 )

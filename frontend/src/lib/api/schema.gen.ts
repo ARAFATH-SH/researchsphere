@@ -556,6 +556,79 @@ export interface paths {
         patch: operations["updateMyEducation"];
         trace?: never;
     };
+    "/profiles/me/contact": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Return the logged-in user's contact info and who may see each item (FR-4.7)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed,
+         *     events and recommendations" (SRS 2.3). A user who never saved contact info gets
+         *     no phone, no birthday, every visibility `only_me` and no links.
+         */
+        get: operations["getMyContact"];
+        /**
+         * Replace the logged-in user's phone, birthday and visibility settings (FR-4.7)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Replaces every field in the body: a missing or null
+         *     `phone` or `birthday` clears it. The email address itself is changed nowhere here;
+         *     only who may see it. Links are not changed here.
+         */
+        put: operations["updateMyContact"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/profiles/me/links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add a link to the logged-in user's profile (FR-4.7)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). The URL is trimmed. A user has at most 5 links. Links
+         *     are visible to every logged-in user.
+         */
+        post: operations["addMyLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/profiles/me/links/{linkId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove one of the logged-in user's links (FR-4.7)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). A link that does not exist and one that belongs to
+         *     someone else both get 404 `not_found`.
+         */
+        delete: operations["removeMyLink"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -685,7 +758,7 @@ export interface components {
             total: number;
         };
         /**
-         * @description A researcher's profile (FR-4.1, FR-4.2, FR-4.4, FR-4.5). The optional text fields are
+         * @description A researcher's profile (FR-4.1, FR-4.2, FR-4.4, FR-4.5, FR-4.7). The optional text fields are
          *     always present and null when not set. `publications` and `connectionStatus` are
          *     placeholders for now; later work fills them in.
          */
@@ -716,6 +789,7 @@ export interface components {
             /** @description Placeholder: always empty until confirmed publications are shown (FR-5.5). */
             publications: Record<string, never>[];
             connectionStatus: components["schemas"]["ConnectionStatus"];
+            contact: components["schemas"]["PublicContact"];
         };
         /**
          * @description A research interest or skill (FR-4.2). Tags are shared by all users; names that
@@ -771,6 +845,81 @@ export interface components {
              * @example DE
              */
             country?: string | null;
+        };
+        /**
+         * @description Who may see a contact item (FR-4.7): only its owner, or every logged-in user.
+         *     "Connections only" comes with connections (slice 13).
+         * @enum {string}
+         */
+        Visibility: "only_me" | "logged_in";
+        /** @description A birthday without a year. `day` is a real day of `month`; 29 February is allowed. */
+        Birthday: {
+            month: number;
+            day: number;
+        };
+        /**
+         * @description What a profile link points to; the client shows a label and icon for it.
+         * @enum {string}
+         */
+        LinkKind: "website" | "google_scholar" | "researchgate" | "linkedin" | "github" | "other";
+        /** @description A link on a profile (FR-4.7), visible to every logged-in user. */
+        ProfileLink: {
+            /** Format: uuid */
+            id: string;
+            kind: components["schemas"]["LinkKind"];
+            /** @example https://scholar.example.org/ada */
+            url: string;
+        };
+        AddLinkRequest: {
+            kind: components["schemas"]["LinkKind"];
+            /** @description An https URL with a host, without whitespace, at most 300 characters after trimming. */
+            url: string;
+        };
+        /**
+         * @description The owner's contact info with who may see each item (FR-4.7). `email` is the
+         *     account's address. `phone` and `birthday` are always present and null when not set.
+         */
+        Contact: {
+            /** Format: email */
+            email: string;
+            emailVisibility: components["schemas"]["Visibility"];
+            /**
+             * @description E.164 format, such as +8801712345678.
+             * @example +8801712345678
+             */
+            phone: string | null;
+            phoneVisibility: components["schemas"]["Visibility"];
+            birthday: components["schemas"]["Birthday"] | null;
+            birthdayVisibility: components["schemas"]["Visibility"];
+            /** @description The user's links, oldest first. */
+            links: components["schemas"]["ProfileLink"][];
+        };
+        /**
+         * @description The contact fields a user edits (FR-4.7). A missing or null `phone` or `birthday`
+         *     clears it.
+         */
+        ContactUpdate: {
+            emailVisibility: components["schemas"]["Visibility"];
+            /**
+             * @description E.164 format: `+`, then 2 to 15 digits, the first not 0. Spaces and hyphens are
+             *     removed first, so "+880 1712-345678" is stored as "+8801712345678".
+             */
+            phone?: string | null;
+            phoneVisibility: components["schemas"]["Visibility"];
+            birthday?: components["schemas"]["Birthday"] | null;
+            birthdayVisibility: components["schemas"]["Visibility"];
+        };
+        /**
+         * @description The contact info the viewer of a profile may see (FR-4.7). An item that is hidden
+         *     from the viewer, or not set, is left out; it is never null. The owner sees every
+         *     item that is set. Links are visible to every logged-in user.
+         */
+        PublicContact: {
+            /** Format: email */
+            email?: string;
+            phone?: string;
+            birthday?: components["schemas"]["Birthday"];
+            links: components["schemas"]["ProfileLink"][];
         };
         /** @description One education entry (FR-4.4). The optional fields are always present and null when not set. */
         Education: {
@@ -883,6 +1032,12 @@ export interface components {
          *     user and gets 404 `not_found`.
          */
         EducationID: string;
+        /**
+         * @description The link's ID, a UUID. It is declared as a plain string so that the login check
+         *     runs before it is read (FR-3.1); a value that is not a UUID names no link of the
+         *     user and gets 404 `not_found`.
+         */
+        LinkID: string;
         /**
          * @description The tag's ID, a UUID. It is declared as a plain string so that the login check runs
          *     before it is read (FR-3.1); a value that is not a UUID names no tag the user has and
@@ -1920,6 +2075,155 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             /** @description The user has no education entry with this ID (`not_found`). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getMyContact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's contact info. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contact"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    updateMyContact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ContactUpdate"];
+            };
+        };
+        responses: {
+            /** @description The saved contact info. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contact"];
+                };
+            };
+            /**
+             * @description A field is not valid. The code names the first invalid field, in this order:
+             *     `invalid_phone`, `invalid_birthday`, `invalid_visibility`. A body that is not
+             *     JSON gets `bad_request`.
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    addMyLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddLinkRequest"];
+            };
+        };
+        responses: {
+            /** @description The stored link. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProfileLink"];
+                };
+            };
+            /**
+             * @description The kind is not one of the listed kinds (`invalid_link_kind`), the URL is not an
+             *     https URL with a host, has whitespace or is longer than 300 characters
+             *     (`invalid_link_url`), or the body is not JSON (`bad_request`).
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The user already has 5 links (`link_limit_reached`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    removeMyLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The link's ID, a UUID. It is declared as a plain string so that the login check
+                 *     runs before it is read (FR-3.1); a value that is not a UUID names no link of the
+                 *     user and gets 404 `not_found`.
+                 */
+                linkId: components["parameters"]["LinkID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The link is removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The user has no link with this ID (`not_found`). */
             404: {
                 headers: {
                     [name: string]: unknown;

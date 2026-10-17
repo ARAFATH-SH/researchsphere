@@ -279,7 +279,7 @@ func TestProfileHasEducation(t *testing.T) {
 	if !reflect.DeepEqual(own.Education, want) {
 		t.Errorf("GetOwn education = %+v, want %+v", own.Education, want)
 	}
-	viewed, err := svc.View(t.Context(), adaID)
+	viewed, err := svc.View(t.Context(), eveID, adaID)
 	if err != nil {
 		t.Fatal(err)
 	}

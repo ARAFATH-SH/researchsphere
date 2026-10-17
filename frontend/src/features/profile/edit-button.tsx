@@ -1,8 +1,8 @@
 // EditSection names a part of the own profile that has its own edit dialog. It is also
 // the value of /profile?edit=…, which opens that dialog.
-export type EditSection = "intro" | "about" | "interests" | "skills" | "education";
+export type EditSection = "intro" | "about" | "interests" | "skills" | "education" | "contact";
 
-export const editSections: readonly EditSection[] = ["intro", "about", "interests", "skills", "education"];
+export const editSections: readonly EditSection[] = ["intro", "about", "interests", "skills", "education", "contact"];
 
 export function isEditSection(value: string | null): value is EditSection {
   return editSections.includes(value as EditSection);

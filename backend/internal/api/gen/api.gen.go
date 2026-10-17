@@ -83,6 +83,36 @@ func (e HealthStatus) Valid() bool {
 	}
 }
 
+// Defines values for LinkKind.
+const (
+	Github        LinkKind = "github"
+	GoogleScholar LinkKind = "google_scholar"
+	Linkedin      LinkKind = "linkedin"
+	Other         LinkKind = "other"
+	Researchgate  LinkKind = "researchgate"
+	Website       LinkKind = "website"
+)
+
+// Valid indicates whether the value is a known member of the LinkKind enum.
+func (e LinkKind) Valid() bool {
+	switch e {
+	case Github:
+		return true
+	case GoogleScholar:
+		return true
+	case Linkedin:
+		return true
+	case Other:
+		return true
+	case Researchgate:
+		return true
+	case Website:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for Role.
 const (
 	Admin      Role = "admin"
@@ -99,6 +129,33 @@ func (e Role) Valid() bool {
 	default:
 		return false
 	}
+}
+
+// Defines values for Visibility.
+const (
+	LoggedIn Visibility = "logged_in"
+	OnlyMe   Visibility = "only_me"
+)
+
+// Valid indicates whether the value is a known member of the Visibility enum.
+func (e Visibility) Valid() bool {
+	switch e {
+	case LoggedIn:
+		return true
+	case OnlyMe:
+		return true
+	default:
+		return false
+	}
+}
+
+// AddLinkRequest defines model for AddLinkRequest.
+type AddLinkRequest struct {
+	// Kind What a profile link points to; the client shows a label and icon for it.
+	Kind LinkKind `json:"kind"`
+
+	// Url An https URL with a host, without whitespace, at most 300 characters after trimming.
+	Url string `json:"url"`
 }
 
 // AddTagRequest defines model for AddTagRequest.
@@ -129,6 +186,12 @@ type AdminUser struct {
 	Verified bool `json:"verified"`
 }
 
+// Birthday A birthday without a year. `day` is a real day of `month`; 29 February is allowed.
+type Birthday struct {
+	Day   int `json:"day"`
+	Month int `json:"month"`
+}
+
 // ChangePasswordRequest defines model for ChangePasswordRequest.
 type ChangePasswordRequest struct {
 	CurrentPassword string `json:"currentPassword"`
@@ -140,6 +203,55 @@ type ChangePasswordRequest struct {
 // ConnectionStatus The connection between the caller and the profile's owner (FR-4.5).
 // Placeholder: always `none` until connections are added (FR-7); more values come then.
 type ConnectionStatus string
+
+// Contact The owner's contact info with who may see each item (FR-4.7). `email` is the
+// account's address. `phone` and `birthday` are always present and null when not set.
+type Contact struct {
+	Birthday *Birthday `json:"birthday"`
+
+	// BirthdayVisibility Who may see a contact item (FR-4.7): only its owner, or every logged-in user.
+	// "Connections only" comes with connections (slice 13).
+	BirthdayVisibility Visibility          `json:"birthdayVisibility"`
+	Email              openapi_types.Email `json:"email"`
+
+	// EmailVisibility Who may see a contact item (FR-4.7): only its owner, or every logged-in user.
+	// "Connections only" comes with connections (slice 13).
+	EmailVisibility Visibility `json:"emailVisibility"`
+
+	// Links The user's links, oldest first.
+	Links []ProfileLink `json:"links"`
+
+	// Phone E.164 format, such as +8801712345678.
+	//
+	// Example: +8801712345678
+	Phone *string `json:"phone"`
+
+	// PhoneVisibility Who may see a contact item (FR-4.7): only its owner, or every logged-in user.
+	// "Connections only" comes with connections (slice 13).
+	PhoneVisibility Visibility `json:"phoneVisibility"`
+}
+
+// ContactUpdate The contact fields a user edits (FR-4.7). A missing or null `phone` or `birthday`
+// clears it.
+type ContactUpdate struct {
+	Birthday *Birthday `json:"birthday,omitempty"`
+
+	// BirthdayVisibility Who may see a contact item (FR-4.7): only its owner, or every logged-in user.
+	// "Connections only" comes with connections (slice 13).
+	BirthdayVisibility Visibility `json:"birthdayVisibility"`
+
+	// EmailVisibility Who may see a contact item (FR-4.7): only its owner, or every logged-in user.
+	// "Connections only" comes with connections (slice 13).
+	EmailVisibility Visibility `json:"emailVisibility"`
+
+	// Phone E.164 format: `+`, then 2 to 15 digits, the first not 0. Spaces and hyphens are
+	// removed first, so "+880 1712-345678" is stored as "+8801712345678".
+	Phone *string `json:"phone,omitempty"`
+
+	// PhoneVisibility Who may see a contact item (FR-4.7): only its owner, or every logged-in user.
+	// "Connections only" comes with connections (slice 13).
+	PhoneVisibility Visibility `json:"phoneVisibility"`
+}
 
 // CurrentUser defines model for CurrentUser.
 type CurrentUser struct {
@@ -237,6 +349,9 @@ type HealthRedis string
 // HealthStatus defines model for Health.Status.
 type HealthStatus string
 
+// LinkKind What a profile link points to; the client shows a label and icon for it.
+type LinkKind string
+
 // LoginRequest defines model for LoginRequest.
 type LoginRequest struct {
 	// Email Example: ada@example.org
@@ -266,7 +381,7 @@ type PasswordResetRequest struct {
 	Email string `json:"email"`
 }
 
-// Profile A researcher's profile (FR-4.1, FR-4.2, FR-4.4, FR-4.5). The optional text fields are
+// Profile A researcher's profile (FR-4.1, FR-4.2, FR-4.4, FR-4.5, FR-4.7). The optional text fields are
 // always present and null when not set. `publications` and `connectionStatus` are
 // placeholders for now; later work fills them in.
 type Profile struct {
@@ -275,6 +390,11 @@ type Profile struct {
 	// ConnectionStatus The connection between the caller and the profile's owner (FR-4.5).
 	// Placeholder: always `none` until connections are added (FR-7); more values come then.
 	ConnectionStatus ConnectionStatus `json:"connectionStatus"`
+
+	// Contact The contact info the viewer of a profile may see (FR-4.7). An item that is hidden
+	// from the viewer, or not set, is left out; it is never null. The owner sees every
+	// item that is set. Links are visible to every logged-in user.
+	Contact PublicContact `json:"contact"`
 
 	// Country ISO 3166-1 alpha-2 code in capitals, such as DE.
 	//
@@ -301,6 +421,17 @@ type Profile struct {
 	// Skills The user's skills (FR-4.2), sorted by name ignoring letter case.
 	Skills []Tag              `json:"skills"`
 	UserId openapi_types.UUID `json:"userId"`
+}
+
+// ProfileLink A link on a profile (FR-4.7), visible to every logged-in user.
+type ProfileLink struct {
+	Id openapi_types.UUID `json:"id"`
+
+	// Kind What a profile link points to; the client shows a label and icon for it.
+	Kind LinkKind `json:"kind"`
+
+	// Url Example: https://scholar.example.org/ada
+	Url string `json:"url"`
 }
 
 // ProfileUpdate The profile fields a user edits (FR-4.1). Every value is trimmed first. Lengths
@@ -336,6 +467,17 @@ type ProfileUpdate struct {
 type ProjectRef struct {
 	Id    openapi_types.UUID `json:"id"`
 	Title string             `json:"title"`
+}
+
+// PublicContact The contact info the viewer of a profile may see (FR-4.7). An item that is hidden
+// from the viewer, or not set, is left out; it is never null. The owner sees every
+// item that is set. Links are visible to every logged-in user.
+type PublicContact struct {
+	// Birthday A birthday without a year. `day` is a real day of `month`; 29 February is allowed.
+	Birthday *Birthday            `json:"birthday,omitempty"`
+	Email    *openapi_types.Email `json:"email,omitempty"`
+	Links    []ProfileLink        `json:"links"`
+	Phone    *string              `json:"phone,omitempty"`
 }
 
 // RegisterRequest defines model for RegisterRequest.
@@ -400,8 +542,15 @@ type VerifyEmailRequest struct {
 	Token string `json:"token"`
 }
 
+// Visibility Who may see a contact item (FR-4.7): only its owner, or every logged-in user.
+// "Connections only" comes with connections (slice 13).
+type Visibility string
+
 // EducationID defines model for EducationID.
 type EducationID = string
+
+// LinkID defines model for LinkID.
+type LinkID = string
 
 // RefreshCookie defines model for RefreshCookie.
 type RefreshCookie = string
@@ -508,6 +657,9 @@ type VerifyEmailJSONRequestBody = VerifyEmailRequest
 // UpdateMyProfileJSONRequestBody defines body for UpdateMyProfile for application/json ContentType.
 type UpdateMyProfileJSONRequestBody = ProfileUpdate
 
+// UpdateMyContactJSONRequestBody defines body for UpdateMyContact for application/json ContentType.
+type UpdateMyContactJSONRequestBody = ContactUpdate
+
 // AddMyEducationJSONRequestBody defines body for AddMyEducation for application/json ContentType.
 type AddMyEducationJSONRequestBody = EducationCreate
 
@@ -516,6 +668,9 @@ type UpdateMyEducationJSONRequestBody = EducationUpdate
 
 // AddMyInterestJSONRequestBody defines body for AddMyInterest for application/json ContentType.
 type AddMyInterestJSONRequestBody = AddTagRequest
+
+// AddMyLinkJSONRequestBody defines body for AddMyLink for application/json ContentType.
+type AddMyLinkJSONRequestBody = AddLinkRequest
 
 // AddMySkillJSONRequestBody defines body for AddMySkill for application/json ContentType.
 type AddMySkillJSONRequestBody = AddTagRequest
@@ -567,6 +722,12 @@ type ServerInterface interface {
 	// UpdateMyProfile Create or replace the logged-in user's profile fields (FR-4.1)
 	// (PUT /profiles/me)
 	UpdateMyProfile(w http.ResponseWriter, r *http.Request)
+	// GetMyContact Return the logged-in user's contact info and who may see each item (FR-4.7)
+	// (GET /profiles/me/contact)
+	GetMyContact(w http.ResponseWriter, r *http.Request)
+	// UpdateMyContact Replace the logged-in user's phone, birthday and visibility settings (FR-4.7)
+	// (PUT /profiles/me/contact)
+	UpdateMyContact(w http.ResponseWriter, r *http.Request)
 	// AddMyEducation Add an education entry to the logged-in user's profile (FR-4.4)
 	// (POST /profiles/me/education)
 	AddMyEducation(w http.ResponseWriter, r *http.Request)
@@ -582,6 +743,12 @@ type ServerInterface interface {
 	// RemoveMyInterest Remove a research interest from the logged-in user's profile (FR-4.2)
 	// (DELETE /profiles/me/interests/{tagId})
 	RemoveMyInterest(w http.ResponseWriter, r *http.Request, tagId TagID)
+	// AddMyLink Add a link to the logged-in user's profile (FR-4.7)
+	// (POST /profiles/me/links)
+	AddMyLink(w http.ResponseWriter, r *http.Request)
+	// RemoveMyLink Remove one of the logged-in user's links (FR-4.7)
+	// (DELETE /profiles/me/links/{linkId})
+	RemoveMyLink(w http.ResponseWriter, r *http.Request, linkId LinkID)
 	// AddMySkill Add a skill to the logged-in user's profile (FR-4.2)
 	// (POST /profiles/me/skills)
 	AddMySkill(w http.ResponseWriter, r *http.Request)
@@ -949,6 +1116,46 @@ func (siw *ServerInterfaceWrapper) UpdateMyProfile(w http.ResponseWriter, r *htt
 	handler.ServeHTTP(w, r)
 }
 
+// GetMyContact operation middleware
+func (siw *ServerInterfaceWrapper) GetMyContact(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMyContact(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateMyContact operation middleware
+func (siw *ServerInterfaceWrapper) UpdateMyContact(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateMyContact(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // AddMyEducation operation middleware
 func (siw *ServerInterfaceWrapper) AddMyEducation(w http.ResponseWriter, r *http.Request) {
 
@@ -1076,6 +1283,58 @@ func (siw *ServerInterfaceWrapper) RemoveMyInterest(w http.ResponseWriter, r *ht
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RemoveMyInterest(w, r, tagId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AddMyLink operation middleware
+func (siw *ServerInterfaceWrapper) AddMyLink(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AddMyLink(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RemoveMyLink operation middleware
+func (siw *ServerInterfaceWrapper) RemoveMyLink(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "linkId" -------------
+	var linkId LinkID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "linkId", r.PathValue("linkId"), &linkId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "linkId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RemoveMyLink(w, r, linkId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1418,6 +1677,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/profiles/me/education", wrapper.AddMyEducation)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/profiles/me/education/{educationId}", wrapper.RemoveMyEducation)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/profiles/me/education/{educationId}", wrapper.UpdateMyEducation)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles/me/contact", wrapper.GetMyContact)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/profiles/me/contact", wrapper.UpdateMyContact)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/profiles/me/links", wrapper.AddMyLink)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/profiles/me/links/{linkId}", wrapper.RemoveMyLink)
 
 	return m
 }
@@ -2402,6 +2665,147 @@ func (response UpdateMyProfile500JSONResponse) VisitUpdateMyProfileResponse(w ht
 	return err
 }
 
+type GetMyContactRequestObject struct {
+}
+
+type GetMyContactResponseObject interface {
+	VisitGetMyContactResponse(w http.ResponseWriter) error
+}
+
+type GetMyContact200JSONResponse Contact
+
+func (response GetMyContact200JSONResponse) VisitGetMyContactResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMyContact401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetMyContact401JSONResponse) VisitGetMyContactResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMyContact403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetMyContact403JSONResponse) VisitGetMyContactResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMyContact500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response GetMyContact500JSONResponse) VisitGetMyContactResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMyContactRequestObject struct {
+	Body *UpdateMyContactJSONRequestBody
+}
+
+type UpdateMyContactResponseObject interface {
+	VisitUpdateMyContactResponse(w http.ResponseWriter) error
+}
+
+type UpdateMyContact200JSONResponse Contact
+
+func (response UpdateMyContact200JSONResponse) VisitUpdateMyContactResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMyContact400JSONResponse Error
+
+func (response UpdateMyContact400JSONResponse) VisitUpdateMyContactResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMyContact401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response UpdateMyContact401JSONResponse) VisitUpdateMyContactResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMyContact403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response UpdateMyContact403JSONResponse) VisitUpdateMyContactResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMyContact500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response UpdateMyContact500JSONResponse) VisitUpdateMyContactResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type AddMyEducationRequestObject struct {
 	Body *AddMyEducationJSONRequestBody
 }
@@ -2826,6 +3230,170 @@ func (response RemoveMyInterest404JSONResponse) VisitRemoveMyInterestResponse(w 
 type RemoveMyInterest500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response RemoveMyInterest500JSONResponse) VisitRemoveMyInterestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyLinkRequestObject struct {
+	Body *AddMyLinkJSONRequestBody
+}
+
+type AddMyLinkResponseObject interface {
+	VisitAddMyLinkResponse(w http.ResponseWriter) error
+}
+
+type AddMyLink201JSONResponse ProfileLink
+
+func (response AddMyLink201JSONResponse) VisitAddMyLinkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyLink400JSONResponse Error
+
+func (response AddMyLink400JSONResponse) VisitAddMyLinkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyLink401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response AddMyLink401JSONResponse) VisitAddMyLinkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyLink403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response AddMyLink403JSONResponse) VisitAddMyLinkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyLink409JSONResponse Error
+
+func (response AddMyLink409JSONResponse) VisitAddMyLinkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyLink500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response AddMyLink500JSONResponse) VisitAddMyLinkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMyLinkRequestObject struct {
+	LinkId LinkID `json:"linkId"`
+}
+
+type RemoveMyLinkResponseObject interface {
+	VisitRemoveMyLinkResponse(w http.ResponseWriter) error
+}
+
+type RemoveMyLink204Response struct {
+}
+
+func (response RemoveMyLink204Response) VisitRemoveMyLinkResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RemoveMyLink401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RemoveMyLink401JSONResponse) VisitRemoveMyLinkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMyLink403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response RemoveMyLink403JSONResponse) VisitRemoveMyLinkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMyLink404JSONResponse Error
+
+func (response RemoveMyLink404JSONResponse) VisitRemoveMyLinkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMyLink500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RemoveMyLink500JSONResponse) VisitRemoveMyLinkResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -3296,6 +3864,12 @@ type StrictServerInterface interface {
 	// UpdateMyProfile Create or replace the logged-in user's profile fields (FR-4.1)
 	// (PUT /profiles/me)
 	UpdateMyProfile(ctx context.Context, request UpdateMyProfileRequestObject) (UpdateMyProfileResponseObject, error)
+	// GetMyContact Return the logged-in user's contact info and who may see each item (FR-4.7)
+	// (GET /profiles/me/contact)
+	GetMyContact(ctx context.Context, request GetMyContactRequestObject) (GetMyContactResponseObject, error)
+	// UpdateMyContact Replace the logged-in user's phone, birthday and visibility settings (FR-4.7)
+	// (PUT /profiles/me/contact)
+	UpdateMyContact(ctx context.Context, request UpdateMyContactRequestObject) (UpdateMyContactResponseObject, error)
 	// AddMyEducation Add an education entry to the logged-in user's profile (FR-4.4)
 	// (POST /profiles/me/education)
 	AddMyEducation(ctx context.Context, request AddMyEducationRequestObject) (AddMyEducationResponseObject, error)
@@ -3311,6 +3885,12 @@ type StrictServerInterface interface {
 	// RemoveMyInterest Remove a research interest from the logged-in user's profile (FR-4.2)
 	// (DELETE /profiles/me/interests/{tagId})
 	RemoveMyInterest(ctx context.Context, request RemoveMyInterestRequestObject) (RemoveMyInterestResponseObject, error)
+	// AddMyLink Add a link to the logged-in user's profile (FR-4.7)
+	// (POST /profiles/me/links)
+	AddMyLink(ctx context.Context, request AddMyLinkRequestObject) (AddMyLinkResponseObject, error)
+	// RemoveMyLink Remove one of the logged-in user's links (FR-4.7)
+	// (DELETE /profiles/me/links/{linkId})
+	RemoveMyLink(ctx context.Context, request RemoveMyLinkRequestObject) (RemoveMyLinkResponseObject, error)
 	// AddMySkill Add a skill to the logged-in user's profile (FR-4.2)
 	// (POST /profiles/me/skills)
 	AddMySkill(ctx context.Context, request AddMySkillRequestObject) (AddMySkillResponseObject, error)
@@ -3798,6 +4378,61 @@ func (sh *strictHandler) UpdateMyProfile(w http.ResponseWriter, r *http.Request)
 	}
 }
 
+// GetMyContact operation middleware
+func (sh *strictHandler) GetMyContact(w http.ResponseWriter, r *http.Request) {
+	var request GetMyContactRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetMyContact(ctx, request.(GetMyContactRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetMyContact")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetMyContactResponseObject); ok {
+		if err := validResponse.VisitGetMyContactResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateMyContact operation middleware
+func (sh *strictHandler) UpdateMyContact(w http.ResponseWriter, r *http.Request) {
+	var request UpdateMyContactRequestObject
+
+	var body UpdateMyContactJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateMyContact(ctx, request.(UpdateMyContactRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateMyContact")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateMyContactResponseObject); ok {
+		if err := validResponse.VisitUpdateMyContactResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // AddMyEducation operation middleware
 func (sh *strictHandler) AddMyEducation(w http.ResponseWriter, r *http.Request) {
 	var request AddMyEducationRequestObject
@@ -3938,6 +4573,63 @@ func (sh *strictHandler) RemoveMyInterest(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RemoveMyInterestResponseObject); ok {
 		if err := validResponse.VisitRemoveMyInterestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AddMyLink operation middleware
+func (sh *strictHandler) AddMyLink(w http.ResponseWriter, r *http.Request) {
+	var request AddMyLinkRequestObject
+
+	var body AddMyLinkJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AddMyLink(ctx, request.(AddMyLinkRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AddMyLink")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AddMyLinkResponseObject); ok {
+		if err := validResponse.VisitAddMyLinkResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RemoveMyLink operation middleware
+func (sh *strictHandler) RemoveMyLink(w http.ResponseWriter, r *http.Request, linkId LinkID) {
+	var request RemoveMyLinkRequestObject
+
+	request.LinkId = linkId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RemoveMyLink(ctx, request.(RemoveMyLinkRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RemoveMyLink")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RemoveMyLinkResponseObject); ok {
+		if err := validResponse.VisitRemoveMyLinkResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

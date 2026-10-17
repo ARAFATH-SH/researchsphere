@@ -36,6 +36,17 @@ func (q *Queries) CountUserInterests(ctx context.Context, userID pgtype.UUID) (i
 	return count, err
 }
 
+const countUserLinks = `-- name: CountUserLinks :one
+SELECT count(*) FROM profile_links WHERE user_id = $1
+`
+
+func (q *Queries) CountUserLinks(ctx context.Context, userID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countUserLinks, userID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countUserSkills = `-- name: CountUserSkills :one
 SELECT count(*) FROM user_skills WHERE user_id = $1
 `
@@ -58,6 +69,23 @@ type DeleteUserEducationParams struct {
 
 func (q *Queries) DeleteUserEducation(ctx context.Context, arg DeleteUserEducationParams) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteUserEducation, arg.ID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteUserLink = `-- name: DeleteUserLink :execrows
+DELETE FROM profile_links WHERE id = $1 AND user_id = $2
+`
+
+type DeleteUserLinkParams struct {
+	ID     pgtype.UUID
+	UserID pgtype.UUID
+}
+
+func (q *Queries) DeleteUserLink(ctx context.Context, arg DeleteUserLinkParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteUserLink, arg.ID, arg.UserID)
 	if err != nil {
 		return 0, err
 	}
@@ -103,6 +131,46 @@ func (q *Queries) FindAccount(ctx context.Context, id pgtype.UUID) (FindAccountR
 		&i.Department,
 		&i.JobTitle,
 		&i.Country,
+	)
+	return i, err
+}
+
+const findContact = `-- name: FindContact :one
+
+SELECT u.email::text AS email, c.phone, c.birth_month, c.birth_day,
+       coalesce(c.email_visibility, 'only_me')::text    AS email_visibility,
+       coalesce(c.phone_visibility, 'only_me')::text    AS phone_visibility,
+       coalesce(c.birthday_visibility, 'only_me')::text AS birthday_visibility
+FROM users u
+LEFT JOIN profile_contact c ON c.user_id = u.id
+WHERE u.id = $1
+`
+
+type FindContactRow struct {
+	Email              string
+	Phone              pgtype.Text
+	BirthMonth         pgtype.Int2
+	BirthDay           pgtype.Int2
+	EmailVisibility    string
+	PhoneVisibility    string
+	BirthdayVisibility string
+}
+
+// Contact info and links (FR-4.7). Every query names the owner in its WHERE clause, so a
+// link of another user is never read or deleted: it is simply not found.
+// The user's email and, through the left join, the contact row when there is one. A
+// user without a row gets every visibility only_me, the column default.
+func (q *Queries) FindContact(ctx context.Context, userID pgtype.UUID) (FindContactRow, error) {
+	row := q.db.QueryRow(ctx, findContact, userID)
+	var i FindContactRow
+	err := row.Scan(
+		&i.Email,
+		&i.Phone,
+		&i.BirthMonth,
+		&i.BirthDay,
+		&i.EmailVisibility,
+		&i.PhoneVisibility,
+		&i.BirthdayVisibility,
 	)
 	return i, err
 }
@@ -230,6 +298,36 @@ func (q *Queries) InsertInterestIfMissing(ctx context.Context, name string) erro
 	return err
 }
 
+const insertLink = `-- name: InsertLink :one
+INSERT INTO profile_links (user_id, kind, url) VALUES ($1, $2, $3)
+RETURNING id, user_id, kind, url
+`
+
+type InsertLinkParams struct {
+	UserID pgtype.UUID
+	Kind   string
+	Url    string
+}
+
+type InsertLinkRow struct {
+	ID     pgtype.UUID
+	UserID pgtype.UUID
+	Kind   string
+	Url    string
+}
+
+func (q *Queries) InsertLink(ctx context.Context, arg InsertLinkParams) (InsertLinkRow, error) {
+	row := q.db.QueryRow(ctx, insertLink, arg.UserID, arg.Kind, arg.Url)
+	var i InsertLinkRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Kind,
+		&i.Url,
+	)
+	return i, err
+}
+
 const insertSkillIfMissing = `-- name: InsertSkillIfMissing :exec
 
 INSERT INTO skills (name) VALUES ($1) ON CONFLICT (name) DO NOTHING
@@ -339,6 +437,42 @@ func (q *Queries) ListUserInterests(ctx context.Context, userID pgtype.UUID) ([]
 	for rows.Next() {
 		var i ResearchInterest
 		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUserLinks = `-- name: ListUserLinks :many
+SELECT id, user_id, kind, url FROM profile_links WHERE user_id = $1 ORDER BY created_at, id
+`
+
+type ListUserLinksRow struct {
+	ID     pgtype.UUID
+	UserID pgtype.UUID
+	Kind   string
+	Url    string
+}
+
+func (q *Queries) ListUserLinks(ctx context.Context, userID pgtype.UUID) ([]ListUserLinksRow, error) {
+	rows, err := q.db.Query(ctx, listUserLinks, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUserLinksRow
+	for rows.Next() {
+		var i ListUserLinksRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.Kind,
+			&i.Url,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -551,6 +685,41 @@ func (q *Queries) UpdateUserEducation(ctx context.Context, arg UpdateUserEducati
 		&i.EndYear,
 	)
 	return i, err
+}
+
+const upsertContact = `-- name: UpsertContact :exec
+INSERT INTO profile_contact (user_id, phone, birth_month, birth_day, email_visibility, phone_visibility, birthday_visibility)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+ON CONFLICT (user_id) DO UPDATE SET
+    phone               = EXCLUDED.phone,
+    birth_month         = EXCLUDED.birth_month,
+    birth_day           = EXCLUDED.birth_day,
+    email_visibility    = EXCLUDED.email_visibility,
+    phone_visibility    = EXCLUDED.phone_visibility,
+    birthday_visibility = EXCLUDED.birthday_visibility
+`
+
+type UpsertContactParams struct {
+	UserID             pgtype.UUID
+	Phone              pgtype.Text
+	BirthMonth         pgtype.Int2
+	BirthDay           pgtype.Int2
+	EmailVisibility    string
+	PhoneVisibility    string
+	BirthdayVisibility string
+}
+
+func (q *Queries) UpsertContact(ctx context.Context, arg UpsertContactParams) error {
+	_, err := q.db.Exec(ctx, upsertContact,
+		arg.UserID,
+		arg.Phone,
+		arg.BirthMonth,
+		arg.BirthDay,
+		arg.EmailVisibility,
+		arg.PhoneVisibility,
+		arg.BirthdayVisibility,
+	)
+	return err
 }
 
 const upsertProfile = `-- name: UpsertProfile :one

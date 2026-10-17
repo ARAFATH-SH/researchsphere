@@ -171,6 +171,7 @@ The 15 functional requirements of the proposal are grouped by module below. In e
 | FR-4.4 | let a user add, edit and remove education entries with institution, degree, field and years | Must |
 | FR-4.5 | show any user's profile to a logged-in user, with interests, skills, education, confirmed publications and the connection status between the two | Must |
 | FR-4.6 | let a user upload a profile photo of up to 2 MB | Could |
+| FR-4.7 | let a user add contact info (phone, birthday as day and month without year, and up to 5 website links) and choose for each item, and for the account email, who can see it: only me or all logged-in users | Should |
 
 **FR-5 Publications**
 
@@ -438,7 +439,7 @@ NFR-1 to NFR-7 come from the proposal. NFR-8 to NFR-12 are added here.
 
 ## 7. Data Requirements
 
-The database holds the 18 kinds of record below. The rules below are enforced by the database itself, so that a fault in the application cannot break them.
+The database holds the 20 kinds of record below. The rules below are enforced by the database itself, so that a fault in the application cannot break them.
 
 | Entity | Main attributes | Rules |
 | --- | --- | --- |
@@ -448,6 +449,8 @@ The database holds the 18 kinds of record below. The rules below are enforced by
 | Profile | Name, headline, bio, institution, department, job title, country, ORCID iD | One per user; ORCID iD is unique and well formed |
 | Interest, Skill | Name | Name is unique, ignoring letter case; shared by all users and projects |
 | Education | Institution, degree, field, start and end year | End year is not before start year |
+| Contact info | Phone, birth month and day, who can see the email, phone and birthday | One per user; phone in E.164 format; month and day both set or both empty and a real date (29 February allowed); each visibility is only me or all logged-in users |
+| Profile link | Kind (website, Google Scholar, ResearchGate, LinkedIn, GitHub, other), URL | At most 5 per user; URL uses https and has at most 300 characters |
 | Publication | DOI, title, abstract, venue name, year, link, source | DOI is unique; linked to each author with a confirmed time |
 | Connection | Requester, receiver, status, times | No self-connection; one pending or accepted connection per pair, in either direction |
 | Post, Like, Comment | Author, text, linked publication or project, removal time and reason | One like per user per post |

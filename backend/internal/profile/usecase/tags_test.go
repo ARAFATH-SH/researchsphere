@@ -329,7 +329,7 @@ func TestProfilesIncludeTags(t *testing.T) {
 		check(t, p)
 	})
 	t.Run("View", func(t *testing.T) {
-		p, err := svc.View(t.Context(), adaID)
+		p, err := svc.View(t.Context(), eveID, adaID)
 		if err != nil {
 			t.Fatal(err)
 		}

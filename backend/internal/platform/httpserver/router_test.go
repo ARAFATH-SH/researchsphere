@@ -111,6 +111,22 @@ func (fakeAPI) RemoveMyEducation(context.Context, gen.RemoveMyEducationRequestOb
 	return gen.RemoveMyEducation204Response{}, nil
 }
 
+func (fakeAPI) GetMyContact(context.Context, gen.GetMyContactRequestObject) (gen.GetMyContactResponseObject, error) {
+	return gen.GetMyContact200JSONResponse{}, nil
+}
+
+func (fakeAPI) UpdateMyContact(context.Context, gen.UpdateMyContactRequestObject) (gen.UpdateMyContactResponseObject, error) {
+	return gen.UpdateMyContact200JSONResponse{}, nil
+}
+
+func (fakeAPI) AddMyLink(context.Context, gen.AddMyLinkRequestObject) (gen.AddMyLinkResponseObject, error) {
+	return gen.AddMyLink201JSONResponse{}, nil
+}
+
+func (fakeAPI) RemoveMyLink(context.Context, gen.RemoveMyLinkRequestObject) (gen.RemoveMyLinkResponseObject, error) {
+	return gen.RemoveMyLink204Response{}, nil
+}
+
 func (fakeAPI) SuggestInterestTags(context.Context, gen.SuggestInterestTagsRequestObject) (gen.SuggestInterestTagsResponseObject, error) {
 	return gen.SuggestInterestTags200JSONResponse{Items: []gen.Tag{}}, nil
 }
@@ -337,8 +353,8 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 
 func TestRoutes(t *testing.T) {
 	got := Routes()
-	if len(got) != 25 {
-		t.Errorf("Routes() returned %d routes, want the 25 operations in the contract: %v", len(got), got)
+	if len(got) != 29 {
+		t.Errorf("Routes() returned %d routes, want the 29 operations in the contract: %v", len(got), got)
 	}
 	seen := map[string]bool{}
 	for _, p := range got {

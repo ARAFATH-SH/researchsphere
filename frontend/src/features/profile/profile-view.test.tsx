@@ -4,7 +4,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 
 import { useSession } from "@/features/auth/session";
 
-import { getMyProfile, getProfile, updateMyProfile } from "./api";
+import { getMyContact, getMyProfile, getProfile, updateMyProfile } from "./api";
 import { ProfileView } from "./profile-view";
 import { adaID, bobID, emptyProfile, fullProfile } from "./test-profiles";
 
@@ -254,5 +254,67 @@ describe("ProfileView, editing", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
     await waitFor(() => expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Ada King"));
     expect(mockGetMyProfile).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("ProfileView, contact info", () => {
+  it("hides Contact info on another profile when nothing is visible", async () => {
+    mockGetProfile.mockResolvedValue({ status: "ok", profile: fullProfile(bobID, "Bob Babbage") });
+    render(<ProfileView userId={bobID} />);
+    await screen.findByRole("heading", { level: 1, name: "Bob Babbage" });
+    expect(screen.queryByRole("button", { name: "Contact info" })).toBeNull();
+  });
+
+  it("shows another user only what the API returned, with links as icons and labels", async () => {
+    const bob = fullProfile(bobID, "Bob Babbage");
+    bob.contact = {
+      phone: "+441234567890",
+      links: [{ id: "l1", kind: "google_scholar", url: "https://scholar.example.org/bob" }],
+    };
+    mockGetProfile.mockResolvedValue({ status: "ok", profile: bob });
+    render(<ProfileView userId={bobID} />);
+    const button = await screen.findByRole("button", { name: "Contact info" });
+    fireEvent.click(button);
+
+    const dialog = within(screen.getByRole("dialog", { name: "Contact info for Bob Babbage" }));
+    expect(dialog.getByRole("link", { name: "+441234567890" }).getAttribute("href")).toBe("tel:+441234567890");
+    const scholar = dialog.getByRole("link", { name: /Google Scholar/ });
+    expect(scholar.getAttribute("href")).toBe("https://scholar.example.org/bob");
+    expect(scholar.getAttribute("rel")).toContain("noopener");
+    expect(scholar.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+    expect(dialog.queryByText("Email")).toBeNull();
+    expect(dialog.queryByText("Birthday")).toBeNull();
+
+    fireEvent.click(dialog.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(button);
+  });
+
+  it("shows Contact info on another profile when only a link is visible", async () => {
+    const bob = fullProfile(bobID, "Bob Babbage");
+    bob.contact = { links: [{ id: "l1", kind: "website", url: "https://bob.example.org" }] };
+    mockGetProfile.mockResolvedValue({ status: "ok", profile: bob });
+    render(<ProfileView userId={bobID} />);
+    expect(await screen.findByRole("button", { name: "Contact info" })).toBeTruthy();
+  });
+
+  it("opens the edit dialog from Contact info on the own profile", async () => {
+    mockGetMyProfile.mockResolvedValue({ status: "ok", profile: fullProfile(adaID, "Ada Lovelace") });
+    jest.mocked(getMyContact).mockResolvedValue({
+      ok: true,
+      data: {
+        email: "ada@example.org",
+        emailVisibility: "only_me",
+        phone: null,
+        phoneVisibility: "only_me",
+        birthday: null,
+        birthdayVisibility: "only_me",
+        links: [],
+      },
+    });
+    render(<ProfileView />);
+    fireEvent.click(await screen.findByRole("button", { name: "Contact info" }));
+    expect(screen.getByRole("dialog", { name: "Contact info" })).toBeTruthy();
+    expect(await screen.findByText("ada@example.org")).toBeTruthy();
   });
 });

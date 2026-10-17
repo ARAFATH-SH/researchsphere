@@ -99,3 +99,37 @@ export async function removeEducation(educationId: string): Promise<Result<undef
   const res = await call(() => api.DELETE("/profiles/me/education/{educationId}", { params }));
   return res.ok ? { ok: true, data: undefined } : res;
 }
+
+export type Contact = components["schemas"]["Contact"];
+export type ContactUpdate = components["schemas"]["ContactUpdate"];
+export type PublicContact = components["schemas"]["PublicContact"];
+export type ProfileLink = components["schemas"]["ProfileLink"];
+export type LinkKind = components["schemas"]["LinkKind"];
+export type Visibility = components["schemas"]["Visibility"];
+
+// getMyContact returns the signed-in user's contact info and who may see each item (FR-4.7).
+export async function getMyContact(): Promise<Result<Contact>> {
+  const res = await call(() => api.GET("/profiles/me/contact"));
+  if (!res.ok) return res;
+  return res.data ? { ok: true, data: res.data } : { ok: false, ...unexpectedError };
+}
+
+// updateMyContact replaces the phone, birthday and visibilities; null clears an item (FR-4.7).
+export async function updateMyContact(body: ContactUpdate): Promise<Result<undefined>> {
+  const res = await call(() => api.PUT("/profiles/me/contact", { body }));
+  return res.ok ? { ok: true, data: undefined } : res;
+}
+
+// addLink adds a link to the signed-in user's profile (FR-4.7).
+export async function addLink(kind: LinkKind, url: string): Promise<Result<ProfileLink>> {
+  const res = await call(() => api.POST("/profiles/me/links", { body: { kind, url } }));
+  if (!res.ok) return res;
+  return res.data ? { ok: true, data: res.data } : { ok: false, ...unexpectedError };
+}
+
+// removeLink removes one of the signed-in user's links (FR-4.7).
+export async function removeLink(linkId: string): Promise<Result<undefined>> {
+  const params = { path: { linkId } };
+  const res = await call(() => api.DELETE("/profiles/me/links/{linkId}", { params }));
+  return res.ok ? { ok: true, data: undefined } : res;
+}

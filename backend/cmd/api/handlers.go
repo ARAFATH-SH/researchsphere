@@ -58,6 +58,12 @@ var platformGuards = map[string]authz.Action{
 	"POST /api/v1/profiles/me/education":                 authz.ActAsMember,
 	"PATCH /api/v1/profiles/me/education/{educationId}":  authz.ActAsMember,
 	"DELETE /api/v1/profiles/me/education/{educationId}": authz.ActAsMember,
+
+	// Contact info and links (FR-4.7) are part of the user's own profile.
+	"GET /api/v1/profiles/me/contact":           authz.ViewContent,
+	"PUT /api/v1/profiles/me/contact":           authz.ActAsMember,
+	"POST /api/v1/profiles/me/links":            authz.ActAsMember,
+	"DELETE /api/v1/profiles/me/links/{linkId}": authz.ActAsMember,
 }
 
 // guardPlatform runs httpx.RequirePlatform with the action platformGuards gives the

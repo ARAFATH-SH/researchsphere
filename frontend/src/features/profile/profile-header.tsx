@@ -10,10 +10,17 @@ import { EditButton, editButtonId } from "./edit-button";
 import { affiliation, countryName, initials } from "./format";
 import type { EditControls } from "./profile-sections";
 
-// ProfileHeader is the top card: a cover band, the avatar, the name and where the
-// researcher works. The owner gets a pencil that opens the intro dialog; anyone else a
-// Connect button that waits for connections (slice 13).
-export function ProfileHeader({ profile, edit }: { profile: Profile; edit?: EditControls }) {
+type ProfileHeaderProps = {
+  profile: Profile;
+  edit?: EditControls;
+  // onContact opens the contact info dialog; without it the link is not shown.
+  onContact?: () => void;
+};
+
+// ProfileHeader is the top card: a cover band, the avatar, the name, where the researcher
+// works and a "Contact info" link (FR-4.7). The owner gets a pencil that opens the intro
+// dialog; anyone else a Connect button that waits for connections (slice 13).
+export function ProfileHeader({ profile, edit, onContact }: ProfileHeaderProps) {
   const works = affiliation(profile);
   return (
     <Card className="overflow-hidden">
@@ -42,6 +49,16 @@ export function ProfileHeader({ profile, edit }: { profile: Profile; edit?: Edit
           {profile.department && <p>{profile.department}</p>}
           {profile.country && <p>{countryName(profile.country)}</p>}
         </div>
+        {onContact && (
+          <button
+            id={editButtonId("contact")}
+            type="button"
+            onClick={onContact}
+            className="mt-2 rounded-sm text-sm font-semibold text-secondary hover:underline focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none"
+          >
+            Contact info
+          </button>
+        )}
       </div>
     </Card>
   );

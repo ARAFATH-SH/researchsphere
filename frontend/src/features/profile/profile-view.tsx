@@ -9,6 +9,8 @@ import { Card } from "@/components/ui/card";
 import { useSession } from "@/features/auth/session";
 
 import { AboutDialog } from "./about-dialog";
+import { ContactDialog } from "./contact-dialog";
+import { ContactViewDialog, hasVisibleContact } from "./contact-view-dialog";
 import { getMyProfile, getProfile, type Profile, type ProfileResult } from "./api";
 import { editButtonId, type EditSection, isEditSection } from "./edit-button";
 import { EducationDialog } from "./education-dialog";
@@ -53,20 +55,36 @@ export function ProfileView({ userId }: { userId?: string }) {
   if (r.status === "notFound") return <NotFound />;
   if (r.status === "error") return <LoadFailed onRetry={() => setAttempt((n) => n + 1)} />;
 
-  if (!own) {
-    return (
+  if (!own) return <OtherProfile profile={r.profile} />;
+  return <OwnProfile profile={r.profile} reload={reload} />;
+}
+
+// OtherProfile is someone else's profile. "Contact info" shows only what the API
+// returned and is hidden when that is nothing (FR-4.7).
+function OtherProfile({ profile }: { profile: Profile }) {
+  const [contactOpen, setContactOpen] = useState(false);
+  const showContact = hasVisibleContact(profile.contact);
+  return (
+    <>
       <div className="grid gap-6 md:grid-cols-3">
         <div className="space-y-4 md:col-span-2">
-          <ProfileHeader profile={r.profile} />
-          <ProfileSections profile={r.profile} />
+          <ProfileHeader profile={profile} onContact={showContact ? () => setContactOpen(true) : undefined} />
+          <ProfileSections profile={profile} />
         </div>
         <aside aria-label="Profile sidebar" className="space-y-4">
-          <ProfileSidebar profile={r.profile} own={false} />
+          <ProfileSidebar profile={profile} own={false} />
         </aside>
       </div>
-    );
-  }
-  return <OwnProfile profile={r.profile} reload={reload} />;
+      {contactOpen && (
+        <ContactViewDialog
+          name={profile.fullName}
+          contact={profile.contact}
+          onClose={() => setContactOpen(false)}
+          returnFocusId={editButtonId("contact")}
+        />
+      )}
+    </>
+  );
 }
 
 // OwnProfile is the owner's profile with its edit dialogs (FR-4.1 to FR-4.4). A pencil
@@ -108,7 +126,7 @@ function OwnProfile({ profile, reload }: { profile: Profile; reload: () => void 
     <>
       <div className="grid gap-6 md:grid-cols-3">
         <div className="space-y-4 md:col-span-2">
-          <ProfileHeader profile={profile} edit={edit} />
+          <ProfileHeader profile={profile} edit={edit} onContact={() => setEditing("contact")} />
           <ProfileSections profile={profile} edit={edit} />
         </div>
         <aside aria-label="Profile sidebar" className="space-y-4">
@@ -119,6 +137,14 @@ function OwnProfile({ profile, reload }: { profile: Profile; reload: () => void 
       {open === "about" && <AboutDialog {...common} onSaved={() => saved()} />}
       {(open === "interests" || open === "skills") && <TagsDialog key={open} kind={open} {...common} onChanged={reload} />}
       {open === "education" && <EducationDialog {...common} onSaved={saved} />}
+      {open === "contact" && (
+        <ContactDialog
+          onClose={close}
+          onSaved={() => saved()}
+          onLinksChanged={reload}
+          returnFocusId={editButtonId("contact")}
+        />
+      )}
       {toast && <Toast message={toast} />}
     </>
   );

@@ -151,3 +151,41 @@ SELECT id, user_id, institution, degree, field_of_study, start_year, end_year
 FROM education
 WHERE user_id = @user_id
 ORDER BY end_year DESC NULLS FIRST, start_year DESC, created_at DESC, id;
+
+-- Contact info and links (FR-4.7). Every query names the owner in its WHERE clause, so a
+-- link of another user is never read or deleted: it is simply not found.
+
+-- name: FindContact :one
+-- The user's email and, through the left join, the contact row when there is one. A
+-- user without a row gets every visibility only_me, the column default.
+SELECT u.email::text AS email, c.phone, c.birth_month, c.birth_day,
+       coalesce(c.email_visibility, 'only_me')::text    AS email_visibility,
+       coalesce(c.phone_visibility, 'only_me')::text    AS phone_visibility,
+       coalesce(c.birthday_visibility, 'only_me')::text AS birthday_visibility
+FROM users u
+LEFT JOIN profile_contact c ON c.user_id = u.id
+WHERE u.id = @user_id;
+
+-- name: UpsertContact :exec
+INSERT INTO profile_contact (user_id, phone, birth_month, birth_day, email_visibility, phone_visibility, birthday_visibility)
+VALUES (@user_id, @phone, @birth_month, @birth_day, @email_visibility, @phone_visibility, @birthday_visibility)
+ON CONFLICT (user_id) DO UPDATE SET
+    phone               = EXCLUDED.phone,
+    birth_month         = EXCLUDED.birth_month,
+    birth_day           = EXCLUDED.birth_day,
+    email_visibility    = EXCLUDED.email_visibility,
+    phone_visibility    = EXCLUDED.phone_visibility,
+    birthday_visibility = EXCLUDED.birthday_visibility;
+
+-- name: ListUserLinks :many
+SELECT id, user_id, kind, url FROM profile_links WHERE user_id = @user_id ORDER BY created_at, id;
+
+-- name: CountUserLinks :one
+SELECT count(*) FROM profile_links WHERE user_id = @user_id;
+
+-- name: InsertLink :one
+INSERT INTO profile_links (user_id, kind, url) VALUES (@user_id, @kind, @url)
+RETURNING id, user_id, kind, url;
+
+-- name: DeleteUserLink :execrows
+DELETE FROM profile_links WHERE id = @id AND user_id = @user_id;
