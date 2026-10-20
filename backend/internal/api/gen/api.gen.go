@@ -83,6 +83,21 @@ func (e HealthStatus) Valid() bool {
 	}
 }
 
+// Defines values for HealthStorage.
+const (
+	HealthStorageOk HealthStorage = "ok"
+)
+
+// Valid indicates whether the value is a known member of the HealthStorage enum.
+func (e HealthStorage) Valid() bool {
+	switch e {
+	case HealthStorageOk:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for LinkKind.
 const (
 	Github        LinkKind = "github"
@@ -338,6 +353,7 @@ type Health struct {
 	Database HealthDatabase `json:"database"`
 	Redis    HealthRedis    `json:"redis"`
 	Status   HealthStatus   `json:"status"`
+	Storage  HealthStorage  `json:"storage"`
 }
 
 // HealthDatabase defines model for Health.Database.
@@ -348,6 +364,9 @@ type HealthRedis string
 
 // HealthStatus defines model for Health.Status.
 type HealthStatus string
+
+// HealthStorage defines model for Health.Storage.
+type HealthStorage string
 
 // LinkKind What a profile link points to; the client shows a label and icon for it.
 type LinkKind string
@@ -713,7 +732,7 @@ type ServerInterface interface {
 	// VerifyEmail Verify an email address with the token from the link (FR-1.3)
 	// (POST /auth/verify-email)
 	VerifyEmail(w http.ResponseWriter, r *http.Request)
-	// GetHealth Report whether the database and Redis respond
+	// GetHealth Report whether the database, Redis and object storage respond
 	// (GET /health)
 	GetHealth(w http.ResponseWriter, r *http.Request)
 	// GetMyProfile Return the logged-in user's profile (FR-4.1)
@@ -3855,7 +3874,7 @@ type StrictServerInterface interface {
 	// VerifyEmail Verify an email address with the token from the link (FR-1.3)
 	// (POST /auth/verify-email)
 	VerifyEmail(ctx context.Context, request VerifyEmailRequestObject) (VerifyEmailResponseObject, error)
-	// GetHealth Report whether the database and Redis respond
+	// GetHealth Report whether the database, Redis and object storage respond
 	// (GET /health)
 	GetHealth(ctx context.Context, request GetHealthRequestObject) (GetHealthResponseObject, error)
 	// GetMyProfile Return the logged-in user's profile (FR-4.1)

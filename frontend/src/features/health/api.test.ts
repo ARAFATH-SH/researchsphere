@@ -19,7 +19,7 @@ describe("checkHealth", () => {
   it.each([
     {
       name: "200 with status ok is up",
-      reply: () => Promise.resolve(result(200, { status: "ok", database: "ok", redis: "ok" })),
+      reply: () => Promise.resolve(result(200, { status: "ok", database: "ok", redis: "ok", storage: "ok" })),
       want: "up",
     },
     {

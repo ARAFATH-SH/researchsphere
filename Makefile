@@ -9,6 +9,8 @@ export
 
 POSTGRES_USER ?= researchsphere
 POSTGRES_DB   ?= researchsphere
+MINIO_API_PORT ?= 9000
+S3_BUCKET     ?= researchsphere
 DATABASE_URL  ?= postgres://researchsphere:devpassword@localhost:5433/researchsphere?sslmode=disable
 MIGRATIONS_DIR := backend/db/migrations
 
@@ -18,10 +20,11 @@ MIGRATIONS_DIR := backend/db/migrations
 help: ## List the available commands
 	@grep -hE '^[a-zA-Z_-]+:.*## ' $(firstword $(MAKEFILE_LIST)) | awk 'BEGIN {FS = ":.*## "} {printf "  make %-16s %s\n", $$1, $$2}'
 
-up: ## Start PostgreSQL, Redis and Mailpit and wait until they are healthy
+up: ## Start PostgreSQL, Redis, Mailpit and MinIO, wait until healthy, create the bucket
 	docker compose up -d --wait
+	docker compose run --rm minio-init
 
-down: ## Stop the containers (data is kept)
+down: ## Stop the containers (data, including stored files, is kept)
 	docker compose down
 
 logs: ## Follow the container logs (Ctrl+C to stop)
@@ -33,10 +36,14 @@ ps: ## Show the status of the containers
 psql: ## Open a psql prompt in the database
 	docker compose exec postgres psql -U $(POSTGRES_USER) -d $(POSTGRES_DB)
 
-check: ## Check that PostgreSQL, pgvector and Redis respond
+check: ## Check that PostgreSQL, pgvector, Redis and storage respond, and the bucket is private
 	@docker compose exec -T postgres psql -U $(POSTGRES_USER) -d $(POSTGRES_DB) -tAc "SELECT 'postgres ok: ' || current_setting('server_version')"
 	@docker compose exec -T postgres psql -U $(POSTGRES_USER) -d $(POSTGRES_DB) -tAc "SELECT 'pgvector available: ' || default_version FROM pg_available_extensions WHERE name = 'vector'"
 	@echo "redis: $$(docker compose exec -T redis redis-cli ping)"
+	@curl -fsS -o /dev/null "http://127.0.0.1:$(MINIO_API_PORT)/minio/health/live" || (echo "storage: not responding" && exit 1)
+	@status=$$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$(MINIO_API_PORT)/$(S3_BUCKET)/"); \
+	if [[ "$$status" != 403 ]]; then echo "storage: anonymous listing of $(S3_BUCKET) returned $$status, want 403 (bucket must be private)"; exit 1; fi
+	@echo "storage ok (bucket $(S3_BUCKET) is private)"
 
 migrate: ## Apply all database migrations
 	migrate -path $(MIGRATIONS_DIR) -database "$(DATABASE_URL)" up
@@ -71,7 +78,7 @@ generate: ## Regenerate Go code (oapi-codegen, sqlc) and TypeScript types
 	cd backend && go generate ./...
 	cd frontend && npm run generate
 
-GENERATED := backend/internal/api backend/internal/auth/adapter/postgres/sqlcgen backend/internal/profile/adapter/postgres/sqlcgen frontend/src/lib/api
+GENERATED := backend/internal/api backend/internal/auth/adapter/postgres/sqlcgen backend/internal/profile/adapter/postgres/sqlcgen backend/internal/media/adapter/postgres/sqlcgen frontend/src/lib/api
 
 check-generated: generate ## Fail if generated code is out of date
 	@if [[ -n "$$(git status --porcelain -- $(GENERATED))" ]]; then \
@@ -88,7 +95,7 @@ test-db: ## Run the database constraint tests (needs make up and make migrate)
 test-go: ## Run the backend Go tests
 	cd backend && go test -race -count=1 ./...
 
-test-integration: ## Run the Go repository tests against the database and Redis (needs make up and make migrate)
+test-integration: ## Run the Go repository tests against the database, Redis and MinIO (needs make up and make migrate)
 	cd backend && go test -race -count=1 -tags=integration ./internal/...
 
 test-web: ## Run the frontend tests (Jest)

@@ -18,20 +18,20 @@ paths:
   /health:
     get:
       operationId: getHealth
-      summary: Report whether the database and Redis respond
+      summary: Report whether the database, Redis and object storage respond
       description: Public, needs no session. Returns no user data.
       tags: [health]
       # Public for deployment and uptime checks, though not in FR-3.1's list (docs/decisions.md).
       security: []
       responses:
         "200":
-          description: The database and Redis both respond.
+          description: The database, Redis and object storage all respond.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Health"
         "503":
-          description: The database, Redis or both do not respond.
+          description: The database, Redis, object storage or several of them do not respond.
           content:
             application/json:
               schema:
@@ -1167,7 +1167,7 @@ components:
 
     Health:
       type: object
-      required: [status, database, redis]
+      required: [status, database, redis, storage]
       properties:
         status:
           type: string
@@ -1176,6 +1176,9 @@ components:
           type: string
           enum: [ok]
         redis:
+          type: string
+          enum: [ok]
+        storage:
           type: string
           enum: [ok]
 

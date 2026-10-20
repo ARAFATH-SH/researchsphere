@@ -37,6 +37,7 @@ func (h *Handler) GetHealth(ctx context.Context, _ gen.GetHealthRequestObject) (
 			Status:   gen.HealthStatusOk,
 			Database: gen.HealthDatabaseOk,
 			Redis:    gen.HealthRedisOk,
+			Storage:  gen.HealthStorageOk,
 		}, nil
 	}
 
@@ -52,6 +53,14 @@ func (h *Handler) GetHealth(ctx context.Context, _ gen.GetHealthRequestObject) (
 	}
 	return gen.GetHealth503JSONResponse{
 		Code:    httpx.CodeServiceUnavailable,
-		Message: strings.Join(down, " and ") + " " + verb + " not responding",
+		Message: joinNames(down) + " " + verb + " not responding",
 	}, nil
+}
+
+// joinNames lists names as "a", "a and b" or "a, b and c".
+func joinNames(names []string) string {
+	if len(names) < 2 {
+		return strings.Join(names, "")
+	}
+	return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
 }

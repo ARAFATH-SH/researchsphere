@@ -5,10 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/mail"
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/storage"
 )
 
 // Defaults for optional settings.
@@ -21,6 +24,7 @@ const (
 	DefaultSMTPPort   = 1025
 	DefaultMailFrom   = "ResearchSphere <no-reply@researchsphere.local>"
 	DefaultAppBaseURL = "http://localhost:3000"
+	DefaultS3Region   = "us-east-1"
 )
 
 // MinJWTSecretLen is the shortest JWT_SECRET accepted, in bytes: HS256 needs a key at
@@ -28,7 +32,7 @@ const (
 const MinJWTSecretLen = 32
 
 // Config holds the API server's settings. DatabaseURL and RedisURL may contain
-// passwords, and JWTSecret is a key: never log them. LogValue logs only the safe fields.
+// passwords, and JWTSecret and Storage.SecretKey are keys: never log them. LogValue logs only the safe fields.
 type Config struct {
 	DatabaseURL string
 	RedisURL    string
@@ -45,6 +49,9 @@ type Config struct {
 	// uses https, so the session cookies are sent only over HTTPS outside local work.
 	JWTSecret    []byte
 	CookieSecure bool
+
+	// Object storage (FR-4.6, NFR-13): an S3-compatible bucket, MinIO locally.
+	Storage storage.Config
 }
 
 // Load reads the settings through getenv (os.Getenv in main). Errors name the
@@ -54,6 +61,13 @@ func Load(getenv func(string) string) (Config, error) {
 		DatabaseURL: strings.TrimSpace(getenv("DATABASE_URL")),
 		RedisURL:    strings.TrimSpace(getenv("REDIS_URL")),
 		JWTSecret:   []byte(strings.TrimSpace(getenv("JWT_SECRET"))),
+		Storage: storage.Config{
+			Endpoint:  strings.TrimSpace(getenv("S3_ENDPOINT")),
+			Region:    orDefault(getenv("S3_REGION"), DefaultS3Region),
+			Bucket:    strings.TrimSpace(getenv("S3_BUCKET")),
+			AccessKey: strings.TrimSpace(getenv("S3_ACCESS_KEY")),
+			SecretKey: strings.TrimSpace(getenv("S3_SECRET_KEY")),
+		},
 	}
 
 	var missing []string
@@ -65,6 +79,16 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	if len(cfg.JWTSecret) == 0 {
 		missing = append(missing, "JWT_SECRET")
+	}
+	for _, v := range []struct{ name, value string }{
+		{"S3_ENDPOINT", cfg.Storage.Endpoint},
+		{"S3_BUCKET", cfg.Storage.Bucket},
+		{"S3_ACCESS_KEY", cfg.Storage.AccessKey},
+		{"S3_SECRET_KEY", cfg.Storage.SecretKey},
+	} {
+		if v.value == "" {
+			missing = append(missing, v.name)
+		}
 	}
 	if len(missing) > 0 {
 		return Config{}, fmt.Errorf("missing required environment variable(s): %s", strings.Join(missing, ", "))
@@ -109,14 +133,22 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	cfg.CookieSecure = strings.HasPrefix(cfg.AppBaseURL, "https://")
 
+	if err := checkHostPort("S3_ENDPOINT", cfg.Storage.Endpoint); err != nil {
+		errs = append(errs, err)
+	}
+	if cfg.Storage.UseSSL, err = parseBool("S3_USE_SSL", getenv("S3_USE_SSL")); err != nil {
+		errs = append(errs, err)
+	}
+
 	if len(errs) > 0 {
 		return Config{}, errors.Join(errs...)
 	}
 	return cfg, nil
 }
 
-// LogValue keeps the database and Redis URLs, and so any password in them, and the JWT
-// secret out of the logs. The mail and cookie settings hold no secrets.
+// LogValue keeps the database and Redis URLs, and so any password in them, the JWT
+// secret and the storage keys out of the logs. The mail, cookie and storage location
+// settings hold no secrets.
 func (c Config) LogValue() slog.Value {
 	return slog.GroupValue(
 		slog.Int("port", c.Port),
@@ -126,6 +158,10 @@ func (c Config) LogValue() slog.Value {
 		slog.String("mail_from", c.MailFrom.String()),
 		slog.String("app_base_url", c.AppBaseURL),
 		slog.Bool("cookie_secure", c.CookieSecure),
+		slog.String("s3_endpoint", c.Storage.Endpoint),
+		slog.String("s3_region", c.Storage.Region),
+		slog.String("s3_bucket", c.Storage.Bucket),
+		slog.Bool("s3_use_ssl", c.Storage.UseSSL),
 	)
 }
 
@@ -163,6 +199,31 @@ func checkBaseURL(name, raw string) error {
 		return fmt.Errorf("%s must be an http:// or https:// address such as http://localhost:3000, got %q", name, raw)
 	}
 	return nil
+}
+
+// checkHostPort accepts host:port with no scheme or path, such as localhost:9000. The
+// value is not repeated: an endpoint holds no secret, but the message stays the same shape
+// as the URL checks.
+func checkHostPort(name, raw string) error {
+	host, port, err := net.SplitHostPort(raw)
+	if err != nil || host == "" || strings.ContainsAny(raw, "/@?#") {
+		return fmt.Errorf("%s must be host:port without a scheme, such as localhost:9000", name)
+	}
+	if _, err := parsePort(name, port, 0); err != nil {
+		return err
+	}
+	return nil
+}
+
+// parseBool reads true or false; empty means false.
+func parseBool(name, raw string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "false":
+		return false, nil
+	case "true":
+		return true, nil
+	}
+	return false, fmt.Errorf("%s must be true or false, got %q", name, raw)
 }
 
 func orDefault(raw, def string) string {

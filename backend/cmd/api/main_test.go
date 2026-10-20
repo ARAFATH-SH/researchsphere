@@ -18,6 +18,7 @@ import (
 	authusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/usecase"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/accesstoken"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpx"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/storage"
 	profilehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/http"
 	profiledomain "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/domain"
 	profileusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/usecase"
@@ -58,10 +59,14 @@ func TestRunShutsDownWhenContextIsCancelled(t *testing.T) {
 	port := strconv.Itoa(freePort(t))
 	vars := map[string]string{
 		// Nothing listens on these ports; the clients connect lazily, so run starts anyway.
-		"DATABASE_URL": "postgres://u:" + password + "@127.0.0.1:1/db?sslmode=disable",
-		"REDIS_URL":    "redis://:" + password + "@127.0.0.1:1/0",
-		"API_PORT":     port,
-		"JWT_SECRET":   testSecret,
+		"DATABASE_URL":  "postgres://u:" + password + "@127.0.0.1:1/db?sslmode=disable",
+		"REDIS_URL":     "redis://:" + password + "@127.0.0.1:1/0",
+		"API_PORT":      port,
+		"JWT_SECRET":    testSecret,
+		"S3_ENDPOINT":   "127.0.0.1:1",
+		"S3_BUCKET":     "researchsphere",
+		"S3_ACCESS_KEY": "researchsphere",
+		"S3_SECRET_KEY": password,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	var logs syncBuffer
@@ -111,7 +116,7 @@ func TestRunShutsDownWhenContextIsCancelled(t *testing.T) {
 
 func TestRunStopsOnMissingSettings(t *testing.T) {
 	err := run(context.Background(), func(string) string { return "" }, &bytes.Buffer{})
-	for _, name := range []string{"DATABASE_URL", "REDIS_URL", "JWT_SECRET"} {
+	for _, name := range []string{"DATABASE_URL", "REDIS_URL", "JWT_SECRET", "S3_ENDPOINT", "S3_BUCKET", "S3_ACCESS_KEY", "S3_SECRET_KEY"} {
 		if err == nil || !strings.Contains(err.Error(), name) {
 			t.Fatalf("run() error = %v, want one naming %s", err, name)
 		}
@@ -123,7 +128,7 @@ const testSecret = "test-jwt-secret-0123456789abcdefghij"
 // testRouter wires the real router and auth middleware to fakes.
 func testRouter() http.Handler {
 	up := pingerFunc(func(context.Context) error { return nil })
-	return newRouter(slog.New(slog.DiscardHandler), up, up, authhttp.NewHandler(okAuth{}, authhttp.CookieConfig{}),
+	return newRouter(slog.New(slog.DiscardHandler), up, up, up, authhttp.NewHandler(okAuth{}, authhttp.CookieConfig{}),
 		profilehttp.NewHandler(profileusecase.New(okProfiles{})),
 		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
 }
@@ -135,6 +140,29 @@ func TestHealthThroughRouter(t *testing.T) {
 	router.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/health", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body %s", rec.Code, rec.Body)
+	}
+}
+
+// Storage that is not running (MinIO stopped) turns the health check into a 503 naming
+// storage, through the real S3 client, while the database and Redis answer.
+func TestHealthReportsStorageDown(t *testing.T) {
+	files, err := storage.NewS3(storage.Config{Endpoint: "127.0.0.1:1", Region: "us-east-1",
+		Bucket: "researchsphere", AccessKey: "researchsphere", SecretKey: "secret-for-tests"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	up := pingerFunc(func(context.Context) error { return nil })
+	router := newRouter(slog.New(slog.DiscardHandler), up, up, files, authhttp.NewHandler(okAuth{}, authhttp.CookieConfig{}),
+		profilehttp.NewHandler(profileusecase.New(okProfiles{})),
+		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/health", nil))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503; body %s", rec.Code, rec.Body)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, `"message":"storage is not responding"`) {
+		t.Errorf("body = %s, want the message naming storage only", body)
 	}
 }
 

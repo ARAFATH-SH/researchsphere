@@ -295,6 +295,57 @@ SELECT pg_temp.expect_ok('Link: every kind is accepted',
          FROM unnest(ARRAY['website', 'google_scholar', 'researchgate', 'linkedin', 'github', 'other']) AS k$s$);
 
 -- ---------------------------------------------------------------------------
+-- Stored files (FR-4.6, FR-12.2, NFR-13, migration 000007)
+-- ---------------------------------------------------------------------------
+
+SELECT pg_temp.expect_ok('Stored file: a photo of exactly 2 MB is accepted',
+    $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes, width, height)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'photo', 'photo/ok-1', 'image/jpeg', 2097152, 400, 400)$s$);
+SELECT pg_temp.expect_true('Stored file: scan status starts as pending', $q$
+    SELECT scan_status = 'pending' FROM stored_files WHERE object_key = 'photo/ok-1'$q$);
+SELECT pg_temp.expect_ok('Stored file: every purpose is accepted, a 5 MB pdf too',
+    $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes)
+       SELECT '00000000-0000-0000-0000-000000000001', p, 'any/' || p, 'application/pdf', 5242880
+         FROM unnest(ARRAY['photo', 'cover', 'figure', 'pdf', 'attachment']) AS p WHERE p <> 'photo'$s$);
+SELECT pg_temp.expect_error('Stored file: unknown purpose',
+    $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'avatar', 'x/1', 'image/png', 10)$s$, '23514');
+SELECT pg_temp.expect_error('Stored file: unknown scan status',
+    $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes, scan_status)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'photo', 'x/2', 'image/png', 10, 'infected')$s$, '23514');
+SELECT pg_temp.expect_error('Stored file: size must be more than 0',
+    $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'pdf', 'x/3', 'application/pdf', 0)$s$, '23514');
+SELECT pg_temp.expect_error('Stored file: a photo is at most 2 MB (FR-4.6)',
+    $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'photo', 'x/4', 'image/png', 2097153)$s$, '23514');
+SELECT pg_temp.expect_error('Stored file: a figure is at most 5 MB (FR-12.2)',
+    $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'figure', 'x/5', 'image/png', 5242881)$s$, '23514');
+SELECT pg_temp.expect_error('Stored file: width and height are both set or both empty',
+    $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes, width)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'photo', 'x/6', 'image/png', 10, 100)$s$, '23514');
+SELECT pg_temp.expect_error('Stored file: width must be positive',
+    $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes, width, height)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'photo', 'x/7', 'image/png', 10, -1, 100)$s$, '23514');
+SELECT pg_temp.expect_error('Stored file: object key is unique',
+    $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'photo', 'photo/ok-1', 'image/png', 10)$s$, '23505');
+SELECT pg_temp.expect_error('Stored file: object key has no leading slash',
+    $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'photo', '/photo/x', 'image/png', 10)$s$, '23514');
+SELECT pg_temp.expect_error('Stored file: object key has no ..',
+    $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'photo', 'photo/../x', 'image/png', 10)$s$, '23514');
+SELECT pg_temp.expect_error('Stored file: content type looks like type/subtype',
+    $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'photo', 'x/8', 'image', 10)$s$, '23514');
+SELECT pg_temp.expect_ok('Stored file: deleting a row queues its object for deletion',
+    $s$DELETE FROM stored_files WHERE object_key = 'any/pdf'$s$);
+SELECT pg_temp.expect_true('Stored file: the deleted row''s key is in storage_deletions', $q$
+    SELECT EXISTS (SELECT 1 FROM storage_deletions WHERE object_key = 'any/pdf' AND attempts = 0)$q$);
+
+-- ---------------------------------------------------------------------------
 -- Publication
 -- ---------------------------------------------------------------------------
 
@@ -503,6 +554,9 @@ INSERT INTO user_skills (user_id, skill_id) SELECT '00000000-0000-0000-0000-0000
 INSERT INTO education (user_id, institution, degree, start_year) VALUES ('00000000-0000-0000-0000-000000000003', 'MIT', 'BSc', 2015);
 INSERT INTO profile_contact (user_id, phone) VALUES ('00000000-0000-0000-0000-000000000003', '+8801712345678');
 INSERT INTO profile_links (user_id, kind, url) VALUES ('00000000-0000-0000-0000-000000000003', 'github', 'https://github.com/cy');
+INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes) VALUES
+    ('00000000-0000-0000-0000-000000000003', 'photo', 'photo/cy',  'image/png', 100),
+    ('00000000-0000-0000-0000-000000000003', 'cover', 'cover/cy',  'image/png', 100);
 INSERT INTO user_publications (user_id, publication_id, confirmed_at) VALUES
     ('00000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-0000000000c1', now()),
     ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-0000000000c1', now());
@@ -539,6 +593,9 @@ SELECT pg_temp.expect_true('Deletion: posts, comments on them, likes and own com
        AND NOT EXISTS (SELECT 1 FROM post_comments WHERE post_id   = '00000000-0000-0000-0000-0000000000e3')
        AND NOT EXISTS (SELECT 1 FROM post_comments WHERE author_id = '00000000-0000-0000-0000-000000000003')
        AND NOT EXISTS (SELECT 1 FROM post_likes    WHERE user_id   = '00000000-0000-0000-0000-000000000003')$q$);
+SELECT pg_temp.expect_true('Deletion: stored files removed and their objects queued for deletion (FR-2.8, NFR-13)', $q$
+    SELECT NOT EXISTS (SELECT 1 FROM stored_files WHERE owner_user_id = '00000000-0000-0000-0000-000000000003')
+       AND (SELECT count(*) FROM storage_deletions WHERE object_key IN ('photo/cy', 'cover/cy')) = 2$q$);
 SELECT pg_temp.expect_true('Deletion: connections removed (FR-2.8)', $q$
     SELECT NOT EXISTS (SELECT 1 FROM connections
                        WHERE '00000000-0000-0000-0000-000000000003' IN (requester_id, receiver_id))$q$);

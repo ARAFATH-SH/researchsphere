@@ -38,6 +38,8 @@ linters:
               desc: depend on an interface in the module's domain instead
             - pkg: github.com/redis
               desc: depend on an interface in the module's domain instead
+            - pkg: github.com/minio
+              desc: depend on an interface in the module's domain instead
             - pkg: github.com/ARAFATH-SH/researchsphere/backend/internal/api
               desc: generated code is for adapters
             - pkg: github.com/ARAFATH-SH/researchsphere/backend/internal/platform
@@ -60,6 +62,12 @@ linters:
           allow:
             - $gostd
             - github.com/ARAFATH-SH/researchsphere/backend/internal/profile/domain
+        usecase-media:
+          files: ["**/internal/media/usecase/**"]
+          list-mode: strict
+          allow:
+            - $gostd
+            - github.com/ARAFATH-SH/researchsphere/backend/internal/media/domain
     sloglint:
       attr-only: false
       no-mixed-args: true

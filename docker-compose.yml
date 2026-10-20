@@ -1,4 +1,4 @@
-# ResearchSphere: local development services (PostgreSQL, Redis, Mailpit).
+# ResearchSphere: local development services (PostgreSQL, Redis, Mailpit, MinIO).
 # Start with `make up`, stop with `make down`. Values come from .env (see .env.example).
 name: researchsphere
 
@@ -42,5 +42,45 @@ services:
       timeout: 3s
       retries: 10
 
+  # Object storage (FR-4.6, NFR-13): S3-compatible, console at http://localhost:9001.
+  # MinIO publishes no images any more; this is Chainguard's build from the MinIO source,
+  # pinned by digest because the free tier has only a `latest` tag (docs/decisions.md).
+  minio:
+    image: cgr.dev/chainguard/minio@sha256:cff197fef764642223ef9f4444c903d51aee9b544a7be8bc007fef6b7b00d136
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-researchsphere}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-local-dev-only-minio-secret}
+      # Lets `mc ready local` in the healthcheck reach this server.
+      MC_HOST_local: http://${S3_ACCESS_KEY:-researchsphere}:${S3_SECRET_KEY:-local-dev-only-minio-secret}@localhost:9000
+    ports:
+      - "127.0.0.1:${MINIO_API_PORT:-9000}:9000"          # S3 API
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"  # web console
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # One-shot: creates the bucket and makes sure it is private (no anonymous access), then exits.
+  # `make up` runs it with `docker compose run`; the profile keeps it out of `up --wait`,
+  # which treats a container that has exited as a failure.
+  minio-init:
+    profiles: [init]
+    image: cgr.dev/chainguard/minio@sha256:cff197fef764642223ef9f4444c903d51aee9b544a7be8bc007fef6b7b00d136
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MC_HOST_local: http://${S3_ACCESS_KEY:-researchsphere}:${S3_SECRET_KEY:-local-dev-only-minio-secret}@minio:9000
+      S3_BUCKET: ${S3_BUCKET:-researchsphere}
+    entrypoint: ["sh", "-c"]
+    command:
+      - mc mb --ignore-existing "local/$$S3_BUCKET" && mc anonymous set private "local/$$S3_BUCKET"
+    restart: "no"
+
 volumes:
   pgdata:
+  miniodata:

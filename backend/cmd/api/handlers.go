@@ -90,10 +90,11 @@ func guardPlatform(next http.Handler) http.Handler {
 // Tests pass fakes; run passes the real PostgreSQL, Redis and SMTP adapters. requireAuth
 // guards the operations the contract secures (httpx.RequireAuth); guardPlatform runs
 // inside it.
-func newRouter(logger *slog.Logger, db, redis healthdomain.Pinger, auth *authhttp.Handler, profile *profilehttp.Handler, requireAuth func(http.Handler) http.Handler) http.Handler {
+func newRouter(logger *slog.Logger, db, redis, storage healthdomain.Pinger, auth *authhttp.Handler, profile *profilehttp.Handler, requireAuth func(http.Handler) http.Handler) http.Handler {
 	checker := healthusecase.New(healthusecase.DefaultTimeout,
 		healthdomain.Dependency{Name: "database", Pinger: db},
 		healthdomain.Dependency{Name: "redis", Pinger: redis},
+		healthdomain.Dependency{Name: "storage", Pinger: storage},
 	)
 	return httpserver.NewRouter(logger, handlers{
 		healthHandler:  healthhttp.NewHandler(checker, logger),

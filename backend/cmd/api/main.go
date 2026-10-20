@@ -23,6 +23,8 @@ import (
 	authusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/usecase"
 	healthpg "github.com/ARAFATH-SH/researchsphere/backend/internal/health/adapter/postgres"
 	healthredis "github.com/ARAFATH-SH/researchsphere/backend/internal/health/adapter/redis"
+	mediapg "github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/postgres"
+	mediausecase "github.com/ARAFATH-SH/researchsphere/backend/internal/media/usecase"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/accesstoken"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/config"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpserver"
@@ -30,6 +32,7 @@ import (
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/logging"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/postgres"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/redis"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/storage"
 	profilehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/http"
 	profilepg "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/postgres"
 	profileusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/usecase"
@@ -37,6 +40,9 @@ import (
 
 // accessTTL is how long an access token is valid (FR-2.1).
 const accessTTL = 15 * time.Minute
+
+// cleanupInterval is how often queued objects are deleted from storage (docs/decisions.md).
+const cleanupInterval = time.Minute
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -59,8 +65,8 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 	logger := logging.New(logOut, cfg.LogLevel)
 	logger.Info("starting api", slog.Any("config", cfg))
 
-	// Neither client connects until first used, so the server starts while the database
-	// or Redis is down; the health check reports it.
+	// No client connects until first used, so the server starts while the database,
+	// Redis or storage is down; the health check reports it.
 	pool, err := postgres.NewPool(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err
@@ -72,6 +78,13 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 		return err
 	}
 	defer func() { _ = rdb.Close() }()
+
+	files, err := storage.NewS3(cfg.Storage)
+	if err != nil {
+		return err
+	}
+	// Deletes the objects of stored_files rows that are gone; stops with ctx.
+	go mediausecase.NewCleaner(mediapg.NewStore(pool), files, logger).Run(ctx, cleanupInterval)
 
 	attempts := authredis.New(rdb)
 	defer func() { _ = attempts.Close() }()
@@ -87,7 +100,7 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 		time.Now,
 		logger,
 	)
-	handler := newRouter(logger, healthpg.NewPinger(pool), healthredis.NewPinger(rdb),
+	handler := newRouter(logger, healthpg.NewPinger(pool), healthredis.NewPinger(rdb), files,
 		authhttp.NewHandler(auth, authhttp.CookieConfig{Secure: cfg.CookieSecure}),
 		profilehttp.NewHandler(profileusecase.New(profilepg.NewStore(pool))),
 		httpx.RequireAuth(tokens, time.Now))

@@ -12,7 +12,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Report whether the database and Redis respond
+         * Report whether the database, Redis and object storage respond
          * @description Public, needs no session. Returns no user data.
          */
         get: operations["getHealth"];
@@ -653,6 +653,8 @@ export interface components {
             database: "ok";
             /** @enum {string} */
             redis: "ok";
+            /** @enum {string} */
+            storage: "ok";
         };
         RegisterRequest: {
             /**
@@ -1069,7 +1071,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The database and Redis both respond. */
+            /** @description The database, Redis and object storage all respond. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -1079,7 +1081,7 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description The database, Redis or both do not respond. */
+            /** @description The database, Redis, object storage or several of them do not respond. */
             503: {
                 headers: {
                     [name: string]: unknown;
