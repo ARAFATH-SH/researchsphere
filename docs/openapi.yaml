@@ -1085,6 +1085,143 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /profiles/me/photo:
+    put:
+      operationId: uploadMyPhoto
+      summary: Upload or replace the logged-in user's profile photo (FR-4.6)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). The file may be at most 5 MB. Its type is read from its
+        first bytes, not its name or header: JPEG, PNG or WebP (not animated). Its width
+        and height are read before it is decoded, and an image over 8000 pixels on a side
+        is refused. The image is cropped to a centred square and stored as a 400x400 JPEG,
+        so nothing else in the file (EXIF, GPS, other data) is kept. A previous photo is
+        removed. A user may upload at most 5 images (photo and cover together) per hour;
+        refused files do not count.
+      tags: [media]
+      requestBody:
+        $ref: "#/components/requestBodies/ImageUpload"
+      responses:
+        "200":
+          $ref: "#/components/responses/ProfileImageStored"
+        "400":
+          $ref: "#/components/responses/InvalidImage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NoProfile"
+        "413":
+          $ref: "#/components/responses/FileTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedImageType"
+        "429":
+          $ref: "#/components/responses/UploadRateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: removeMyPhoto
+      summary: Remove the logged-in user's profile photo (FR-4.6)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Succeeds also when no photo is set. Not rate limited.
+      tags: [media]
+      responses:
+        "204":
+          description: The profile has no photo.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /profiles/me/cover:
+    put:
+      operationId: uploadMyCover
+      summary: Upload or replace the logged-in user's cover image (FR-4.6)
+      description: |
+        As `PUT /profiles/me/photo`, except that the file may be at most 8 MB and the
+        image is cropped to a centred 4:1 rectangle and stored as a 1584x396 JPEG.
+      tags: [media]
+      requestBody:
+        $ref: "#/components/requestBodies/ImageUpload"
+      responses:
+        "200":
+          $ref: "#/components/responses/ProfileImageStored"
+        "400":
+          $ref: "#/components/responses/InvalidImage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NoProfile"
+        "413":
+          $ref: "#/components/responses/FileTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedImageType"
+        "429":
+          $ref: "#/components/responses/UploadRateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: removeMyCover
+      summary: Remove the logged-in user's cover image (FR-4.6)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Succeeds also when no cover is set. Not rate limited.
+      tags: [media]
+      responses:
+        "204":
+          description: The profile has no cover image.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /media/{fileId}:
+    get:
+      operationId: getMedia
+      summary: Redirect to a stored file after a permission check (NFR-13)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed,
+        events and recommendations" (SRS 2.3). The owner may always see the file. Anyone
+        else may see a profile photo or cover image whose owner is verified and not
+        suspended, as with `GET /profiles/{userId}`; other kinds of file are not served
+        here yet. A file that does not exist and one the caller may not see get the same
+        404 `not_found`. The answer redirects to a presigned URL valid for 10 minutes and
+        may be cached privately for 5 minutes, so a cached redirect never points to an
+        expired URL.
+      tags: [media]
+      parameters:
+        - $ref: "#/components/parameters/FileID"
+      responses:
+        "302":
+          description: The file is at the URL in `Location`.
+          headers:
+            Location:
+              description: A presigned URL to the object, valid for 10 minutes.
+              required: true
+              schema:
+                type: string
+            Cache-Control:
+              description: Always `private, max-age=300`.
+              required: true
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
   securitySchemes:
     cookieAuth:
@@ -1094,6 +1231,16 @@ components:
       description: The access token set by `POST /auth/login`.
 
   parameters:
+    FileID:
+      name: fileId
+      in: path
+      required: true
+      description: |
+        The stored file's ID, a UUID. It is declared as a plain string so that the login
+        check runs before it is read (FR-3.1); a value that is not a UUID names no file and
+        gets 404 `not_found`.
+      schema:
+        type: string
     EducationID:
       name: educationId
       in: path
@@ -1149,6 +1296,20 @@ components:
       description: The refresh token set by `POST /auth/login` or `POST /auth/refresh`.
       schema:
         type: string
+
+  requestBodies:
+    ImageUpload:
+      required: true
+      description: The image in the part named `file`. Its file name and content type are ignored.
+      content:
+        multipart/form-data:
+          schema:
+            type: object
+            required: [file]
+            properties:
+              file:
+                type: string
+                format: binary
 
   schemas:
     Error:
@@ -1373,7 +1534,7 @@ components:
     Profile:
       type: object
       description: |
-        A researcher's profile (FR-4.1, FR-4.2, FR-4.4, FR-4.5, FR-4.7). The optional text fields are
+        A researcher's profile (FR-4.1, FR-4.2, FR-4.4, FR-4.5, FR-4.6, FR-4.7). The optional text fields are
         always present and null when not set. `publications` and `connectionStatus` are
         placeholders for now; later work fills them in.
       required:
@@ -1391,6 +1552,8 @@ components:
         - publications
         - connectionStatus
         - contact
+        - photoUrl
+        - coverUrl
       properties:
         userId:
           type: string
@@ -1444,6 +1607,25 @@ components:
           $ref: "#/components/schemas/ConnectionStatus"
         contact:
           $ref: "#/components/schemas/PublicContact"
+        photoUrl:
+          type: string
+          nullable: true
+          description: The profile photo (FR-4.6) as `/api/v1/media/{fileId}`; null when not set.
+          example: /api/v1/media/3f1c2b9e-8a41-4d7e-9c55-2f6a1b0e7d10
+        coverUrl:
+          type: string
+          nullable: true
+          description: The cover image (FR-4.6) as `/api/v1/media/{fileId}`; null when not set.
+
+    ProfileImage:
+      type: object
+      description: A stored profile photo or cover image (FR-4.6).
+      required: [url]
+      properties:
+        url:
+          type: string
+          description: Where the image is read, `/api/v1/media/{fileId}`.
+          example: /api/v1/media/3f1c2b9e-8a41-4d7e-9c55-2f6a1b0e7d10
 
     Tag:
       type: object
@@ -1790,6 +1972,51 @@ components:
         `invalid_institution`, `invalid_degree`, `invalid_field_of_study`,
         `invalid_start_year`, `invalid_end_year` (also when `endYear` is before
         `startYear`). A body that is not JSON gets `bad_request`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ProfileImageStored:
+      description: The image is stored and the profile shows it.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ProfileImage"
+    InvalidImage:
+      description: |
+        The image is over 8000 pixels wide or high (`image_too_large`), its type matches
+        but it cannot be read (`invalid_image`), or the body is not multipart with a part
+        named `file` (`bad_request`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NoProfile:
+      description: The account has no profile row yet (`not_found`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    FileTooLarge:
+      description: The file is over the size limit (`file_too_large`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    UnsupportedImageType:
+      description: The file is not a JPEG, PNG or still WebP image (`unsupported_type`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    UploadRateLimited:
+      description: The user has uploaded 5 images in the current hour (`rate_limited`).
+      headers:
+        Retry-After:
+          description: Seconds until the hour ends and uploads are accepted again.
+          required: true
+          schema:
+            type: integer
       content:
         application/json:
           schema:

@@ -23,7 +23,10 @@ import (
 	authusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/usecase"
 	healthpg "github.com/ARAFATH-SH/researchsphere/backend/internal/health/adapter/postgres"
 	healthredis "github.com/ARAFATH-SH/researchsphere/backend/internal/health/adapter/redis"
+	mediahttp "github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/http"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/imaging"
 	mediapg "github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/postgres"
+	mediaredis "github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/redis"
 	mediausecase "github.com/ARAFATH-SH/researchsphere/backend/internal/media/usecase"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/accesstoken"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/config"
@@ -83,8 +86,12 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 	if err != nil {
 		return err
 	}
+	mediaStore := mediapg.NewStore(pool)
 	// Deletes the objects of stored_files rows that are gone; stops with ctx.
-	go mediausecase.NewCleaner(mediapg.NewStore(pool), files, logger).Run(ctx, cleanupInterval)
+	go mediausecase.NewCleaner(mediaStore, files, logger).Run(ctx, cleanupInterval)
+	uploads := mediaredis.New(rdb)
+	defer func() { _ = uploads.Close() }()
+	images := mediausecase.NewImages(mediaStore, files, imaging.Codec{}, uploads, logger)
 
 	attempts := authredis.New(rdb)
 	defer func() { _ = attempts.Close() }()
@@ -103,6 +110,7 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 	handler := newRouter(logger, healthpg.NewPinger(pool), healthredis.NewPinger(rdb), files,
 		authhttp.NewHandler(auth, authhttp.CookieConfig{Secure: cfg.CookieSecure}),
 		profilehttp.NewHandler(profileusecase.New(profilepg.NewStore(pool))),
+		mediahttp.NewHandler(images),
 		httpx.RequireAuth(tokens, time.Now))
 
 	var lc net.ListenConfig

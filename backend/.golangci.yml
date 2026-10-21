@@ -68,6 +68,15 @@ linters:
           allow:
             - $gostd
             - github.com/ARAFATH-SH/researchsphere/backend/internal/media/domain
+        # The image codec sees only bytes and the media domain: no HTTP, database or
+        # storage, so a decoding bug cannot reach anything else (FR-4.6).
+        adapter-imaging:
+          files: ["**/internal/media/adapter/imaging/**"]
+          list-mode: strict
+          allow:
+            - $gostd
+            - golang.org/x/image
+            - github.com/ARAFATH-SH/researchsphere/backend/internal/media/domain
     sloglint:
       attr-only: false
       no-mixed-args: true

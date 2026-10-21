@@ -170,7 +170,7 @@ The 15 functional requirements of the proposal are grouped by module below. In e
 | FR-4.3 | suggest existing tags while the user types a tag | Should |
 | FR-4.4 | let a user add, edit and remove education entries with institution, degree, field and years | Must |
 | FR-4.5 | show any user's profile to a logged-in user, with interests, skills, education, confirmed publications and the connection status between the two | Must |
-| FR-4.6 | let a user upload a profile photo of up to 2 MB | Must |
+| FR-4.6 | let a user upload a profile photo of up to 5 MB (JPEG, PNG or WebP), stored as a 400x400 JPEG, and a cover image of up to 8 MB, stored as a 1584x396 JPEG | Must |
 | FR-4.7 | let a user add contact info (phone, birthday as day and month without year, and up to 5 website links) and choose for each item, and for the account email, who can see it: only me or all logged-in users | Should |
 
 **FR-5 Publications**

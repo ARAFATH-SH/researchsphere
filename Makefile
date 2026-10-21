@@ -95,8 +95,8 @@ test-db: ## Run the database constraint tests (needs make up and make migrate)
 test-go: ## Run the backend Go tests
 	cd backend && go test -race -count=1 ./...
 
-test-integration: ## Run the Go repository tests against the database, Redis and MinIO (needs make up and make migrate)
-	cd backend && go test -race -count=1 -tags=integration ./internal/...
+test-integration: ## Run the Go repository and end-to-end tests against the database, Redis and MinIO (needs make up and make migrate)
+	cd backend && go test -race -count=1 -tags=integration ./internal/... ./cmd/...
 
 test-web: ## Run the frontend tests (Jest)
 	cd frontend && npm test

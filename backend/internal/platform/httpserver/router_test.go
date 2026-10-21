@@ -127,6 +127,26 @@ func (fakeAPI) RemoveMyLink(context.Context, gen.RemoveMyLinkRequestObject) (gen
 	return gen.RemoveMyLink204Response{}, nil
 }
 
+func (fakeAPI) UploadMyPhoto(context.Context, gen.UploadMyPhotoRequestObject) (gen.UploadMyPhotoResponseObject, error) {
+	return gen.UploadMyPhoto200JSONResponse{ProfileImageStoredJSONResponse: gen.ProfileImageStoredJSONResponse{Url: "/api/v1/media/x"}}, nil
+}
+
+func (fakeAPI) RemoveMyPhoto(context.Context, gen.RemoveMyPhotoRequestObject) (gen.RemoveMyPhotoResponseObject, error) {
+	return gen.RemoveMyPhoto204Response{}, nil
+}
+
+func (fakeAPI) UploadMyCover(context.Context, gen.UploadMyCoverRequestObject) (gen.UploadMyCoverResponseObject, error) {
+	return gen.UploadMyCover200JSONResponse{ProfileImageStoredJSONResponse: gen.ProfileImageStoredJSONResponse{Url: "/api/v1/media/x"}}, nil
+}
+
+func (fakeAPI) RemoveMyCover(context.Context, gen.RemoveMyCoverRequestObject) (gen.RemoveMyCoverResponseObject, error) {
+	return gen.RemoveMyCover204Response{}, nil
+}
+
+func (fakeAPI) GetMedia(context.Context, gen.GetMediaRequestObject) (gen.GetMediaResponseObject, error) {
+	return gen.GetMedia302Response{Headers: gen.GetMedia302ResponseHeaders{Location: "http://localhost/x", CacheControl: "private, max-age=300"}}, nil
+}
+
 func (fakeAPI) SuggestInterestTags(context.Context, gen.SuggestInterestTagsRequestObject) (gen.SuggestInterestTagsResponseObject, error) {
 	return gen.SuggestInterestTags200JSONResponse{Items: []gen.Tag{}}, nil
 }
@@ -353,8 +373,8 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 
 func TestRoutes(t *testing.T) {
 	got := Routes()
-	if len(got) != 29 {
-		t.Errorf("Routes() returned %d routes, want the 29 operations in the contract: %v", len(got), got)
+	if len(got) != 34 {
+		t.Errorf("Routes() returned %d routes, want the 34 operations in the contract: %v", len(got), got)
 	}
 	seen := map[string]bool{}
 	for _, p := range got {
@@ -363,7 +383,7 @@ func TestRoutes(t *testing.T) {
 		}
 		seen[p] = true
 	}
-	for _, want := range []string{"GET /api/v1/health", "GET /api/v1/auth/me", "DELETE /api/v1/account"} {
+	for _, want := range []string{"GET /api/v1/health", "GET /api/v1/auth/me", "DELETE /api/v1/account", "GET /api/v1/media/{fileId}"} {
 		if !seen[want] {
 			t.Errorf("Routes() lacks %q", want)
 		}

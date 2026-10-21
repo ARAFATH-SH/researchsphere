@@ -12,7 +12,7 @@ SET client_min_messages = notice;
 BEGIN;
 
 -- expect_error runs one statement and passes only when it fails with the given SQLSTATE:
--- 23502 not_null_violation, 23505 unique_violation, 23514 check_violation, 22000 data_exception.
+-- 23502 not_null_violation, 23503 foreign_key_violation, 23505 unique_violation, 23514 check_violation, 22000 data_exception.
 CREATE FUNCTION pg_temp.expect_error(label text, stmt text, expected text) RETURNS void
 LANGUAGE plpgsql AS $$
 BEGIN
@@ -346,6 +346,34 @@ SELECT pg_temp.expect_true('Stored file: the deleted row''s key is in storage_de
     SELECT EXISTS (SELECT 1 FROM storage_deletions WHERE object_key = 'any/pdf' AND attempts = 0)$q$);
 
 -- ---------------------------------------------------------------------------
+-- Profile photo and cover (FR-4.6, migration 000008)
+-- ---------------------------------------------------------------------------
+
+INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes, width, height) VALUES
+    ('00000000-0000-0000-0000-000000000001', 'cover', 'users/ada/cover/1.jpg', 'image/jpeg', 100, 1584, 396),
+    ('00000000-0000-0000-0000-000000000002', 'photo', 'users/bob/photo/1.jpg', 'image/jpeg', 100, 400, 400);
+SELECT pg_temp.expect_ok('Profile media: a profile points at its own photo and cover',
+    $s$UPDATE profiles
+       SET photo_file_id = (SELECT id FROM stored_files WHERE object_key = 'photo/ok-1'),
+           cover_file_id = (SELECT id FROM stored_files WHERE object_key = 'users/ada/cover/1.jpg')
+       WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$);
+SELECT pg_temp.expect_error('Profile media: a profile cannot show another user''s file',
+    $s$UPDATE profiles SET photo_file_id = (SELECT id FROM stored_files WHERE object_key = 'users/bob/photo/1.jpg')
+       WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23503');
+SELECT pg_temp.expect_error('Profile media: a file that does not exist',
+    $s$UPDATE profiles SET cover_file_id = gen_random_uuid()
+       WHERE user_id = '00000000-0000-0000-0000-000000000002'$s$, '23503');
+SELECT pg_temp.expect_error('Profile media: one file is not both photo and cover',
+    $s$UPDATE profiles SET cover_file_id = photo_file_id
+       WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_ok('Profile media: deleting the photo row',
+    $s$DELETE FROM stored_files WHERE object_key = 'photo/ok-1'$s$);
+SELECT pg_temp.expect_true('Profile media: deleting the photo row clears only the photo and queues the object', $q$
+    SELECT photo_file_id IS NULL AND cover_file_id IS NOT NULL
+           AND EXISTS (SELECT 1 FROM storage_deletions WHERE object_key = 'photo/ok-1')
+    FROM profiles WHERE user_id = '00000000-0000-0000-0000-000000000001'$q$);
+
+-- ---------------------------------------------------------------------------
 -- Publication
 -- ---------------------------------------------------------------------------
 
@@ -557,6 +585,10 @@ INSERT INTO profile_links (user_id, kind, url) VALUES ('00000000-0000-0000-0000-
 INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes) VALUES
     ('00000000-0000-0000-0000-000000000003', 'photo', 'photo/cy',  'image/png', 100),
     ('00000000-0000-0000-0000-000000000003', 'cover', 'cover/cy',  'image/png', 100);
+UPDATE profiles
+SET photo_file_id = (SELECT id FROM stored_files WHERE object_key = 'photo/cy'),
+    cover_file_id = (SELECT id FROM stored_files WHERE object_key = 'cover/cy')
+WHERE user_id = '00000000-0000-0000-0000-000000000003';
 INSERT INTO user_publications (user_id, publication_id, confirmed_at) VALUES
     ('00000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-0000000000c1', now()),
     ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-0000000000c1', now());

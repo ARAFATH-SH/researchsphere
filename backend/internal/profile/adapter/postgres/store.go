@@ -72,6 +72,8 @@ func (s *Store) FindAccount(ctx context.Context, userID string) (domain.Account,
 			Department:  textPtr(row.Department),
 			JobTitle:    textPtr(row.JobTitle),
 			Country:     textPtr(row.Country),
+			PhotoFileID: uuidPtr(row.PhotoFileID),
+			CoverFileID: uuidPtr(row.CoverFileID),
 		}
 	}
 	return a, nil
@@ -108,6 +110,8 @@ func (s *Store) UpsertProfile(ctx context.Context, p domain.Profile) (domain.Pro
 		Department:  textPtr(row.Department),
 		JobTitle:    textPtr(row.JobTitle),
 		Country:     textPtr(row.Country),
+		PhotoFileID: uuidPtr(row.PhotoFileID),
+		CoverFileID: uuidPtr(row.CoverFileID),
 	}, nil
 }
 
@@ -360,6 +364,14 @@ func text(s *string) pgtype.Text {
 		return pgtype.Text{}
 	}
 	return pgtype.Text{String: *s, Valid: true}
+}
+
+func uuidPtr(u pgtype.UUID) *string {
+	if !u.Valid {
+		return nil
+	}
+	s := u.String()
+	return &s
 }
 
 func textPtr(t pgtype.Text) *string {

@@ -16,6 +16,7 @@ import (
 	authhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/adapter/http"
 	authdomain "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/domain"
 	authusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/usecase"
+	mediahttp "github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/http"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/accesstoken"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpx"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/storage"
@@ -130,6 +131,7 @@ func testRouter() http.Handler {
 	up := pingerFunc(func(context.Context) error { return nil })
 	return newRouter(slog.New(slog.DiscardHandler), up, up, up, authhttp.NewHandler(okAuth{}, authhttp.CookieConfig{}),
 		profilehttp.NewHandler(profileusecase.New(okProfiles{})),
+		mediahttp.NewHandler(okMedia{}),
 		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
 }
 
@@ -154,6 +156,7 @@ func TestHealthReportsStorageDown(t *testing.T) {
 	up := pingerFunc(func(context.Context) error { return nil })
 	router := newRouter(slog.New(slog.DiscardHandler), up, up, files, authhttp.NewHandler(okAuth{}, authhttp.CookieConfig{}),
 		profilehttp.NewHandler(profileusecase.New(okProfiles{})),
+		mediahttp.NewHandler(okMedia{}),
 		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
 
 	rec := httptest.NewRecorder()

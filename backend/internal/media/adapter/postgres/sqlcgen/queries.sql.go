@@ -48,6 +48,21 @@ func (q *Queries) ClaimStorageDeletions(ctx context.Context, maxRows int32) ([]C
 	return items, nil
 }
 
+const deleteOwnStoredFile = `-- name: DeleteOwnStoredFile :exec
+DELETE FROM stored_files WHERE id = $1 AND owner_user_id = $2
+`
+
+type DeleteOwnStoredFileParams struct {
+	ID          pgtype.UUID
+	OwnerUserID pgtype.UUID
+}
+
+// The trigger of 000007 queues the row's object for deletion.
+func (q *Queries) DeleteOwnStoredFile(ctx context.Context, arg DeleteOwnStoredFileParams) error {
+	_, err := q.db.Exec(ctx, deleteOwnStoredFile, arg.ID, arg.OwnerUserID)
+	return err
+}
+
 const deleteStorageDeletion = `-- name: DeleteStorageDeletion :exec
 DELETE FROM storage_deletions WHERE id = $1
 `
@@ -55,6 +70,90 @@ DELETE FROM storage_deletions WHERE id = $1
 func (q *Queries) DeleteStorageDeletion(ctx context.Context, id pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, deleteStorageDeletion, id)
 	return err
+}
+
+const findStoredFile = `-- name: FindStoredFile :one
+SELECT f.id, f.owner_user_id, f.purpose, f.object_key, f.scan_status,
+       (u.email_verified_at IS NOT NULL)::boolean AS owner_verified,
+       (u.suspended_at IS NOT NULL)::boolean AS owner_suspended
+FROM stored_files f
+JOIN users u ON u.id = f.owner_user_id
+WHERE f.id = $1
+`
+
+type FindStoredFileRow struct {
+	ID             pgtype.UUID
+	OwnerUserID    pgtype.UUID
+	Purpose        string
+	ObjectKey      string
+	ScanStatus     string
+	OwnerVerified  bool
+	OwnerSuspended bool
+}
+
+func (q *Queries) FindStoredFile(ctx context.Context, id pgtype.UUID) (FindStoredFileRow, error) {
+	row := q.db.QueryRow(ctx, findStoredFile, id)
+	var i FindStoredFileRow
+	err := row.Scan(
+		&i.ID,
+		&i.OwnerUserID,
+		&i.Purpose,
+		&i.ObjectKey,
+		&i.ScanStatus,
+		&i.OwnerVerified,
+		&i.OwnerSuspended,
+	)
+	return i, err
+}
+
+const insertProfileImageFile = `-- name: InsertProfileImageFile :one
+INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes, width, height, scan_status)
+VALUES ($1, $2, $3, $4, $5, $6, $7, 'clean')
+RETURNING id
+`
+
+type InsertProfileImageFileParams struct {
+	OwnerUserID pgtype.UUID
+	Purpose     string
+	ObjectKey   string
+	ContentType string
+	SizeBytes   int64
+	Width       pgtype.Int4
+	Height      pgtype.Int4
+}
+
+// A profile image was re-encoded by the API, so it needs no virus scan.
+func (q *Queries) InsertProfileImageFile(ctx context.Context, arg InsertProfileImageFileParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, insertProfileImageFile,
+		arg.OwnerUserID,
+		arg.Purpose,
+		arg.ObjectKey,
+		arg.ContentType,
+		arg.SizeBytes,
+		arg.Width,
+		arg.Height,
+	)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
+const lockProfileImages = `-- name: LockProfileImages :one
+SELECT photo_file_id, cover_file_id FROM profiles WHERE user_id = $1 FOR UPDATE
+`
+
+type LockProfileImagesRow struct {
+	PhotoFileID pgtype.UUID
+	CoverFileID pgtype.UUID
+}
+
+// Profile photo and cover (FR-4.6). The profile row is locked first, so two uploads of one
+// user replace each other in turn and neither leaves a row nothing points at.
+func (q *Queries) LockProfileImages(ctx context.Context, userID pgtype.UUID) (LockProfileImagesRow, error) {
+	row := q.db.QueryRow(ctx, lockProfileImages, userID)
+	var i LockProfileImagesRow
+	err := row.Scan(&i.PhotoFileID, &i.CoverFileID)
+	return i, err
 }
 
 const recordStorageDeletionFailure = `-- name: RecordStorageDeletionFailure :exec
@@ -70,5 +169,33 @@ type RecordStorageDeletionFailureParams struct {
 
 func (q *Queries) RecordStorageDeletionFailure(ctx context.Context, arg RecordStorageDeletionFailureParams) error {
 	_, err := q.db.Exec(ctx, recordStorageDeletionFailure, arg.LastError, arg.ID)
+	return err
+}
+
+const setProfileCover = `-- name: SetProfileCover :exec
+UPDATE profiles SET cover_file_id = $1 WHERE user_id = $2
+`
+
+type SetProfileCoverParams struct {
+	FileID pgtype.UUID
+	UserID pgtype.UUID
+}
+
+func (q *Queries) SetProfileCover(ctx context.Context, arg SetProfileCoverParams) error {
+	_, err := q.db.Exec(ctx, setProfileCover, arg.FileID, arg.UserID)
+	return err
+}
+
+const setProfilePhoto = `-- name: SetProfilePhoto :exec
+UPDATE profiles SET photo_file_id = $1 WHERE user_id = $2
+`
+
+type SetProfilePhotoParams struct {
+	FileID pgtype.UUID
+	UserID pgtype.UUID
+}
+
+func (q *Queries) SetProfilePhoto(ctx context.Context, arg SetProfilePhotoParams) error {
+	_, err := q.db.Exec(ctx, setProfilePhoto, arg.FileID, arg.UserID)
 	return err
 }

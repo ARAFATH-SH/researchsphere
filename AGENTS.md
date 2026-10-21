@@ -46,7 +46,7 @@ Run these from the repository root. `make help` prints the current list.
 | `make test` | Run all tests: `test-db`, `test-go`, `test-integration` and `test-web` (needs `make up` and `make migrate`) |
 | `make test-db` | Run the database constraint tests (needs `make up` and `make migrate`) |
 | `make test-go` | Run the backend Go tests (`go test -race`); needs no database |
-| `make test-integration` | Run the Go repository tests (build tag `integration`) against the database, Redis and MinIO (needs `make up` and `make migrate`) |
+| `make test-integration` | Run the Go repository tests and the end-to-end tests in `cmd/api` (build tag `integration`) against the database, Redis and MinIO (needs `make up` and `make migrate`) |
 | `make test-web` | Run the frontend tests (Jest) |
 | `make lint` | Run all linters: `lint-go` and `lint-web` |
 | `make lint-go` | Run golangci-lint for the backend |

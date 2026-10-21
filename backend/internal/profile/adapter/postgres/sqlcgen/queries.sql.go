@@ -95,7 +95,7 @@ func (q *Queries) DeleteUserLink(ctx context.Context, arg DeleteUserLinkParams) 
 const findAccount = `-- name: FindAccount :one
 SELECT u.id, u.email_verified_at, u.suspended_at,
        p.user_id AS profile_user_id, p.full_name, p.headline, p.bio, p.institution,
-       p.department, p.job_title, p.country
+       p.department, p.job_title, p.country, p.photo_file_id, p.cover_file_id
 FROM users u
 LEFT JOIN profiles p ON p.user_id = u.id
 WHERE u.id = $1
@@ -113,6 +113,8 @@ type FindAccountRow struct {
 	Department      pgtype.Text
 	JobTitle        pgtype.Text
 	Country         pgtype.Text
+	PhotoFileID     pgtype.UUID
+	CoverFileID     pgtype.UUID
 }
 
 // The user and, through the left join, the profile row when there is one.
@@ -131,6 +133,8 @@ func (q *Queries) FindAccount(ctx context.Context, id pgtype.UUID) (FindAccountR
 		&i.Department,
 		&i.JobTitle,
 		&i.Country,
+		&i.PhotoFileID,
+		&i.CoverFileID,
 	)
 	return i, err
 }
@@ -733,7 +737,8 @@ ON CONFLICT (user_id) DO UPDATE SET
     department  = EXCLUDED.department,
     job_title   = EXCLUDED.job_title,
     country     = EXCLUDED.country
-RETURNING user_id, full_name, headline, bio, institution, department, job_title, country
+RETURNING user_id, full_name, headline, bio, institution, department, job_title, country,
+          photo_file_id, cover_file_id
 `
 
 type UpsertProfileParams struct {
@@ -756,6 +761,8 @@ type UpsertProfileRow struct {
 	Department  pgtype.Text
 	JobTitle    pgtype.Text
 	Country     pgtype.Text
+	PhotoFileID pgtype.UUID
+	CoverFileID pgtype.UUID
 }
 
 // Creates the profile row or replaces its edited fields (FR-4.1); other columns stay.
@@ -780,6 +787,8 @@ func (q *Queries) UpsertProfile(ctx context.Context, arg UpsertProfileParams) (U
 		&i.Department,
 		&i.JobTitle,
 		&i.Country,
+		&i.PhotoFileID,
+		&i.CoverFileID,
 	)
 	return i, err
 }
