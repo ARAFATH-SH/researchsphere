@@ -14,7 +14,9 @@ import { ContactViewDialog, hasVisibleContact } from "./contact-view-dialog";
 import { getMyProfile, getProfile, type Profile, type ProfileResult } from "./api";
 import { editButtonId, type EditSection, isEditSection } from "./edit-button";
 import { EducationDialog } from "./education-dialog";
+import { ImageDialog } from "./image-dialog";
 import { IntroDialog } from "./intro-dialog";
+import { reloadMyProfile } from "./my-profile";
 import { ProfileHeader } from "./profile-header";
 import { type EditControls, ProfileSections } from "./profile-sections";
 import { ProfileSidebar } from "./profile-sidebar";
@@ -43,12 +45,16 @@ export function ProfileView({ userId }: { userId?: string }) {
     };
   }, [own, userId, key]);
 
-  // reload fetches the own profile again after an edit, keeping the page on screen.
-  const reload = useCallback(() => {
-    void getMyProfile().then((value) => {
-      if (value.status === "ok") setResult({ key, value });
-    });
-  }, [key]);
+  // reload fetches the own profile again after an edit, keeping the page on screen. It
+  // goes through the shared store, so the top bar and the home card update too.
+  const reload = useCallback(
+    (ownId: string) => {
+      void reloadMyProfile(ownId).then((value) => {
+        if (value.status === "ok") setResult({ key, value });
+      });
+    },
+    [key],
+  );
 
   if (!result || result.key !== key) return <ProfileSkeleton />;
   const r = result.value;
@@ -56,7 +62,8 @@ export function ProfileView({ userId }: { userId?: string }) {
   if (r.status === "error") return <LoadFailed onRetry={() => setAttempt((n) => n + 1)} />;
 
   if (!own) return <OtherProfile profile={r.profile} />;
-  return <OwnProfile profile={r.profile} reload={reload} />;
+  const ownId = r.profile.userId;
+  return <OwnProfile profile={r.profile} reload={() => reload(ownId)} />;
 }
 
 // OtherProfile is someone else's profile. "Contact info" shows only what the API
@@ -87,7 +94,7 @@ function OtherProfile({ profile }: { profile: Profile }) {
   );
 }
 
-// OwnProfile is the owner's profile with its edit dialogs (FR-4.1 to FR-4.4). A pencil
+// OwnProfile is the owner's profile with its edit dialogs (FR-4.1 to FR-4.4, FR-4.6). A pencil
 // opens a section's dialog, and so does /profile?edit=<section>, which the profile
 // checklist and the empty-section prompts link to.
 function OwnProfile({ profile, reload }: { profile: Profile; reload: () => void }) {
@@ -143,6 +150,17 @@ function OwnProfile({ profile, reload }: { profile: Profile; reload: () => void 
           onSaved={() => saved()}
           onLinksChanged={reload}
           returnFocusId={editButtonId("contact")}
+        />
+      )}
+      {(open === "photo" || open === "cover") && (
+        <ImageDialog
+          key={open}
+          kind={open}
+          name={profile.fullName}
+          currentUrl={open === "photo" ? profile.photoUrl : profile.coverUrl}
+          onClose={close}
+          onChanged={saved}
+          returnFocusId={editButtonId(open)}
         />
       )}
       {toast && <Toast message={toast} />}

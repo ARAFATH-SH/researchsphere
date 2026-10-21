@@ -1,8 +1,17 @@
 // EditSection names a part of the own profile that has its own edit dialog. It is also
 // the value of /profile?edit=…, which opens that dialog.
-export type EditSection = "intro" | "about" | "interests" | "skills" | "education" | "contact";
+export type EditSection = "intro" | "about" | "interests" | "skills" | "education" | "contact" | "photo" | "cover";
 
-export const editSections: readonly EditSection[] = ["intro", "about", "interests", "skills", "education", "contact"];
+export const editSections: readonly EditSection[] = [
+  "intro",
+  "about",
+  "interests",
+  "skills",
+  "education",
+  "contact",
+  "photo",
+  "cover",
+];
 
 export function isEditSection(value: string | null): value is EditSection {
   return editSections.includes(value as EditSection);
@@ -48,6 +57,25 @@ export function PencilIcon() {
     >
       <path d="M4 20h4L19 9a2.83 2.83 0 0 0-4-4L4 16v4Z" />
       <path d="m13.5 6.5 4 4" />
+    </svg>
+  );
+}
+
+// CameraIcon is on the button that changes the cover image.
+export function CameraIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-6"
+    >
+      <path d="M4 8h3l1.5-2.5h7L17 8h3v11H4Z" />
+      <circle cx="12" cy="13" r="3.5" />
     </svg>
   );
 }

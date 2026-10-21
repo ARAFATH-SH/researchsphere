@@ -19,6 +19,11 @@ type Profile struct {
 	Department  *string
 	JobTitle    *string
 	Country     *string // ISO 3166-1 alpha-2 code in capitals
+	// PhotoFileID and CoverFileID are the stored files of the profile photo and cover
+	// image (FR-4.6), nil when not set. The media module sets them; UpsertProfile leaves
+	// them alone.
+	PhotoFileID *string
+	CoverFileID *string
 	// Interests and Skills are the user's tags sorted by name (FR-4.2), and Education
 	// the user's education entries in profile order (FR-4.4). UpsertProfile ignores them;
 	// the usecase fills them when it reads a profile.

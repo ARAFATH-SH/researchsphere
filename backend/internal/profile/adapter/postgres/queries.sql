@@ -2,7 +2,7 @@
 -- The user and, through the left join, the profile row when there is one.
 SELECT u.id, u.email_verified_at, u.suspended_at,
        p.user_id AS profile_user_id, p.full_name, p.headline, p.bio, p.institution,
-       p.department, p.job_title, p.country
+       p.department, p.job_title, p.country, p.photo_file_id, p.cover_file_id
 FROM users u
 LEFT JOIN profiles p ON p.user_id = u.id
 WHERE u.id = @id;
@@ -19,7 +19,8 @@ ON CONFLICT (user_id) DO UPDATE SET
     department  = EXCLUDED.department,
     job_title   = EXCLUDED.job_title,
     country     = EXCLUDED.country
-RETURNING user_id, full_name, headline, bio, institution, department, job_title, country;
+RETURNING user_id, full_name, headline, bio, institution, department, job_title, country,
+          photo_file_id, cover_file_id;
 
 -- name: LockUser :one
 -- Taken before a tag is added, so two requests of one user cannot both pass the tag

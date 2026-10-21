@@ -12,18 +12,25 @@ const (
 	testDBURL    = "postgres://user:" + testPassword + "@localhost:5433/db?sslmode=disable"
 	testRedisURL = "redis://:" + testPassword + "@localhost:6379/0"
 	testSecret   = "test-jwt-secret-0123456789abcdefghij"
+	testS3Secret = "test-s3-secret-key" //nolint:gosec // test value, not a credential
 )
 
-// env serves vars, with a valid JWT_SECRET unless vars sets one (even to "").
+// validDefaults are served for these settings unless vars sets them (even to "").
+var validDefaults = map[string]string{
+	"JWT_SECRET":    testSecret,
+	"S3_ENDPOINT":   "localhost:9000",
+	"S3_BUCKET":     "researchsphere",
+	"S3_ACCESS_KEY": "researchsphere",
+	"S3_SECRET_KEY": testS3Secret,
+}
+
+// env serves vars, with valid JWT and storage settings unless vars sets them.
 func env(vars map[string]string) func(string) string {
 	return func(k string) string {
 		if v, ok := vars[k]; ok {
 			return v
 		}
-		if k == "JWT_SECRET" {
-			return testSecret
-		}
-		return ""
+		return validDefaults[k]
 	}
 }
 
@@ -246,12 +253,77 @@ func TestLogValueHidesSecrets(t *testing.T) {
 	slog.New(slog.NewJSONHandler(&buf, nil)).Info("config loaded", "config", cfg)
 
 	out := buf.String()
-	for _, secret := range []string{testPassword, testDBURL, testRedisURL, "postgres://", "redis://", testSecret} {
+	for _, secret := range []string{testPassword, testDBURL, testRedisURL, "postgres://", "redis://", testSecret, testS3Secret} {
 		if strings.Contains(out, secret) {
 			t.Errorf("log line contains %q: %s", secret, out)
 		}
 	}
 	if !strings.Contains(out, `"port":8080`) {
 		t.Errorf("log line lacks the port: %s", out)
+	}
+}
+
+func TestLoadStorageSettings(t *testing.T) {
+	base := map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL}
+	with := func(extra map[string]string) map[string]string {
+		vars := map[string]string{}
+		for k, v := range base {
+			vars[k] = v
+		}
+		for k, v := range extra {
+			vars[k] = v
+		}
+		return vars
+	}
+
+	t.Run("defaults", func(t *testing.T) {
+		cfg, err := Load(env(base))
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := cfg.Storage
+		if s.Endpoint != "localhost:9000" || s.Bucket != "researchsphere" || s.Region != DefaultS3Region ||
+			s.AccessKey != "researchsphere" || s.SecretKey != testS3Secret || s.UseSSL {
+			t.Errorf("Storage = %+v", s)
+		}
+	})
+	t.Run("region and ssl", func(t *testing.T) {
+		cfg, err := Load(env(with(map[string]string{"S3_REGION": "eu-central-1", "S3_USE_SSL": "TRUE"})))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Storage.Region != "eu-central-1" || !cfg.Storage.UseSSL {
+			t.Errorf("Storage = %+v", cfg.Storage)
+		}
+	})
+
+	refused := []struct {
+		name    string
+		vars    map[string]string
+		wantErr []string
+	}{
+		{"all storage settings missing", map[string]string{"S3_ENDPOINT": "", "S3_BUCKET": "", "S3_ACCESS_KEY": "", "S3_SECRET_KEY": " "},
+			[]string{"S3_ENDPOINT", "S3_BUCKET", "S3_ACCESS_KEY", "S3_SECRET_KEY"}},
+		{"endpoint with a scheme", map[string]string{"S3_ENDPOINT": "http://localhost:9000"}, []string{"S3_ENDPOINT"}},
+		{"endpoint without a port", map[string]string{"S3_ENDPOINT": "localhost"}, []string{"S3_ENDPOINT"}},
+		{"endpoint with a path", map[string]string{"S3_ENDPOINT": "localhost:9000/bucket"}, []string{"S3_ENDPOINT"}},
+		{"endpoint with a bad port", map[string]string{"S3_ENDPOINT": "localhost:99999"}, []string{"S3_ENDPOINT"}},
+		{"ssl not a boolean", map[string]string{"S3_USE_SSL": "yes"}, []string{"S3_USE_SSL"}},
+	}
+	for _, tt := range refused {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Load(env(with(tt.vars)))
+			if err == nil {
+				t.Fatalf("Load() error = nil, want one naming %v", tt.wantErr)
+			}
+			for _, name := range tt.wantErr {
+				if !strings.Contains(err.Error(), name) {
+					t.Errorf("error %q does not name %s", err, name)
+				}
+			}
+			if strings.Contains(err.Error(), testS3Secret) {
+				t.Errorf("error %q leaks the storage secret", err)
+			}
+		})
 	}
 }

@@ -133,3 +133,57 @@ export async function removeLink(linkId: string): Promise<Result<undefined>> {
   const res = await call(() => api.DELETE("/profiles/me/links/{linkId}", { params }));
   return res.ok ? { ok: true, data: undefined } : res;
 }
+
+// ImageKind is which profile image an upload or delete is for (FR-4.6); it is also the
+// last path segment of its endpoints.
+export type ImageKind = "photo" | "cover";
+
+// ImageFailure is a refused upload or delete. status is the HTTP status, or 0 when the
+// server could not be reached. The message shown depends on status, not on the body: a
+// 413 from a proxy may not be in the API's error shape.
+export type ImageFailure = { ok: false; status: number; code?: string; retryAfter?: number };
+
+export type ImageResult = { ok: true } | ImageFailure;
+
+async function imageRequest(
+  request: () => Promise<{ error?: { code?: string }; response: Response }>,
+): Promise<ImageResult> {
+  try {
+    const { error, response } = await request();
+    if (response.ok) return { ok: true };
+    const retry = Number.parseInt(response.headers.get("Retry-After") ?? "", 10);
+    return {
+      ok: false,
+      status: response.status,
+      code: error?.code,
+      retryAfter: Number.isFinite(retry) ? retry : undefined,
+    };
+  } catch {
+    return { ok: false, status: 0 };
+  }
+}
+
+// uploadProfileImage stores a new profile photo or cover image, replacing the old one
+// (FR-4.6). The body is multipart with the file in the part named "file".
+export function uploadProfileImage(kind: ImageKind, file: File): Promise<ImageResult> {
+  const options = {
+    // openapi-typescript types a binary part as string; the serializer sends the File.
+    body: { file: file as unknown as string },
+    bodySerializer: () => {
+      const form = new FormData();
+      form.append("file", file);
+      return form;
+    },
+  };
+  return imageRequest(() =>
+    kind === "photo" ? api.PUT("/profiles/me/photo", options) : api.PUT("/profiles/me/cover", options),
+  );
+}
+
+// removeProfileImage deletes the profile photo or cover image; it succeeds also when none
+// is set (FR-4.6).
+export function removeProfileImage(kind: ImageKind): Promise<ImageResult> {
+  return imageRequest(() =>
+    kind === "photo" ? api.DELETE("/profiles/me/photo") : api.DELETE("/profiles/me/cover"),
+  );
+}

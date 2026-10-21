@@ -9,6 +9,9 @@ import (
 	healthhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/health/adapter/http"
 	healthdomain "github.com/ARAFATH-SH/researchsphere/backend/internal/health/domain"
 	healthusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/health/usecase"
+	mediahttp "github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/http"
+	mediadomain "github.com/ARAFATH-SH/researchsphere/backend/internal/media/domain"
+	mediausecase "github.com/ARAFATH-SH/researchsphere/backend/internal/media/usecase"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/authz"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpserver"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpx"
@@ -21,6 +24,7 @@ type (
 	healthHandler  = healthhttp.Handler
 	authHandler    = authhttp.Handler
 	profileHandler = profilehttp.Handler
+	mediaHandler   = mediahttp.Handler
 )
 
 // handlers implements every operation in the contract by embedding each module's HTTP
@@ -29,6 +33,7 @@ type handlers struct {
 	*healthHandler
 	*authHandler
 	*profileHandler
+	*mediaHandler
 }
 
 var _ gen.StrictServerInterface = handlers{}
@@ -64,6 +69,38 @@ var platformGuards = map[string]authz.Action{
 	"PUT /api/v1/profiles/me/contact":           authz.ActAsMember,
 	"POST /api/v1/profiles/me/links":            authz.ActAsMember,
 	"DELETE /api/v1/profiles/me/links/{linkId}": authz.ActAsMember,
+
+	// The profile photo and cover (FR-4.6) are part of the user's own profile; reading a
+	// stored file is viewing content, and the usecase decides whose files the caller sees.
+	"PUT /api/v1/profiles/me/photo":    authz.ActAsMember,
+	"DELETE /api/v1/profiles/me/photo": authz.ActAsMember,
+	"PUT /api/v1/profiles/me/cover":    authz.ActAsMember,
+	"DELETE /api/v1/profiles/me/cover": authz.ActAsMember,
+	"GET /api/v1/media/{fileId}":       authz.ViewContent,
+}
+
+// multipartOverhead is what a multipart body may hold besides the file: boundaries, part
+// headers and small fields.
+const multipartOverhead = 64 << 10
+
+// bodyLimits caps the request body of the upload routes, by route pattern, while it is
+// read (FR-4.6): a larger body fails with http.MaxBytesError, which the media handler
+// answers with 413. The usecase also stops reading the file part at its exact limit.
+var bodyLimits = map[string]int64{
+	"PUT /api/v1/profiles/me/photo": mediausecase.Specs[mediadomain.PurposePhoto].MaxBytes + multipartOverhead,
+	"PUT /api/v1/profiles/me/cover": mediausecase.Specs[mediadomain.PurposeCover].MaxBytes + multipartOverhead,
+}
+
+// limitBody wraps the request body of the routes in bodyLimits in http.MaxBytesReader.
+// It runs after the session and permission checks, so no body is read for a request
+// that is refused.
+func limitBody(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if n, ok := bodyLimits[r.Pattern]; ok {
+			r.Body = http.MaxBytesReader(w, r.Body, n)
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // guardPlatform runs httpx.RequirePlatform with the action platformGuards gives the
@@ -89,15 +126,17 @@ func guardPlatform(next http.Handler) http.Handler {
 // newRouter wires the modules to their dependencies and returns the API's root handler.
 // Tests pass fakes; run passes the real PostgreSQL, Redis and SMTP adapters. requireAuth
 // guards the operations the contract secures (httpx.RequireAuth); guardPlatform runs
-// inside it.
-func newRouter(logger *slog.Logger, db, redis healthdomain.Pinger, auth *authhttp.Handler, profile *profilehttp.Handler, requireAuth func(http.Handler) http.Handler) http.Handler {
+// inside it, and limitBody inside that.
+func newRouter(logger *slog.Logger, db, redis, storage healthdomain.Pinger, auth *authhttp.Handler, profile *profilehttp.Handler, media *mediahttp.Handler, requireAuth func(http.Handler) http.Handler) http.Handler {
 	checker := healthusecase.New(healthusecase.DefaultTimeout,
 		healthdomain.Dependency{Name: "database", Pinger: db},
 		healthdomain.Dependency{Name: "redis", Pinger: redis},
+		healthdomain.Dependency{Name: "storage", Pinger: storage},
 	)
 	return httpserver.NewRouter(logger, handlers{
 		healthHandler:  healthhttp.NewHandler(checker, logger),
 		authHandler:    auth,
 		profileHandler: profile,
-	}, func(next http.Handler) http.Handler { return requireAuth(guardPlatform(next)) })
+		mediaHandler:   media,
+	}, func(next http.Handler) http.Handler { return requireAuth(guardPlatform(limitBody(next))) })
 }

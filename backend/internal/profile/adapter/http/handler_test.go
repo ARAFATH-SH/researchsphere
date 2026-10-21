@@ -175,9 +175,23 @@ func checkProfileBody(t *testing.T, rec *httptest.ResponseRecorder, wantID strin
 		"institution": nil, "department": nil, "jobTitle": nil, "country": "GB",
 		"interests": []any{}, "skills": []any{}, "education": []any{}, "publications": []any{},
 		"connectionStatus": "none", "contact": map[string]any{"links": []any{}},
+		"photoUrl": nil, "coverUrl": nil,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("body = %v\nwant   %v", got, want)
+	}
+}
+
+// The photo and cover (FR-4.6) are paths to the media endpoint, never presigned URLs.
+func TestProfileImageURLs(t *testing.T) {
+	p := ada
+	p.PhotoFileID, p.CoverFileID = ptr("11111111-1111-4111-8111-111111111111"), ptr("22222222-2222-4222-8222-222222222222")
+	for _, path := range []string{"/api/v1/profiles/me", "/api/v1/profiles/" + otherID} {
+		got := decode(t, send(t, &fakeService{profile: p}, http.MethodGet, path, "", callerID))
+		if got["photoUrl"] != "/api/v1/media/11111111-1111-4111-8111-111111111111" ||
+			got["coverUrl"] != "/api/v1/media/22222222-2222-4222-8222-222222222222" {
+			t.Errorf("GET %s: photoUrl %v, coverUrl %v", path, got["photoUrl"], got["coverUrl"])
+		}
 	}
 }
 

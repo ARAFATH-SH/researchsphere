@@ -22,6 +22,8 @@ export function emptyProfile(userId: string, fullName: string): Profile {
     publications: [],
     connectionStatus: "none",
     contact: { links: [] },
+    photoUrl: null,
+    coverUrl: null,
   };
 }
 

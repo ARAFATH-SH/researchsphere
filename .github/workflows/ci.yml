@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   stack:
-    name: Stack (PostgreSQL, Redis, migrations, database and repository tests)
+    name: Stack (PostgreSQL, Redis, MinIO, migrations, database and repository tests)
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -26,7 +26,8 @@ jobs:
       - name: Create .env from .env.example
         run: cp .env.example .env
 
-      - name: Start PostgreSQL and Redis
+      # make up also starts MinIO and creates the private bucket; make check confirms both.
+      - name: Start PostgreSQL, Redis, Mailpit and MinIO
         run: make up
 
       - name: Check services
@@ -72,7 +73,8 @@ jobs:
         run: make test-db
 
       # Go lint and unit tests run in the backend job, which needs no database. Only the
-      # repository tests (build tag "integration") run here, against the migrated database.
+      # repository tests (build tag "integration") run here, against the migrated database
+      # and MinIO (S3_ settings from .env).
       - uses: actions/setup-go@v7
         with:
           go-version-file: backend/go.mod

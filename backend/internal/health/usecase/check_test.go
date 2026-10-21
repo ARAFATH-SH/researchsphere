@@ -37,20 +37,23 @@ func TestCheck(t *testing.T) {
 	tests := []struct {
 		name        string
 		db, redis   *fakePinger
+		storage     *fakePinger
 		wantHealthy bool
 		wantDown    []string
 	}{
-		{"both up", &fakePinger{}, &fakePinger{}, true, nil},
-		{"database down", &fakePinger{err: errRefused}, &fakePinger{}, false, []string{"database"}},
-		{"redis down", &fakePinger{}, &fakePinger{err: errRefused}, false, []string{"redis"}},
-		{"both down, in order", &fakePinger{err: errRefused}, &fakePinger{err: errRefused}, false, []string{"database", "redis"}},
-		{"database hangs past the timeout", &fakePinger{hang: true}, &fakePinger{}, false, []string{"database"}},
+		{"all up", &fakePinger{}, &fakePinger{}, &fakePinger{}, true, nil},
+		{"database down", &fakePinger{err: errRefused}, &fakePinger{}, &fakePinger{}, false, []string{"database"}},
+		{"redis down", &fakePinger{}, &fakePinger{err: errRefused}, &fakePinger{}, false, []string{"redis"}},
+		{"storage down", &fakePinger{}, &fakePinger{}, &fakePinger{err: errRefused}, false, []string{"storage"}},
+		{"all down, in order", &fakePinger{err: errRefused}, &fakePinger{err: errRefused}, &fakePinger{err: errRefused}, false, []string{"database", "redis", "storage"}},
+		{"database hangs past the timeout", &fakePinger{hang: true}, &fakePinger{}, &fakePinger{}, false, []string{"database"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := New(50*time.Millisecond,
 				domain.Dependency{Name: "database", Pinger: tt.db},
 				domain.Dependency{Name: "redis", Pinger: tt.redis},
+				domain.Dependency{Name: "storage", Pinger: tt.storage},
 			)
 			report := c.Check(t.Context())
 
@@ -60,11 +63,12 @@ func TestCheck(t *testing.T) {
 			if got := report.Down(); !slices.Equal(got, tt.wantDown) {
 				t.Errorf("Down() = %v, want %v", got, tt.wantDown)
 			}
-			if len(report.Results) != 2 || report.Results[0].Name != "database" || report.Results[1].Name != "redis" {
-				t.Errorf("Results = %v, want database then redis", report.Results)
+			if len(report.Results) != 3 || report.Results[0].Name != "database" || report.Results[1].Name != "redis" ||
+				report.Results[2].Name != "storage" {
+				t.Errorf("Results = %v, want database, redis, storage", report.Results)
 			}
-			if tt.db.calls.Load() != 1 || tt.redis.calls.Load() != 1 {
-				t.Errorf("pings = %d, %d; want each pinged once", tt.db.calls.Load(), tt.redis.calls.Load())
+			if tt.db.calls.Load() != 1 || tt.redis.calls.Load() != 1 || tt.storage.calls.Load() != 1 {
+				t.Errorf("pings = %d, %d, %d; want each pinged once", tt.db.calls.Load(), tt.redis.calls.Load(), tt.storage.calls.Load())
 			}
 		})
 	}

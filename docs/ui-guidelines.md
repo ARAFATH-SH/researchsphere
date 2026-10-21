@@ -146,7 +146,7 @@ Landing, register, check-email, verify-email, sign-in and reset-password.
   card (240px), center the feed, right recommendations (320px). The feed and
   recommendations are built by later slices.
 - **Home profile card:** the left column of `/home` loads `GET /profiles/me` and shows a
-  cover band, the initials avatar, name, headline, "job title, institution", country and
+  cover band (the cover image or a gradient), the photo or initials, name, headline, "job title, institution", country and
   "Profile strength: N%" (the same value as the profile sidebar). The name, the avatar and
   the strength line link to `/profile`. A skeleton shows while it loads.
 - **Profile header:** on 768px and wider, the right side lists the current institution and
@@ -157,6 +157,17 @@ Landing, register, check-email, verify-email, sign-in and reset-password.
 - **Sticky profile bar:** once the header card scrolls behind the top bar
   (IntersectionObserver), a slim `surface` bar under the top bar repeats the avatar, the
   name, the headline on one line and the header's buttons.
+- **Photo and cover (FR-4.6):** `components/avatar.tsx` is the one avatar: the photo as a
+  plain `<img>` (the media URL redirects to a presigned link, so no `next/image`), or the
+  initials on a `primary` circle when there is none or it fails to load. Sizes: `sm` top bar,
+  `bar` sticky bar, `md` home card, `lg` profile header. Where the name is written beside it,
+  the avatar is decorative (`alt=""`). The cover (`features/profile/cover.tsx`) fills the band
+  at the top of the header and home cards with `object-cover`, or the `primary`-to-`secondary`
+  gradient. On the own profile a camera button sits on the cover's top right and the photo is
+  a button; both open one dialog (photo or cover) with a preview cropped as the server crops
+  (centre square, centre 4:1), "Upload", "Delete" (confirmed inside the dialog) and "Cancel".
+  The own profile is shared by the Me menu, home card and profile page
+  (`features/profile/my-profile.ts`), so a change shows everywhere without a reload.
 - **Show all:** long lists in profile cards show their first entries (Education 2, Skills
   6) and then a full-width "Show all N →" row at the bottom of the card that expands the
   list in place. The About card ends with a "Top skills" box: the first 5 skills joined by

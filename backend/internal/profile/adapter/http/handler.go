@@ -215,5 +215,16 @@ func profileBody(p domain.Profile) (gen.Profile, error) {
 		Publications:     []map[string]any{},
 		ConnectionStatus: gen.None,
 		Contact:          contact,
+		PhotoUrl:         mediaURL(p.PhotoFileID),
+		CoverUrl:         mediaURL(p.CoverFileID),
 	}, nil
+}
+
+// mediaURL is where the client reads a profile image (FR-4.6), nil when none is set.
+func mediaURL(fileID *string) *string {
+	if fileID == nil {
+		return nil
+	}
+	u := httpx.MediaURL(*fileID)
+	return &u
 }

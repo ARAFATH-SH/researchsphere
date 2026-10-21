@@ -1,28 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
 
+import { Avatar } from "@/components/avatar";
 import { Card } from "@/components/ui/card";
 
-import { getMyProfile, type ProfileResult } from "./api";
-import { affiliation, countryName, initials } from "./format";
+import { Cover } from "./cover";
+import { affiliation, countryName } from "./format";
+import { useMyProfile } from "./my-profile";
 import { profileStrength } from "./strength";
 
 // HomeProfileCard is the left column of /home: the signed-in user's own profile from
-// GET /profiles/me (FR-4.5), with a link to the profile and its strength.
+// GET /profiles/me (FR-4.5) with their cover image and photo (FR-4.6), a link to the
+// profile and its strength.
 export function HomeProfileCard() {
-  const [result, setResult] = useState<ProfileResult | null>(null);
-
-  useEffect(() => {
-    let current = true;
-    void getMyProfile().then((value) => {
-      if (current) setResult(value);
-    });
-    return () => {
-      current = false;
-    };
-  }, []);
+  const result = useMyProfile();
 
   if (!result) return <HomeProfileSkeleton />;
   if (result.status !== "ok") {
@@ -41,18 +33,19 @@ export function HomeProfileCard() {
   const { percent } = profileStrength(profile);
   return (
     <Card className="overflow-hidden">
-      <div aria-hidden="true" className="h-14 bg-linear-to-r from-primary to-secondary" />
+      <Cover src={profile.coverUrl} className="h-14" />
       <div className="px-4 pb-4">
         <Link
           href="/profile"
           className="group block rounded-lg focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none"
         >
-          <span
-            aria-hidden="true"
-            className="-mt-8 flex size-16 items-center justify-center rounded-full border-4 border-surface bg-primary-soft text-xl font-semibold text-primary"
-          >
-            {initials(profile.fullName)}
-          </span>
+          <Avatar
+            name={profile.fullName}
+            src={profile.photoUrl}
+            size="md"
+            decorative
+            className="relative -mt-8 border-4 border-surface"
+          />
           <span className="mt-2 block text-lg font-semibold break-words text-text group-hover:underline">
             {profile.fullName}
           </span>

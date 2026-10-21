@@ -12,7 +12,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Report whether the database and Redis respond
+         * Report whether the database, Redis and object storage respond
          * @description Public, needs no session. Returns no user data.
          */
         get: operations["getHealth"];
@@ -629,6 +629,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/profiles/me/photo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Upload or replace the logged-in user's profile photo (FR-4.6)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). The file may be at most 5 MB. Its type is read from its
+         *     first bytes, not its name or header: JPEG, PNG or WebP (not animated). Its width
+         *     and height are read before it is decoded, and an image over 8000 pixels on a side
+         *     is refused. The image is cropped to a centred square and stored as a 400x400 JPEG,
+         *     so nothing else in the file (EXIF, GPS, other data) is kept. A previous photo is
+         *     removed. A user may upload at most 5 images (photo and cover together) per hour;
+         *     refused files do not count.
+         */
+        put: operations["uploadMyPhoto"];
+        post?: never;
+        /**
+         * Remove the logged-in user's profile photo (FR-4.6)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Succeeds also when no photo is set. Not rate limited.
+         */
+        delete: operations["removeMyPhoto"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/profiles/me/cover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Upload or replace the logged-in user's cover image (FR-4.6)
+         * @description As `PUT /profiles/me/photo`, except that the file may be at most 8 MB and the
+         *     image is cropped to a centred 4:1 rectangle and stored as a 1584x396 JPEG.
+         */
+        put: operations["uploadMyCover"];
+        post?: never;
+        /**
+         * Remove the logged-in user's cover image (FR-4.6)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Succeeds also when no cover is set. Not rate limited.
+         */
+        delete: operations["removeMyCover"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/media/{fileId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Redirect to a stored file after a permission check (NFR-13)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed,
+         *     events and recommendations" (SRS 2.3). The owner may always see the file. Anyone
+         *     else may see a profile photo or cover image whose owner is verified and not
+         *     suspended, as with `GET /profiles/{userId}`; other kinds of file are not served
+         *     here yet. A file that does not exist and one the caller may not see get the same
+         *     404 `not_found`. The answer redirects to a presigned URL valid for 10 minutes and
+         *     may be cached privately for 5 minutes, so a cached redirect never points to an
+         *     expired URL.
+         */
+        get: operations["getMedia"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -653,6 +738,8 @@ export interface components {
             database: "ok";
             /** @enum {string} */
             redis: "ok";
+            /** @enum {string} */
+            storage: "ok";
         };
         RegisterRequest: {
             /**
@@ -758,7 +845,7 @@ export interface components {
             total: number;
         };
         /**
-         * @description A researcher's profile (FR-4.1, FR-4.2, FR-4.4, FR-4.5, FR-4.7). The optional text fields are
+         * @description A researcher's profile (FR-4.1, FR-4.2, FR-4.4, FR-4.5, FR-4.6, FR-4.7). The optional text fields are
          *     always present and null when not set. `publications` and `connectionStatus` are
          *     placeholders for now; later work fills them in.
          */
@@ -790,6 +877,21 @@ export interface components {
             publications: Record<string, never>[];
             connectionStatus: components["schemas"]["ConnectionStatus"];
             contact: components["schemas"]["PublicContact"];
+            /**
+             * @description The profile photo (FR-4.6) as `/api/v1/media/{fileId}`; null when not set.
+             * @example /api/v1/media/3f1c2b9e-8a41-4d7e-9c55-2f6a1b0e7d10
+             */
+            photoUrl: string | null;
+            /** @description The cover image (FR-4.6) as `/api/v1/media/{fileId}`; null when not set. */
+            coverUrl: string | null;
+        };
+        /** @description A stored profile photo or cover image (FR-4.6). */
+        ProfileImage: {
+            /**
+             * @description Where the image is read, `/api/v1/media/{fileId}`.
+             * @example /api/v1/media/3f1c2b9e-8a41-4d7e-9c55-2f6a1b0e7d10
+             */
+            url: string;
         };
         /**
          * @description A research interest or skill (FR-4.2). Tags are shared by all users; names that
@@ -1015,6 +1117,66 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
+        /** @description The image is stored and the profile shows it. */
+        ProfileImageStored: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ProfileImage"];
+            };
+        };
+        /**
+         * @description The image is over 8000 pixels wide or high (`image_too_large`), its type matches
+         *     but it cannot be read (`invalid_image`), or the body is not multipart with a part
+         *     named `file` (`bad_request`).
+         */
+        InvalidImage: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description The account has no profile row yet (`not_found`). */
+        NoProfile: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description The file is over the size limit (`file_too_large`). */
+        FileTooLarge: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description The file is not a JPEG, PNG or still WebP image (`unsupported_type`). */
+        UnsupportedImageType: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description The user has uploaded 5 images in the current hour (`rate_limited`). */
+        UploadRateLimited: {
+            headers: {
+                /** @description Seconds until the hour ends and uploads are accepted again. */
+                "Retry-After": number;
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
         /** @description An unexpected error on the server. */
         InternalError: {
             headers: {
@@ -1026,6 +1188,12 @@ export interface components {
         };
     };
     parameters: {
+        /**
+         * @description The stored file's ID, a UUID. It is declared as a plain string so that the login
+         *     check runs before it is read (FR-3.1); a value that is not a UUID names no file and
+         *     gets 404 `not_found`.
+         */
+        FileID: string;
         /**
          * @description The entry's ID, a UUID. It is declared as a plain string so that the login check
          *     runs before it is read (FR-3.1); a value that is not a UUID names no entry of the
@@ -1054,7 +1222,17 @@ export interface components {
         /** @description The refresh token set by `POST /auth/login` or `POST /auth/refresh`. */
         RefreshCookie: string;
     };
-    requestBodies: never;
+    requestBodies: {
+        /** @description The image in the part named `file`. Its file name and content type are ignored. */
+        ImageUpload: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                };
+            };
+        };
+    };
     headers: never;
     pathItems: never;
 }
@@ -1069,7 +1247,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The database and Redis both respond. */
+            /** @description The database, Redis and object storage all respond. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -1079,7 +1257,7 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description The database, Redis or both do not respond. */
+            /** @description The database, Redis, object storage or several of them do not respond. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -2232,6 +2410,121 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    uploadMyPhoto: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["ImageUpload"];
+        responses: {
+            200: components["responses"]["ProfileImageStored"];
+            400: components["responses"]["InvalidImage"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NoProfile"];
+            413: components["responses"]["FileTooLarge"];
+            415: components["responses"]["UnsupportedImageType"];
+            429: components["responses"]["UploadRateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    removeMyPhoto: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The profile has no photo. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    uploadMyCover: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["ImageUpload"];
+        responses: {
+            200: components["responses"]["ProfileImageStored"];
+            400: components["responses"]["InvalidImage"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NoProfile"];
+            413: components["responses"]["FileTooLarge"];
+            415: components["responses"]["UnsupportedImageType"];
+            429: components["responses"]["UploadRateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    removeMyCover: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The profile has no cover image. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getMedia: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The stored file's ID, a UUID. It is declared as a plain string so that the login
+                 *     check runs before it is read (FR-3.1); a value that is not a UUID names no file and
+                 *     gets 404 `not_found`.
+                 */
+                fileId: components["parameters"]["FileID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The file is at the URL in `Location`. */
+            302: {
+                headers: {
+                    /** @description A presigned URL to the object, valid for 10 minutes. */
+                    Location: string;
+                    /** @description Always `private, max-age=300`. */
+                    "Cache-Control": string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             500: components["responses"]["InternalError"];
         };
     };

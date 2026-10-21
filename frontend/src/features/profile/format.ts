@@ -18,15 +18,8 @@ export function countryName(code: string): string {
   }
 }
 
-// initials returns up to two letters for the avatar: the first letters of the first and
-// last words of the name ("Ada King Lovelace" is "AL").
-export function initials(fullName: string): string {
-  const words = fullName.trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return "?";
-  const first = Array.from(words[0])[0];
-  const last = words.length > 1 ? Array.from(words[words.length - 1])[0] : "";
-  return (first + last).toUpperCase();
-}
+// initials lives in lib/initials.ts; the Avatar component uses it too.
+export { initials } from "@/lib/initials";
 
 // affiliation joins the job title and institution ("Researcher, University of London"),
 // leaving out whichever is not set.

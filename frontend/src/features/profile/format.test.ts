@@ -1,4 +1,4 @@
-import { affiliation, countryName, initials, yearRange } from "./format";
+import { affiliation, countryName, yearRange } from "./format";
 
 describe("yearRange", () => {
   it("shows both years of a finished entry", () => {
@@ -18,18 +18,6 @@ describe("countryName", () => {
 
   it("shows a code it cannot name as it is", () => {
     expect(countryName("not a code")).toBe("not a code");
-  });
-});
-
-describe("initials", () => {
-  it.each([
-    ["Ada Lovelace", "AL"],
-    ["Ada King Lovelace", "AL"],
-    ["ada", "A"],
-    ["  Émile   Zola ", "ÉZ"],
-    ["", "?"],
-  ])("%j gives %j", (name, want) => {
-    expect(initials(name)).toBe(want);
   });
 });
 

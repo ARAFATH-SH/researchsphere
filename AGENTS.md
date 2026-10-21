@@ -22,7 +22,8 @@ recommendations. One developer builds it in 30 slices over 12 weeks.
 | `compile/` | LaTeX compile service (slice 23) | TeX Live in a Docker sandbox |
 | `docs/` | SRS, API contract, decisions | Markdown, OpenAPI 3 |
 
-Data stores: PostgreSQL 16 with pgvector, and Redis. Both run in Docker, with Mailpit for local email.
+Data stores: PostgreSQL 16 with pgvector, Redis, and S3-compatible object storage (MinIO
+locally, console at http://localhost:9001). All run in Docker, with Mailpit for local email.
 
 ## Commands
 
@@ -30,8 +31,8 @@ Run these from the repository root. `make help` prints the current list.
 
 | Command | What it does |
 | --- | --- |
-| `make up` / `make down` | Start or stop PostgreSQL, Redis and Mailpit (local email inbox at http://localhost:8025) |
-| `make check` | Confirm that PostgreSQL, pgvector and Redis respond |
+| `make up` / `make down` | Start or stop PostgreSQL, Redis, Mailpit (local email inbox at http://localhost:8025) and MinIO; `make up` also creates the private bucket |
+| `make check` | Confirm that PostgreSQL, pgvector, Redis and storage respond, and that the bucket refuses anonymous access |
 | `make psql` | Open a psql prompt in the database |
 | `make migrate` / `make migrate-down` | Apply all migrations, or undo the latest one |
 | `make migrate-new name=add_users` | Create a new migration pair |
@@ -45,7 +46,7 @@ Run these from the repository root. `make help` prints the current list.
 | `make test` | Run all tests: `test-db`, `test-go`, `test-integration` and `test-web` (needs `make up` and `make migrate`) |
 | `make test-db` | Run the database constraint tests (needs `make up` and `make migrate`) |
 | `make test-go` | Run the backend Go tests (`go test -race`); needs no database |
-| `make test-integration` | Run the Go repository tests (build tag `integration`) against the database and Redis (needs `make up` and `make migrate`) |
+| `make test-integration` | Run the Go repository tests and the end-to-end tests in `cmd/api` (build tag `integration`) against the database, Redis and MinIO (needs `make up` and `make migrate`) |
 | `make test-web` | Run the frontend tests (Jest) |
 | `make lint` | Run all linters: `lint-go` and `lint-web` |
 | `make lint-go` | Run golangci-lint for the backend |
@@ -55,7 +56,7 @@ The frontend targets need its packages: run `cd frontend && npm ci` once, and ag
 `package-lock.json` changes. When a slice adds a command to the Makefile, add it to this
 table in the same change.
 
-CI (`.github/workflows/ci.yml`) runs on every push and pull request: it starts the stack and runs
+CI (`.github/workflows/ci.yml`) runs on every push and pull request: it starts the stack (MinIO included) and runs
 `make check`, applies all migrations, undoes them, checks that nothing is left, applies them
 again, and runs `make test-db` and the Go repository tests (`make test-integration`), then lints and tests each of `backend/`, `frontend/` and `ai/`
 once that folder has its manifest (`go.mod`, `package.json`, `pyproject.toml`). The backend job
@@ -82,7 +83,7 @@ check, tests and a production build.
 ## Conventions
 
 - **Go:** one application (modular monolith). Modules live in `backend/internal/<module>`: health,
-  then auth, profile, social, project, event and notification. Return errors, do not panic.
+  then auth, profile, media, social, project, event and notification. Return errors, do not panic.
   Table-driven tests beside the code they test. Each module is split into layers (clean
   architecture); `backend/internal/health` is the example to copy:
 
@@ -92,7 +93,7 @@ check, tests and a production build.
   | `internal/<module>/usecase` | Business logic | Standard library and its own `domain` |
   | `internal/<module>/adapter/http` | Handlers for the module's operations in `api/gen` | domain, usecase, `platform`, `api/gen` |
   | `internal/<module>/adapter/postgres`, `adapter/redis` | Implementations of the domain interfaces | domain, `platform`, pgx, go-redis |
-  | `internal/platform` | Config, logging, database pool, Redis client, HTTP server, middleware, error shape | Libraries and `api/gen`; never a module |
+  | `internal/platform` | Config, logging, database pool, Redis client, object storage, HTTP server, middleware, error shape | Libraries and `api/gen`; never a module |
   | `internal/api/gen` | Code generated from `docs/openapi.yaml` (do not edit) | |
   | `cmd/api` | The only place that wires modules and platform together | Everything |
 

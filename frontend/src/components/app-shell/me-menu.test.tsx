@@ -2,11 +2,15 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { logout } from "@/features/auth/api";
 import { setSignedOut, useSession } from "@/features/auth/session";
+import { useMyProfile } from "@/features/profile/my-profile";
+import { fullProfile } from "@/features/profile/test-profiles";
 
-import { initials, MeMenu } from "./me-menu";
+import { MeMenu } from "./me-menu";
 
 jest.mock("@/features/auth/api");
 jest.mock("@/features/auth/session");
+jest.mock("@/features/profile/my-profile");
+const mockUseMyProfile = jest.mocked(useMyProfile);
 const mockLogout = jest.mocked(logout);
 const mockSetSignedOut = jest.mocked(setSignedOut);
 const mockUseSession = jest.mocked(useSession);
@@ -15,15 +19,6 @@ const mockReplace = jest.fn();
 jest.mock("next/navigation", () => ({ useRouter: () => ({ replace: mockReplace }) }));
 
 const user = { id: "0b8f4c1e-0000-4000-8000-000000000001", email: "ada@example.org", fullName: "Ada King Lovelace", role: "researcher" as const };
-
-describe("initials", () => {
-  it.each([
-    ["Ada King Lovelace", "AL"],
-    ["ada", "A"],
-    ["  Émile   Zola ", "ÉZ"],
-    ["", ""],
-  ])("%j gives %j", (name, want) => expect(initials(name)).toBe(want));
-});
 
 describe("MeMenu", () => {
   afterEach(() => jest.resetAllMocks());
@@ -41,6 +36,17 @@ describe("MeMenu", () => {
     expect(screen.getByText("Ada King Lovelace")).toBeTruthy();
     expect(screen.getByText("ada@example.org")).toBeTruthy();
     expect(screen.getByRole("link", { name: "View profile" }).getAttribute("href")).toBe("/profile");
+  });
+
+  it("shows the photo from the user's own profile once it has loaded", () => {
+    mockUseSession.mockReturnValue({ status: "signedIn", user });
+    const photoUrl = "/api/v1/media/3f1c2b9e-8a41-4d7e-9c55-2f6a1b0e7d10";
+    mockUseMyProfile.mockReturnValue({ status: "ok", profile: { ...fullProfile(user.id, user.fullName), photoUrl } });
+    renderMenu();
+    expect(toggle().querySelector("img")?.getAttribute("src")).toBe(photoUrl);
+    // The name follows in the menu, so the photo is not announced as well.
+    expect(toggle().querySelector("img")?.getAttribute("alt")).toBe("");
+    expect(toggle().textContent).toBe("Me");
   });
 
   it("links to the account settings and closes when the link is used", () => {

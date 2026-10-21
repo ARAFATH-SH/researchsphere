@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"mime/multipart"
 	"net/http"
 	"time"
 
@@ -77,6 +78,21 @@ const (
 func (e HealthStatus) Valid() bool {
 	switch e {
 	case HealthStatusOk:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for HealthStorage.
+const (
+	HealthStorageOk HealthStorage = "ok"
+)
+
+// Valid indicates whether the value is a known member of the HealthStorage enum.
+func (e HealthStorage) Valid() bool {
+	switch e {
+	case HealthStorageOk:
 		return true
 	default:
 		return false
@@ -338,6 +354,7 @@ type Health struct {
 	Database HealthDatabase `json:"database"`
 	Redis    HealthRedis    `json:"redis"`
 	Status   HealthStatus   `json:"status"`
+	Storage  HealthStorage  `json:"storage"`
 }
 
 // HealthDatabase defines model for Health.Database.
@@ -348,6 +365,9 @@ type HealthRedis string
 
 // HealthStatus defines model for Health.Status.
 type HealthStatus string
+
+// HealthStorage defines model for Health.Storage.
+type HealthStorage string
 
 // LinkKind What a profile link points to; the client shows a label and icon for it.
 type LinkKind string
@@ -381,7 +401,7 @@ type PasswordResetRequest struct {
 	Email string `json:"email"`
 }
 
-// Profile A researcher's profile (FR-4.1, FR-4.2, FR-4.4, FR-4.5, FR-4.7). The optional text fields are
+// Profile A researcher's profile (FR-4.1, FR-4.2, FR-4.4, FR-4.5, FR-4.6, FR-4.7). The optional text fields are
 // always present and null when not set. `publications` and `connectionStatus` are
 // placeholders for now; later work fills them in.
 type Profile struct {
@@ -399,7 +419,10 @@ type Profile struct {
 	// Country ISO 3166-1 alpha-2 code in capitals, such as DE.
 	//
 	// Example: DE
-	Country    *string `json:"country"`
+	Country *string `json:"country"`
+
+	// CoverUrl The cover image (FR-4.6) as `/api/v1/media/{fileId}`; null when not set.
+	CoverUrl   *string `json:"coverUrl"`
 	Department *string `json:"department"`
 
 	// Education The user's education entries (FR-4.4): current entries (no `endYear`) first,
@@ -415,12 +438,25 @@ type Profile struct {
 	Interests []Tag   `json:"interests"`
 	JobTitle  *string `json:"jobTitle"`
 
+	// PhotoUrl The profile photo (FR-4.6) as `/api/v1/media/{fileId}`; null when not set.
+	//
+	// Example: /api/v1/media/3f1c2b9e-8a41-4d7e-9c55-2f6a1b0e7d10
+	PhotoUrl *string `json:"photoUrl"`
+
 	// Publications Placeholder: always empty until confirmed publications are shown (FR-5.5).
 	Publications []map[string]interface{} `json:"publications"`
 
 	// Skills The user's skills (FR-4.2), sorted by name ignoring letter case.
 	Skills []Tag              `json:"skills"`
 	UserId openapi_types.UUID `json:"userId"`
+}
+
+// ProfileImage A stored profile photo or cover image (FR-4.6).
+type ProfileImage struct {
+	// Url Where the image is read, `/api/v1/media/{fileId}`.
+	//
+	// Example: /api/v1/media/3f1c2b9e-8a41-4d7e-9c55-2f6a1b0e7d10
+	Url string `json:"url"`
 }
 
 // ProfileLink A link on a profile (FR-4.7), visible to every logged-in user.
@@ -549,6 +585,9 @@ type Visibility string
 // EducationID defines model for EducationID.
 type EducationID = string
 
+// FileID defines model for FileID.
+type FileID = string
+
 // LinkID defines model for LinkID.
 type LinkID = string
 
@@ -564,6 +603,9 @@ type TagLimit = int
 // TagQuery defines model for TagQuery.
 type TagQuery = string
 
+// FileTooLarge The shape of every error response (SRS 5.3).
+type FileTooLarge = Error
+
 // Forbidden The shape of every error response (SRS 5.3).
 type Forbidden = Error
 
@@ -573,11 +615,26 @@ type InternalError = Error
 // InvalidEducation The shape of every error response (SRS 5.3).
 type InvalidEducation = Error
 
+// InvalidImage The shape of every error response (SRS 5.3).
+type InvalidImage = Error
+
+// NoProfile The shape of every error response (SRS 5.3).
+type NoProfile = Error
+
 // NotFound The shape of every error response (SRS 5.3).
 type NotFound = Error
 
+// ProfileImageStored A stored profile photo or cover image (FR-4.6).
+type ProfileImageStored = ProfileImage
+
 // Unauthorized The shape of every error response (SRS 5.3).
 type Unauthorized = Error
+
+// UnsupportedImageType The shape of every error response (SRS 5.3).
+type UnsupportedImageType = Error
+
+// UploadRateLimited The shape of every error response (SRS 5.3).
+type UploadRateLimited = Error
 
 // cookieAuthContextKey is the context key for cookieAuth security scheme
 type cookieAuthContextKey string
@@ -608,6 +665,16 @@ type ChangePasswordParams struct {
 type RefreshSessionParams struct {
 	// RsRefresh The refresh token set by `POST /auth/login` or `POST /auth/refresh`.
 	RsRefresh *RefreshCookie `form:"rs_refresh,omitempty" json:"rs_refresh,omitempty"`
+}
+
+// UploadMyCoverMultipartBody defines parameters for UploadMyCover.
+type UploadMyCoverMultipartBody struct {
+	File openapi_types.File `json:"file"`
+}
+
+// UploadMyPhotoMultipartBody defines parameters for UploadMyPhoto.
+type UploadMyPhotoMultipartBody struct {
+	File openapi_types.File `json:"file"`
 }
 
 // SuggestInterestTagsParams defines parameters for SuggestInterestTags.
@@ -660,6 +727,9 @@ type UpdateMyProfileJSONRequestBody = ProfileUpdate
 // UpdateMyContactJSONRequestBody defines body for UpdateMyContact for application/json ContentType.
 type UpdateMyContactJSONRequestBody = ContactUpdate
 
+// UploadMyCoverMultipartRequestBody defines body for UploadMyCover for multipart/form-data ContentType.
+type UploadMyCoverMultipartRequestBody UploadMyCoverMultipartBody
+
 // AddMyEducationJSONRequestBody defines body for AddMyEducation for application/json ContentType.
 type AddMyEducationJSONRequestBody = EducationCreate
 
@@ -671,6 +741,9 @@ type AddMyInterestJSONRequestBody = AddTagRequest
 
 // AddMyLinkJSONRequestBody defines body for AddMyLink for application/json ContentType.
 type AddMyLinkJSONRequestBody = AddLinkRequest
+
+// UploadMyPhotoMultipartRequestBody defines body for UploadMyPhoto for multipart/form-data ContentType.
+type UploadMyPhotoMultipartRequestBody UploadMyPhotoMultipartBody
 
 // AddMySkillJSONRequestBody defines body for AddMySkill for application/json ContentType.
 type AddMySkillJSONRequestBody = AddTagRequest
@@ -713,9 +786,12 @@ type ServerInterface interface {
 	// VerifyEmail Verify an email address with the token from the link (FR-1.3)
 	// (POST /auth/verify-email)
 	VerifyEmail(w http.ResponseWriter, r *http.Request)
-	// GetHealth Report whether the database and Redis respond
+	// GetHealth Report whether the database, Redis and object storage respond
 	// (GET /health)
 	GetHealth(w http.ResponseWriter, r *http.Request)
+	// GetMedia Redirect to a stored file after a permission check (NFR-13)
+	// (GET /media/{fileId})
+	GetMedia(w http.ResponseWriter, r *http.Request, fileId FileID)
 	// GetMyProfile Return the logged-in user's profile (FR-4.1)
 	// (GET /profiles/me)
 	GetMyProfile(w http.ResponseWriter, r *http.Request)
@@ -728,6 +804,12 @@ type ServerInterface interface {
 	// UpdateMyContact Replace the logged-in user's phone, birthday and visibility settings (FR-4.7)
 	// (PUT /profiles/me/contact)
 	UpdateMyContact(w http.ResponseWriter, r *http.Request)
+	// RemoveMyCover Remove the logged-in user's cover image (FR-4.6)
+	// (DELETE /profiles/me/cover)
+	RemoveMyCover(w http.ResponseWriter, r *http.Request)
+	// UploadMyCover Upload or replace the logged-in user's cover image (FR-4.6)
+	// (PUT /profiles/me/cover)
+	UploadMyCover(w http.ResponseWriter, r *http.Request)
 	// AddMyEducation Add an education entry to the logged-in user's profile (FR-4.4)
 	// (POST /profiles/me/education)
 	AddMyEducation(w http.ResponseWriter, r *http.Request)
@@ -749,6 +831,12 @@ type ServerInterface interface {
 	// RemoveMyLink Remove one of the logged-in user's links (FR-4.7)
 	// (DELETE /profiles/me/links/{linkId})
 	RemoveMyLink(w http.ResponseWriter, r *http.Request, linkId LinkID)
+	// RemoveMyPhoto Remove the logged-in user's profile photo (FR-4.6)
+	// (DELETE /profiles/me/photo)
+	RemoveMyPhoto(w http.ResponseWriter, r *http.Request)
+	// UploadMyPhoto Upload or replace the logged-in user's profile photo (FR-4.6)
+	// (PUT /profiles/me/photo)
+	UploadMyPhoto(w http.ResponseWriter, r *http.Request)
 	// AddMySkill Add a skill to the logged-in user's profile (FR-4.2)
 	// (POST /profiles/me/skills)
 	AddMySkill(w http.ResponseWriter, r *http.Request)
@@ -1076,6 +1164,38 @@ func (siw *ServerInterfaceWrapper) GetHealth(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
+// GetMedia operation middleware
+func (siw *ServerInterfaceWrapper) GetMedia(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "fileId" -------------
+	var fileId FileID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "fileId", r.PathValue("fileId"), &fileId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "fileId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMedia(w, r, fileId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetMyProfile operation middleware
 func (siw *ServerInterfaceWrapper) GetMyProfile(w http.ResponseWriter, r *http.Request) {
 
@@ -1147,6 +1267,46 @@ func (siw *ServerInterfaceWrapper) UpdateMyContact(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateMyContact(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RemoveMyCover operation middleware
+func (siw *ServerInterfaceWrapper) RemoveMyCover(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RemoveMyCover(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UploadMyCover operation middleware
+func (siw *ServerInterfaceWrapper) UploadMyCover(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UploadMyCover(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1335,6 +1495,46 @@ func (siw *ServerInterfaceWrapper) RemoveMyLink(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RemoveMyLink(w, r, linkId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RemoveMyPhoto operation middleware
+func (siw *ServerInterfaceWrapper) RemoveMyPhoto(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RemoveMyPhoto(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UploadMyPhoto operation middleware
+func (siw *ServerInterfaceWrapper) UploadMyPhoto(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UploadMyPhoto(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1681,9 +1881,16 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/profiles/me/contact", wrapper.UpdateMyContact)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/profiles/me/links", wrapper.AddMyLink)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/profiles/me/links/{linkId}", wrapper.RemoveMyLink)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/profiles/me/photo", wrapper.RemoveMyPhoto)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/profiles/me/photo", wrapper.UploadMyPhoto)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/profiles/me/cover", wrapper.RemoveMyCover)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/profiles/me/cover", wrapper.UploadMyCover)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/media/{fileId}", wrapper.GetMedia)
 
 	return m
 }
+
+type FileTooLargeJSONResponse Error
 
 type ForbiddenJSONResponse Error
 
@@ -1691,9 +1898,26 @@ type InternalErrorJSONResponse Error
 
 type InvalidEducationJSONResponse Error
 
+type InvalidImageJSONResponse Error
+
+type NoProfileJSONResponse Error
+
 type NotFoundJSONResponse Error
 
+type ProfileImageStoredJSONResponse ProfileImage
+
 type UnauthorizedJSONResponse Error
+
+type UnsupportedImageTypeJSONResponse Error
+
+type UploadRateLimitedResponseHeaders struct {
+	RetryAfter int
+}
+type UploadRateLimitedJSONResponse struct {
+	Body Error
+
+	Headers UploadRateLimitedResponseHeaders
+}
 
 type DeleteAccountRequestObject struct {
 	Body *DeleteAccountJSONRequestBody
@@ -2524,6 +2748,86 @@ func (response GetHealth503JSONResponse) VisitGetHealthResponse(w http.ResponseW
 	return err
 }
 
+type GetMediaRequestObject struct {
+	FileId FileID `json:"fileId"`
+}
+
+type GetMediaResponseObject interface {
+	VisitGetMediaResponse(w http.ResponseWriter) error
+}
+
+type GetMedia302ResponseHeaders struct {
+	CacheControl string
+	Location     string
+}
+
+type GetMedia302Response struct {
+	Headers GetMedia302ResponseHeaders
+}
+
+func (response GetMedia302Response) VisitGetMediaResponse(w http.ResponseWriter) error {
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.Header().Set("Location", fmt.Sprint(response.Headers.Location))
+	w.WriteHeader(302)
+	return nil
+}
+
+type GetMedia401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetMedia401JSONResponse) VisitGetMediaResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMedia403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetMedia403JSONResponse) VisitGetMediaResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMedia404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetMedia404JSONResponse) VisitGetMediaResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMedia500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response GetMedia500JSONResponse) VisitGetMediaResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetMyProfileRequestObject struct {
 }
 
@@ -2795,6 +3099,200 @@ func (response UpdateMyContact403JSONResponse) VisitUpdateMyContactResponse(w ht
 type UpdateMyContact500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response UpdateMyContact500JSONResponse) VisitUpdateMyContactResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMyCoverRequestObject struct {
+}
+
+type RemoveMyCoverResponseObject interface {
+	VisitRemoveMyCoverResponse(w http.ResponseWriter) error
+}
+
+type RemoveMyCover204Response struct {
+}
+
+func (response RemoveMyCover204Response) VisitRemoveMyCoverResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RemoveMyCover401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RemoveMyCover401JSONResponse) VisitRemoveMyCoverResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMyCover403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response RemoveMyCover403JSONResponse) VisitRemoveMyCoverResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMyCover500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RemoveMyCover500JSONResponse) VisitRemoveMyCoverResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadMyCoverRequestObject struct {
+	Body *multipart.Reader
+}
+
+type UploadMyCoverResponseObject interface {
+	VisitUploadMyCoverResponse(w http.ResponseWriter) error
+}
+
+type UploadMyCover200JSONResponse struct{ ProfileImageStoredJSONResponse }
+
+func (response UploadMyCover200JSONResponse) VisitUploadMyCoverResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadMyCover400JSONResponse struct{ InvalidImageJSONResponse }
+
+func (response UploadMyCover400JSONResponse) VisitUploadMyCoverResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadMyCover401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response UploadMyCover401JSONResponse) VisitUploadMyCoverResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadMyCover403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response UploadMyCover403JSONResponse) VisitUploadMyCoverResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadMyCover404JSONResponse struct{ NoProfileJSONResponse }
+
+func (response UploadMyCover404JSONResponse) VisitUploadMyCoverResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadMyCover413JSONResponse struct{ FileTooLargeJSONResponse }
+
+func (response UploadMyCover413JSONResponse) VisitUploadMyCoverResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(413)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadMyCover415JSONResponse struct {
+	UnsupportedImageTypeJSONResponse
+}
+
+func (response UploadMyCover415JSONResponse) VisitUploadMyCoverResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(415)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadMyCover429JSONResponse struct{ UploadRateLimitedJSONResponse }
+
+func (response UploadMyCover429JSONResponse) VisitUploadMyCoverResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadMyCover500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response UploadMyCover500JSONResponse) VisitUploadMyCoverResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -3405,6 +3903,200 @@ func (response RemoveMyLink500JSONResponse) VisitRemoveMyLinkResponse(w http.Res
 	return err
 }
 
+type RemoveMyPhotoRequestObject struct {
+}
+
+type RemoveMyPhotoResponseObject interface {
+	VisitRemoveMyPhotoResponse(w http.ResponseWriter) error
+}
+
+type RemoveMyPhoto204Response struct {
+}
+
+func (response RemoveMyPhoto204Response) VisitRemoveMyPhotoResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RemoveMyPhoto401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RemoveMyPhoto401JSONResponse) VisitRemoveMyPhotoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMyPhoto403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response RemoveMyPhoto403JSONResponse) VisitRemoveMyPhotoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMyPhoto500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RemoveMyPhoto500JSONResponse) VisitRemoveMyPhotoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadMyPhotoRequestObject struct {
+	Body *multipart.Reader
+}
+
+type UploadMyPhotoResponseObject interface {
+	VisitUploadMyPhotoResponse(w http.ResponseWriter) error
+}
+
+type UploadMyPhoto200JSONResponse struct{ ProfileImageStoredJSONResponse }
+
+func (response UploadMyPhoto200JSONResponse) VisitUploadMyPhotoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadMyPhoto400JSONResponse struct{ InvalidImageJSONResponse }
+
+func (response UploadMyPhoto400JSONResponse) VisitUploadMyPhotoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadMyPhoto401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response UploadMyPhoto401JSONResponse) VisitUploadMyPhotoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadMyPhoto403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response UploadMyPhoto403JSONResponse) VisitUploadMyPhotoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadMyPhoto404JSONResponse struct{ NoProfileJSONResponse }
+
+func (response UploadMyPhoto404JSONResponse) VisitUploadMyPhotoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadMyPhoto413JSONResponse struct{ FileTooLargeJSONResponse }
+
+func (response UploadMyPhoto413JSONResponse) VisitUploadMyPhotoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(413)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadMyPhoto415JSONResponse struct {
+	UnsupportedImageTypeJSONResponse
+}
+
+func (response UploadMyPhoto415JSONResponse) VisitUploadMyPhotoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(415)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadMyPhoto429JSONResponse struct{ UploadRateLimitedJSONResponse }
+
+func (response UploadMyPhoto429JSONResponse) VisitUploadMyPhotoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadMyPhoto500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response UploadMyPhoto500JSONResponse) VisitUploadMyPhotoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type AddMySkillRequestObject struct {
 	Body *AddMySkillJSONRequestBody
 }
@@ -3855,9 +4547,12 @@ type StrictServerInterface interface {
 	// VerifyEmail Verify an email address with the token from the link (FR-1.3)
 	// (POST /auth/verify-email)
 	VerifyEmail(ctx context.Context, request VerifyEmailRequestObject) (VerifyEmailResponseObject, error)
-	// GetHealth Report whether the database and Redis respond
+	// GetHealth Report whether the database, Redis and object storage respond
 	// (GET /health)
 	GetHealth(ctx context.Context, request GetHealthRequestObject) (GetHealthResponseObject, error)
+	// GetMedia Redirect to a stored file after a permission check (NFR-13)
+	// (GET /media/{fileId})
+	GetMedia(ctx context.Context, request GetMediaRequestObject) (GetMediaResponseObject, error)
 	// GetMyProfile Return the logged-in user's profile (FR-4.1)
 	// (GET /profiles/me)
 	GetMyProfile(ctx context.Context, request GetMyProfileRequestObject) (GetMyProfileResponseObject, error)
@@ -3870,6 +4565,12 @@ type StrictServerInterface interface {
 	// UpdateMyContact Replace the logged-in user's phone, birthday and visibility settings (FR-4.7)
 	// (PUT /profiles/me/contact)
 	UpdateMyContact(ctx context.Context, request UpdateMyContactRequestObject) (UpdateMyContactResponseObject, error)
+	// RemoveMyCover Remove the logged-in user's cover image (FR-4.6)
+	// (DELETE /profiles/me/cover)
+	RemoveMyCover(ctx context.Context, request RemoveMyCoverRequestObject) (RemoveMyCoverResponseObject, error)
+	// UploadMyCover Upload or replace the logged-in user's cover image (FR-4.6)
+	// (PUT /profiles/me/cover)
+	UploadMyCover(ctx context.Context, request UploadMyCoverRequestObject) (UploadMyCoverResponseObject, error)
 	// AddMyEducation Add an education entry to the logged-in user's profile (FR-4.4)
 	// (POST /profiles/me/education)
 	AddMyEducation(ctx context.Context, request AddMyEducationRequestObject) (AddMyEducationResponseObject, error)
@@ -3891,6 +4592,12 @@ type StrictServerInterface interface {
 	// RemoveMyLink Remove one of the logged-in user's links (FR-4.7)
 	// (DELETE /profiles/me/links/{linkId})
 	RemoveMyLink(ctx context.Context, request RemoveMyLinkRequestObject) (RemoveMyLinkResponseObject, error)
+	// RemoveMyPhoto Remove the logged-in user's profile photo (FR-4.6)
+	// (DELETE /profiles/me/photo)
+	RemoveMyPhoto(ctx context.Context, request RemoveMyPhotoRequestObject) (RemoveMyPhotoResponseObject, error)
+	// UploadMyPhoto Upload or replace the logged-in user's profile photo (FR-4.6)
+	// (PUT /profiles/me/photo)
+	UploadMyPhoto(ctx context.Context, request UploadMyPhotoRequestObject) (UploadMyPhotoResponseObject, error)
 	// AddMySkill Add a skill to the logged-in user's profile (FR-4.2)
 	// (POST /profiles/me/skills)
 	AddMySkill(ctx context.Context, request AddMySkillRequestObject) (AddMySkillResponseObject, error)
@@ -4323,6 +5030,32 @@ func (sh *strictHandler) GetHealth(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// GetMedia operation middleware
+func (sh *strictHandler) GetMedia(w http.ResponseWriter, r *http.Request, fileId FileID) {
+	var request GetMediaRequestObject
+
+	request.FileId = fileId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetMedia(ctx, request.(GetMediaRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetMedia")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetMediaResponseObject); ok {
+		if err := validResponse.VisitGetMediaResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetMyProfile operation middleware
 func (sh *strictHandler) GetMyProfile(w http.ResponseWriter, r *http.Request) {
 	var request GetMyProfileRequestObject
@@ -4426,6 +5159,61 @@ func (sh *strictHandler) UpdateMyContact(w http.ResponseWriter, r *http.Request)
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateMyContactResponseObject); ok {
 		if err := validResponse.VisitUpdateMyContactResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RemoveMyCover operation middleware
+func (sh *strictHandler) RemoveMyCover(w http.ResponseWriter, r *http.Request) {
+	var request RemoveMyCoverRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RemoveMyCover(ctx, request.(RemoveMyCoverRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RemoveMyCover")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RemoveMyCoverResponseObject); ok {
+		if err := validResponse.VisitRemoveMyCoverResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UploadMyCover operation middleware
+func (sh *strictHandler) UploadMyCover(w http.ResponseWriter, r *http.Request) {
+	var request UploadMyCoverRequestObject
+
+	if reader, err := r.MultipartReader(); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode multipart body: %w", err))
+		return
+	} else {
+		request.Body = reader
+	}
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UploadMyCover(ctx, request.(UploadMyCoverRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UploadMyCover")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UploadMyCoverResponseObject); ok {
+		if err := validResponse.VisitUploadMyCoverResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -4630,6 +5418,61 @@ func (sh *strictHandler) RemoveMyLink(w http.ResponseWriter, r *http.Request, li
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RemoveMyLinkResponseObject); ok {
 		if err := validResponse.VisitRemoveMyLinkResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RemoveMyPhoto operation middleware
+func (sh *strictHandler) RemoveMyPhoto(w http.ResponseWriter, r *http.Request) {
+	var request RemoveMyPhotoRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RemoveMyPhoto(ctx, request.(RemoveMyPhotoRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RemoveMyPhoto")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RemoveMyPhotoResponseObject); ok {
+		if err := validResponse.VisitRemoveMyPhotoResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UploadMyPhoto operation middleware
+func (sh *strictHandler) UploadMyPhoto(w http.ResponseWriter, r *http.Request) {
+	var request UploadMyPhotoRequestObject
+
+	if reader, err := r.MultipartReader(); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode multipart body: %w", err))
+		return
+	} else {
+		request.Body = reader
+	}
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UploadMyPhoto(ctx, request.(UploadMyPhotoRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UploadMyPhoto")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UploadMyPhotoResponseObject); ok {
+		if err := validResponse.VisitUploadMyPhotoResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

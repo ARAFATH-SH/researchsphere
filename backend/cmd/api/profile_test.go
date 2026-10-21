@@ -97,6 +97,11 @@ func TestProfileRoutesAreGuarded(t *testing.T) {
 		"PUT /api/v1/profiles/me/contact":           authz.ActAsMember,
 		"POST /api/v1/profiles/me/links":            authz.ActAsMember,
 		"DELETE /api/v1/profiles/me/links/{linkId}": authz.ActAsMember,
+
+		"PUT /api/v1/profiles/me/photo":    authz.ActAsMember,
+		"DELETE /api/v1/profiles/me/photo": authz.ActAsMember,
+		"PUT /api/v1/profiles/me/cover":    authz.ActAsMember,
+		"DELETE /api/v1/profiles/me/cover": authz.ActAsMember,
 	}
 	for route, action := range want {
 		if got := platformGuards[route]; got != action {

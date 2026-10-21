@@ -40,31 +40,52 @@ func TestGetHealth(t *testing.T) {
 	tests := []struct {
 		name       string
 		db, redis  domain.Pinger
+		storage    domain.Pinger
 		wantStatus int
 		wantBody   map[string]string
 	}{
 		{
-			name: "both up", db: up, redis: up,
+			name: "all up", db: up, redis: up, storage: up,
 			wantStatus: http.StatusOK,
-			wantBody:   map[string]string{"status": "ok", "database": "ok", "redis": "ok"},
+			wantBody:   map[string]string{"status": "ok", "database": "ok", "redis": "ok", "storage": "ok"},
 		},
 		{
-			name: "database down", db: down, redis: up,
+			name: "database down", db: down, redis: up, storage: up,
 			wantStatus: http.StatusServiceUnavailable,
 			wantBody:   map[string]string{"code": "service_unavailable", "message": "database is not responding"},
 		},
 		{
-			name: "redis down", db: up, redis: down,
+			name: "redis down", db: up, redis: down, storage: up,
 			wantStatus: http.StatusServiceUnavailable,
 			wantBody:   map[string]string{"code": "service_unavailable", "message": "redis is not responding"},
 		},
 		{
-			name: "both down", db: down, redis: down,
+			name: "database and redis down", db: down, redis: down, storage: up,
 			wantStatus: http.StatusServiceUnavailable,
 			wantBody:   map[string]string{"code": "service_unavailable", "message": "database and redis are not responding"},
 		},
 		{
-			name: "database hangs past the timeout", db: hung, redis: up,
+			name: "storage down (MinIO stopped)", db: up, redis: up, storage: down,
+			wantStatus: http.StatusServiceUnavailable,
+			wantBody:   map[string]string{"code": "service_unavailable", "message": "storage is not responding"},
+		},
+		{
+			name: "database and storage down", db: down, redis: up, storage: down,
+			wantStatus: http.StatusServiceUnavailable,
+			wantBody:   map[string]string{"code": "service_unavailable", "message": "database and storage are not responding"},
+		},
+		{
+			name: "all down", db: down, redis: down, storage: down,
+			wantStatus: http.StatusServiceUnavailable,
+			wantBody:   map[string]string{"code": "service_unavailable", "message": "database, redis and storage are not responding"},
+		},
+		{
+			name: "storage hangs past the timeout", db: up, redis: up, storage: hung,
+			wantStatus: http.StatusServiceUnavailable,
+			wantBody:   map[string]string{"code": "service_unavailable", "message": "storage is not responding"},
+		},
+		{
+			name: "database hangs past the timeout", db: hung, redis: up, storage: up,
 			wantStatus: http.StatusServiceUnavailable,
 			wantBody:   map[string]string{"code": "service_unavailable", "message": "database is not responding"},
 		},
@@ -75,6 +96,7 @@ func TestGetHealth(t *testing.T) {
 			checker := usecase.New(50*time.Millisecond,
 				domain.Dependency{Name: "database", Pinger: tt.db},
 				domain.Dependency{Name: "redis", Pinger: tt.redis},
+				domain.Dependency{Name: "storage", Pinger: tt.storage},
 			)
 			h := NewHandler(checker, slog.New(slog.DiscardHandler))
 			mux := http.NewServeMux()
