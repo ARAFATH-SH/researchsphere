@@ -4,7 +4,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 
 import { useSession } from "@/features/auth/session";
 
-import { getMyContact, getMyProfile, getProfile, updateMyProfile } from "./api";
+import { getMyContact, getMyProfile, getProfile, removeProfileImage, updateMyProfile } from "./api";
 import { ProfileView } from "./profile-view";
 import { adaID, bobID, emptyProfile, fullProfile } from "./test-profiles";
 
@@ -254,6 +254,26 @@ describe("ProfileView, editing", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
     await waitFor(() => expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Ada King"));
     expect(mockGetMyProfile).toHaveBeenCalledTimes(2);
+  });
+
+  it("deletes the photo from the photo dialog, reloads, and gives the focus back to the photo", async () => {
+    const photoUrl = "/api/v1/media/photo";
+    mockGetMyProfile.mockResolvedValue({ status: "ok", profile: { ...fullProfile(adaID, "Ada Lovelace"), photoUrl } });
+    jest.mocked(removeProfileImage).mockResolvedValue({ ok: true });
+    render(<ProfileView />);
+    const photo = await screen.findByRole("button", { name: "Change profile photo" });
+    fireEvent.click(photo);
+    const dialog = screen.getByRole("dialog", { name: "Profile photo" });
+
+    mockGetMyProfile.mockResolvedValue({ status: "ok", profile: fullProfile(adaID, "Ada Lovelace") });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+
+    expect((await screen.findByRole("status")).textContent).toBe("Photo deleted");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(jest.mocked(removeProfileImage)).toHaveBeenCalledWith("photo");
+    await waitFor(() => expect(photo.querySelector("img")).toBeNull());
+    expect(document.activeElement).toBe(photo);
   });
 });
 

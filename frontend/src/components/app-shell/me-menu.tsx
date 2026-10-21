@@ -4,25 +4,18 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 
+import { Avatar } from "@/components/avatar";
 import { buttonClass } from "@/components/ui/button";
 import { logout } from "@/features/auth/api";
 import { setSignedOut, useSession } from "@/features/auth/session";
+import { useMyProfile } from "@/features/profile/my-profile";
 
 import { MeIcon } from "./icons";
 import type { TabListVariant } from "./tab-list";
 
-// initials returns the first letters of the first and last words of a name: "Ada
-// Lovelace" gives "AL", "Ada" gives "A".
-export function initials(fullName: string): string {
-  const words = fullName.trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return "";
-  const first = (w: string) => [...w][0].toLocaleUpperCase();
-  return words.length === 1 ? first(words[0]) : first(words[0]) + first(words[words.length - 1]);
-}
-
 type MeMenuProps = { variant: TabListVariant; active: boolean; tabClass: string };
 
-// MeMenu is the "Me" tab: the user's initials, opening a menu with their name, links to
+// MeMenu is the "Me" tab: the user's photo or initials, opening a menu with their name, links to
 // the profile and the account settings, and "Sign out" (FR-2.2).
 export function MeMenu({ variant, active, tabClass }: MeMenuProps) {
   const session = useSession();
@@ -62,6 +55,9 @@ export function MeMenu({ variant, active, tabClass }: MeMenuProps) {
   }
 
   const user = session.status === "signedIn" ? session.user : undefined;
+  // GET /auth/me has no photo; it comes from the shared own profile.
+  const mine = useMyProfile();
+  const photoUrl = mine?.status === "ok" ? mine.profile.photoUrl : null;
   const place = variant === "top" ? "right-0 top-full mt-1" : "right-2 bottom-full mb-1";
 
   return (
@@ -75,12 +71,13 @@ export function MeMenu({ variant, active, tabClass }: MeMenuProps) {
         className={tabClass}
       >
         {user ? (
-          <span
-            aria-hidden="true"
-            className={`flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-semibold ${active ? "bg-primary text-surface" : "bg-text-muted text-surface"}`}
-          >
-            {initials(user.fullName)}
-          </span>
+          <Avatar
+            name={user.fullName}
+            src={photoUrl}
+            size="sm"
+            decorative
+            className={active ? "ring-2 ring-primary ring-offset-1 ring-offset-surface" : ""}
+          />
         ) : (
           <MeIcon />
         )}

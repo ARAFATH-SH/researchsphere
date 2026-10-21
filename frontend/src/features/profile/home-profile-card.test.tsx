@@ -1,13 +1,27 @@
 import { render, screen } from "@testing-library/react";
 
+import { useSession } from "@/features/auth/session";
+
 import { getMyProfile } from "./api";
 import { HomeProfileCard } from "./home-profile-card";
+import { clearMyProfile } from "./my-profile";
 import { adaID, emptyProfile, fullProfile } from "./test-profiles";
 
 jest.mock("./api");
+jest.mock("@/features/auth/session");
 const mockGetMyProfile = jest.mocked(getMyProfile);
 
-afterEach(() => jest.resetAllMocks());
+// Ada is signed in.
+beforeEach(() => {
+  jest.mocked(useSession).mockReturnValue({
+    status: "signedIn",
+    user: { id: adaID, email: "ada@example.org", fullName: "Ada Lovelace", role: "researcher" },
+  });
+});
+afterEach(() => {
+  jest.resetAllMocks();
+  clearMyProfile();
+});
 
 describe("HomeProfileCard", () => {
   it("shows a skeleton while the profile loads", () => {
@@ -30,6 +44,21 @@ describe("HomeProfileCard", () => {
     expect(strength.getAttribute("href")).toBe("/profile");
     expect(screen.queryByRole("status")).toBeNull();
     expect(mockGetMyProfile).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the cover image and photo when the profile has them", async () => {
+    const photoUrl = "/api/v1/media/photo";
+    const coverUrl = "/api/v1/media/cover";
+    mockGetMyProfile.mockResolvedValue({
+      status: "ok",
+      profile: { ...fullProfile(adaID, "Ada Lovelace"), photoUrl, coverUrl },
+    });
+    const { container } = render(<HomeProfileCard />);
+    const name = await screen.findByRole("link", { name: "Ada Lovelace" });
+    expect(name.querySelector("img")?.getAttribute("src")).toBe(photoUrl);
+    expect(name.textContent).not.toContain("AL");
+    const srcs = Array.from(container.querySelectorAll("img")).map((img) => img.getAttribute("src"));
+    expect(srcs).toEqual([coverUrl, photoUrl]);
   });
 
   it("leaves out fields the profile does not have", async () => {

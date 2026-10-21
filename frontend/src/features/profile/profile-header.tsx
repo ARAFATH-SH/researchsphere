@@ -2,12 +2,14 @@
 
 import { type RefObject, useEffect, useId, useRef, useState } from "react";
 
+import { Avatar } from "@/components/avatar";
 import { Container } from "@/components/Container";
 import { buttonClass } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
 import type { Profile } from "./api";
-import { EditButton, editButtonId } from "./edit-button";
+import { Cover } from "./cover";
+import { CameraIcon, EditButton, editButtonId } from "./edit-button";
 import { affiliation, countryName, initials } from "./format";
 import { MoreMenu } from "./more-menu";
 import type { EditControls } from "./profile-sections";
@@ -22,11 +24,12 @@ type ProfileHeaderProps = {
 // topBarHeight is the height of the fixed top bar (h-14), under which the sticky bar sits.
 const topBarHeight = 56;
 
-// ProfileHeader is the top card: a cover band, the avatar, the name, where the researcher
-// works and a "Contact info" link (FR-4.7). On wide screens the current institution and
-// the latest education entry sit on the right. The owner gets a pencil that opens the
-// intro dialog; anyone else a Connect button that waits for connections (slice 13). Once
-// the card scrolls out of view, a slim bar under the top bar repeats the name and buttons.
+// ProfileHeader is the top card: the cover image and photo (FR-4.6), the name, where the
+// researcher works and a "Contact info" link (FR-4.7). On wide screens the current
+// institution and the latest education entry sit on the right. The owner gets a camera
+// button on the cover, a clickable photo and a pencil that opens the intro dialog; anyone
+// else sees the same images and a Connect button that waits for connections (slice 13).
+// Once the card scrolls out of view, a slim bar under the top bar repeats the name and buttons.
 export function ProfileHeader({ profile, edit, onContact }: ProfileHeaderProps) {
   const works = affiliation(profile);
   const card = useRef<HTMLDivElement>(null);
@@ -34,15 +37,35 @@ export function ProfileHeader({ profile, edit, onContact }: ProfileHeaderProps) 
   return (
     <>
       <Card ref={card} className="overflow-hidden">
-        <div aria-hidden="true" className="h-24 bg-linear-to-r from-primary to-secondary md:h-32" />
+        <Cover src={profile.coverUrl} className="h-24 md:h-32">
+          {edit && (
+            <button
+              id={editButtonId("cover")}
+              type="button"
+              aria-label="Edit cover image"
+              onClick={() => edit.open("cover")}
+              className="absolute top-3 right-3 rounded-full bg-surface p-2 text-primary shadow-sm transition-colors hover:bg-primary-soft focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:outline-none"
+            >
+              <CameraIcon />
+            </button>
+          )}
+        </Cover>
         <div className="px-4 pb-6 md:px-6">
           <div className="flex items-end justify-between gap-4">
-            <div
-              role="img"
-              aria-label={profile.fullName}
-              className="-mt-12 flex size-24 shrink-0 items-center justify-center rounded-full border-4 border-surface bg-primary-soft text-3xl font-semibold text-primary md:-mt-16 md:size-32 md:text-4xl"
-            >
-              {initials(profile.fullName)}
+            <div className="relative -mt-12 shrink-0 md:-mt-16">
+              {edit ? (
+                <button
+                  id={editButtonId("photo")}
+                  type="button"
+                  aria-label="Change profile photo"
+                  onClick={() => edit.open("photo")}
+                  className="block rounded-full focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:outline-none"
+                >
+                  <Avatar name={profile.fullName} src={profile.photoUrl} size="lg" className="border-4 border-surface" />
+                </button>
+              ) : (
+                <Avatar name={profile.fullName} src={profile.photoUrl} size="lg" className="border-4 border-surface" />
+              )}
             </div>
             <div className="flex items-center gap-1 pt-4">
               <HeaderActions profile={profile} edit={edit} withIds />
@@ -141,12 +164,7 @@ function StickyBar({ profile, edit }: Pick<ProfileHeaderProps, "profile" | "edit
       className="fixed inset-x-0 top-14 z-10 border-b border-border bg-surface shadow-sm"
     >
       <Container size="app" className="flex h-14 items-center gap-3">
-        <div
-          aria-hidden="true"
-          className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary-soft text-sm font-semibold text-primary"
-        >
-          {initials(profile.fullName)}
-        </div>
+        <Avatar name={profile.fullName} src={profile.photoUrl} size="bar" decorative />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold text-text">{profile.fullName}</p>
           {profile.headline && <p className="truncate text-xs text-text-muted">{profile.headline}</p>}
