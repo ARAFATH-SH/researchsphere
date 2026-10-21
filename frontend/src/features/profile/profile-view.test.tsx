@@ -5,6 +5,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { useSession } from "@/features/auth/session";
 
 import { getMyContact, getMyProfile, getProfile, removeProfileImage, updateMyProfile } from "./api";
+import { clearMyProfile } from "./my-profile";
 import { ProfileView } from "./profile-view";
 import { adaID, bobID, emptyProfile, fullProfile } from "./test-profiles";
 
@@ -29,6 +30,8 @@ beforeEach(() => {
 afterEach(() => {
   jest.resetAllMocks();
   mockSearch = "";
+  // Saving the own profile shares it through the store; forget it between cases.
+  clearMyProfile();
 });
 
 function headings(level: number) {

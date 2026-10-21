@@ -1,6 +1,9 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 
 import type { Session } from "@/features/auth/session";
+import { getMyProfile } from "@/features/profile/api";
+import { clearMyProfile } from "@/features/profile/my-profile";
+import { adaID, emptyProfile } from "@/features/profile/test-profiles";
 
 import { AppShell } from "./app-shell";
 
@@ -9,6 +12,23 @@ jest.mock("next/navigation", () => ({ usePathname: () => mockPathname(), useRout
 const mockSession = jest.fn<Session, []>(() => ({ status: "loading" }));
 jest.mock("@/features/auth/session", () => ({ useSession: () => mockSession() }));
 jest.mock("@/features/auth/api");
+// The Me menu fetches the signed-in user's own profile for its photo.
+jest.mock("@/features/profile/api");
+const mockGetMyProfile = jest.mocked(getMyProfile);
+const photoUrl = "/api/v1/media/3f1c2b9e-8a41-4d7e-9c55-2f6a1b0e7d10";
+
+// The own profile is shared between renders; start each case without one.
+beforeEach(() => clearMyProfile());
+afterEach(() => mockGetMyProfile.mockReset());
+
+// photosShown waits until the Me menu in both bars shows the photo from the own profile.
+async function photosShown() {
+  await waitFor(() => {
+    for (const bar of screen.getAllByRole("navigation", { name: "Main" })) {
+      expect(bar.querySelector("img")?.getAttribute("src")).toBe(photoUrl);
+    }
+  });
+}
 
 const want = [
   ["Home", "/home"],
@@ -52,12 +72,16 @@ describe("AppShell", () => {
       status: "signedIn",
       user: { id: "0b8f4c1e-0000-4000-8000-000000000001", email: "ada@example.org", fullName: "Ada Lovelace", role },
     });
+    beforeEach(() =>
+      mockGetMyProfile.mockResolvedValue({ status: "ok", profile: { ...emptyProfile(adaID, "Ada Lovelace"), photoUrl } }),
+    );
     afterEach(() => mockSession.mockReturnValue({ status: "loading" }));
 
-    it("is hidden from a researcher", () => {
+    it("is hidden from a researcher", async () => {
       mockPathname.mockReturnValue("/home");
       mockSession.mockReturnValue(signedInAs("researcher"));
       render(<AppShell>x</AppShell>);
+      await photosShown();
       expect(screen.queryAllByRole("link", { name: "Admin" })).toHaveLength(0);
     });
 
@@ -67,10 +91,11 @@ describe("AppShell", () => {
       expect(screen.queryAllByRole("link", { name: "Admin" })).toHaveLength(0);
     });
 
-    it("shows to an administrator in both bars, before Me", () => {
+    it("shows to an administrator in both bars, before Me", async () => {
       mockPathname.mockReturnValue("/admin");
       mockSession.mockReturnValue(signedInAs("admin"));
       render(<AppShell>x</AppShell>);
+      await photosShown();
       for (const bar of screen.getAllByRole("navigation", { name: "Main" })) {
         const links = within(bar).getAllByRole("link");
         expect(links.map((l) => [l.textContent, l.getAttribute("href")])).toEqual([...want, ["Admin", "/admin"]]);
