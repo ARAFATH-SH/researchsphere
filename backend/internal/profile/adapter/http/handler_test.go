@@ -42,6 +42,11 @@ type fakeService struct {
 	educationPatch usecase.EducationPatch // given to UpdateEducation
 	educationID    string                 // given to UpdateEducation and RemoveEducation
 
+	experience      domain.Experience       // returned by the experience operations
+	experienceIn    usecase.ExperienceInput // given to AddExperience
+	experiencePatch usecase.ExperiencePatch // given to UpdateExperience
+	experienceID    string                  // given to UpdateExperience and RemoveExperience
+
 	viewerID  string               // given to View
 	contact   domain.Contact       // returned by GetContact and UpdateContact
 	contactIn usecase.ContactInput // given to UpdateContact
@@ -83,6 +88,21 @@ func (f *fakeService) UpdateEducation(_ context.Context, userID, id string, patc
 
 func (f *fakeService) RemoveEducation(_ context.Context, userID, id string) error {
 	f.userID, f.educationID = userID, id
+	return f.err
+}
+
+func (f *fakeService) AddExperience(_ context.Context, userID string, in usecase.ExperienceInput) (domain.Experience, error) {
+	f.userID, f.experienceIn = userID, in
+	return f.experience, f.err
+}
+
+func (f *fakeService) UpdateExperience(_ context.Context, userID, id string, patch usecase.ExperiencePatch) (domain.Experience, error) {
+	f.userID, f.experienceID, f.experiencePatch = userID, id, patch
+	return f.experience, f.err
+}
+
+func (f *fakeService) RemoveExperience(_ context.Context, userID, id string) error {
+	f.userID, f.experienceID = userID, id
 	return f.err
 }
 
@@ -173,7 +193,7 @@ func checkProfileBody(t *testing.T, rec *httptest.ResponseRecorder, wantID strin
 	want := map[string]any{
 		"userId": wantID, "fullName": "Ada Lovelace", "headline": "Analyst", "bio": nil,
 		"institution": nil, "department": nil, "jobTitle": nil, "country": "GB",
-		"interests": []any{}, "skills": []any{}, "education": []any{}, "publications": []any{},
+		"interests": []any{}, "skills": []any{}, "education": []any{}, "experience": []any{}, "publications": []any{},
 		"connectionStatus": "none", "contact": map[string]any{"links": []any{}},
 		"photoUrl": nil, "coverUrl": nil,
 	}

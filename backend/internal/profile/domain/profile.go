@@ -24,12 +24,14 @@ type Profile struct {
 	// them alone.
 	PhotoFileID *string
 	CoverFileID *string
-	// Interests and Skills are the user's tags sorted by name (FR-4.2), and Education
-	// the user's education entries in profile order (FR-4.4). UpsertProfile ignores them;
-	// the usecase fills them when it reads a profile.
-	Interests []Tag
-	Skills    []Tag
-	Education []Education
+	// Interests and Skills are the user's tags sorted by name (FR-4.2), Education the
+	// user's education entries (FR-4.4) and Experience their work experience (FR-4.8),
+	// both in profile order. UpsertProfile ignores them; the usecase fills them when it
+	// reads a profile.
+	Interests  []Tag
+	Skills     []Tag
+	Education  []Education
+	Experience []Experience
 	// Contact is the contact info the viewer of the profile may see (FR-4.7). The
 	// usecase fills it when it reads a profile.
 	Contact VisibleContact
@@ -107,6 +109,60 @@ type Education struct {
 	EndYear      *int
 }
 
+// YearMonth is a month of a year; Month runs from 1 to 12.
+type YearMonth struct {
+	Year  int
+	Month int
+}
+
+// Before reports whether m is an earlier month than o.
+func (m YearMonth) Before(o YearMonth) bool {
+	return m.Year < o.Year || (m.Year == o.Year && m.Month < o.Month)
+}
+
+// EmploymentType says how a user was employed in a role (FR-4.8).
+type EmploymentType string
+
+// Employment types.
+const (
+	EmploymentFullTime          EmploymentType = "full_time"
+	EmploymentPartTime          EmploymentType = "part_time"
+	EmploymentInternship        EmploymentType = "internship"
+	EmploymentContract          EmploymentType = "contract"
+	EmploymentFreelance         EmploymentType = "freelance"
+	EmploymentSelfEmployed      EmploymentType = "self_employed"
+	EmploymentResearchAssistant EmploymentType = "research_assistant"
+	EmploymentTeachingAssistant EmploymentType = "teaching_assistant"
+	EmploymentPostdoc           EmploymentType = "postdoc"
+	EmploymentVolunteer         EmploymentType = "volunteer"
+)
+
+// LocationType says where a role was done (FR-4.8).
+type LocationType string
+
+// Location types.
+const (
+	LocationOnSite LocationType = "on_site"
+	LocationHybrid LocationType = "hybrid"
+	LocationRemote LocationType = "remote"
+)
+
+// Experience is one entry of a user's work experience (FR-4.8). An optional field is nil
+// when not set. End is nil exactly when IsCurrent is true.
+type Experience struct {
+	ID             string
+	UserID         string
+	Title          string
+	Organization   string
+	EmploymentType EmploymentType
+	Location       *string
+	LocationType   *LocationType
+	Start          YearMonth
+	End            *YearMonth
+	IsCurrent      bool
+	Description    *string
+}
+
 // TagKind says which shared vocabulary a tag belongs to.
 type TagKind string
 
@@ -134,8 +190,8 @@ type Account struct {
 	Profile *Profile
 }
 
-// Store reads and writes profiles, the user's tags, education entries, contact info and links. Writes that must happen together
-// go through RunInTx.
+// Store reads and writes profiles, the user's tags, education and experience entries,
+// contact info and links. Writes that must happen together go through RunInTx.
 type Store interface {
 	// RunInTx runs fn in one database transaction. It commits when fn returns nil and
 	// rolls back otherwise, returning fn's error.
@@ -161,6 +217,13 @@ type Store interface {
 	// no entry with the ID, including one that belongs to someone else, or the ID is not
 	// a UUID.
 	DeleteEducation(ctx context.Context, userID, id string) error
+	// ListExperience returns the user's experience entries: current entries first, then
+	// by start, latest first, then the oldest entry first.
+	ListExperience(ctx context.Context, userID string) ([]Experience, error)
+	// DeleteExperience removes the user's entry. It returns ErrNotFound when the user has
+	// no entry with the ID, including one that belongs to someone else, or the ID is not
+	// a UUID.
+	DeleteExperience(ctx context.Context, userID, id string) error
 	// FindContact returns the user's contact info without links. A user who never saved
 	// any gets no phone, no birthday and every visibility OnlyMe. It returns ErrNotFound
 	// when the user does not exist.
@@ -178,9 +241,9 @@ type Store interface {
 
 // Tx is the set of steps available inside a transaction.
 type Tx interface {
-	// LockUser locks the user against other tag, education and link changes until the
-	// transaction ends, so two requests cannot both pass a limit. It returns ErrNotFound when the user
-	// does not exist.
+	// LockUser locks the user against other tag, education, experience and link changes
+	// until the transaction ends, so two requests cannot both pass a limit. It returns
+	// ErrNotFound when the user does not exist.
 	LockUser(ctx context.Context, userID string) error
 	// FindOrCreateTag returns the tag of kind named name ignoring letter case, creating
 	// it with this spelling when there is none. A tag created at the same moment by
@@ -203,6 +266,17 @@ type Tx interface {
 	// UpdateEducation replaces the fields of the entry e.ID that belongs to e.UserID and
 	// returns what was stored. It returns ErrNotFound when there is no such entry.
 	UpdateEducation(ctx context.Context, e Education) (Education, error)
+	// CountExperience returns how many experience entries the user has.
+	CountExperience(ctx context.Context, userID string) (int, error)
+	// InsertExperience stores a new entry for e.UserID and returns it with its ID.
+	InsertExperience(ctx context.Context, e Experience) (Experience, error)
+	// FindExperienceForUpdate returns the user's entry and locks it until the transaction
+	// ends. It returns ErrNotFound when the user has no entry with the ID, including one
+	// that belongs to someone else, or the ID is not a UUID.
+	FindExperienceForUpdate(ctx context.Context, userID, id string) (Experience, error)
+	// UpdateExperience replaces the fields of the entry e.ID that belongs to e.UserID and
+	// returns what was stored. It returns ErrNotFound when there is no such entry.
+	UpdateExperience(ctx context.Context, e Experience) (Experience, error)
 	// CountLinks returns how many links the user has.
 	CountLinks(ctx context.Context, userID string) (int, error)
 	// InsertLink stores a new link for l.UserID and returns it with its ID.
@@ -229,6 +303,20 @@ var (
 	ErrInvalidStartYear            = errors.New("start year is missing or out of range")
 	ErrInvalidEndYear              = errors.New("end year is out of range or before the start year")
 	ErrEducationLimitReached       = errors.New("user has the most education entries allowed")
+
+	ErrInvalidTitle           = errors.New("title is empty, too long or has a line break")
+	ErrInvalidOrganization    = errors.New("organization is empty, too long or has a line break")
+	ErrInvalidEmploymentType  = errors.New("employment type is not one of the allowed types")
+	ErrInvalidLocation        = errors.New("location is too long or has a line break")
+	ErrInvalidLocationType    = errors.New("location type is not one of the allowed types")
+	ErrInvalidStartDate       = errors.New("start date is missing, not a real month, before 1950 or in the future")
+	ErrInvalidEndDate         = errors.New("end date is not a real month, before 1950 or in the future")
+	ErrInvalidIsCurrent       = errors.New("isCurrent is missing")
+	ErrEndDateRequired        = errors.New("an entry that is not current needs an end date")
+	ErrEndDateNotAllowed      = errors.New("a current entry has no end date")
+	ErrInvalidDateRange       = errors.New("end date is before the start date")
+	ErrInvalidDescription     = errors.New("description is too long")
+	ErrExperienceLimitReached = errors.New("user has the most experience entries allowed")
 
 	ErrInvalidPhone      = errors.New("phone is not in E.164 format")
 	ErrInvalidBirthday   = errors.New("birthday is not a day of the year")

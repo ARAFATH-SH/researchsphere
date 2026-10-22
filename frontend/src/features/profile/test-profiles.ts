@@ -19,6 +19,7 @@ export function emptyProfile(userId: string, fullName: string): Profile {
     interests: [],
     skills: [],
     education: [],
+    experience: [],
     publications: [],
     connectionStatus: "none",
     contact: { links: [] },

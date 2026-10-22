@@ -559,8 +559,8 @@ paths:
         Needs the access cookie and the platform action "Edit own profile, connect, post,
         like, comment" (SRS 2.3). Replaces every field in the body: an optional field that
         is missing, null, or empty after trimming is stored as null. Each value is trimmed;
-        `country` is then upper-cased. Interests, skills, education and publications are
-        not changed here.
+        `country` is then upper-cased. Interests, skills, education, experience and
+        publications are not changed here.
       tags: [profile]
       requestBody:
         required: true
@@ -954,6 +954,112 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /profiles/me/experience:
+    post:
+      operationId: addMyExperience
+      summary: Add a work experience entry to the logged-in user's profile (FR-4.8)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Text is trimmed; an optional field that is missing, null
+        or empty after trimming is stored as null. A user has at most 30 experience
+        entries.
+      tags: [profile]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExperienceCreate"
+      responses:
+        "201":
+          description: The stored entry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Experience"
+        "400":
+          $ref: "#/components/responses/InvalidExperience"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: The user already has 30 experience entries (`experience_limit_reached`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /profiles/me/experience/{experienceId}:
+    patch:
+      operationId: updateMyExperience
+      summary: Change some fields of one of the logged-in user's experience entries (FR-4.8)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). A field that is missing keeps its value; `null` clears
+        `location`, `locationType`, `endDate` or `description`. The rules of
+        ExperienceCreate apply to the entry after the change, so the server never clears
+        `endDate` itself: to make an entry current, send `"isCurrent": true` and
+        `"endDate": null` together. An entry that does not exist and one that belongs to
+        someone else both get 404 `not_found`.
+      tags: [profile]
+      parameters:
+        - $ref: "#/components/parameters/ExperienceID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExperienceUpdate"
+      responses:
+        "200":
+          description: The entry after the change.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Experience"
+        "400":
+          $ref: "#/components/responses/InvalidExperience"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: The user has no experience entry with this ID (`not_found`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: removeMyExperience
+      summary: Remove one of the logged-in user's experience entries (FR-4.8)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). An entry that does not exist and one that belongs to
+        someone else both get 404 `not_found`.
+      tags: [profile]
+      parameters:
+        - $ref: "#/components/parameters/ExperienceID"
+      responses:
+        "204":
+          description: The entry is removed.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: The user has no experience entry with this ID (`not_found`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /profiles/me/contact:
     get:
       operationId: getMyContact
@@ -1243,6 +1349,16 @@ components:
         type: string
     EducationID:
       name: educationId
+      in: path
+      required: true
+      description: |
+        The entry's ID, a UUID. It is declared as a plain string so that the login check
+        runs before it is read (FR-3.1); a value that is not a UUID names no entry of the
+        user and gets 404 `not_found`.
+      schema:
+        type: string
+    ExperienceID:
+      name: experienceId
       in: path
       required: true
       description: |
@@ -1549,6 +1665,7 @@ components:
         - interests
         - skills
         - education
+        - experience
         - publications
         - connectionStatus
         - contact
@@ -1598,6 +1715,13 @@ components:
             then by `endYear`, latest first, then by `startYear`, latest first.
           items:
             $ref: "#/components/schemas/Education"
+        experience:
+          type: array
+          description: |
+            The user's work experience (FR-4.8): current roles first, then by `startDate`,
+            latest first, then oldest entry first.
+          items:
+            $ref: "#/components/schemas/Experience"
         publications:
           type: array
           description: "Placeholder: always empty until confirmed publications are shown (FR-5.5)."
@@ -1944,6 +2068,198 @@ components:
           x-go-type-import:
             path: github.com/oapi-codegen/nullable
 
+    YearMonth:
+      type: object
+      description: A month of a year, such as March 2021.
+      required: [year, month]
+      properties:
+        year:
+          type: integer
+          example: 2021
+        month:
+          type: integer
+          description: 1 (January) to 12 (December).
+          example: 3
+
+    EmploymentType:
+      type: string
+      enum:
+        - full_time
+        - part_time
+        - internship
+        - contract
+        - freelance
+        - self_employed
+        - research_assistant
+        - teaching_assistant
+        - postdoc
+        - volunteer
+
+    LocationType:
+      type: string
+      enum: [on_site, hybrid, remote]
+
+    Experience:
+      type: object
+      description: One work experience entry (FR-4.8). The optional fields are always present and null when not set.
+      required: [id, title, organization, employmentType, location, locationType, startDate, endDate, isCurrent, description]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          example: Research Assistant
+        organization:
+          type: string
+          example: University of Dhaka
+        employmentType:
+          $ref: "#/components/schemas/EmploymentType"
+        location:
+          type: string
+          nullable: true
+          example: Dhaka, Bangladesh
+        locationType:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/LocationType"
+        startDate:
+          $ref: "#/components/schemas/YearMonth"
+        endDate:
+          nullable: true
+          description: Null exactly when `isCurrent` is true.
+          allOf:
+            - $ref: "#/components/schemas/YearMonth"
+        isCurrent:
+          type: boolean
+        description:
+          type: string
+          nullable: true
+
+    ExperienceCreate:
+      type: object
+      description: |
+        A new work experience entry (FR-4.8). Text is trimmed first and lengths count
+        characters after trimming; `title`, `organization` and `location` must be one line.
+        Dates run from January 1950 to the current month (UTC), and `endDate` is not before
+        `startDate`. When `isCurrent` is true `endDate` must be missing or null; when it is
+        false `endDate` is required.
+      required: [title, organization, employmentType, startDate, isCurrent]
+      properties:
+        title:
+          type: string
+          description: 1 to 100 characters.
+          maxLength: 100
+        organization:
+          type: string
+          description: 1 to 150 characters.
+          maxLength: 150
+        employmentType:
+          $ref: "#/components/schemas/EmploymentType"
+        location:
+          type: string
+          nullable: true
+          description: At most 100 characters; empty means not set.
+          maxLength: 100
+        locationType:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/LocationType"
+        startDate:
+          $ref: "#/components/schemas/YearMonth"
+        endDate:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/YearMonth"
+        isCurrent:
+          type: boolean
+        description:
+          type: string
+          nullable: true
+          description: At most 2000 characters, line breaks allowed; empty means not set.
+          maxLength: 2000
+
+    ExperienceUpdate:
+      type: object
+      description: |
+        The fields to change in an experience entry (FR-4.8). A missing field keeps its
+        value. `null` clears `location`, `locationType`, `endDate` or `description`; `null`
+        for `title`, `organization`, `employmentType`, `startDate` or `isCurrent` is
+        refused, because they are required. The rules of ExperienceCreate apply to the
+        entry after the change.
+      properties:
+        title:
+          type: string
+          nullable: true
+          maxLength: 100
+          x-go-type: nullable.Nullable[string]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        organization:
+          type: string
+          nullable: true
+          maxLength: 150
+          x-go-type: nullable.Nullable[string]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        employmentType:
+          type: string
+          nullable: true
+          description: One of the EmploymentType values.
+          x-go-type: nullable.Nullable[EmploymentType]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        location:
+          type: string
+          nullable: true
+          maxLength: 100
+          x-go-type: nullable.Nullable[string]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        locationType:
+          type: string
+          nullable: true
+          description: One of the LocationType values.
+          x-go-type: nullable.Nullable[LocationType]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        startDate:
+          type: object
+          nullable: true
+          description: A YearMonth.
+          x-go-type: nullable.Nullable[YearMonth]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        endDate:
+          type: object
+          nullable: true
+          description: A YearMonth.
+          x-go-type: nullable.Nullable[YearMonth]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        isCurrent:
+          type: boolean
+          nullable: true
+          x-go-type: nullable.Nullable[bool]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        description:
+          type: string
+          nullable: true
+          maxLength: 2000
+          x-go-type: nullable.Nullable[string]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+
   responses:
     Forbidden:
       description: |
@@ -1972,6 +2288,20 @@ components:
         `invalid_institution`, `invalid_degree`, `invalid_field_of_study`,
         `invalid_start_year`, `invalid_end_year` (also when `endYear` is before
         `startYear`). A body that is not JSON gets `bad_request`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    InvalidExperience:
+      description: |
+        A field is not valid. The code names the first invalid field, in this order:
+        `invalid_title`, `invalid_organization`, `invalid_employment_type`,
+        `invalid_location`, `invalid_location_type`, `invalid_start_date` (also a future
+        month or one before 1950), `invalid_end_date`, `invalid_is_current` (a PATCH that
+        sets `isCurrent` to null), `end_date_required` (`isCurrent` false without
+        `endDate`), `end_date_not_allowed` (`isCurrent` true with `endDate`),
+        `invalid_date_range` (`endDate` before `startDate`), `invalid_description`. A body
+        that is not JSON gets `bad_request`.
       content:
         application/json:
           schema:

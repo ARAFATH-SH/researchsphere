@@ -1,8 +1,8 @@
 // Package usecase holds the profile module's logic: reading the caller's own profile and
 // editing its basic fields (FR-4.1), research interests and skills as tags (FR-4.2) with
 // suggestions (FR-4.3), education entries (FR-4.4), contact info and links with who may
-// see them (FR-4.7), and showing any user's profile to a logged-in user (FR-4.5). It
-// imports only the profile domain.
+// see them (FR-4.7), work experience entries (FR-4.8), and showing any user's profile to
+// a logged-in user (FR-4.5). It imports only the profile domain.
 package usecase
 
 import (
@@ -15,7 +15,7 @@ import (
 // Service reads and edits profiles.
 type Service struct {
 	store domain.Store
-	now   func() time.Time // the clock for the education year range
+	now   func() time.Time // the clock for the education years and experience dates
 }
 
 // New returns a Service.
@@ -84,8 +84,8 @@ func profileOf(a domain.Account) domain.Profile {
 	return *a.Profile
 }
 
-// withDetails fills the profile's interests, skills, education entries and the contact
-// info viewerID may see.
+// withDetails fills the profile's interests, skills, education and experience entries
+// and the contact info viewerID may see.
 func (s *Service) withDetails(ctx context.Context, p domain.Profile, viewerID string) (domain.Profile, error) {
 	var err error
 	if p.Interests, err = s.store.ListTags(ctx, p.UserID, domain.KindInterest); err != nil {
@@ -95,6 +95,9 @@ func (s *Service) withDetails(ctx context.Context, p domain.Profile, viewerID st
 		return domain.Profile{}, err
 	}
 	if p.Education, err = s.store.ListEducation(ctx, p.UserID); err != nil {
+		return domain.Profile{}, err
+	}
+	if p.Experience, err = s.store.ListExperience(ctx, p.UserID); err != nil {
 		return domain.Profile{}, err
 	}
 	c, err := s.GetContact(ctx, p.UserID)

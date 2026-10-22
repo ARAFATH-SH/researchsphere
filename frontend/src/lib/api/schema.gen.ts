@@ -331,8 +331,8 @@ export interface paths {
          * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
          *     like, comment" (SRS 2.3). Replaces every field in the body: an optional field that
          *     is missing, null, or empty after trimming is stored as null. Each value is trimmed;
-         *     `country` is then upper-cased. Interests, skills, education and publications are
-         *     not changed here.
+         *     `country` is then upper-cased. Interests, skills, education, experience and
+         *     publications are not changed here.
          */
         put: operations["updateMyProfile"];
         post?: never;
@@ -554,6 +554,61 @@ export interface paths {
          *     not exist and one that belongs to someone else both get 404 `not_found`.
          */
         patch: operations["updateMyEducation"];
+        trace?: never;
+    };
+    "/profiles/me/experience": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add a work experience entry to the logged-in user's profile (FR-4.8)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Text is trimmed; an optional field that is missing, null
+         *     or empty after trimming is stored as null. A user has at most 30 experience
+         *     entries.
+         */
+        post: operations["addMyExperience"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/profiles/me/experience/{experienceId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove one of the logged-in user's experience entries (FR-4.8)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). An entry that does not exist and one that belongs to
+         *     someone else both get 404 `not_found`.
+         */
+        delete: operations["removeMyExperience"];
+        options?: never;
+        head?: never;
+        /**
+         * Change some fields of one of the logged-in user's experience entries (FR-4.8)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). A field that is missing keeps its value; `null` clears
+         *     `location`, `locationType`, `endDate` or `description`. The rules of
+         *     ExperienceCreate apply to the entry after the change, so the server never clears
+         *     `endDate` itself: to make an entry current, send `"isCurrent": true` and
+         *     `"endDate": null` together. An entry that does not exist and one that belongs to
+         *     someone else both get 404 `not_found`.
+         */
+        patch: operations["updateMyExperience"];
         trace?: never;
     };
     "/profiles/me/contact": {
@@ -873,6 +928,11 @@ export interface components {
              *     then by `endYear`, latest first, then by `startYear`, latest first.
              */
             education: components["schemas"]["Education"][];
+            /**
+             * @description The user's work experience (FR-4.8): current roles first, then by `startDate`,
+             *     latest first, then oldest entry first.
+             */
+            experience: components["schemas"]["Experience"][];
             /** @description Placeholder: always empty until confirmed publications are shown (FR-5.5). */
             publications: Record<string, never>[];
             connectionStatus: components["schemas"]["ConnectionStatus"];
@@ -1070,6 +1130,82 @@ export interface components {
             startYear?: number | null;
             endYear?: number | null;
         };
+        /** @description A month of a year, such as March 2021. */
+        YearMonth: {
+            /** @example 2021 */
+            year: number;
+            /**
+             * @description 1 (January) to 12 (December).
+             * @example 3
+             */
+            month: number;
+        };
+        /** @enum {string} */
+        EmploymentType: "full_time" | "part_time" | "internship" | "contract" | "freelance" | "self_employed" | "research_assistant" | "teaching_assistant" | "postdoc" | "volunteer";
+        /** @enum {string} */
+        LocationType: "on_site" | "hybrid" | "remote";
+        /** @description One work experience entry (FR-4.8). The optional fields are always present and null when not set. */
+        Experience: {
+            /** Format: uuid */
+            id: string;
+            /** @example Research Assistant */
+            title: string;
+            /** @example University of Dhaka */
+            organization: string;
+            employmentType: components["schemas"]["EmploymentType"];
+            /** @example Dhaka, Bangladesh */
+            location: string | null;
+            locationType: components["schemas"]["LocationType"] | null;
+            startDate: components["schemas"]["YearMonth"];
+            /** @description Null exactly when `isCurrent` is true. */
+            endDate: components["schemas"]["YearMonth"] | null;
+            isCurrent: boolean;
+            description: string | null;
+        };
+        /**
+         * @description A new work experience entry (FR-4.8). Text is trimmed first and lengths count
+         *     characters after trimming; `title`, `organization` and `location` must be one line.
+         *     Dates run from January 1950 to the current month (UTC), and `endDate` is not before
+         *     `startDate`. When `isCurrent` is true `endDate` must be missing or null; when it is
+         *     false `endDate` is required.
+         */
+        ExperienceCreate: {
+            /** @description 1 to 100 characters. */
+            title: string;
+            /** @description 1 to 150 characters. */
+            organization: string;
+            employmentType: components["schemas"]["EmploymentType"];
+            /** @description At most 100 characters; empty means not set. */
+            location?: string | null;
+            locationType?: components["schemas"]["LocationType"] | null;
+            startDate: components["schemas"]["YearMonth"];
+            endDate?: components["schemas"]["YearMonth"] | null;
+            isCurrent: boolean;
+            /** @description At most 2000 characters, line breaks allowed; empty means not set. */
+            description?: string | null;
+        };
+        /**
+         * @description The fields to change in an experience entry (FR-4.8). A missing field keeps its
+         *     value. `null` clears `location`, `locationType`, `endDate` or `description`; `null`
+         *     for `title`, `organization`, `employmentType`, `startDate` or `isCurrent` is
+         *     refused, because they are required. The rules of ExperienceCreate apply to the
+         *     entry after the change.
+         */
+        ExperienceUpdate: {
+            title?: string | null;
+            organization?: string | null;
+            /** @description One of the EmploymentType values. */
+            employmentType?: string | null;
+            location?: string | null;
+            /** @description One of the LocationType values. */
+            locationType?: string | null;
+            /** @description A YearMonth. */
+            startDate?: Record<string, never> | null;
+            /** @description A YearMonth. */
+            endDate?: Record<string, never> | null;
+            isCurrent?: boolean | null;
+            description?: string | null;
+        };
     };
     responses: {
         /**
@@ -1110,6 +1246,24 @@ export interface components {
          *     `startYear`). A body that is not JSON gets `bad_request`.
          */
         InvalidEducation: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /**
+         * @description A field is not valid. The code names the first invalid field, in this order:
+         *     `invalid_title`, `invalid_organization`, `invalid_employment_type`,
+         *     `invalid_location`, `invalid_location_type`, `invalid_start_date` (also a future
+         *     month or one before 1950), `invalid_end_date`, `invalid_is_current` (a PATCH that
+         *     sets `isCurrent` to null), `end_date_required` (`isCurrent` false without
+         *     `endDate`), `end_date_not_allowed` (`isCurrent` true with `endDate`),
+         *     `invalid_date_range` (`endDate` before `startDate`), `invalid_description`. A body
+         *     that is not JSON gets `bad_request`.
+         */
+        InvalidExperience: {
             headers: {
                 [name: string]: unknown;
             };
@@ -1200,6 +1354,12 @@ export interface components {
          *     user and gets 404 `not_found`.
          */
         EducationID: string;
+        /**
+         * @description The entry's ID, a UUID. It is declared as a plain string so that the login check
+         *     runs before it is read (FR-3.1); a value that is not a UUID names no entry of the
+         *     user and gets 404 `not_found`.
+         */
+        ExperienceID: string;
         /**
          * @description The link's ID, a UUID. It is declared as a plain string so that the login check
          *     runs before it is read (FR-3.1); a value that is not a UUID names no link of the
@@ -2253,6 +2413,124 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             /** @description The user has no education entry with this ID (`not_found`). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    addMyExperience: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExperienceCreate"];
+            };
+        };
+        responses: {
+            /** @description The stored entry. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Experience"];
+                };
+            };
+            400: components["responses"]["InvalidExperience"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The user already has 30 experience entries (`experience_limit_reached`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    removeMyExperience: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The entry's ID, a UUID. It is declared as a plain string so that the login check
+                 *     runs before it is read (FR-3.1); a value that is not a UUID names no entry of the
+                 *     user and gets 404 `not_found`.
+                 */
+                experienceId: components["parameters"]["ExperienceID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The entry is removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The user has no experience entry with this ID (`not_found`). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    updateMyExperience: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The entry's ID, a UUID. It is declared as a plain string so that the login check
+                 *     runs before it is read (FR-3.1); a value that is not a UUID names no entry of the
+                 *     user and gets 404 `not_found`.
+                 */
+                experienceId: components["parameters"]["ExperienceID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExperienceUpdate"];
+            };
+        };
+        responses: {
+            /** @description The entry after the change. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Experience"];
+                };
+            };
+            400: components["responses"]["InvalidExperience"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The user has no experience entry with this ID (`not_found`). */
             404: {
                 headers: {
                     [name: string]: unknown;

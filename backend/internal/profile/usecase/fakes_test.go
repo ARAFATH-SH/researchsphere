@@ -34,6 +34,9 @@ type fakeStore struct {
 	education     map[string]domain.Education // by ID
 	nextEducation int
 
+	experience     map[string]domain.Experience // by ID
+	nextExperience int
+
 	emails       map[string]string         // the account's address, by user ID
 	contacts     map[string]domain.Contact // by user ID, without links
 	profileLinks map[string]domain.Link    // by ID
@@ -46,7 +49,8 @@ func newFakeStore(accounts ...domain.Account) *fakeStore {
 		tags:     map[domain.TagKind][]domain.Tag{},
 		links:    map[domain.TagKind]map[string]map[string]bool{domain.KindInterest: {}, domain.KindSkill: {}},
 
-		education: map[string]domain.Education{},
+		education:  map[string]domain.Education{},
+		experience: map[string]domain.Experience{},
 
 		emails:       map[string]string{},
 		contacts:     map[string]domain.Contact{},
@@ -91,10 +95,12 @@ func (s *fakeStore) RunInTx(_ context.Context, fn func(domain.Tx) error) error {
 	}
 	tags, links, next := s.snapshot()
 	education, nextEducation := maps.Clone(s.education), s.nextEducation
+	experience, nextExperience := maps.Clone(s.experience), s.nextExperience
 	profileLinks, nextLink := maps.Clone(s.profileLinks), s.nextLink
 	if err := fn(s); err != nil {
 		s.tags, s.links, s.nextTag = tags, links, next
 		s.education, s.nextEducation = education, nextEducation
+		s.experience, s.nextExperience = experience, nextExperience
 		s.profileLinks, s.nextLink = profileLinks, nextLink
 		return err
 	}
@@ -270,6 +276,84 @@ func (s *fakeStore) ListEducation(_ context.Context, userID string) ([]domain.Ed
 			return c
 		}
 		if c := cmp.Compare(b.StartYear, a.StartYear); c != 0 {
+			return c
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
+	return out, nil
+}
+
+func (s *fakeStore) CountExperience(_ context.Context, userID string) (int, error) {
+	n := 0
+	for _, e := range s.experience {
+		if e.UserID == userID {
+			n++
+		}
+	}
+	return n, nil
+}
+
+// InsertExperience numbers IDs in insertion order, so sorting by ID sorts by creation.
+func (s *fakeStore) InsertExperience(_ context.Context, e domain.Experience) (domain.Experience, error) {
+	s.nextExperience++
+	e.ID = fmt.Sprintf("00000000-0000-0000-0000-0000000f%04d", s.nextExperience)
+	s.experience[e.ID] = e
+	return e, nil
+}
+
+// FindExperienceForUpdate matches the owner too, as the owner-scoped query does.
+func (s *fakeStore) FindExperienceForUpdate(_ context.Context, userID, id string) (domain.Experience, error) {
+	e, ok := s.experience[id]
+	if !ok || e.UserID != userID {
+		return domain.Experience{}, domain.ErrNotFound
+	}
+	return e, nil
+}
+
+func (s *fakeStore) UpdateExperience(_ context.Context, e domain.Experience) (domain.Experience, error) {
+	old, ok := s.experience[e.ID]
+	if !ok || old.UserID != e.UserID {
+		return domain.Experience{}, domain.ErrNotFound
+	}
+	s.experience[e.ID] = e
+	return e, nil
+}
+
+func (s *fakeStore) DeleteExperience(_ context.Context, userID, id string) error {
+	if s.err != nil {
+		return s.err
+	}
+	e, ok := s.experience[id]
+	if !ok || e.UserID != userID {
+		return domain.ErrNotFound
+	}
+	delete(s.experience, id)
+	return nil
+}
+
+// ListExperience sorts like the query: current first, then the latest start, then the
+// oldest entry (the lowest ID here).
+func (s *fakeStore) ListExperience(_ context.Context, userID string) ([]domain.Experience, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	var out []domain.Experience
+	for _, e := range s.experience {
+		if e.UserID == userID {
+			out = append(out, e)
+		}
+	}
+	slices.SortFunc(out, func(a, b domain.Experience) int {
+		if a.IsCurrent != b.IsCurrent {
+			if a.IsCurrent {
+				return -1
+			}
+			return 1
+		}
+		if c := cmp.Compare(b.Start.Year, a.Start.Year); c != 0 {
+			return c
+		}
+		if c := cmp.Compare(b.Start.Month, a.Start.Month); c != 0 {
 			return c
 		}
 		return strings.Compare(a.ID, b.ID)

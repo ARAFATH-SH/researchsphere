@@ -25,6 +25,20 @@ func (q *Queries) CountUserEducation(ctx context.Context, userID pgtype.UUID) (i
 	return count, err
 }
 
+const countUserExperience = `-- name: CountUserExperience :one
+
+SELECT count(*) FROM profile_experience WHERE user_id = $1
+`
+
+// Work experience entries (FR-4.8). Every query names the owner in its WHERE clause, so
+// an entry of another user is never read, changed or deleted: it is simply not found.
+func (q *Queries) CountUserExperience(ctx context.Context, userID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countUserExperience, userID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countUserInterests = `-- name: CountUserInterests :one
 SELECT count(*) FROM user_interests WHERE user_id = $1
 `
@@ -69,6 +83,23 @@ type DeleteUserEducationParams struct {
 
 func (q *Queries) DeleteUserEducation(ctx context.Context, arg DeleteUserEducationParams) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteUserEducation, arg.ID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteUserExperience = `-- name: DeleteUserExperience :execrows
+DELETE FROM profile_experience WHERE id = $1 AND user_id = $2
+`
+
+type DeleteUserExperienceParams struct {
+	ID     pgtype.UUID
+	UserID pgtype.UUID
+}
+
+func (q *Queries) DeleteUserExperience(ctx context.Context, arg DeleteUserExperienceParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteUserExperience, arg.ID, arg.UserID)
 	if err != nil {
 		return 0, err
 	}
@@ -240,6 +271,58 @@ func (q *Queries) FindUserEducationForUpdate(ctx context.Context, arg FindUserEd
 	return i, err
 }
 
+const findUserExperienceForUpdate = `-- name: FindUserExperienceForUpdate :one
+SELECT id, user_id, title, organization, employment_type, location, location_type,
+       start_year, start_month, end_year, end_month, is_current, description
+FROM profile_experience
+WHERE id = $1 AND user_id = $2
+FOR UPDATE
+`
+
+type FindUserExperienceForUpdateParams struct {
+	ID     pgtype.UUID
+	UserID pgtype.UUID
+}
+
+type FindUserExperienceForUpdateRow struct {
+	ID             pgtype.UUID
+	UserID         pgtype.UUID
+	Title          string
+	Organization   string
+	EmploymentType string
+	Location       pgtype.Text
+	LocationType   pgtype.Text
+	StartYear      int16
+	StartMonth     int16
+	EndYear        pgtype.Int2
+	EndMonth       pgtype.Int2
+	IsCurrent      bool
+	Description    pgtype.Text
+}
+
+// Locks the entry until the transaction ends, so two changes to it cannot both pass the
+// date checks against old values.
+func (q *Queries) FindUserExperienceForUpdate(ctx context.Context, arg FindUserExperienceForUpdateParams) (FindUserExperienceForUpdateRow, error) {
+	row := q.db.QueryRow(ctx, findUserExperienceForUpdate, arg.ID, arg.UserID)
+	var i FindUserExperienceForUpdateRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Title,
+		&i.Organization,
+		&i.EmploymentType,
+		&i.Location,
+		&i.LocationType,
+		&i.StartYear,
+		&i.StartMonth,
+		&i.EndYear,
+		&i.EndMonth,
+		&i.IsCurrent,
+		&i.Description,
+	)
+	return i, err
+}
+
 const insertEducation = `-- name: InsertEducation :one
 INSERT INTO education (user_id, institution, degree, field_of_study, start_year, end_year)
 VALUES ($1, $2, $3, $4, $5, $6)
@@ -283,6 +366,80 @@ func (q *Queries) InsertEducation(ctx context.Context, arg InsertEducationParams
 		&i.FieldOfStudy,
 		&i.StartYear,
 		&i.EndYear,
+	)
+	return i, err
+}
+
+const insertExperience = `-- name: InsertExperience :one
+INSERT INTO profile_experience (user_id, title, organization, employment_type, location, location_type,
+                                start_year, start_month, end_year, end_month, is_current, description)
+VALUES ($1, $2, $3, $4, $5, $6,
+        $7, $8, $9, $10, $11, $12)
+RETURNING id, user_id, title, organization, employment_type, location, location_type,
+       start_year, start_month, end_year, end_month, is_current, description
+`
+
+type InsertExperienceParams struct {
+	UserID         pgtype.UUID
+	Title          string
+	Organization   string
+	EmploymentType string
+	Location       pgtype.Text
+	LocationType   pgtype.Text
+	StartYear      int16
+	StartMonth     int16
+	EndYear        pgtype.Int2
+	EndMonth       pgtype.Int2
+	IsCurrent      bool
+	Description    pgtype.Text
+}
+
+type InsertExperienceRow struct {
+	ID             pgtype.UUID
+	UserID         pgtype.UUID
+	Title          string
+	Organization   string
+	EmploymentType string
+	Location       pgtype.Text
+	LocationType   pgtype.Text
+	StartYear      int16
+	StartMonth     int16
+	EndYear        pgtype.Int2
+	EndMonth       pgtype.Int2
+	IsCurrent      bool
+	Description    pgtype.Text
+}
+
+func (q *Queries) InsertExperience(ctx context.Context, arg InsertExperienceParams) (InsertExperienceRow, error) {
+	row := q.db.QueryRow(ctx, insertExperience,
+		arg.UserID,
+		arg.Title,
+		arg.Organization,
+		arg.EmploymentType,
+		arg.Location,
+		arg.LocationType,
+		arg.StartYear,
+		arg.StartMonth,
+		arg.EndYear,
+		arg.EndMonth,
+		arg.IsCurrent,
+		arg.Description,
+	)
+	var i InsertExperienceRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Title,
+		&i.Organization,
+		&i.EmploymentType,
+		&i.Location,
+		&i.LocationType,
+		&i.StartYear,
+		&i.StartMonth,
+		&i.EndYear,
+		&i.EndMonth,
+		&i.IsCurrent,
+		&i.Description,
 	)
 	return i, err
 }
@@ -411,6 +568,66 @@ func (q *Queries) ListUserEducation(ctx context.Context, userID pgtype.UUID) ([]
 			&i.FieldOfStudy,
 			&i.StartYear,
 			&i.EndYear,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUserExperience = `-- name: ListUserExperience :many
+SELECT id, user_id, title, organization, employment_type, location, location_type,
+       start_year, start_month, end_year, end_month, is_current, description
+FROM profile_experience
+WHERE user_id = $1
+ORDER BY is_current DESC, start_year DESC, start_month DESC, created_at, id
+`
+
+type ListUserExperienceRow struct {
+	ID             pgtype.UUID
+	UserID         pgtype.UUID
+	Title          string
+	Organization   string
+	EmploymentType string
+	Location       pgtype.Text
+	LocationType   pgtype.Text
+	StartYear      int16
+	StartMonth     int16
+	EndYear        pgtype.Int2
+	EndMonth       pgtype.Int2
+	IsCurrent      bool
+	Description    pgtype.Text
+}
+
+// Current roles first, then the latest start, then the oldest entry; id makes the order
+// stable.
+func (q *Queries) ListUserExperience(ctx context.Context, userID pgtype.UUID) ([]ListUserExperienceRow, error) {
+	rows, err := q.db.Query(ctx, listUserExperience, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUserExperienceRow
+	for rows.Next() {
+		var i ListUserExperienceRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.Title,
+			&i.Organization,
+			&i.EmploymentType,
+			&i.Location,
+			&i.LocationType,
+			&i.StartYear,
+			&i.StartMonth,
+			&i.EndYear,
+			&i.EndMonth,
+			&i.IsCurrent,
+			&i.Description,
 		); err != nil {
 			return nil, err
 		}
@@ -687,6 +904,91 @@ func (q *Queries) UpdateUserEducation(ctx context.Context, arg UpdateUserEducati
 		&i.FieldOfStudy,
 		&i.StartYear,
 		&i.EndYear,
+	)
+	return i, err
+}
+
+const updateUserExperience = `-- name: UpdateUserExperience :one
+UPDATE profile_experience SET
+    title           = $1,
+    organization    = $2,
+    employment_type = $3,
+    location        = $4,
+    location_type   = $5,
+    start_year      = $6,
+    start_month     = $7,
+    end_year        = $8,
+    end_month       = $9,
+    is_current      = $10,
+    description     = $11
+WHERE id = $12 AND user_id = $13
+RETURNING id, user_id, title, organization, employment_type, location, location_type,
+       start_year, start_month, end_year, end_month, is_current, description
+`
+
+type UpdateUserExperienceParams struct {
+	Title          string
+	Organization   string
+	EmploymentType string
+	Location       pgtype.Text
+	LocationType   pgtype.Text
+	StartYear      int16
+	StartMonth     int16
+	EndYear        pgtype.Int2
+	EndMonth       pgtype.Int2
+	IsCurrent      bool
+	Description    pgtype.Text
+	ID             pgtype.UUID
+	UserID         pgtype.UUID
+}
+
+type UpdateUserExperienceRow struct {
+	ID             pgtype.UUID
+	UserID         pgtype.UUID
+	Title          string
+	Organization   string
+	EmploymentType string
+	Location       pgtype.Text
+	LocationType   pgtype.Text
+	StartYear      int16
+	StartMonth     int16
+	EndYear        pgtype.Int2
+	EndMonth       pgtype.Int2
+	IsCurrent      bool
+	Description    pgtype.Text
+}
+
+func (q *Queries) UpdateUserExperience(ctx context.Context, arg UpdateUserExperienceParams) (UpdateUserExperienceRow, error) {
+	row := q.db.QueryRow(ctx, updateUserExperience,
+		arg.Title,
+		arg.Organization,
+		arg.EmploymentType,
+		arg.Location,
+		arg.LocationType,
+		arg.StartYear,
+		arg.StartMonth,
+		arg.EndYear,
+		arg.EndMonth,
+		arg.IsCurrent,
+		arg.Description,
+		arg.ID,
+		arg.UserID,
+	)
+	var i UpdateUserExperienceRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Title,
+		&i.Organization,
+		&i.EmploymentType,
+		&i.Location,
+		&i.LocationType,
+		&i.StartYear,
+		&i.StartMonth,
+		&i.EndYear,
+		&i.EndMonth,
+		&i.IsCurrent,
+		&i.Description,
 	)
 	return i, err
 }

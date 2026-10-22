@@ -1,9 +1,9 @@
 // Package http serves the profile operations in docs/openapi.yaml: the caller's own
 // profile and editing its basic fields (FR-4.1), research interests and skills (FR-4.2)
 // with suggestions (FR-4.3), education entries (FR-4.4), contact info and links (FR-4.7),
-// and any user's profile (FR-4.5). It
-// turns the usecase's errors into the error codes the web client shows next to each
-// field. cmd/api guards each route with its platform action (SRS 2.3) before it gets here.
+// work experience entries (FR-4.8) and any user's profile (FR-4.5). It turns the
+// usecase's errors into the error codes the web client shows next to each field. cmd/api
+// guards each route with its platform action (SRS 2.3) before it gets here.
 package http
 
 import (
@@ -37,6 +37,20 @@ const (
 	CodeInvalidEndYear        = "invalid_end_year"
 	CodeEducationLimitReached = "education_limit_reached"
 
+	CodeInvalidTitle           = "invalid_title"
+	CodeInvalidOrganization    = "invalid_organization"
+	CodeInvalidEmploymentType  = "invalid_employment_type"
+	CodeInvalidLocation        = "invalid_location"
+	CodeInvalidLocationType    = "invalid_location_type"
+	CodeInvalidStartDate       = "invalid_start_date"
+	CodeInvalidEndDate         = "invalid_end_date"
+	CodeInvalidIsCurrent       = "invalid_is_current"
+	CodeEndDateRequired        = "end_date_required"
+	CodeEndDateNotAllowed      = "end_date_not_allowed"
+	CodeInvalidDateRange       = "invalid_date_range"
+	CodeInvalidDescription     = "invalid_description"
+	CodeExperienceLimitReached = "experience_limit_reached"
+
 	CodeInvalidPhone      = "invalid_phone"
 	CodeInvalidBirthday   = "invalid_birthday"
 	CodeInvalidVisibility = "invalid_visibility"
@@ -56,6 +70,9 @@ type service interface {
 	AddEducation(ctx context.Context, userID string, in usecase.EducationInput) (domain.Education, error)
 	UpdateEducation(ctx context.Context, userID, id string, patch usecase.EducationPatch) (domain.Education, error)
 	RemoveEducation(ctx context.Context, userID, id string) error
+	AddExperience(ctx context.Context, userID string, in usecase.ExperienceInput) (domain.Experience, error)
+	UpdateExperience(ctx context.Context, userID, id string, patch usecase.ExperiencePatch) (domain.Experience, error)
+	RemoveExperience(ctx context.Context, userID, id string) error
 	GetContact(ctx context.Context, userID string) (domain.Contact, error)
 	UpdateContact(ctx context.Context, userID string, in usecase.ContactInput) (domain.Contact, error)
 	AddLink(ctx context.Context, userID string, kind domain.LinkKind, url string) (domain.Link, error)
@@ -196,6 +213,10 @@ func profileBody(p domain.Profile) (gen.Profile, error) {
 	if err != nil {
 		return gen.Profile{}, err
 	}
+	experience, err := experienceBodies(p.Experience)
+	if err != nil {
+		return gen.Profile{}, err
+	}
 	contact, err := publicContactBody(p.Contact)
 	if err != nil {
 		return gen.Profile{}, err
@@ -212,6 +233,7 @@ func profileBody(p domain.Profile) (gen.Profile, error) {
 		Interests:        interests,
 		Skills:           skills,
 		Education:        education,
+		Experience:       experience,
 		Publications:     []map[string]any{},
 		ConnectionStatus: gen.None,
 		Contact:          contact,

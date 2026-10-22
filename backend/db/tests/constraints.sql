@@ -295,6 +295,125 @@ SELECT pg_temp.expect_ok('Link: every kind is accepted',
          FROM unnest(ARRAY['website', 'google_scholar', 'researchgate', 'linkedin', 'github', 'other']) AS k$s$);
 
 -- ---------------------------------------------------------------------------
+-- Work experience (FR-4.8, migration 000009)
+-- ---------------------------------------------------------------------------
+
+SELECT pg_temp.expect_ok('Experience: a current entry with only the required fields',
+    $s$INSERT INTO profile_experience (user_id, title, organization, employment_type, start_year, start_month, is_current)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'Researcher', 'MIT', 'full_time', 2020, 3, true)$s$);
+SELECT pg_temp.expect_ok('Experience: a past entry with every field, at the longest lengths',
+    $s$INSERT INTO profile_experience (user_id, title, organization, employment_type, location, location_type, start_year, start_month, end_year, end_month, is_current, description)
+       VALUES ('00000000-0000-0000-0000-000000000001', repeat('é', 100), repeat('é', 150), 'postdoc', repeat('é', 100), 'remote', 2018, 1, 2019, 12, false, repeat(E'é\n', 1000))$s$);
+SELECT pg_temp.expect_ok('Experience: the end month may equal the start month',
+    $s$INSERT INTO profile_experience (user_id, title, organization, employment_type, start_year, start_month, end_year, end_month, is_current)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'Intern', 'CERN', 'internship', 2021, 6, 2021, 6, false)$s$);
+SELECT pg_temp.expect_ok('Experience: every employment type is accepted',
+    $s$INSERT INTO profile_experience (user_id, title, organization, employment_type, start_year, start_month, is_current)
+       SELECT '00000000-0000-0000-0000-000000000001', 'R', 'O', t, 2020, 1, true
+         FROM unnest(ARRAY['full_time', 'part_time', 'internship', 'contract', 'freelance', 'self_employed',
+                           'research_assistant', 'teaching_assistant', 'postdoc', 'volunteer']) AS t$s$);
+SELECT pg_temp.expect_ok('Experience: every location type is accepted',
+    $s$INSERT INTO profile_experience (user_id, location_type, title, organization, employment_type, start_year, start_month, is_current)
+       SELECT '00000000-0000-0000-0000-000000000001', t, 'R', 'O', 'contract', 2020, 1, true
+         FROM unnest(ARRAY['on_site', 'hybrid', 'remote']) AS t$s$);
+SELECT pg_temp.expect_error('Experience: user must exist',
+    $s$INSERT INTO profile_experience (user_id, title, organization, employment_type, start_year, start_month, is_current)
+       VALUES (gen_random_uuid(), 'Researcher', 'MIT', 'full_time', 2020, 3, true)$s$, '23503');
+SELECT pg_temp.expect_error('Experience: title is required',
+    $s$INSERT INTO profile_experience (user_id, organization, employment_type, start_year, start_month, is_current)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'MIT', 'full_time', 2020, 3, true)$s$, '23502');
+SELECT pg_temp.expect_error('Experience: title is at most 100 characters',
+    $s$INSERT INTO profile_experience (user_id, title, organization, employment_type, start_year, start_month, is_current)
+       VALUES ('00000000-0000-0000-0000-000000000001', repeat('a', 101), 'MIT', 'full_time', 2020, 3, true)$s$, '23514');
+SELECT pg_temp.expect_error('Experience: title is not blank',
+    $s$INSERT INTO profile_experience (user_id, title, organization, employment_type, start_year, start_month, is_current)
+       VALUES ('00000000-0000-0000-0000-000000000001', '  ', 'MIT', 'full_time', 2020, 3, true)$s$, '23514');
+SELECT pg_temp.expect_error('Experience: title is one line',
+    $s$INSERT INTO profile_experience (user_id, title, organization, employment_type, start_year, start_month, is_current)
+       VALUES ('00000000-0000-0000-0000-000000000001', E'Research\nAssistant', 'MIT', 'full_time', 2020, 3, true)$s$, '23514');
+SELECT pg_temp.expect_error('Experience: organization is required',
+    $s$INSERT INTO profile_experience (user_id, title, employment_type, start_year, start_month, is_current)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'Researcher', 'full_time', 2020, 3, true)$s$, '23502');
+SELECT pg_temp.expect_error('Experience: organization is at most 150 characters',
+    $s$INSERT INTO profile_experience (user_id, title, organization, employment_type, start_year, start_month, is_current)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'Researcher', repeat('a', 151), 'full_time', 2020, 3, true)$s$, '23514');
+SELECT pg_temp.expect_error('Experience: organization is not blank',
+    $s$INSERT INTO profile_experience (user_id, title, organization, employment_type, start_year, start_month, is_current)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'Researcher', '', 'full_time', 2020, 3, true)$s$, '23514');
+SELECT pg_temp.expect_error('Experience: organization is one line',
+    $s$INSERT INTO profile_experience (user_id, title, organization, employment_type, start_year, start_month, is_current)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'Researcher', E'MIT\r', 'full_time', 2020, 3, true)$s$, '23514');
+SELECT pg_temp.expect_error('Experience: employment type is required',
+    $s$INSERT INTO profile_experience (user_id, title, organization, start_year, start_month, is_current)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'Researcher', 'MIT', 2020, 3, true)$s$, '23502');
+SELECT pg_temp.expect_error('Experience: employment type is one of the ten',
+    $s$INSERT INTO profile_experience (user_id, title, organization, employment_type, start_year, start_month, is_current)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'Researcher', 'MIT', 'gig', 2020, 3, true)$s$, '23514');
+SELECT pg_temp.expect_error('Experience: location is at most 100 characters',
+    $s$INSERT INTO profile_experience (user_id, location, title, organization, employment_type, start_year, start_month, is_current)
+       VALUES ('00000000-0000-0000-0000-000000000001', repeat('a', 101), 'Researcher', 'MIT', 'full_time', 2020, 3, true)$s$, '23514');
+SELECT pg_temp.expect_error('Experience: location is NULL, not blank',
+    $s$INSERT INTO profile_experience (user_id, location, title, organization, employment_type, start_year, start_month, is_current)
+       VALUES ('00000000-0000-0000-0000-000000000001', ' ', 'Researcher', 'MIT', 'full_time', 2020, 3, true)$s$, '23514');
+SELECT pg_temp.expect_error('Experience: location is one line',
+    $s$INSERT INTO profile_experience (user_id, location, title, organization, employment_type, start_year, start_month, is_current)
+       VALUES ('00000000-0000-0000-0000-000000000001', E'Dhaka\nBangladesh', 'Researcher', 'MIT', 'full_time', 2020, 3, true)$s$, '23514');
+SELECT pg_temp.expect_error('Experience: location type is one of the three',
+    $s$INSERT INTO profile_experience (user_id, location_type, title, organization, employment_type, start_year, start_month, is_current)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'office', 'Researcher', 'MIT', 'full_time', 2020, 3, true)$s$, '23514');
+SELECT pg_temp.expect_error('Experience: description is at most 2000 characters',
+    $s$INSERT INTO profile_experience (user_id, description, title, organization, employment_type, start_year, start_month, is_current)
+       VALUES ('00000000-0000-0000-0000-000000000001', repeat('a', 2001), 'Researcher', 'MIT', 'full_time', 2020, 3, true)$s$, '23514');
+SELECT pg_temp.expect_error('Experience: description is NULL, not blank',
+    $s$INSERT INTO profile_experience (user_id, description, title, organization, employment_type, start_year, start_month, is_current)
+       VALUES ('00000000-0000-0000-0000-000000000001', E' \n ', 'Researcher', 'MIT', 'full_time', 2020, 3, true)$s$, '23514');
+SELECT pg_temp.expect_error('Experience: start year is required',
+    $s$INSERT INTO profile_experience (user_id, title, organization, employment_type, start_month, is_current)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'Researcher', 'MIT', 'full_time', 3, true)$s$, '23502');
+SELECT pg_temp.expect_error('Experience: start month is required',
+    $s$INSERT INTO profile_experience (user_id, title, organization, employment_type, start_year, is_current)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'Researcher', 'MIT', 'full_time', 2020, true)$s$, '23502');
+SELECT pg_temp.expect_error('Experience: start year is at least 1900',
+    $s$INSERT INTO profile_experience (user_id, title, organization, employment_type, start_year, start_month, is_current)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'Researcher', 'MIT', 'full_time', 1899, 3, true)$s$, '23514');
+SELECT pg_temp.expect_error('Experience: start year is at most 2100',
+    $s$INSERT INTO profile_experience (user_id, title, organization, employment_type, start_year, start_month, is_current)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'Researcher', 'MIT', 'full_time', 2101, 3, true)$s$, '23514');
+SELECT pg_temp.expect_error('Experience: start month is at least 1',
+    $s$INSERT INTO profile_experience (user_id, title, organization, employment_type, start_year, start_month, is_current)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'Researcher', 'MIT', 'full_time', 2020, 0, true)$s$, '23514');
+SELECT pg_temp.expect_error('Experience: start month is at most 12',
+    $s$INSERT INTO profile_experience (user_id, title, organization, employment_type, start_year, start_month, is_current)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'Researcher', 'MIT', 'full_time', 2020, 13, true)$s$, '23514');
+SELECT pg_temp.expect_error('Experience: end month is at most 12',
+    $s$INSERT INTO profile_experience (user_id, title, organization, employment_type, start_year, start_month, end_year, end_month, is_current)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'Researcher', 'MIT', 'full_time', 2020, 3, 2021, 13, false)$s$, '23514');
+SELECT pg_temp.expect_error('Experience: end year is at most 2100',
+    $s$INSERT INTO profile_experience (user_id, title, organization, employment_type, start_year, start_month, end_year, end_month, is_current)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'Researcher', 'MIT', 'full_time', 2020, 3, 2101, 1, false)$s$, '23514');
+SELECT pg_temp.expect_error('Experience: end year without end month is refused',
+    $s$INSERT INTO profile_experience (user_id, end_year, title, organization, employment_type, start_year, start_month, is_current)
+       VALUES ('00000000-0000-0000-0000-000000000001', 2021, 'Researcher', 'MIT', 'full_time', 2020, 3, false)$s$, '23514');
+SELECT pg_temp.expect_error('Experience: end month without end year is refused',
+    $s$INSERT INTO profile_experience (user_id, end_month, title, organization, employment_type, start_year, start_month, is_current)
+       VALUES ('00000000-0000-0000-0000-000000000001', 5, 'Researcher', 'MIT', 'full_time', 2020, 3, false)$s$, '23514');
+SELECT pg_temp.expect_error('Experience: is_current is required',
+    $s$INSERT INTO profile_experience (user_id, title, organization, employment_type, start_year, start_month)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'Researcher', 'MIT', 'full_time', 2020, 3)$s$, '23502');
+SELECT pg_temp.expect_error('Experience: a past entry needs an end date',
+    $s$INSERT INTO profile_experience (user_id, title, organization, employment_type, start_year, start_month, is_current)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'Researcher', 'MIT', 'full_time', 2020, 3, false)$s$, '23514');
+SELECT pg_temp.expect_error('Experience: a current entry has no end date',
+    $s$INSERT INTO profile_experience (user_id, title, organization, employment_type, start_year, start_month, end_year, end_month, is_current)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'Researcher', 'MIT', 'full_time', 2020, 3, 2021, 1, true)$s$, '23514');
+SELECT pg_temp.expect_error('Experience: end is not before start, earlier year',
+    $s$INSERT INTO profile_experience (user_id, title, organization, employment_type, start_year, start_month, end_year, end_month, is_current)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'Researcher', 'MIT', 'full_time', 2020, 3, 2019, 12, false)$s$, '23514');
+SELECT pg_temp.expect_error('Experience: end is not before start, same year earlier month',
+    $s$INSERT INTO profile_experience (user_id, title, organization, employment_type, start_year, start_month, end_year, end_month, is_current)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'Researcher', 'MIT', 'full_time', 2020, 3, 2020, 2, false)$s$, '23514');
+
+-- ---------------------------------------------------------------------------
 -- Stored files (FR-4.6, FR-12.2, NFR-13, migration 000007)
 -- ---------------------------------------------------------------------------
 
@@ -582,6 +701,8 @@ INSERT INTO user_skills (user_id, skill_id) SELECT '00000000-0000-0000-0000-0000
 INSERT INTO education (user_id, institution, degree, start_year) VALUES ('00000000-0000-0000-0000-000000000003', 'MIT', 'BSc', 2015);
 INSERT INTO profile_contact (user_id, phone) VALUES ('00000000-0000-0000-0000-000000000003', '+8801712345678');
 INSERT INTO profile_links (user_id, kind, url) VALUES ('00000000-0000-0000-0000-000000000003', 'github', 'https://github.com/cy');
+INSERT INTO profile_experience (user_id, title, organization, employment_type, start_year, start_month, is_current)
+    VALUES ('00000000-0000-0000-0000-000000000003', 'Engineer', 'ACME', 'full_time', 2019, 1, true);
 INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes) VALUES
     ('00000000-0000-0000-0000-000000000003', 'photo', 'photo/cy',  'image/png', 100),
     ('00000000-0000-0000-0000-000000000003', 'cover', 'cover/cy',  'image/png', 100);
@@ -609,13 +730,14 @@ INSERT INTO notifications (user_id, type, actor_id) VALUES
 
 DELETE FROM users WHERE id = '00000000-0000-0000-0000-000000000003';
 
-SELECT pg_temp.expect_true('Deletion: profile, interests, skills, education, contact info and links removed (FR-2.8)', $q$
+SELECT pg_temp.expect_true('Deletion: profile, interests, skills, education, experience, contact info and links removed (FR-2.8)', $q$
     SELECT NOT EXISTS (SELECT 1 FROM profiles        WHERE user_id = '00000000-0000-0000-0000-000000000003')
        AND NOT EXISTS (SELECT 1 FROM user_interests  WHERE user_id = '00000000-0000-0000-0000-000000000003')
        AND NOT EXISTS (SELECT 1 FROM user_skills     WHERE user_id = '00000000-0000-0000-0000-000000000003')
        AND NOT EXISTS (SELECT 1 FROM education       WHERE user_id = '00000000-0000-0000-0000-000000000003')
        AND NOT EXISTS (SELECT 1 FROM profile_contact WHERE user_id = '00000000-0000-0000-0000-000000000003')
-       AND NOT EXISTS (SELECT 1 FROM profile_links   WHERE user_id = '00000000-0000-0000-0000-000000000003')$q$);
+       AND NOT EXISTS (SELECT 1 FROM profile_links   WHERE user_id = '00000000-0000-0000-0000-000000000003')
+       AND NOT EXISTS (SELECT 1 FROM profile_experience WHERE user_id = '00000000-0000-0000-0000-000000000003')$q$);
 SELECT pg_temp.expect_true('Deletion: sessions, retired refresh tokens and one-time tokens removed', $q$
     SELECT NOT EXISTS (SELECT 1 FROM sessions    WHERE user_id = '00000000-0000-0000-0000-000000000003')
        AND NOT EXISTS (SELECT 1 FROM auth_tokens WHERE user_id = '00000000-0000-0000-0000-000000000003')

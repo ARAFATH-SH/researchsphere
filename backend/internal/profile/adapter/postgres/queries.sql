@@ -153,6 +153,58 @@ FROM education
 WHERE user_id = @user_id
 ORDER BY end_year DESC NULLS FIRST, start_year DESC, created_at DESC, id;
 
+-- Work experience entries (FR-4.8). Every query names the owner in its WHERE clause, so
+-- an entry of another user is never read, changed or deleted: it is simply not found.
+
+-- name: CountUserExperience :one
+SELECT count(*) FROM profile_experience WHERE user_id = @user_id;
+
+-- name: InsertExperience :one
+INSERT INTO profile_experience (user_id, title, organization, employment_type, location, location_type,
+                                start_year, start_month, end_year, end_month, is_current, description)
+VALUES (@user_id, @title, @organization, @employment_type, @location, @location_type,
+        @start_year, @start_month, @end_year, @end_month, @is_current, @description)
+RETURNING id, user_id, title, organization, employment_type, location, location_type,
+       start_year, start_month, end_year, end_month, is_current, description;
+
+-- name: FindUserExperienceForUpdate :one
+-- Locks the entry until the transaction ends, so two changes to it cannot both pass the
+-- date checks against old values.
+SELECT id, user_id, title, organization, employment_type, location, location_type,
+       start_year, start_month, end_year, end_month, is_current, description
+FROM profile_experience
+WHERE id = @id AND user_id = @user_id
+FOR UPDATE;
+
+-- name: UpdateUserExperience :one
+UPDATE profile_experience SET
+    title           = @title,
+    organization    = @organization,
+    employment_type = @employment_type,
+    location        = @location,
+    location_type   = @location_type,
+    start_year      = @start_year,
+    start_month     = @start_month,
+    end_year        = @end_year,
+    end_month       = @end_month,
+    is_current      = @is_current,
+    description     = @description
+WHERE id = @id AND user_id = @user_id
+RETURNING id, user_id, title, organization, employment_type, location, location_type,
+       start_year, start_month, end_year, end_month, is_current, description;
+
+-- name: DeleteUserExperience :execrows
+DELETE FROM profile_experience WHERE id = @id AND user_id = @user_id;
+
+-- name: ListUserExperience :many
+-- Current roles first, then the latest start, then the oldest entry; id makes the order
+-- stable.
+SELECT id, user_id, title, organization, employment_type, location, location_type,
+       start_year, start_month, end_year, end_month, is_current, description
+FROM profile_experience
+WHERE user_id = @user_id
+ORDER BY is_current DESC, start_year DESC, start_month DESC, created_at, id;
+
 -- Contact info and links (FR-4.7). Every query names the owner in its WHERE clause, so a
 -- link of another user is never read or deleted: it is simply not found.
 

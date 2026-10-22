@@ -111,6 +111,18 @@ func (fakeAPI) RemoveMyEducation(context.Context, gen.RemoveMyEducationRequestOb
 	return gen.RemoveMyEducation204Response{}, nil
 }
 
+func (fakeAPI) AddMyExperience(context.Context, gen.AddMyExperienceRequestObject) (gen.AddMyExperienceResponseObject, error) {
+	return gen.AddMyExperience201JSONResponse{}, nil
+}
+
+func (fakeAPI) UpdateMyExperience(context.Context, gen.UpdateMyExperienceRequestObject) (gen.UpdateMyExperienceResponseObject, error) {
+	return gen.UpdateMyExperience200JSONResponse{}, nil
+}
+
+func (fakeAPI) RemoveMyExperience(context.Context, gen.RemoveMyExperienceRequestObject) (gen.RemoveMyExperienceResponseObject, error) {
+	return gen.RemoveMyExperience204Response{}, nil
+}
+
 func (fakeAPI) GetMyContact(context.Context, gen.GetMyContactRequestObject) (gen.GetMyContactResponseObject, error) {
 	return gen.GetMyContact200JSONResponse{}, nil
 }
@@ -373,8 +385,8 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 
 func TestRoutes(t *testing.T) {
 	got := Routes()
-	if len(got) != 34 {
-		t.Errorf("Routes() returned %d routes, want the 34 operations in the contract: %v", len(got), got)
+	if len(got) != 37 {
+		t.Errorf("Routes() returned %d routes, want the 37 operations in the contract: %v", len(got), got)
 	}
 	seen := map[string]bool{}
 	for _, p := range got {
