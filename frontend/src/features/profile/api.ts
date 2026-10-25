@@ -4,6 +4,10 @@ import { api, type components } from "@/lib/api/client";
 export type Profile = components["schemas"]["Profile"];
 export type Education = components["schemas"]["Education"];
 export type Tag = components["schemas"]["Tag"];
+export type Experience = components["schemas"]["Experience"];
+export type EmploymentType = components["schemas"]["EmploymentType"];
+export type LocationType = components["schemas"]["LocationType"];
+export type YearMonth = components["schemas"]["YearMonth"];
 
 // ProfileResult is what the profile page needs to know about a request: the profile, or
 // that there is none, or that something else went wrong. The server's error text is
@@ -97,6 +101,33 @@ export async function updateEducation(educationId: string, body: EducationUpdate
 export async function removeEducation(educationId: string): Promise<Result<undefined>> {
   const params = { path: { educationId } };
   const res = await call(() => api.DELETE("/profiles/me/education/{educationId}", { params }));
+  return res.ok ? { ok: true, data: undefined } : res;
+}
+
+export type ExperienceCreate = components["schemas"]["ExperienceCreate"];
+export type ExperienceUpdate = components["schemas"]["ExperienceUpdate"];
+
+// addExperience adds a work experience entry (FR-4.8).
+export async function addExperience(body: ExperienceCreate): Promise<Result<undefined>> {
+  const res = await call(() => api.POST("/profiles/me/experience", { body }));
+  return res.ok ? { ok: true, data: undefined } : res;
+}
+
+// updateExperience changes a work experience entry (FR-4.8). The dialog sends every field,
+// with null for an optional one that is not set, so the body has ExperienceCreate's shape.
+// openapi-typescript types ExperienceUpdate's dates as empty objects (they are nullable
+// YearMonth refs with an x-go-type), hence the cast.
+export async function updateExperience(experienceId: string, body: ExperienceCreate): Promise<Result<undefined>> {
+  const params = { path: { experienceId } };
+  const patch = body as unknown as ExperienceUpdate;
+  const res = await call(() => api.PATCH("/profiles/me/experience/{experienceId}", { params, body: patch }));
+  return res.ok ? { ok: true, data: undefined } : res;
+}
+
+// removeExperience deletes a work experience entry (FR-4.8).
+export async function removeExperience(experienceId: string): Promise<Result<undefined>> {
+  const params = { path: { experienceId } };
+  const res = await call(() => api.DELETE("/profiles/me/experience/{experienceId}", { params }));
   return res.ok ? { ok: true, data: undefined } : res;
 }
 

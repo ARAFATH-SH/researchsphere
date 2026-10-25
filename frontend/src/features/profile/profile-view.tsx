@@ -11,9 +11,10 @@ import { useSession } from "@/features/auth/session";
 import { AboutDialog } from "./about-dialog";
 import { ContactDialog } from "./contact-dialog";
 import { ContactViewDialog, hasVisibleContact } from "./contact-view-dialog";
-import { getMyProfile, getProfile, type Profile, type ProfileResult } from "./api";
-import { editButtonId, type EditSection, isEditSection } from "./edit-button";
+import { type Experience, getMyProfile, getProfile, type Profile, type ProfileResult } from "./api";
+import { editButtonId, type EditSection, experienceButtonId, isEditSection } from "./edit-button";
 import { EducationDialog } from "./education-dialog";
+import { ExperienceDialog } from "./experience-dialog";
 import { ImageDialog } from "./image-dialog";
 import { IntroDialog } from "./intro-dialog";
 import { reloadMyProfile } from "./my-profile";
@@ -94,7 +95,7 @@ function OtherProfile({ profile }: { profile: Profile }) {
   );
 }
 
-// OwnProfile is the owner's profile with its edit dialogs (FR-4.1 to FR-4.4, FR-4.6). A pencil
+// OwnProfile is the owner's profile with its edit dialogs (FR-4.1 to FR-4.4, FR-4.6, FR-4.8). A pencil
 // opens a section's dialog, and so does /profile?edit=<section>, which the profile
 // checklist and the empty-section prompts link to.
 function OwnProfile({ profile, reload }: { profile: Profile; reload: () => void }) {
@@ -102,6 +103,17 @@ function OwnProfile({ profile, reload }: { profile: Profile; reload: () => void 
   const params = useSearchParams();
   const requested = params.get("edit");
   const [editing, setEditing] = useState<EditSection | null>(null);
+  // experience is the entry the experience dialog edits; null while it adds one.
+  const [experience, setExperience] = useState<Experience | null>(null);
+  // focusAfterClose is an element to focus once a dialog has gone, when the one that
+  // opened it is about to disappear, such as a deleted entry's pencil.
+  const focusAfterClose = useRef<string | null>(null);
+  useEffect(() => {
+    const id = focusAfterClose.current;
+    if (id === null) return;
+    focusAfterClose.current = null;
+    document.getElementById(id)?.focus();
+  });
   // handled is the ?edit= value whose dialog was already shown, so closing it does not
   // open it again before the URL changes.
   const [handled, setHandled] = useState<string | null>(null);
@@ -113,6 +125,7 @@ function OwnProfile({ profile, reload }: { profile: Profile; reload: () => void 
 
   function close() {
     setEditing(null);
+    setExperience(null);
     if (requested !== null) {
       setHandled(requested);
       router.replace("/profile", { scroll: false });
@@ -127,7 +140,13 @@ function OwnProfile({ profile, reload }: { profile: Profile; reload: () => void 
     toastTimer.current = setTimeout(() => setToast(null), toastDuration);
   }
 
-  const edit: EditControls = { open: setEditing };
+  const edit: EditControls = {
+    open: setEditing,
+    editExperience: (entry) => {
+      setExperience(entry);
+      setEditing("experience");
+    },
+  };
   const common = { profile, onClose: close, returnFocusId: open ? editButtonId(open) : undefined };
   return (
     <>
@@ -143,6 +162,18 @@ function OwnProfile({ profile, reload }: { profile: Profile; reload: () => void 
       {open === "intro" && <IntroDialog {...common} onSaved={() => saved()} />}
       {open === "about" && <AboutDialog {...common} onSaved={() => saved()} />}
       {(open === "interests" || open === "skills") && <TagsDialog key={open} kind={open} {...common} onChanged={reload} />}
+      {open === "experience" && (
+        <ExperienceDialog
+          entry={experience ?? undefined}
+          onClose={close}
+          onSaved={() => saved()}
+          onDeleted={() => {
+            focusAfterClose.current = editButtonId("experience");
+            saved("Deleted");
+          }}
+          returnFocusId={experience ? experienceButtonId(experience.id) : editButtonId("experience")}
+        />
+      )}
       {open === "education" && <EducationDialog {...common} onSaved={saved} />}
       {open === "contact" && (
         <ContactDialog

@@ -3,8 +3,18 @@ import "@/test/dialog-polyfill";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import { useSession } from "@/features/auth/session";
+import { fakeDate } from "@/test/fake-date";
 
-import { getMyContact, getMyProfile, getProfile, removeProfileImage, updateMyProfile } from "./api";
+import {
+  type Experience,
+  getMyContact,
+  getMyProfile,
+  getProfile,
+  removeExperience,
+  removeProfileImage,
+  updateExperience,
+  updateMyProfile,
+} from "./api";
 import { clearMyProfile } from "./my-profile";
 import { ProfileView } from "./profile-view";
 import { adaID, bobID, emptyProfile, fullProfile } from "./test-profiles";
@@ -458,5 +468,177 @@ describe("ProfileView, Top skills and Show all", () => {
     render(<ProfileView userId={bobID} />);
     await screen.findByRole("heading", { level: 1 });
     expect(screen.queryByRole("button", { name: /Show all/ })).toBeNull();
+  });
+});
+
+describe("ProfileView, experience", () => {
+  // Durations count to October 2026.
+  beforeEach(() => fakeDate("2026-10-15T12:00:00Z"));
+  afterEach(() => jest.useRealTimers());
+
+  const extra = (n: number): Experience => ({
+    id: `x${n}`,
+    title: `Role ${n}`,
+    organization: `Org ${n}`,
+    employmentType: "contract",
+    location: null,
+    locationType: null,
+    startDate: { year: 2010, month: n },
+    endDate: { year: 2011, month: n },
+    isCurrent: false,
+    description: null,
+  });
+
+  it("comes above Education", async () => {
+    mockGetProfile.mockResolvedValue({ status: "ok", profile: fullProfile(bobID, "Bob Babbage") });
+    render(<ProfileView userId={bobID} />);
+    await screen.findByRole("heading", { level: 1 });
+    const h2 = headings(2);
+    expect(h2.indexOf("Experience")).toBe(h2.indexOf("Education") - 1);
+  });
+
+  it("shows every part of an entry, and leaves out the parts that are not set", async () => {
+    mockGetProfile.mockResolvedValue({ status: "ok", profile: fullProfile(bobID, "Bob Babbage") });
+    render(<ProfileView userId={bobID} />);
+    const list = within(await screen.findByRole("list", { name: "Experience" }));
+    const [full, bare] = list.getAllByRole("listitem");
+
+    expect(within(full).getByText("Research Assistant")).toBeTruthy();
+    expect(within(full).getByText("University of Dhaka · Research assistant")).toBeTruthy();
+    expect(within(full).getByText("Mar 2025 - Present · 1 yr 8 mos")).toBeTruthy();
+    expect(within(full).getByText("Dhaka, Bangladesh · On-site")).toBeTruthy();
+    const keepBreaks = { normalizer: (t: string) => t };
+    expect(within(full).getByText("Built the lab's data pipeline.\nTaught two tutorials.", keepBreaks)).toBeTruthy();
+
+    expect(bare.querySelectorAll("p")).toHaveLength(3);
+    expect(within(bare).getByText("MIT · Teaching assistant")).toBeTruthy();
+    expect(within(bare).getByText("Jan 2023 - Dec 2024 · 2 yrs")).toBeTruthy();
+  });
+
+  it("shows only the location type when there is no location", async () => {
+    const p = fullProfile(bobID, "Bob Babbage");
+    p.experience = [{ ...p.experience[1], locationType: "remote" }];
+    mockGetProfile.mockResolvedValue({ status: "ok", profile: p });
+    render(<ProfileView userId={bobID} />);
+    const list = within(await screen.findByRole("list", { name: "Experience" }));
+    expect(list.getByText("Remote")).toBeTruthy();
+  });
+
+  it("clamps a long description behind see more, keeping its line breaks", async () => {
+    const p = fullProfile(bobID, "Bob Babbage");
+    const text = "One\nTwo\nThree\nFour";
+    p.experience = [{ ...p.experience[0], description: text }];
+    mockGetProfile.mockResolvedValue({ status: "ok", profile: p });
+    render(<ProfileView userId={bobID} />);
+    const more = await screen.findByRole("button", { name: "…see more" });
+    const description = document.getElementById(more.getAttribute("aria-controls") ?? "");
+    expect(description?.textContent).toBe(text);
+    expect(description?.className).toContain("line-clamp-3");
+    expect(description?.className).toContain("whitespace-pre-line");
+
+    fireEvent.click(more);
+    expect(description?.className).not.toContain("line-clamp-3");
+    fireEvent.click(screen.getByRole("button", { name: "see less" }));
+    expect(description?.className).toContain("line-clamp-3");
+  });
+
+  it("has no see more for a short description", async () => {
+    mockGetProfile.mockResolvedValue({ status: "ok", profile: fullProfile(bobID, "Bob Babbage") });
+    render(<ProfileView userId={bobID} />);
+    await screen.findByRole("list", { name: "Experience" });
+    expect(screen.queryByRole("button", { name: /see more/ })).toBeNull();
+  });
+
+  it("shows three entries in the API's order, then all after Show all", async () => {
+    const p = fullProfile(bobID, "Bob Babbage");
+    p.experience = [...p.experience, extra(1), extra(2)];
+    mockGetProfile.mockResolvedValue({ status: "ok", profile: p });
+    render(<ProfileView userId={bobID} />);
+    const region = within(await screen.findByRole("region", { name: "Experience" }));
+    const titles = () => region.getAllByRole("listitem").map((li) => li.querySelector("p")?.textContent);
+    expect(titles()).toEqual(["Research Assistant", "Teaching Assistant", "Role 1"]);
+
+    fireEvent.click(region.getByRole("button", { name: "Show all 4 experiences" }));
+    expect(titles()).toEqual(["Research Assistant", "Teaching Assistant", "Role 1", "Role 2"]);
+    expect(region.queryByRole("button", { name: /Show all/ })).toBeNull();
+  });
+
+  it("has no add button or pencils on someone else's profile", async () => {
+    mockGetProfile.mockResolvedValue({ status: "ok", profile: fullProfile(bobID, "Bob Babbage") });
+    render(<ProfileView userId={bobID} />);
+    const region = within(await screen.findByRole("region", { name: "Experience" }));
+    expect(region.queryAllByRole("button")).toHaveLength(0);
+  });
+
+  it("hides an empty section on someone else's profile", async () => {
+    mockGetProfile.mockResolvedValue({ status: "ok", profile: emptyProfile(bobID, "Bob Babbage") });
+    render(<ProfileView userId={bobID} />);
+    await screen.findByRole("heading", { level: 1 });
+    expect(screen.queryByRole("region", { name: "Experience" })).toBeNull();
+  });
+
+  it("prompts the owner to add an entry when there is none", async () => {
+    mockGetMyProfile.mockResolvedValue({ status: "ok", profile: emptyProfile(adaID, "Ada Lovelace") });
+    render(<ProfileView />);
+    const region = within(await screen.findByRole("region", { name: "Experience" }));
+    expect(region.getByRole("link", { name: "Add experience" }).getAttribute("href")).toBe("/profile?edit=experience");
+    expect(region.getByRole("button", { name: "Add experience" })).toBeTruthy();
+  });
+
+  it("opens the add form from + and gives the focus back to +", async () => {
+    mockGetMyProfile.mockResolvedValue({ status: "ok", profile: fullProfile(adaID, "Ada Lovelace") });
+    render(<ProfileView />);
+    const add = await screen.findByRole("button", { name: "Add experience" });
+    fireEvent.click(add);
+    expect(screen.getByRole("dialog", { name: "Add experience" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(add);
+  });
+
+  it("opens the add form for ?edit=experience", async () => {
+    mockSearch = "edit=experience";
+    mockGetMyProfile.mockResolvedValue({ status: "ok", profile: emptyProfile(adaID, "Ada Lovelace") });
+    render(<ProfileView />);
+    expect(await screen.findByRole("dialog", { name: "Add experience" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(mockReplace).toHaveBeenCalledWith("/profile", { scroll: false });
+  });
+
+  it("edits an entry from its pencil and updates the section without a page reload", async () => {
+    const p = fullProfile(adaID, "Ada Lovelace");
+    mockGetMyProfile.mockResolvedValue({ status: "ok", profile: p });
+    jest.mocked(updateExperience).mockResolvedValue({ ok: true, data: undefined });
+    render(<ProfileView />);
+    const pencil = await screen.findByRole("button", { name: "Edit Teaching Assistant at MIT" });
+    fireEvent.click(pencil);
+    expect(screen.getByRole("dialog", { name: "Edit experience" })).toBeTruthy();
+
+    const changed = { ...p, experience: [p.experience[0], { ...p.experience[1], title: "Lecturer" }] };
+    mockGetMyProfile.mockResolvedValue({ status: "ok", profile: changed });
+    fireEvent.change(screen.getByRole("textbox", { name: "Title" }), { target: { value: "Lecturer" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect((await screen.findByRole("status")).textContent).toBe("Saved");
+    expect(await screen.findByText("Lecturer")).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement?.id).toBe("edit-experience-x2-button");
+    expect(jest.mocked(updateExperience)).toHaveBeenCalledWith("x2", expect.objectContaining({ title: "Lecturer" }));
+  });
+
+  it("removes a deleted entry and gives the focus to +", async () => {
+    const p = fullProfile(adaID, "Ada Lovelace");
+    mockGetMyProfile.mockResolvedValue({ status: "ok", profile: p });
+    jest.mocked(removeExperience).mockResolvedValue({ ok: true, data: undefined });
+    render(<ProfileView />);
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Research Assistant at University of Dhaka" }));
+
+    mockGetMyProfile.mockResolvedValue({ status: "ok", profile: { ...p, experience: [p.experience[1]] } });
+    fireEvent.click(screen.getByRole("button", { name: "Delete experience" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+
+    expect((await screen.findByRole("status")).textContent).toBe("Deleted");
+    await waitFor(() => expect(screen.queryByText("Research Assistant")).toBeNull());
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Add experience" }));
   });
 });

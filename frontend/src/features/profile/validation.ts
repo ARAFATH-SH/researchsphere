@@ -1,8 +1,9 @@
 // Checks run in the browser before a request, so the user sees a message at once. They
 // mirror the server's rules in backend/internal/profile/usecase (validate.go, tags.go,
-// education.go); the server still checks everything (NFR-8.1).
+// education.go, experience.go); the server still checks everything (NFR-8.1).
 
 import { isCountryCode } from "./countries";
+import { currentMonth } from "./format";
 
 export const MAX_FULL_NAME_LENGTH = 200;
 export const MAX_HEADLINE_LENGTH = 220;
@@ -153,6 +154,119 @@ export function fieldForEducationCode(code: string): EducationField | undefined 
       return "startYear";
     case "invalid_end_year":
       return "endYear";
+  }
+  return undefined;
+}
+
+export const MAX_EXPERIENCE_ENTRIES = 30;
+export const MAX_TITLE_LENGTH = 100;
+export const MAX_ORGANIZATION_LENGTH = 150;
+export const MAX_LOCATION_LENGTH = 100;
+export const MAX_EXPERIENCE_DESCRIPTION_LENGTH = 2000;
+export const MIN_EXPERIENCE_YEAR = 1950;
+
+export type ExperienceField =
+  | "title"
+  | "employmentType"
+  | "organization"
+  | "location"
+  | "locationType"
+  | "startDate"
+  | "endDate"
+  | "description";
+// The form's values as typed or chosen; a month is "1" to "12" and an empty select is "".
+// current means "I am currently working in this role": the entry has no end date.
+export type ExperienceValues = Record<
+  "title" | "employmentType" | "organization" | "location" | "locationType" | "description",
+  string
+> & { startMonth: string; startYear: string; endMonth: string; endYear: string; current: boolean };
+export type ExperienceErrors = Partial<Record<ExperienceField, string>>;
+
+export const experienceMessages = {
+  titleRequired: "Enter the title.",
+  employmentTypeRequired: "Choose an employment type.",
+  organizationRequired: "Enter the organization.",
+  startDateRequired: "Choose the start month and year.",
+  endDateRequired: "Choose the end month and year, or tick “I am currently working in this role”.",
+  startInFuture: "The start date cannot be in the future.",
+  endInFuture: "The end date cannot be in the future.",
+  endBeforeStart: "The end date cannot be before the start date.",
+  limitReached: `You can add up to ${MAX_EXPERIENCE_ENTRIES} experiences.`,
+};
+
+const oneLine = (what: string) => `${what} must be one line.`;
+
+// checkText checks a trimmed text field: at most max characters and, unless multiline,
+// one line.
+function checkText(value: string, what: string, max: number, multiline: boolean): string | undefined {
+  const v = value.trim();
+  if (length(v) > max) return tooLong(what, max);
+  if (!multiline && /[\r\n]/.test(v)) return oneLine(what);
+  return undefined;
+}
+
+// monthIndex turns a chosen month and year into a number that orders months, or
+// undefined when either is not chosen.
+function monthIndex(month: string, year: string): number | undefined {
+  if (month === "" || year === "") return undefined;
+  return Number(year) * 12 + Number(month);
+}
+
+// validateExperience checks a work experience entry (FR-4.8). Dates run from January
+// 1950 to the current month in UTC, as on the server.
+export function validateExperience(values: ExperienceValues, now = new Date()): ExperienceErrors {
+  const errors: ExperienceErrors = {};
+  const set = (field: ExperienceField, message: string | undefined) => {
+    if (message) errors[field] = message;
+  };
+  if (values.title.trim() === "") errors.title = experienceMessages.titleRequired;
+  else set("title", checkText(values.title, "The title", MAX_TITLE_LENGTH, false));
+  if (values.employmentType === "") errors.employmentType = experienceMessages.employmentTypeRequired;
+  if (values.organization.trim() === "") errors.organization = experienceMessages.organizationRequired;
+  else set("organization", checkText(values.organization, "The organization", MAX_ORGANIZATION_LENGTH, false));
+  set("location", checkText(values.location, "The location", MAX_LOCATION_LENGTH, false));
+  set(
+    "description",
+    checkText(values.description, "The description", MAX_EXPERIENCE_DESCRIPTION_LENGTH, true),
+  );
+
+  const latest = currentMonth(now);
+  const latestIndex = latest.year * 12 + latest.month;
+  const start = monthIndex(values.startMonth, values.startYear);
+  if (start === undefined) errors.startDate = experienceMessages.startDateRequired;
+  else if (start > latestIndex) errors.startDate = experienceMessages.startInFuture;
+
+  if (!values.current) {
+    const end = monthIndex(values.endMonth, values.endYear);
+    if (end === undefined) errors.endDate = experienceMessages.endDateRequired;
+    else if (end > latestIndex) errors.endDate = experienceMessages.endInFuture;
+    else if (start !== undefined && end < start) errors.endDate = experienceMessages.endBeforeStart;
+  }
+  return errors;
+}
+
+// fieldForExperienceCode says which field an experience error code belongs to.
+export function fieldForExperienceCode(code: string): ExperienceField | undefined {
+  switch (code) {
+    case "invalid_title":
+      return "title";
+    case "invalid_organization":
+      return "organization";
+    case "invalid_employment_type":
+      return "employmentType";
+    case "invalid_location":
+      return "location";
+    case "invalid_location_type":
+      return "locationType";
+    case "invalid_start_date":
+      return "startDate";
+    case "invalid_end_date":
+    case "end_date_required":
+    case "end_date_not_allowed":
+    case "invalid_date_range":
+      return "endDate";
+    case "invalid_description":
+      return "description";
   }
   return undefined;
 }

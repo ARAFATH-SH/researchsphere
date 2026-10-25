@@ -54,5 +54,31 @@ export function fullProfile(userId: string, fullName: string): Profile {
       { id: "e1", institution: "ETH Zürich", degree: "PhD", fieldOfStudy: "Computer Science", startYear: 2026, endYear: null, grade: null, description: null },
       { id: "e2", institution: "MIT", degree: "BSc", fieldOfStudy: null, startYear: 2022, endYear: 2026, grade: null, description: null },
     ],
+    experience: [
+      {
+        id: "x1",
+        title: "Research Assistant",
+        organization: "University of Dhaka",
+        employmentType: "research_assistant",
+        location: "Dhaka, Bangladesh",
+        locationType: "on_site",
+        startDate: { year: 2025, month: 3 },
+        endDate: null,
+        isCurrent: true,
+        description: "Built the lab's data pipeline.\nTaught two tutorials.",
+      },
+      {
+        id: "x2",
+        title: "Teaching Assistant",
+        organization: "MIT",
+        employmentType: "teaching_assistant",
+        location: null,
+        locationType: null,
+        startDate: { year: 2023, month: 1 },
+        endDate: { year: 2024, month: 12 },
+        isCurrent: false,
+        description: null,
+      },
+    ],
   };
 }

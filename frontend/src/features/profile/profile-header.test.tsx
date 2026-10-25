@@ -13,7 +13,7 @@ function withImages(userId: string, name: string) {
 describe("ProfileHeader", () => {
   it("lets the owner change the cover and the photo", () => {
     const open = jest.fn();
-    const { container } = render(<ProfileHeader profile={withImages(adaID, "Ada Lovelace")} edit={{ open }} />);
+    const { container } = render(<ProfileHeader profile={withImages(adaID, "Ada Lovelace")} edit={{ open, editExperience: jest.fn() }} />);
 
     const cover = screen.getByRole("button", { name: "Edit cover image" });
     expect(cover.id).toBe("edit-cover-button");
