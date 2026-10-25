@@ -59,6 +59,8 @@ describe("EducationDialog", () => {
       fieldOfStudy: null,
       startYear: 2024,
       endYear: null,
+      grade: null,
+      description: null,
     });
     expect(onSaved).toHaveBeenCalledWith();
   });
@@ -82,6 +84,8 @@ describe("EducationDialog", () => {
       fieldOfStudy: null,
       startYear: 2022,
       endYear: null,
+      grade: null,
+      description: null,
     });
   });
 

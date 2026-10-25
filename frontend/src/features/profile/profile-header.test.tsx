@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 
 import { ProfileHeader } from "./profile-header";
+import type { EditControls } from "./profile-sections";
 import { adaID, bobID, fullProfile } from "./test-profiles";
 
 const photoUrl = "/api/v1/media/photo";
@@ -10,13 +11,23 @@ function withImages(userId: string, name: string) {
   return { ...fullProfile(userId, name), photoUrl, coverUrl };
 }
 
+// makeEditControls returns every EditControls member as a mock, with overrides applied.
+function makeEditControls(overrides: Partial<EditControls> = {}): EditControls {
+  return {
+    open: jest.fn(),
+    editExperience: jest.fn(),
+    editLanguage: jest.fn(),
+    ...overrides,
+  };
+}
+
 describe("ProfileHeader", () => {
   it("lets the owner change the cover and the photo", () => {
     const open = jest.fn();
     const { container } = render(
       <ProfileHeader
         profile={withImages(adaID, "Ada Lovelace")}
-        edit={{ open, editExperience: jest.fn() }}
+        edit={makeEditControls({ open })}
       />,
     );
 

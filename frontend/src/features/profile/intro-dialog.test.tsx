@@ -81,6 +81,7 @@ describe("IntroDialog", () => {
       department: "Mathematics",
       jobTitle: "Researcher",
       country: "DE",
+      city: null,
     });
     expect(onSaved).toHaveBeenCalled();
   });

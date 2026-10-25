@@ -22,6 +22,7 @@ const intro: IntroValues = {
   institution: "",
   department: "",
   country: "GB",
+  city: "",
 };
 
 describe("validateIntro", () => {
@@ -92,6 +93,8 @@ describe("validateEducation", () => {
     fieldOfStudy: "",
     startYear: "2022",
     endYear: "2026",
+    grade: "",
+    description: "",
     current: false,
   };
 
