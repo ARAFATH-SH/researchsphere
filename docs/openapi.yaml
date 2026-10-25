@@ -559,8 +559,8 @@ paths:
         Needs the access cookie and the platform action "Edit own profile, connect, post,
         like, comment" (SRS 2.3). Replaces every field in the body: an optional field that
         is missing, null, or empty after trimming is stored as null. Each value is trimmed;
-        `country` is then upper-cased. Interests, skills, education, experience and
-        publications are not changed here.
+        `country` is then upper-cased. Interests, skills, education, experience, languages
+        and publications are not changed here.
       tags: [profile]
       requestBody:
         required: true
@@ -1060,6 +1060,119 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /profiles/me/languages:
+    post:
+      operationId: addMyLanguage
+      summary: Add a language to the logged-in user's profile (FR-4.9)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). The name is trimmed and kept in the casing the user typed.
+        A user has at most 20 languages, and no two whose names differ only in letter case.
+      tags: [profile]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LanguageCreate"
+      responses:
+        "201":
+          description: The stored language.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Language"
+        "400":
+          $ref: "#/components/responses/InvalidLanguage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: |
+            The user already has a language with this name, ignoring letter case
+            (`language_exists`), or already has 20 languages (`language_limit_reached`).
+            The name is checked first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /profiles/me/languages/{languageId}:
+    patch:
+      operationId: updateMyLanguage
+      summary: Change the name or proficiency of one of the logged-in user's languages (FR-4.9)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). A field that is missing keeps its value; `null` is
+        refused, because both fields are required. The rules of LanguageCreate apply to
+        the entry after the change; changing only the letter case of its own name is
+        allowed. An entry that does not exist and one that belongs to someone else both
+        get 404 `not_found`.
+      tags: [profile]
+      parameters:
+        - $ref: "#/components/parameters/LanguageID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LanguageUpdate"
+      responses:
+        "200":
+          description: The language after the change.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Language"
+        "400":
+          $ref: "#/components/responses/InvalidLanguage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: The user has no language with this ID (`not_found`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Another of the user's languages has this name, ignoring letter case (`language_exists`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: removeMyLanguage
+      summary: Remove one of the logged-in user's languages (FR-4.9)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). An entry that does not exist and one that belongs to
+        someone else both get 404 `not_found`.
+      tags: [profile]
+      parameters:
+        - $ref: "#/components/parameters/LanguageID"
+      responses:
+        "204":
+          description: The language is removed.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: The user has no language with this ID (`not_found`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /profiles/me/contact:
     get:
       operationId: getMyContact
@@ -1367,6 +1480,16 @@ components:
         user and gets 404 `not_found`.
       schema:
         type: string
+    LanguageID:
+      name: languageId
+      in: path
+      required: true
+      description: |
+        The entry's ID, a UUID. It is declared as a plain string so that the login check
+        runs before it is read (FR-3.1); a value that is not a UUID names no entry of the
+        user and gets 404 `not_found`.
+      schema:
+        type: string
     LinkID:
       name: linkId
       in: path
@@ -1666,6 +1789,7 @@ components:
         - skills
         - education
         - experience
+        - languages
         - publications
         - connectionStatus
         - contact
@@ -1722,6 +1846,13 @@ components:
             latest first, then oldest entry first.
           items:
             $ref: "#/components/schemas/Experience"
+        languages:
+          type: array
+          description: |
+            The languages the user knows (FR-4.9): highest proficiency first
+            (`native_or_bilingual` first), then oldest entry first.
+          items:
+            $ref: "#/components/schemas/Language"
         publications:
           type: array
           description: "Placeholder: always empty until confirmed publications are shown (FR-5.5)."
@@ -2260,6 +2391,67 @@ components:
           x-go-type-import:
             path: github.com/oapi-codegen/nullable
 
+    LanguageProficiency:
+      type: string
+      enum:
+        - elementary
+        - limited_working
+        - professional_working
+        - full_professional
+        - native_or_bilingual
+
+    Language:
+      type: object
+      description: One language the user knows (FR-4.9).
+      required: [id, name, proficiency]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: Bangla
+        proficiency:
+          $ref: "#/components/schemas/LanguageProficiency"
+
+    LanguageCreate:
+      type: object
+      description: |
+        A new language (FR-4.9). The name is trimmed first and its length counts characters
+        after trimming; it must be one line, and it is kept in the casing the user typed.
+      required: [name, proficiency]
+      properties:
+        name:
+          type: string
+          description: 1 to 50 characters.
+          maxLength: 50
+        proficiency:
+          $ref: "#/components/schemas/LanguageProficiency"
+
+    LanguageUpdate:
+      type: object
+      description: |
+        The fields to change in a language (FR-4.9). A missing field keeps its value; `null`
+        is refused, because both fields are required. The rules of LanguageCreate apply to
+        the entry after the change.
+      properties:
+        name:
+          type: string
+          nullable: true
+          maxLength: 50
+          x-go-type: nullable.Nullable[string]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        proficiency:
+          type: string
+          nullable: true
+          description: One of the LanguageProficiency values.
+          x-go-type: nullable.Nullable[LanguageProficiency]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+
   responses:
     Forbidden:
       description: |
@@ -2302,6 +2494,16 @@ components:
         `endDate`), `end_date_not_allowed` (`isCurrent` true with `endDate`),
         `invalid_date_range` (`endDate` before `startDate`), `invalid_description`. A body
         that is not JSON gets `bad_request`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    InvalidLanguage:
+      description: |
+        A field is not valid. The code names the first invalid field, in this order:
+        `invalid_language_name` (missing, empty after trimming, longer than 50 characters
+        or more than one line), `invalid_proficiency`. A body that is not JSON gets
+        `bad_request`.
       content:
         application/json:
           schema:

@@ -25,13 +25,14 @@ type Profile struct {
 	PhotoFileID *string
 	CoverFileID *string
 	// Interests and Skills are the user's tags sorted by name (FR-4.2), Education the
-	// user's education entries (FR-4.4) and Experience their work experience (FR-4.8),
-	// both in profile order. UpsertProfile ignores them; the usecase fills them when it
-	// reads a profile.
+	// user's education entries (FR-4.4), Experience their work experience (FR-4.8) and
+	// Languages the languages they know (FR-4.9), all in profile order. UpsertProfile
+	// ignores them; the usecase fills them when it reads a profile.
 	Interests  []Tag
 	Skills     []Tag
 	Education  []Education
 	Experience []Experience
+	Languages  []Language
 	// Contact is the contact info the viewer of the profile may see (FR-4.7). The
 	// usecase fills it when it reads a profile.
 	Contact VisibleContact
@@ -163,6 +164,27 @@ type Experience struct {
 	Description    *string
 }
 
+// Proficiency says how well a user knows a language (FR-4.9).
+type Proficiency string
+
+// Proficiency levels, lowest first.
+const (
+	ProficiencyElementary          Proficiency = "elementary"
+	ProficiencyLimitedWorking      Proficiency = "limited_working"
+	ProficiencyProfessionalWorking Proficiency = "professional_working"
+	ProficiencyFullProfessional    Proficiency = "full_professional"
+	ProficiencyNativeOrBilingual   Proficiency = "native_or_bilingual"
+)
+
+// Language is one language a user knows (FR-4.9). Name keeps the casing the user typed;
+// a user has no two languages whose names differ only in letter case.
+type Language struct {
+	ID          string
+	UserID      string
+	Name        string
+	Proficiency Proficiency
+}
+
 // TagKind says which shared vocabulary a tag belongs to.
 type TagKind string
 
@@ -191,7 +213,7 @@ type Account struct {
 }
 
 // Store reads and writes profiles, the user's tags, education and experience entries,
-// contact info and links. Writes that must happen together go through RunInTx.
+// languages, contact info and links. Writes that must happen together go through RunInTx.
 type Store interface {
 	// RunInTx runs fn in one database transaction. It commits when fn returns nil and
 	// rolls back otherwise, returning fn's error.
@@ -224,6 +246,12 @@ type Store interface {
 	// no entry with the ID, including one that belongs to someone else, or the ID is not
 	// a UUID.
 	DeleteExperience(ctx context.Context, userID, id string) error
+	// ListLanguages returns the user's languages, oldest first.
+	ListLanguages(ctx context.Context, userID string) ([]Language, error)
+	// DeleteLanguage removes the user's language. It returns ErrNotFound when the user has
+	// no language with the ID, including one that belongs to someone else, or the ID is
+	// not a UUID.
+	DeleteLanguage(ctx context.Context, userID, id string) error
 	// FindContact returns the user's contact info without links. A user who never saved
 	// any gets no phone, no birthday and every visibility OnlyMe. It returns ErrNotFound
 	// when the user does not exist.
@@ -241,9 +269,9 @@ type Store interface {
 
 // Tx is the set of steps available inside a transaction.
 type Tx interface {
-	// LockUser locks the user against other tag, education, experience and link changes
-	// until the transaction ends, so two requests cannot both pass a limit. It returns
-	// ErrNotFound when the user does not exist.
+	// LockUser locks the user against other tag, education, experience, language and link
+	// changes until the transaction ends, so two requests cannot both pass a limit. It
+	// returns ErrNotFound when the user does not exist.
 	LockUser(ctx context.Context, userID string) error
 	// FindOrCreateTag returns the tag of kind named name ignoring letter case, creating
 	// it with this spelling when there is none. A tag created at the same moment by
@@ -277,6 +305,22 @@ type Tx interface {
 	// UpdateExperience replaces the fields of the entry e.ID that belongs to e.UserID and
 	// returns what was stored. It returns ErrNotFound when there is no such entry.
 	UpdateExperience(ctx context.Context, e Experience) (Experience, error)
+	// CountLanguages returns how many languages the user has.
+	CountLanguages(ctx context.Context, userID string) (int, error)
+	// LanguageNameTaken reports whether the user has a language named name, ignoring
+	// letter case, other than the one with ID exceptID ("" excepts none).
+	LanguageNameTaken(ctx context.Context, userID, name, exceptID string) (bool, error)
+	// InsertLanguage stores a new language for l.UserID and returns it with its ID. It
+	// returns ErrLanguageExists when the user has the name already, ignoring letter case.
+	InsertLanguage(ctx context.Context, l Language) (Language, error)
+	// FindLanguageForUpdate returns the user's language and locks it until the
+	// transaction ends. It returns ErrNotFound when the user has no language with the ID,
+	// including one that belongs to someone else, or the ID is not a UUID.
+	FindLanguageForUpdate(ctx context.Context, userID, id string) (Language, error)
+	// UpdateLanguage replaces the fields of the language l.ID that belongs to l.UserID and
+	// returns what was stored. It returns ErrNotFound when there is no such language and
+	// ErrLanguageExists when another of the user's languages has the name.
+	UpdateLanguage(ctx context.Context, l Language) (Language, error)
 	// CountLinks returns how many links the user has.
 	CountLinks(ctx context.Context, userID string) (int, error)
 	// InsertLink stores a new link for l.UserID and returns it with its ID.
@@ -317,6 +361,11 @@ var (
 	ErrInvalidDateRange       = errors.New("end date is before the start date")
 	ErrInvalidDescription     = errors.New("description is too long")
 	ErrExperienceLimitReached = errors.New("user has the most experience entries allowed")
+
+	ErrInvalidLanguageName  = errors.New("language name is empty, too long or has a line break")
+	ErrInvalidProficiency   = errors.New("proficiency is not one of the allowed levels")
+	ErrLanguageExists       = errors.New("user has a language with this name already")
+	ErrLanguageLimitReached = errors.New("user has the most languages allowed")
 
 	ErrInvalidPhone      = errors.New("phone is not in E.164 format")
 	ErrInvalidBirthday   = errors.New("birthday is not a day of the year")

@@ -331,8 +331,8 @@ export interface paths {
          * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
          *     like, comment" (SRS 2.3). Replaces every field in the body: an optional field that
          *     is missing, null, or empty after trimming is stored as null. Each value is trimmed;
-         *     `country` is then upper-cased. Interests, skills, education, experience and
-         *     publications are not changed here.
+         *     `country` is then upper-cased. Interests, skills, education, experience, languages
+         *     and publications are not changed here.
          */
         put: operations["updateMyProfile"];
         post?: never;
@@ -609,6 +609,59 @@ export interface paths {
          *     someone else both get 404 `not_found`.
          */
         patch: operations["updateMyExperience"];
+        trace?: never;
+    };
+    "/profiles/me/languages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add a language to the logged-in user's profile (FR-4.9)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). The name is trimmed and kept in the casing the user typed.
+         *     A user has at most 20 languages, and no two whose names differ only in letter case.
+         */
+        post: operations["addMyLanguage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/profiles/me/languages/{languageId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove one of the logged-in user's languages (FR-4.9)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). An entry that does not exist and one that belongs to
+         *     someone else both get 404 `not_found`.
+         */
+        delete: operations["removeMyLanguage"];
+        options?: never;
+        head?: never;
+        /**
+         * Change the name or proficiency of one of the logged-in user's languages (FR-4.9)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). A field that is missing keeps its value; `null` is
+         *     refused, because both fields are required. The rules of LanguageCreate apply to
+         *     the entry after the change; changing only the letter case of its own name is
+         *     allowed. An entry that does not exist and one that belongs to someone else both
+         *     get 404 `not_found`.
+         */
+        patch: operations["updateMyLanguage"];
         trace?: never;
     };
     "/profiles/me/contact": {
@@ -933,6 +986,11 @@ export interface components {
              *     latest first, then oldest entry first.
              */
             experience: components["schemas"]["Experience"][];
+            /**
+             * @description The languages the user knows (FR-4.9): highest proficiency first
+             *     (`native_or_bilingual` first), then oldest entry first.
+             */
+            languages: components["schemas"]["Language"][];
             /** @description Placeholder: always empty until confirmed publications are shown (FR-5.5). */
             publications: Record<string, never>[];
             connectionStatus: components["schemas"]["ConnectionStatus"];
@@ -1206,6 +1264,35 @@ export interface components {
             isCurrent?: boolean | null;
             description?: string | null;
         };
+        /** @enum {string} */
+        LanguageProficiency: "elementary" | "limited_working" | "professional_working" | "full_professional" | "native_or_bilingual";
+        /** @description One language the user knows (FR-4.9). */
+        Language: {
+            /** Format: uuid */
+            id: string;
+            /** @example Bangla */
+            name: string;
+            proficiency: components["schemas"]["LanguageProficiency"];
+        };
+        /**
+         * @description A new language (FR-4.9). The name is trimmed first and its length counts characters
+         *     after trimming; it must be one line, and it is kept in the casing the user typed.
+         */
+        LanguageCreate: {
+            /** @description 1 to 50 characters. */
+            name: string;
+            proficiency: components["schemas"]["LanguageProficiency"];
+        };
+        /**
+         * @description The fields to change in a language (FR-4.9). A missing field keeps its value; `null`
+         *     is refused, because both fields are required. The rules of LanguageCreate apply to
+         *     the entry after the change.
+         */
+        LanguageUpdate: {
+            name?: string | null;
+            /** @description One of the LanguageProficiency values. */
+            proficiency?: string | null;
+        };
     };
     responses: {
         /**
@@ -1264,6 +1351,20 @@ export interface components {
          *     that is not JSON gets `bad_request`.
          */
         InvalidExperience: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /**
+         * @description A field is not valid. The code names the first invalid field, in this order:
+         *     `invalid_language_name` (missing, empty after trimming, longer than 50 characters
+         *     or more than one line), `invalid_proficiency`. A body that is not JSON gets
+         *     `bad_request`.
+         */
+        InvalidLanguage: {
             headers: {
                 [name: string]: unknown;
             };
@@ -1360,6 +1461,12 @@ export interface components {
          *     user and gets 404 `not_found`.
          */
         ExperienceID: string;
+        /**
+         * @description The entry's ID, a UUID. It is declared as a plain string so that the login check
+         *     runs before it is read (FR-3.1); a value that is not a UUID names no entry of the
+         *     user and gets 404 `not_found`.
+         */
+        LanguageID: string;
         /**
          * @description The link's ID, a UUID. It is declared as a plain string so that the login check
          *     runs before it is read (FR-3.1); a value that is not a UUID names no link of the
@@ -2532,6 +2639,137 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             /** @description The user has no experience entry with this ID (`not_found`). */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    addMyLanguage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LanguageCreate"];
+            };
+        };
+        responses: {
+            /** @description The stored language. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Language"];
+                };
+            };
+            400: components["responses"]["InvalidLanguage"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /**
+             * @description The user already has a language with this name, ignoring letter case
+             *     (`language_exists`), or already has 20 languages (`language_limit_reached`).
+             *     The name is checked first.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    removeMyLanguage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The entry's ID, a UUID. It is declared as a plain string so that the login check
+                 *     runs before it is read (FR-3.1); a value that is not a UUID names no entry of the
+                 *     user and gets 404 `not_found`.
+                 */
+                languageId: components["parameters"]["LanguageID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The language is removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The user has no language with this ID (`not_found`). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    updateMyLanguage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The entry's ID, a UUID. It is declared as a plain string so that the login check
+                 *     runs before it is read (FR-3.1); a value that is not a UUID names no entry of the
+                 *     user and gets 404 `not_found`.
+                 */
+                languageId: components["parameters"]["LanguageID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LanguageUpdate"];
+            };
+        };
+        responses: {
+            /** @description The language after the change. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Language"];
+                };
+            };
+            400: components["responses"]["InvalidLanguage"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The user has no language with this ID (`not_found`). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Another of the user's languages has this name, ignoring letter case (`language_exists`). */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

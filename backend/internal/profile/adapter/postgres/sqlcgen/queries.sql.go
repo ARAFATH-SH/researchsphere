@@ -50,6 +50,20 @@ func (q *Queries) CountUserInterests(ctx context.Context, userID pgtype.UUID) (i
 	return count, err
 }
 
+const countUserLanguages = `-- name: CountUserLanguages :one
+
+SELECT count(*) FROM profile_languages WHERE user_id = $1
+`
+
+// Languages (FR-4.9). Every query names the owner in its WHERE clause, so a language of
+// another user is never read, changed or deleted: it is simply not found.
+func (q *Queries) CountUserLanguages(ctx context.Context, userID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countUserLanguages, userID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countUserLinks = `-- name: CountUserLinks :one
 SELECT count(*) FROM profile_links WHERE user_id = $1
 `
@@ -100,6 +114,23 @@ type DeleteUserExperienceParams struct {
 
 func (q *Queries) DeleteUserExperience(ctx context.Context, arg DeleteUserExperienceParams) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteUserExperience, arg.ID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteUserLanguage = `-- name: DeleteUserLanguage :execrows
+DELETE FROM profile_languages WHERE id = $1 AND user_id = $2
+`
+
+type DeleteUserLanguageParams struct {
+	ID     pgtype.UUID
+	UserID pgtype.UUID
+}
+
+func (q *Queries) DeleteUserLanguage(ctx context.Context, arg DeleteUserLanguageParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteUserLanguage, arg.ID, arg.UserID)
 	if err != nil {
 		return 0, err
 	}
@@ -323,6 +354,38 @@ func (q *Queries) FindUserExperienceForUpdate(ctx context.Context, arg FindUserE
 	return i, err
 }
 
+const findUserLanguageForUpdate = `-- name: FindUserLanguageForUpdate :one
+SELECT id, user_id, name, proficiency
+FROM profile_languages
+WHERE id = $1 AND user_id = $2
+FOR UPDATE
+`
+
+type FindUserLanguageForUpdateParams struct {
+	ID     pgtype.UUID
+	UserID pgtype.UUID
+}
+
+type FindUserLanguageForUpdateRow struct {
+	ID          pgtype.UUID
+	UserID      pgtype.UUID
+	Name        string
+	Proficiency string
+}
+
+// Locks the language until the transaction ends.
+func (q *Queries) FindUserLanguageForUpdate(ctx context.Context, arg FindUserLanguageForUpdateParams) (FindUserLanguageForUpdateRow, error) {
+	row := q.db.QueryRow(ctx, findUserLanguageForUpdate, arg.ID, arg.UserID)
+	var i FindUserLanguageForUpdateRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Name,
+		&i.Proficiency,
+	)
+	return i, err
+}
+
 const insertEducation = `-- name: InsertEducation :one
 INSERT INTO education (user_id, institution, degree, field_of_study, start_year, end_year)
 VALUES ($1, $2, $3, $4, $5, $6)
@@ -459,6 +522,37 @@ func (q *Queries) InsertInterestIfMissing(ctx context.Context, name string) erro
 	return err
 }
 
+const insertLanguage = `-- name: InsertLanguage :one
+INSERT INTO profile_languages (user_id, name, proficiency)
+VALUES ($1, $2, $3)
+RETURNING id, user_id, name, proficiency
+`
+
+type InsertLanguageParams struct {
+	UserID      pgtype.UUID
+	Name        string
+	Proficiency string
+}
+
+type InsertLanguageRow struct {
+	ID          pgtype.UUID
+	UserID      pgtype.UUID
+	Name        string
+	Proficiency string
+}
+
+func (q *Queries) InsertLanguage(ctx context.Context, arg InsertLanguageParams) (InsertLanguageRow, error) {
+	row := q.db.QueryRow(ctx, insertLanguage, arg.UserID, arg.Name, arg.Proficiency)
+	var i InsertLanguageRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Name,
+		&i.Proficiency,
+	)
+	return i, err
+}
+
 const insertLink = `-- name: InsertLink :one
 INSERT INTO profile_links (user_id, kind, url) VALUES ($1, $2, $3)
 RETURNING id, user_id, kind, url
@@ -502,6 +596,29 @@ INSERT INTO skills (name) VALUES ($1) ON CONFLICT (name) DO NOTHING
 func (q *Queries) InsertSkillIfMissing(ctx context.Context, name string) error {
 	_, err := q.db.Exec(ctx, insertSkillIfMissing, name)
 	return err
+}
+
+const languageNameTaken = `-- name: LanguageNameTaken :one
+SELECT EXISTS (
+    SELECT 1 FROM profile_languages
+    WHERE user_id = $1 AND lower(name) = lower($2::text)
+      AND id IS DISTINCT FROM $3::uuid
+)
+`
+
+type LanguageNameTakenParams struct {
+	UserID   pgtype.UUID
+	Name     string
+	ExceptID pgtype.UUID
+}
+
+// Compares names as the unique index profile_languages_user_name_key does. A NULL
+// except_id excepts no language.
+func (q *Queries) LanguageNameTaken(ctx context.Context, arg LanguageNameTakenParams) (bool, error) {
+	row := q.db.QueryRow(ctx, languageNameTaken, arg.UserID, arg.Name, arg.ExceptID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const linkUserInterest = `-- name: LinkUserInterest :exec
@@ -658,6 +775,47 @@ func (q *Queries) ListUserInterests(ctx context.Context, userID pgtype.UUID) ([]
 	for rows.Next() {
 		var i ResearchInterest
 		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUserLanguages = `-- name: ListUserLanguages :many
+SELECT id, user_id, name, proficiency
+FROM profile_languages
+WHERE user_id = $1
+ORDER BY created_at, id
+`
+
+type ListUserLanguagesRow struct {
+	ID          pgtype.UUID
+	UserID      pgtype.UUID
+	Name        string
+	Proficiency string
+}
+
+// Oldest first; the usecase then puts the highest proficiency first. id makes the order
+// stable.
+func (q *Queries) ListUserLanguages(ctx context.Context, userID pgtype.UUID) ([]ListUserLanguagesRow, error) {
+	rows, err := q.db.Query(ctx, listUserLanguages, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUserLanguagesRow
+	for rows.Next() {
+		var i ListUserLanguagesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.Name,
+			&i.Proficiency,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -989,6 +1147,45 @@ func (q *Queries) UpdateUserExperience(ctx context.Context, arg UpdateUserExperi
 		&i.EndMonth,
 		&i.IsCurrent,
 		&i.Description,
+	)
+	return i, err
+}
+
+const updateUserLanguage = `-- name: UpdateUserLanguage :one
+UPDATE profile_languages SET
+    name        = $1,
+    proficiency = $2
+WHERE id = $3 AND user_id = $4
+RETURNING id, user_id, name, proficiency
+`
+
+type UpdateUserLanguageParams struct {
+	Name        string
+	Proficiency string
+	ID          pgtype.UUID
+	UserID      pgtype.UUID
+}
+
+type UpdateUserLanguageRow struct {
+	ID          pgtype.UUID
+	UserID      pgtype.UUID
+	Name        string
+	Proficiency string
+}
+
+func (q *Queries) UpdateUserLanguage(ctx context.Context, arg UpdateUserLanguageParams) (UpdateUserLanguageRow, error) {
+	row := q.db.QueryRow(ctx, updateUserLanguage,
+		arg.Name,
+		arg.Proficiency,
+		arg.ID,
+		arg.UserID,
+	)
+	var i UpdateUserLanguageRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Name,
+		&i.Proficiency,
 	)
 	return i, err
 }

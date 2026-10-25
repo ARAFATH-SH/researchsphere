@@ -123,6 +123,18 @@ func (fakeAPI) RemoveMyExperience(context.Context, gen.RemoveMyExperienceRequest
 	return gen.RemoveMyExperience204Response{}, nil
 }
 
+func (fakeAPI) AddMyLanguage(context.Context, gen.AddMyLanguageRequestObject) (gen.AddMyLanguageResponseObject, error) {
+	return gen.AddMyLanguage201JSONResponse{}, nil
+}
+
+func (fakeAPI) UpdateMyLanguage(context.Context, gen.UpdateMyLanguageRequestObject) (gen.UpdateMyLanguageResponseObject, error) {
+	return gen.UpdateMyLanguage200JSONResponse{}, nil
+}
+
+func (fakeAPI) RemoveMyLanguage(context.Context, gen.RemoveMyLanguageRequestObject) (gen.RemoveMyLanguageResponseObject, error) {
+	return gen.RemoveMyLanguage204Response{}, nil
+}
+
 func (fakeAPI) GetMyContact(context.Context, gen.GetMyContactRequestObject) (gen.GetMyContactResponseObject, error) {
 	return gen.GetMyContact200JSONResponse{}, nil
 }
@@ -385,8 +397,8 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 
 func TestRoutes(t *testing.T) {
 	got := Routes()
-	if len(got) != 37 {
-		t.Errorf("Routes() returned %d routes, want the 37 operations in the contract: %v", len(got), got)
+	if len(got) != 40 {
+		t.Errorf("Routes() returned %d routes, want the 40 operations in the contract: %v", len(got), got)
 	}
 	seen := map[string]bool{}
 	for _, p := range got {

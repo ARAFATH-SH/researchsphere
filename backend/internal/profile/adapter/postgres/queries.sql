@@ -205,6 +205,51 @@ FROM profile_experience
 WHERE user_id = @user_id
 ORDER BY is_current DESC, start_year DESC, start_month DESC, created_at, id;
 
+-- Languages (FR-4.9). Every query names the owner in its WHERE clause, so a language of
+-- another user is never read, changed or deleted: it is simply not found.
+
+-- name: CountUserLanguages :one
+SELECT count(*) FROM profile_languages WHERE user_id = @user_id;
+
+-- name: LanguageNameTaken :one
+-- Compares names as the unique index profile_languages_user_name_key does. A NULL
+-- except_id excepts no language.
+SELECT EXISTS (
+    SELECT 1 FROM profile_languages
+    WHERE user_id = @user_id AND lower(name) = lower(@name::text)
+      AND id IS DISTINCT FROM sqlc.narg(except_id)::uuid
+);
+
+-- name: InsertLanguage :one
+INSERT INTO profile_languages (user_id, name, proficiency)
+VALUES (@user_id, @name, @proficiency)
+RETURNING id, user_id, name, proficiency;
+
+-- name: FindUserLanguageForUpdate :one
+-- Locks the language until the transaction ends.
+SELECT id, user_id, name, proficiency
+FROM profile_languages
+WHERE id = @id AND user_id = @user_id
+FOR UPDATE;
+
+-- name: UpdateUserLanguage :one
+UPDATE profile_languages SET
+    name        = @name,
+    proficiency = @proficiency
+WHERE id = @id AND user_id = @user_id
+RETURNING id, user_id, name, proficiency;
+
+-- name: DeleteUserLanguage :execrows
+DELETE FROM profile_languages WHERE id = @id AND user_id = @user_id;
+
+-- name: ListUserLanguages :many
+-- Oldest first; the usecase then puts the highest proficiency first. id makes the order
+-- stable.
+SELECT id, user_id, name, proficiency
+FROM profile_languages
+WHERE user_id = @user_id
+ORDER BY created_at, id;
+
 -- Contact info and links (FR-4.7). Every query names the owner in its WHERE clause, so a
 -- link of another user is never read or deleted: it is simply not found.
 

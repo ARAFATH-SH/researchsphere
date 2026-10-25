@@ -47,6 +47,11 @@ type fakeService struct {
 	experiencePatch usecase.ExperiencePatch // given to UpdateExperience
 	experienceID    string                  // given to UpdateExperience and RemoveExperience
 
+	language      domain.Language       // returned by the language operations
+	languageIn    usecase.LanguageInput // given to AddLanguage
+	languagePatch usecase.LanguagePatch // given to UpdateLanguage
+	languageID    string                // given to UpdateLanguage and RemoveLanguage
+
 	viewerID  string               // given to View
 	contact   domain.Contact       // returned by GetContact and UpdateContact
 	contactIn usecase.ContactInput // given to UpdateContact
@@ -103,6 +108,21 @@ func (f *fakeService) UpdateExperience(_ context.Context, userID, id string, pat
 
 func (f *fakeService) RemoveExperience(_ context.Context, userID, id string) error {
 	f.userID, f.experienceID = userID, id
+	return f.err
+}
+
+func (f *fakeService) AddLanguage(_ context.Context, userID string, in usecase.LanguageInput) (domain.Language, error) {
+	f.userID, f.languageIn = userID, in
+	return f.language, f.err
+}
+
+func (f *fakeService) UpdateLanguage(_ context.Context, userID, id string, patch usecase.LanguagePatch) (domain.Language, error) {
+	f.userID, f.languageID, f.languagePatch = userID, id, patch
+	return f.language, f.err
+}
+
+func (f *fakeService) RemoveLanguage(_ context.Context, userID, id string) error {
+	f.userID, f.languageID = userID, id
 	return f.err
 }
 
@@ -193,7 +213,7 @@ func checkProfileBody(t *testing.T, rec *httptest.ResponseRecorder, wantID strin
 	want := map[string]any{
 		"userId": wantID, "fullName": "Ada Lovelace", "headline": "Analyst", "bio": nil,
 		"institution": nil, "department": nil, "jobTitle": nil, "country": "GB",
-		"interests": []any{}, "skills": []any{}, "education": []any{}, "experience": []any{}, "publications": []any{},
+		"interests": []any{}, "skills": []any{}, "education": []any{}, "experience": []any{}, "languages": []any{}, "publications": []any{},
 		"connectionStatus": "none", "contact": map[string]any{"links": []any{}},
 		"photoUrl": nil, "coverUrl": nil,
 	}

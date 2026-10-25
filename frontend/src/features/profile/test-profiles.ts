@@ -20,6 +20,7 @@ export function emptyProfile(userId: string, fullName: string): Profile {
     skills: [],
     education: [],
     experience: [],
+    languages: [],
     publications: [],
     connectionStatus: "none",
     contact: { links: [] },

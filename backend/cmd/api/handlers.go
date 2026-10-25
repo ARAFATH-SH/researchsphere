@@ -69,6 +69,11 @@ var platformGuards = map[string]authz.Action{
 	"PATCH /api/v1/profiles/me/experience/{experienceId}":  authz.ActAsMember,
 	"DELETE /api/v1/profiles/me/experience/{experienceId}": authz.ActAsMember,
 
+	// Languages (FR-4.9) are part of the user's own profile.
+	"POST /api/v1/profiles/me/languages":                authz.ActAsMember,
+	"PATCH /api/v1/profiles/me/languages/{languageId}":  authz.ActAsMember,
+	"DELETE /api/v1/profiles/me/languages/{languageId}": authz.ActAsMember,
+
 	// Contact info and links (FR-4.7) are part of the user's own profile.
 	"GET /api/v1/profiles/me/contact":           authz.ViewContent,
 	"PUT /api/v1/profiles/me/contact":           authz.ActAsMember,

@@ -173,6 +173,7 @@ The 15 functional requirements of the proposal are grouped by module below. In e
 | FR-4.6 | let a user upload a profile photo of up to 5 MB (JPEG, PNG or WebP), stored as a 400x400 JPEG, and a cover image of up to 8 MB, stored as a 1584x396 JPEG | Must |
 | FR-4.7 | let a user add contact info (phone, birthday as day and month without year, and up to 5 website links) and choose for each item, and for the account email, who can see it: only me or all logged-in users | Should |
 | FR-4.8 | let a user add, edit and remove work experience entries with title, organization, employment type, location, location type, start and end month, current role, and description | Must |
+| FR-4.9 | let a user list the languages they know, each with a proficiency level | Should |
 
 **FR-5 Publications**
 

@@ -414,6 +414,52 @@ SELECT pg_temp.expect_error('Experience: end is not before start, same year earl
        VALUES ('00000000-0000-0000-0000-000000000001', 'Researcher', 'MIT', 'full_time', 2020, 3, 2020, 2, false)$s$, '23514');
 
 -- ---------------------------------------------------------------------------
+-- Languages (FR-4.9, migration 000010)
+-- ---------------------------------------------------------------------------
+
+SELECT pg_temp.expect_ok('Language: every proficiency is accepted',
+    $s$INSERT INTO profile_languages (user_id, name, proficiency)
+       SELECT '00000000-0000-0000-0000-000000000001', 'Lang ' || p, p
+         FROM unnest(ARRAY['elementary', 'limited_working', 'professional_working',
+                           'full_professional', 'native_or_bilingual']) AS p$s$);
+SELECT pg_temp.expect_ok('Language: a name of 50 characters',
+    $s$INSERT INTO profile_languages (user_id, name, proficiency)
+       VALUES ('00000000-0000-0000-0000-000000000001', repeat('é', 50), 'elementary')$s$);
+SELECT pg_temp.expect_ok('Language: Bangla for one user',
+    $s$INSERT INTO profile_languages (user_id, name, proficiency)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'Bangla', 'native_or_bilingual')$s$);
+SELECT pg_temp.expect_ok('Language: two users may know the same language',
+    $s$INSERT INTO profile_languages (user_id, name, proficiency)
+       VALUES ('00000000-0000-0000-0000-000000000002', 'bangla', 'elementary')$s$);
+SELECT pg_temp.expect_error('Language: the same name in another case for one user is refused',
+    $s$INSERT INTO profile_languages (user_id, name, proficiency)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'BANGLA', 'elementary')$s$, '23505');
+SELECT pg_temp.expect_error('Language: user must exist',
+    $s$INSERT INTO profile_languages (user_id, name, proficiency)
+       VALUES (gen_random_uuid(), 'English', 'elementary')$s$, '23503');
+SELECT pg_temp.expect_error('Language: name is required',
+    $s$INSERT INTO profile_languages (user_id, proficiency)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'elementary')$s$, '23502');
+SELECT pg_temp.expect_error('Language: name is at most 50 characters',
+    $s$INSERT INTO profile_languages (user_id, name, proficiency)
+       VALUES ('00000000-0000-0000-0000-000000000001', repeat('a', 51), 'elementary')$s$, '23514');
+SELECT pg_temp.expect_error('Language: name is not empty',
+    $s$INSERT INTO profile_languages (user_id, name, proficiency)
+       VALUES ('00000000-0000-0000-0000-000000000001', '', 'elementary')$s$, '23514');
+SELECT pg_temp.expect_error('Language: name is not blank',
+    $s$INSERT INTO profile_languages (user_id, name, proficiency)
+       VALUES ('00000000-0000-0000-0000-000000000001', '  ', 'elementary')$s$, '23514');
+SELECT pg_temp.expect_error('Language: name is one line',
+    $s$INSERT INTO profile_languages (user_id, name, proficiency)
+       VALUES ('00000000-0000-0000-0000-000000000001', E'Old\nNorse', 'elementary')$s$, '23514');
+SELECT pg_temp.expect_error('Language: proficiency is required',
+    $s$INSERT INTO profile_languages (user_id, name)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'English')$s$, '23502');
+SELECT pg_temp.expect_error('Language: proficiency is one of the five',
+    $s$INSERT INTO profile_languages (user_id, name, proficiency)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'English', 'fluent')$s$, '23514');
+
+-- ---------------------------------------------------------------------------
 -- Stored files (FR-4.6, FR-12.2, NFR-13, migration 000007)
 -- ---------------------------------------------------------------------------
 
@@ -703,6 +749,7 @@ INSERT INTO profile_contact (user_id, phone) VALUES ('00000000-0000-0000-0000-00
 INSERT INTO profile_links (user_id, kind, url) VALUES ('00000000-0000-0000-0000-000000000003', 'github', 'https://github.com/cy');
 INSERT INTO profile_experience (user_id, title, organization, employment_type, start_year, start_month, is_current)
     VALUES ('00000000-0000-0000-0000-000000000003', 'Engineer', 'ACME', 'full_time', 2019, 1, true);
+INSERT INTO profile_languages (user_id, name, proficiency) VALUES ('00000000-0000-0000-0000-000000000003', 'Welsh', 'elementary');
 INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes) VALUES
     ('00000000-0000-0000-0000-000000000003', 'photo', 'photo/cy',  'image/png', 100),
     ('00000000-0000-0000-0000-000000000003', 'cover', 'cover/cy',  'image/png', 100);
@@ -730,14 +777,15 @@ INSERT INTO notifications (user_id, type, actor_id) VALUES
 
 DELETE FROM users WHERE id = '00000000-0000-0000-0000-000000000003';
 
-SELECT pg_temp.expect_true('Deletion: profile, interests, skills, education, experience, contact info and links removed (FR-2.8)', $q$
+SELECT pg_temp.expect_true('Deletion: profile, interests, skills, education, experience, languages, contact info and links removed (FR-2.8)', $q$
     SELECT NOT EXISTS (SELECT 1 FROM profiles        WHERE user_id = '00000000-0000-0000-0000-000000000003')
        AND NOT EXISTS (SELECT 1 FROM user_interests  WHERE user_id = '00000000-0000-0000-0000-000000000003')
        AND NOT EXISTS (SELECT 1 FROM user_skills     WHERE user_id = '00000000-0000-0000-0000-000000000003')
        AND NOT EXISTS (SELECT 1 FROM education       WHERE user_id = '00000000-0000-0000-0000-000000000003')
        AND NOT EXISTS (SELECT 1 FROM profile_contact WHERE user_id = '00000000-0000-0000-0000-000000000003')
        AND NOT EXISTS (SELECT 1 FROM profile_links   WHERE user_id = '00000000-0000-0000-0000-000000000003')
-       AND NOT EXISTS (SELECT 1 FROM profile_experience WHERE user_id = '00000000-0000-0000-0000-000000000003')$q$);
+       AND NOT EXISTS (SELECT 1 FROM profile_experience WHERE user_id = '00000000-0000-0000-0000-000000000003')
+       AND NOT EXISTS (SELECT 1 FROM profile_languages  WHERE user_id = '00000000-0000-0000-0000-000000000003')$q$);
 SELECT pg_temp.expect_true('Deletion: sessions, retired refresh tokens and one-time tokens removed', $q$
     SELECT NOT EXISTS (SELECT 1 FROM sessions    WHERE user_id = '00000000-0000-0000-0000-000000000003')
        AND NOT EXISTS (SELECT 1 FROM auth_tokens WHERE user_id = '00000000-0000-0000-0000-000000000003')

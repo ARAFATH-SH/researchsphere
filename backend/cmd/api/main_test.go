@@ -339,6 +339,33 @@ func (okProfiles) UpdateExperience(_ context.Context, e profiledomain.Experience
 	return e, nil
 }
 
+func (okProfiles) ListLanguages(context.Context, string) ([]profiledomain.Language, error) {
+	return nil, nil
+}
+
+func (okProfiles) DeleteLanguage(context.Context, string, string) error { return nil }
+
+func (okProfiles) CountLanguages(context.Context, string) (int, error) { return 0, nil }
+
+func (okProfiles) LanguageNameTaken(context.Context, string, string, string) (bool, error) {
+	return false, nil
+}
+
+func (okProfiles) InsertLanguage(_ context.Context, l profiledomain.Language) (profiledomain.Language, error) {
+	l.ID = okLanguageID
+	return l, nil
+}
+
+func (okProfiles) FindLanguageForUpdate(_ context.Context, userID, id string) (profiledomain.Language, error) {
+	return profiledomain.Language{
+		ID: id, UserID: userID, Name: "Bangla", Proficiency: profiledomain.ProficiencyNativeOrBilingual,
+	}, nil
+}
+
+func (okProfiles) UpdateLanguage(_ context.Context, l profiledomain.Language) (profiledomain.Language, error) {
+	return l, nil
+}
+
 func (okProfiles) FindContact(_ context.Context, userID string) (profiledomain.Contact, error) {
 	return profiledomain.Contact{
 		UserID: userID, Email: "ada@example.org", EmailVisibility: profiledomain.OnlyMe,
@@ -364,6 +391,8 @@ const okEducationID = "8b3e4d5c-6f7a-4b2c-9d0e-1f2a3b4c5d6e"
 const okLinkID = "9c4f5e6d-7a8b-4c3d-8e1f-2a3b4c5d6e7f"
 
 const okExperienceID = "ad5a6f7e-8b9c-4d4e-9f2a-3b4c5d6e7f8a"
+
+const okLanguageID = "be6b7a8f-9c0d-4e5f-8a3b-4c5d6e7f8a9b"
 
 const okTagID = "7a2d3c4b-5e6f-4a1b-8c9d-0e1f2a3b4c5d"
 
