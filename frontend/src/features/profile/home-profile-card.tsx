@@ -6,7 +6,7 @@ import { Avatar } from "@/components/avatar";
 import { Card } from "@/components/ui/card";
 
 import { Cover } from "./cover";
-import { affiliation, countryName } from "./format";
+import { affiliation, locationLine } from "./format";
 import { useMyProfile } from "./my-profile";
 import { profileStrength } from "./strength";
 
@@ -21,7 +21,10 @@ export function HomeProfileCard() {
     return (
       <Card className="space-y-2 p-4 text-sm">
         <p className="text-text-muted">We couldn&apos;t load your profile.</p>
-        <Link href="/profile" className="font-semibold text-secondary hover:underline">
+        <Link
+          href="/profile"
+          className="font-semibold text-secondary hover:underline"
+        >
           Go to your profile
         </Link>
       </Card>
@@ -30,6 +33,7 @@ export function HomeProfileCard() {
 
   const profile = result.profile;
   const works = affiliation(profile);
+  const location = locationLine(profile);
   const { percent } = profileStrength(profile);
   return (
     <Card className="overflow-hidden">
@@ -50,15 +54,20 @@ export function HomeProfileCard() {
             {profile.fullName}
           </span>
         </Link>
-        {profile.headline && <p className="mt-1 text-sm break-words text-text">{profile.headline}</p>}
+        {profile.headline && (
+          <p className="mt-1 text-sm break-words text-text">
+            {profile.headline}
+          </p>
+        )}
         {works && <p className="mt-1 text-sm text-text-muted">{works}</p>}
-        {profile.country && <p className="text-sm text-text-muted">{countryName(profile.country)}</p>}
+        {location && <p className="text-sm text-text-muted">{location}</p>}
       </div>
       <Link
         href="/profile"
         className="block border-t border-border px-4 py-3 text-sm text-text-muted hover:bg-background hover:text-text focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none focus-visible:ring-inset"
       >
-        Profile strength: <span className="font-semibold text-primary">{percent}%</span>
+        Profile strength:{" "}
+        <span className="font-semibold text-primary">{percent}%</span>
       </Link>
     </Card>
   );

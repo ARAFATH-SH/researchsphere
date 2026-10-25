@@ -15,12 +15,22 @@ afterEach(() => jest.resetAllMocks());
 
 function renderEducation() {
   const onSaved = jest.fn();
-  render(<EducationDialog profile={fullProfile(adaID, "Ada Lovelace")} onClose={() => {}} onSaved={onSaved} />);
+  render(
+    <EducationDialog
+      profile={fullProfile(adaID, "Ada Lovelace")}
+      onClose={() => {}}
+      onSaved={onSaved}
+    />,
+  );
   return onSaved;
 }
 
-const type = (name: string, value: string) => fireEvent.change(screen.getByRole("textbox", { name }), { target: { value } });
-const save = () => fireEvent.click(screen.getByRole("button", { name: "Save" }));
+const type = (name: string, value: string) =>
+  fireEvent.change(screen.getByRole("textbox", { name }), {
+    target: { value },
+  });
+const save = () =>
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
 describe("EducationDialog", () => {
   it("adds a current entry with endYear null", async () => {
@@ -32,8 +42,12 @@ describe("EducationDialog", () => {
     type("Institution", "  Oxford ");
     type("Start year", "2024");
     type("End year", "2027");
-    fireEvent.click(screen.getByRole("checkbox", { name: "I currently study here" }));
-    const endYear = screen.getByRole("textbox", { name: "End year" }) as HTMLInputElement;
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "I currently study here" }),
+    );
+    const endYear = screen.getByRole("textbox", {
+      name: "End year",
+    }) as HTMLInputElement;
     expect(endYear.disabled).toBe(true);
     expect(endYear.value).toBe("");
 
@@ -53,8 +67,13 @@ describe("EducationDialog", () => {
     mockUpdate.mockResolvedValue({ ok: true, data: undefined });
     renderEducation();
     fireEvent.click(screen.getByRole("button", { name: "Edit MIT" }));
-    expect((screen.getByRole("textbox", { name: "End year" }) as HTMLInputElement).value).toBe("2026");
-    fireEvent.click(screen.getByRole("checkbox", { name: "I currently study here" }));
+    expect(
+      (screen.getByRole("textbox", { name: "End year" }) as HTMLInputElement)
+        .value,
+    ).toBe("2026");
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "I currently study here" }),
+    );
     save();
     await screen.findByRole("button", { name: "Save" });
     expect(mockUpdate).toHaveBeenCalledWith("e2", {
@@ -76,15 +95,27 @@ describe("EducationDialog", () => {
   });
 
   it("shows a server field error under its field", async () => {
-    mockAdd.mockResolvedValue({ ok: false, code: "invalid_start_year", message: "The start year is not valid." });
+    mockAdd.mockResolvedValue({
+      ok: false,
+      code: "invalid_start_year",
+      message: "The start year is not valid.",
+    });
     renderEducation();
     fireEvent.click(screen.getByRole("button", { name: "Add education" }));
     type("Institution", "Oxford");
     type("Start year", "2024");
-    fireEvent.click(screen.getByRole("checkbox", { name: "I currently study here" }));
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "I currently study here" }),
+    );
     save();
-    expect(await screen.findByText("The start year is not valid.")).toBeTruthy();
-    expect(screen.getByRole("textbox", { name: "Start year" }).getAttribute("aria-invalid")).toBe("true");
+    expect(
+      await screen.findByText("The start year is not valid."),
+    ).toBeTruthy();
+    expect(
+      screen
+        .getByRole("textbox", { name: "Start year" })
+        .getAttribute("aria-invalid"),
+    ).toBe("true");
   });
 
   it("deletes only after the confirm step", async () => {
@@ -93,10 +124,14 @@ describe("EducationDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit ETH Zürich" }));
     fireEvent.click(screen.getByRole("button", { name: "Delete entry" }));
     expect(mockRemove).not.toHaveBeenCalled();
-    expect(screen.getByText("Delete this entry? This cannot be undone.")).toBeTruthy();
+    expect(
+      screen.getByText("Delete this entry? This cannot be undone."),
+    ).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(screen.queryByText("Delete this entry? This cannot be undone.")).toBeNull();
+    expect(
+      screen.queryByText("Delete this entry? This cannot be undone."),
+    ).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Delete entry" }));
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));

@@ -101,6 +101,7 @@ func TestUpsertProfile(t *testing.T) {
 	first := domain.Profile{
 		UserID: id, FullName: "Ada Lovelace", Headline: ptr("Analyst"), Bio: ptr("Line one\nline two"),
 		Institution: ptr("University of London"), Department: ptr("Mathematics"), JobTitle: ptr("Researcher"), Country: ptr("GB"),
+		City: ptr("London"),
 	}
 	got, err := s.UpsertProfile(t.Context(), first)
 	if err != nil {
@@ -136,24 +137,24 @@ func TestUpsertProfile(t *testing.T) {
 	}
 
 	var (
-		rows                                                      int
-		headline, bio, institution, department, jobTitle, orcidID *string
-		createdAfter                                              string
-		updatedAfterCreated                                       bool
+		rows                                                            int
+		headline, bio, institution, department, jobTitle, city, orcidID *string
+		createdAfter                                                    string
+		updatedAfterCreated                                             bool
 	)
 	err = pool.QueryRow(t.Context(), `
 		SELECT (SELECT count(*) FROM profiles WHERE user_id = $1),
-		       headline, bio, institution, department, job_title, orcid_id,
+		       headline, bio, institution, department, job_title, city, orcid_id,
 		       created_at::text, updated_at > created_at
 		FROM profiles WHERE user_id = $1`, id).
-		Scan(&rows, &headline, &bio, &institution, &department, &jobTitle, &orcidID, &createdAfter, &updatedAfterCreated)
+		Scan(&rows, &headline, &bio, &institution, &department, &jobTitle, &city, &orcidID, &createdAfter, &updatedAfterCreated)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if rows != 1 {
 		t.Errorf("%d profile rows, want 1", rows)
 	}
-	for name, v := range map[string]*string{"headline": headline, "bio": bio, "institution": institution, "department": department, "job_title": jobTitle} {
+	for name, v := range map[string]*string{"headline": headline, "bio": bio, "institution": institution, "department": department, "job_title": jobTitle, "city": city} {
 		if v != nil {
 			t.Errorf("%s = %q, want NULL", name, *v)
 		}
@@ -182,10 +183,12 @@ func TestUpsertProfileConstraints(t *testing.T) {
 	s, pool := newTestStore(t)
 	id := newUser(t, pool)
 	for name, p := range map[string]domain.Profile{
-		"name too long":      {UserID: id, FullName: strings.Repeat("a", 201)},
-		"blank headline":     {UserID: id, FullName: "Ada", Headline: ptr(" ")},
-		"bio too long":       {UserID: id, FullName: "Ada", Bio: ptr(strings.Repeat("a", 2001))},
-		"lower-case country": {UserID: id, FullName: "Ada", Country: ptr("de")},
+		"name too long":          {UserID: id, FullName: strings.Repeat("a", 201)},
+		"blank headline":         {UserID: id, FullName: "Ada", Headline: ptr(" ")},
+		"bio too long":           {UserID: id, FullName: "Ada", Bio: ptr(strings.Repeat("a", 2001))},
+		"lower-case country":     {UserID: id, FullName: "Ada", Country: ptr("de")},
+		"city too long":          {UserID: id, FullName: "Ada", City: ptr(strings.Repeat("a", 101))},
+		"city with a line break": {UserID: id, FullName: "Ada", City: ptr("a\nb")},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := s.UpsertProfile(t.Context(), p)

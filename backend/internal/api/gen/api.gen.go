@@ -39,6 +39,48 @@ func (e ConnectionStatus) Valid() bool {
 	}
 }
 
+// Defines values for EmploymentType.
+const (
+	Contract          EmploymentType = "contract"
+	Freelance         EmploymentType = "freelance"
+	FullTime          EmploymentType = "full_time"
+	Internship        EmploymentType = "internship"
+	PartTime          EmploymentType = "part_time"
+	Postdoc           EmploymentType = "postdoc"
+	ResearchAssistant EmploymentType = "research_assistant"
+	SelfEmployed      EmploymentType = "self_employed"
+	TeachingAssistant EmploymentType = "teaching_assistant"
+	Volunteer         EmploymentType = "volunteer"
+)
+
+// Valid indicates whether the value is a known member of the EmploymentType enum.
+func (e EmploymentType) Valid() bool {
+	switch e {
+	case Contract:
+		return true
+	case Freelance:
+		return true
+	case FullTime:
+		return true
+	case Internship:
+		return true
+	case PartTime:
+		return true
+	case Postdoc:
+		return true
+	case ResearchAssistant:
+		return true
+	case SelfEmployed:
+		return true
+	case TeachingAssistant:
+		return true
+	case Volunteer:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for HealthDatabase.
 const (
 	HealthDatabaseOk HealthDatabase = "ok"
@@ -99,6 +141,33 @@ func (e HealthStorage) Valid() bool {
 	}
 }
 
+// Defines values for LanguageProficiency.
+const (
+	Elementary          LanguageProficiency = "elementary"
+	FullProfessional    LanguageProficiency = "full_professional"
+	LimitedWorking      LanguageProficiency = "limited_working"
+	NativeOrBilingual   LanguageProficiency = "native_or_bilingual"
+	ProfessionalWorking LanguageProficiency = "professional_working"
+)
+
+// Valid indicates whether the value is a known member of the LanguageProficiency enum.
+func (e LanguageProficiency) Valid() bool {
+	switch e {
+	case Elementary:
+		return true
+	case FullProfessional:
+		return true
+	case LimitedWorking:
+		return true
+	case NativeOrBilingual:
+		return true
+	case ProfessionalWorking:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for LinkKind.
 const (
 	Github        LinkKind = "github"
@@ -123,6 +192,27 @@ func (e LinkKind) Valid() bool {
 	case Researchgate:
 		return true
 	case Website:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for LocationType.
+const (
+	Hybrid LocationType = "hybrid"
+	OnSite LocationType = "on_site"
+	Remote LocationType = "remote"
+)
+
+// Valid indicates whether the value is a known member of the LocationType enum.
+func (e LocationType) Valid() bool {
+	switch e {
+	case Hybrid:
+		return true
+	case OnSite:
+		return true
+	case Remote:
 		return true
 	default:
 		return false
@@ -288,7 +378,8 @@ type DeleteAccountRequest struct {
 // Education One education entry (FR-4.4). The optional fields are always present and null when not set.
 type Education struct {
 	// Degree Example: PhD
-	Degree *string `json:"degree"`
+	Degree      *string `json:"degree"`
+	Description *string `json:"description"`
 
 	// EndYear Null while the entry is current.
 	//
@@ -296,8 +387,11 @@ type Education struct {
 	EndYear *int `json:"endYear"`
 
 	// FieldOfStudy Example: Computer Science
-	FieldOfStudy *string            `json:"fieldOfStudy"`
-	Id           openapi_types.UUID `json:"id"`
+	FieldOfStudy *string `json:"fieldOfStudy"`
+
+	// Grade Example: CGPA 3.57 / 4.00
+	Grade *string            `json:"grade"`
+	Id    openapi_types.UUID `json:"id"`
 
 	// Institution Example: University of Cambridge
 	Institution string `json:"institution"`
@@ -306,12 +400,15 @@ type Education struct {
 	StartYear int `json:"startYear"`
 }
 
-// EducationCreate A new education entry (FR-4.4). Text is trimmed first and every text field must be
-// one line; lengths count characters after trimming. Years run from 1950 to ten years
+// EducationCreate A new education entry (FR-4.4). Text is trimmed first and every text field except
+// `description` must be one line; lengths count characters after trimming. Years run from 1950 to ten years
 // after the current year, and `endYear` is not before `startYear`.
 type EducationCreate struct {
 	// Degree At most 100 characters; empty means not set.
 	Degree *string `json:"degree,omitempty"`
+
+	// Description At most 2000 characters; line breaks are kept; empty means not set.
+	Description *string `json:"description,omitempty"`
 
 	// EndYear Missing or null while the entry is current.
 	EndYear *int `json:"endYear,omitempty"`
@@ -319,22 +416,30 @@ type EducationCreate struct {
 	// FieldOfStudy At most 100 characters; empty means not set.
 	FieldOfStudy *string `json:"fieldOfStudy,omitempty"`
 
+	// Grade At most 50 characters of free text, such as "First class"; empty means not set.
+	Grade *string `json:"grade,omitempty"`
+
 	// Institution 1 to 200 characters.
 	Institution string `json:"institution"`
 	StartYear   int    `json:"startYear"`
 }
 
 // EducationUpdate The fields to change in an education entry (FR-4.4). A missing field keeps its
-// value. `null` clears `degree`, `fieldOfStudy` or `endYear`; `null` for
-// `institution` or `startYear` is refused, because both are required. The rules of
-// EducationCreate apply to the entry after the change.
+// value. `null` clears `degree`, `fieldOfStudy`, `endYear`, `grade` or
+// `description`; `null` for `institution` or `startYear` is refused, because both
+// are required. The rules of EducationCreate apply to the entry after the change.
 type EducationUpdate struct {
 	Degree       nullable.Nullable[string] `json:"degree,omitempty"`
+	Description  nullable.Nullable[string] `json:"description,omitempty"`
 	EndYear      nullable.Nullable[int]    `json:"endYear,omitempty"`
 	FieldOfStudy nullable.Nullable[string] `json:"fieldOfStudy,omitempty"`
+	Grade        nullable.Nullable[string] `json:"grade,omitempty"`
 	Institution  nullable.Nullable[string] `json:"institution,omitempty"`
 	StartYear    nullable.Nullable[int]    `json:"startYear,omitempty"`
 }
+
+// EmploymentType defines model for EmploymentType.
+type EmploymentType string
 
 // Error The shape of every error response (SRS 5.3).
 type Error struct {
@@ -347,6 +452,81 @@ type Error struct {
 	//
 	// Example: The requested resource does not exist.
 	Message string `json:"message"`
+}
+
+// Experience One work experience entry (FR-4.8). The optional fields are always present and null when not set.
+type Experience struct {
+	Description    *string        `json:"description"`
+	EmploymentType EmploymentType `json:"employmentType"`
+
+	// EndDate Null exactly when `isCurrent` is true.
+	EndDate   *YearMonth         `json:"endDate"`
+	Id        openapi_types.UUID `json:"id"`
+	IsCurrent bool               `json:"isCurrent"`
+
+	// Location Example: Dhaka, Bangladesh
+	Location     *string       `json:"location"`
+	LocationType *LocationType `json:"locationType"`
+
+	// Organization Example: University of Dhaka
+	Organization string `json:"organization"`
+
+	// StartDate A month of a year, such as March 2021.
+	StartDate YearMonth `json:"startDate"`
+
+	// Title Example: Research Assistant
+	Title string `json:"title"`
+}
+
+// ExperienceCreate A new work experience entry (FR-4.8). Text is trimmed first and lengths count
+// characters after trimming; `title`, `organization` and `location` must be one line.
+// Dates run from January 1950 to the current month (UTC), and `endDate` is not before
+// `startDate`. When `isCurrent` is true `endDate` must be missing or null; when it is
+// false `endDate` is required.
+type ExperienceCreate struct {
+	// Description At most 2000 characters, line breaks allowed; empty means not set.
+	Description    *string        `json:"description,omitempty"`
+	EmploymentType EmploymentType `json:"employmentType"`
+	EndDate        *YearMonth     `json:"endDate,omitempty"`
+	IsCurrent      bool           `json:"isCurrent"`
+
+	// Location At most 100 characters; empty means not set.
+	Location     *string       `json:"location,omitempty"`
+	LocationType *LocationType `json:"locationType,omitempty"`
+
+	// Organization 1 to 150 characters.
+	Organization string `json:"organization"`
+
+	// StartDate A month of a year, such as March 2021.
+	StartDate YearMonth `json:"startDate"`
+
+	// Title 1 to 100 characters.
+	Title string `json:"title"`
+}
+
+// ExperienceUpdate The fields to change in an experience entry (FR-4.8). A missing field keeps its
+// value. `null` clears `location`, `locationType`, `endDate` or `description`; `null`
+// for `title`, `organization`, `employmentType`, `startDate` or `isCurrent` is
+// refused, because they are required. The rules of ExperienceCreate apply to the
+// entry after the change.
+type ExperienceUpdate struct {
+	Description nullable.Nullable[string] `json:"description,omitempty"`
+
+	// EmploymentType One of the EmploymentType values.
+	EmploymentType nullable.Nullable[EmploymentType] `json:"employmentType,omitempty"`
+
+	// EndDate A YearMonth.
+	EndDate   nullable.Nullable[YearMonth] `json:"endDate,omitempty"`
+	IsCurrent nullable.Nullable[bool]      `json:"isCurrent,omitempty"`
+	Location  nullable.Nullable[string]    `json:"location,omitempty"`
+
+	// LocationType One of the LocationType values.
+	LocationType nullable.Nullable[LocationType] `json:"locationType,omitempty"`
+	Organization nullable.Nullable[string]       `json:"organization,omitempty"`
+
+	// StartDate A YearMonth.
+	StartDate nullable.Nullable[YearMonth] `json:"startDate,omitempty"`
+	Title     nullable.Nullable[string]    `json:"title,omitempty"`
 }
 
 // Health defines model for Health.
@@ -369,8 +549,41 @@ type HealthStatus string
 // HealthStorage defines model for Health.Storage.
 type HealthStorage string
 
+// Language One language the user knows (FR-4.9).
+type Language struct {
+	Id openapi_types.UUID `json:"id"`
+
+	// Name Example: Bangla
+	Name        string              `json:"name"`
+	Proficiency LanguageProficiency `json:"proficiency"`
+}
+
+// LanguageCreate A new language (FR-4.9). The name is trimmed first and its length counts characters
+// after trimming; it must be one line, and it is kept in the casing the user typed.
+type LanguageCreate struct {
+	// Name 1 to 50 characters.
+	Name        string              `json:"name"`
+	Proficiency LanguageProficiency `json:"proficiency"`
+}
+
+// LanguageProficiency defines model for LanguageProficiency.
+type LanguageProficiency string
+
+// LanguageUpdate The fields to change in a language (FR-4.9). A missing field keeps its value; `null`
+// is refused, because both fields are required. The rules of LanguageCreate apply to
+// the entry after the change.
+type LanguageUpdate struct {
+	Name nullable.Nullable[string] `json:"name,omitempty"`
+
+	// Proficiency One of the LanguageProficiency values.
+	Proficiency nullable.Nullable[LanguageProficiency] `json:"proficiency,omitempty"`
+}
+
 // LinkKind What a profile link points to; the client shows a label and icon for it.
 type LinkKind string
+
+// LocationType defines model for LocationType.
+type LocationType string
 
 // LoginRequest defines model for LoginRequest.
 type LoginRequest struct {
@@ -407,6 +620,9 @@ type PasswordResetRequest struct {
 type Profile struct {
 	Bio *string `json:"bio"`
 
+	// City Example: Cambridge
+	City *string `json:"city"`
+
 	// ConnectionStatus The connection between the caller and the profile's owner (FR-4.5).
 	// Placeholder: always `none` until connections are added (FR-7); more values come then.
 	ConnectionStatus ConnectionStatus `json:"connectionStatus"`
@@ -429,6 +645,10 @@ type Profile struct {
 	// then by `endYear`, latest first, then by `startYear`, latest first.
 	Education []Education `json:"education"`
 
+	// Experience The user's work experience (FR-4.8): current roles first, then by `startDate`,
+	// latest first, then oldest entry first.
+	Experience []Experience `json:"experience"`
+
 	// FullName Empty only for an account that has no profile row yet.
 	FullName    string  `json:"fullName"`
 	Headline    *string `json:"headline"`
@@ -437,6 +657,10 @@ type Profile struct {
 	// Interests The user's research interests (FR-4.2), sorted by name ignoring letter case.
 	Interests []Tag   `json:"interests"`
 	JobTitle  *string `json:"jobTitle"`
+
+	// Languages The languages the user knows (FR-4.9): highest proficiency first
+	// (`native_or_bilingual` first), then oldest entry first.
+	Languages []Language `json:"languages"`
 
 	// PhotoUrl The profile photo (FR-4.6) as `/api/v1/media/{fileId}`; null when not set.
 	//
@@ -475,6 +699,11 @@ type ProfileLink struct {
 type ProfileUpdate struct {
 	// Bio At most 2000 characters; line breaks are kept.
 	Bio *string `json:"bio,omitempty"`
+
+	// City At most 100 characters, one line.
+	//
+	// Example: Cambridge
+	City *string `json:"city,omitempty"`
 
 	// Country An ISO 3166-1 alpha-2 code; letter case is ignored ("de" is stored as "DE").
 	//
@@ -582,11 +811,28 @@ type VerifyEmailRequest struct {
 // "Connections only" comes with connections (slice 13).
 type Visibility string
 
+// YearMonth A month of a year, such as March 2021.
+type YearMonth struct {
+	// Month 1 (January) to 12 (December).
+	//
+	// Example: 3
+	Month int `json:"month"`
+
+	// Year Example: 2021
+	Year int `json:"year"`
+}
+
 // EducationID defines model for EducationID.
 type EducationID = string
 
+// ExperienceID defines model for ExperienceID.
+type ExperienceID = string
+
 // FileID defines model for FileID.
 type FileID = string
+
+// LanguageID defines model for LanguageID.
+type LanguageID = string
 
 // LinkID defines model for LinkID.
 type LinkID = string
@@ -615,8 +861,14 @@ type InternalError = Error
 // InvalidEducation The shape of every error response (SRS 5.3).
 type InvalidEducation = Error
 
+// InvalidExperience The shape of every error response (SRS 5.3).
+type InvalidExperience = Error
+
 // InvalidImage The shape of every error response (SRS 5.3).
 type InvalidImage = Error
+
+// InvalidLanguage The shape of every error response (SRS 5.3).
+type InvalidLanguage = Error
 
 // NoProfile The shape of every error response (SRS 5.3).
 type NoProfile = Error
@@ -736,8 +988,20 @@ type AddMyEducationJSONRequestBody = EducationCreate
 // UpdateMyEducationJSONRequestBody defines body for UpdateMyEducation for application/json ContentType.
 type UpdateMyEducationJSONRequestBody = EducationUpdate
 
+// AddMyExperienceJSONRequestBody defines body for AddMyExperience for application/json ContentType.
+type AddMyExperienceJSONRequestBody = ExperienceCreate
+
+// UpdateMyExperienceJSONRequestBody defines body for UpdateMyExperience for application/json ContentType.
+type UpdateMyExperienceJSONRequestBody = ExperienceUpdate
+
 // AddMyInterestJSONRequestBody defines body for AddMyInterest for application/json ContentType.
 type AddMyInterestJSONRequestBody = AddTagRequest
+
+// AddMyLanguageJSONRequestBody defines body for AddMyLanguage for application/json ContentType.
+type AddMyLanguageJSONRequestBody = LanguageCreate
+
+// UpdateMyLanguageJSONRequestBody defines body for UpdateMyLanguage for application/json ContentType.
+type UpdateMyLanguageJSONRequestBody = LanguageUpdate
 
 // AddMyLinkJSONRequestBody defines body for AddMyLink for application/json ContentType.
 type AddMyLinkJSONRequestBody = AddLinkRequest
@@ -819,12 +1083,30 @@ type ServerInterface interface {
 	// UpdateMyEducation Change some fields of one of the logged-in user's education entries (FR-4.4)
 	// (PATCH /profiles/me/education/{educationId})
 	UpdateMyEducation(w http.ResponseWriter, r *http.Request, educationId EducationID)
+	// AddMyExperience Add a work experience entry to the logged-in user's profile (FR-4.8)
+	// (POST /profiles/me/experience)
+	AddMyExperience(w http.ResponseWriter, r *http.Request)
+	// RemoveMyExperience Remove one of the logged-in user's experience entries (FR-4.8)
+	// (DELETE /profiles/me/experience/{experienceId})
+	RemoveMyExperience(w http.ResponseWriter, r *http.Request, experienceId ExperienceID)
+	// UpdateMyExperience Change some fields of one of the logged-in user's experience entries (FR-4.8)
+	// (PATCH /profiles/me/experience/{experienceId})
+	UpdateMyExperience(w http.ResponseWriter, r *http.Request, experienceId ExperienceID)
 	// AddMyInterest Add a research interest to the logged-in user's profile (FR-4.2)
 	// (POST /profiles/me/interests)
 	AddMyInterest(w http.ResponseWriter, r *http.Request)
 	// RemoveMyInterest Remove a research interest from the logged-in user's profile (FR-4.2)
 	// (DELETE /profiles/me/interests/{tagId})
 	RemoveMyInterest(w http.ResponseWriter, r *http.Request, tagId TagID)
+	// AddMyLanguage Add a language to the logged-in user's profile (FR-4.9)
+	// (POST /profiles/me/languages)
+	AddMyLanguage(w http.ResponseWriter, r *http.Request)
+	// RemoveMyLanguage Remove one of the logged-in user's languages (FR-4.9)
+	// (DELETE /profiles/me/languages/{languageId})
+	RemoveMyLanguage(w http.ResponseWriter, r *http.Request, languageId LanguageID)
+	// UpdateMyLanguage Change the name or proficiency of one of the logged-in user's languages (FR-4.9)
+	// (PATCH /profiles/me/languages/{languageId})
+	UpdateMyLanguage(w http.ResponseWriter, r *http.Request, languageId LanguageID)
 	// AddMyLink Add a link to the logged-in user's profile (FR-4.7)
 	// (POST /profiles/me/links)
 	AddMyLink(w http.ResponseWriter, r *http.Request)
@@ -1400,6 +1682,90 @@ func (siw *ServerInterfaceWrapper) UpdateMyEducation(w http.ResponseWriter, r *h
 	handler.ServeHTTP(w, r)
 }
 
+// AddMyExperience operation middleware
+func (siw *ServerInterfaceWrapper) AddMyExperience(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AddMyExperience(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RemoveMyExperience operation middleware
+func (siw *ServerInterfaceWrapper) RemoveMyExperience(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "experienceId" -------------
+	var experienceId ExperienceID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "experienceId", r.PathValue("experienceId"), &experienceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "experienceId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RemoveMyExperience(w, r, experienceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateMyExperience operation middleware
+func (siw *ServerInterfaceWrapper) UpdateMyExperience(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "experienceId" -------------
+	var experienceId ExperienceID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "experienceId", r.PathValue("experienceId"), &experienceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "experienceId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateMyExperience(w, r, experienceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // AddMyInterest operation middleware
 func (siw *ServerInterfaceWrapper) AddMyInterest(w http.ResponseWriter, r *http.Request) {
 
@@ -1443,6 +1809,90 @@ func (siw *ServerInterfaceWrapper) RemoveMyInterest(w http.ResponseWriter, r *ht
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RemoveMyInterest(w, r, tagId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AddMyLanguage operation middleware
+func (siw *ServerInterfaceWrapper) AddMyLanguage(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AddMyLanguage(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RemoveMyLanguage operation middleware
+func (siw *ServerInterfaceWrapper) RemoveMyLanguage(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "languageId" -------------
+	var languageId LanguageID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "languageId", r.PathValue("languageId"), &languageId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "languageId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RemoveMyLanguage(w, r, languageId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateMyLanguage operation middleware
+func (siw *ServerInterfaceWrapper) UpdateMyLanguage(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "languageId" -------------
+	var languageId LanguageID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "languageId", r.PathValue("languageId"), &languageId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "languageId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateMyLanguage(w, r, languageId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1877,6 +2327,12 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/profiles/me/education", wrapper.AddMyEducation)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/profiles/me/education/{educationId}", wrapper.RemoveMyEducation)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/profiles/me/education/{educationId}", wrapper.UpdateMyEducation)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/profiles/me/experience", wrapper.AddMyExperience)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/profiles/me/experience/{experienceId}", wrapper.RemoveMyExperience)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/profiles/me/experience/{experienceId}", wrapper.UpdateMyExperience)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/profiles/me/languages", wrapper.AddMyLanguage)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/profiles/me/languages/{languageId}", wrapper.RemoveMyLanguage)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/profiles/me/languages/{languageId}", wrapper.UpdateMyLanguage)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles/me/contact", wrapper.GetMyContact)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/profiles/me/contact", wrapper.UpdateMyContact)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/profiles/me/links", wrapper.AddMyLink)
@@ -1898,7 +2354,11 @@ type InternalErrorJSONResponse Error
 
 type InvalidEducationJSONResponse Error
 
+type InvalidExperienceJSONResponse Error
+
 type InvalidImageJSONResponse Error
+
+type InvalidLanguageJSONResponse Error
 
 type NoProfileJSONResponse Error
 
@@ -3561,6 +4021,263 @@ func (response UpdateMyEducation500JSONResponse) VisitUpdateMyEducationResponse(
 	return err
 }
 
+type AddMyExperienceRequestObject struct {
+	Body *AddMyExperienceJSONRequestBody
+}
+
+type AddMyExperienceResponseObject interface {
+	VisitAddMyExperienceResponse(w http.ResponseWriter) error
+}
+
+type AddMyExperience201JSONResponse Experience
+
+func (response AddMyExperience201JSONResponse) VisitAddMyExperienceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyExperience400JSONResponse struct{ InvalidExperienceJSONResponse }
+
+func (response AddMyExperience400JSONResponse) VisitAddMyExperienceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyExperience401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response AddMyExperience401JSONResponse) VisitAddMyExperienceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyExperience403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response AddMyExperience403JSONResponse) VisitAddMyExperienceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyExperience409JSONResponse Error
+
+func (response AddMyExperience409JSONResponse) VisitAddMyExperienceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyExperience500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response AddMyExperience500JSONResponse) VisitAddMyExperienceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMyExperienceRequestObject struct {
+	ExperienceId ExperienceID `json:"experienceId"`
+}
+
+type RemoveMyExperienceResponseObject interface {
+	VisitRemoveMyExperienceResponse(w http.ResponseWriter) error
+}
+
+type RemoveMyExperience204Response struct {
+}
+
+func (response RemoveMyExperience204Response) VisitRemoveMyExperienceResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RemoveMyExperience401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RemoveMyExperience401JSONResponse) VisitRemoveMyExperienceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMyExperience403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response RemoveMyExperience403JSONResponse) VisitRemoveMyExperienceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMyExperience404JSONResponse Error
+
+func (response RemoveMyExperience404JSONResponse) VisitRemoveMyExperienceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMyExperience500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RemoveMyExperience500JSONResponse) VisitRemoveMyExperienceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMyExperienceRequestObject struct {
+	ExperienceId ExperienceID `json:"experienceId"`
+	Body         *UpdateMyExperienceJSONRequestBody
+}
+
+type UpdateMyExperienceResponseObject interface {
+	VisitUpdateMyExperienceResponse(w http.ResponseWriter) error
+}
+
+type UpdateMyExperience200JSONResponse Experience
+
+func (response UpdateMyExperience200JSONResponse) VisitUpdateMyExperienceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMyExperience400JSONResponse struct{ InvalidExperienceJSONResponse }
+
+func (response UpdateMyExperience400JSONResponse) VisitUpdateMyExperienceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMyExperience401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response UpdateMyExperience401JSONResponse) VisitUpdateMyExperienceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMyExperience403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response UpdateMyExperience403JSONResponse) VisitUpdateMyExperienceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMyExperience404JSONResponse Error
+
+func (response UpdateMyExperience404JSONResponse) VisitUpdateMyExperienceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMyExperience500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response UpdateMyExperience500JSONResponse) VisitUpdateMyExperienceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type AddMyInterestRequestObject struct {
 	Body *AddMyInterestJSONRequestBody
 }
@@ -3728,6 +4445,277 @@ func (response RemoveMyInterest404JSONResponse) VisitRemoveMyInterestResponse(w 
 type RemoveMyInterest500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response RemoveMyInterest500JSONResponse) VisitRemoveMyInterestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyLanguageRequestObject struct {
+	Body *AddMyLanguageJSONRequestBody
+}
+
+type AddMyLanguageResponseObject interface {
+	VisitAddMyLanguageResponse(w http.ResponseWriter) error
+}
+
+type AddMyLanguage201JSONResponse Language
+
+func (response AddMyLanguage201JSONResponse) VisitAddMyLanguageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyLanguage400JSONResponse struct{ InvalidLanguageJSONResponse }
+
+func (response AddMyLanguage400JSONResponse) VisitAddMyLanguageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyLanguage401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response AddMyLanguage401JSONResponse) VisitAddMyLanguageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyLanguage403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response AddMyLanguage403JSONResponse) VisitAddMyLanguageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyLanguage409JSONResponse Error
+
+func (response AddMyLanguage409JSONResponse) VisitAddMyLanguageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyLanguage500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response AddMyLanguage500JSONResponse) VisitAddMyLanguageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMyLanguageRequestObject struct {
+	LanguageId LanguageID `json:"languageId"`
+}
+
+type RemoveMyLanguageResponseObject interface {
+	VisitRemoveMyLanguageResponse(w http.ResponseWriter) error
+}
+
+type RemoveMyLanguage204Response struct {
+}
+
+func (response RemoveMyLanguage204Response) VisitRemoveMyLanguageResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RemoveMyLanguage401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RemoveMyLanguage401JSONResponse) VisitRemoveMyLanguageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMyLanguage403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response RemoveMyLanguage403JSONResponse) VisitRemoveMyLanguageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMyLanguage404JSONResponse Error
+
+func (response RemoveMyLanguage404JSONResponse) VisitRemoveMyLanguageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMyLanguage500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RemoveMyLanguage500JSONResponse) VisitRemoveMyLanguageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMyLanguageRequestObject struct {
+	LanguageId LanguageID `json:"languageId"`
+	Body       *UpdateMyLanguageJSONRequestBody
+}
+
+type UpdateMyLanguageResponseObject interface {
+	VisitUpdateMyLanguageResponse(w http.ResponseWriter) error
+}
+
+type UpdateMyLanguage200JSONResponse Language
+
+func (response UpdateMyLanguage200JSONResponse) VisitUpdateMyLanguageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMyLanguage400JSONResponse struct{ InvalidLanguageJSONResponse }
+
+func (response UpdateMyLanguage400JSONResponse) VisitUpdateMyLanguageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMyLanguage401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response UpdateMyLanguage401JSONResponse) VisitUpdateMyLanguageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMyLanguage403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response UpdateMyLanguage403JSONResponse) VisitUpdateMyLanguageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMyLanguage404JSONResponse Error
+
+func (response UpdateMyLanguage404JSONResponse) VisitUpdateMyLanguageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMyLanguage409JSONResponse Error
+
+func (response UpdateMyLanguage409JSONResponse) VisitUpdateMyLanguageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMyLanguage500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response UpdateMyLanguage500JSONResponse) VisitUpdateMyLanguageResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -4580,12 +5568,30 @@ type StrictServerInterface interface {
 	// UpdateMyEducation Change some fields of one of the logged-in user's education entries (FR-4.4)
 	// (PATCH /profiles/me/education/{educationId})
 	UpdateMyEducation(ctx context.Context, request UpdateMyEducationRequestObject) (UpdateMyEducationResponseObject, error)
+	// AddMyExperience Add a work experience entry to the logged-in user's profile (FR-4.8)
+	// (POST /profiles/me/experience)
+	AddMyExperience(ctx context.Context, request AddMyExperienceRequestObject) (AddMyExperienceResponseObject, error)
+	// RemoveMyExperience Remove one of the logged-in user's experience entries (FR-4.8)
+	// (DELETE /profiles/me/experience/{experienceId})
+	RemoveMyExperience(ctx context.Context, request RemoveMyExperienceRequestObject) (RemoveMyExperienceResponseObject, error)
+	// UpdateMyExperience Change some fields of one of the logged-in user's experience entries (FR-4.8)
+	// (PATCH /profiles/me/experience/{experienceId})
+	UpdateMyExperience(ctx context.Context, request UpdateMyExperienceRequestObject) (UpdateMyExperienceResponseObject, error)
 	// AddMyInterest Add a research interest to the logged-in user's profile (FR-4.2)
 	// (POST /profiles/me/interests)
 	AddMyInterest(ctx context.Context, request AddMyInterestRequestObject) (AddMyInterestResponseObject, error)
 	// RemoveMyInterest Remove a research interest from the logged-in user's profile (FR-4.2)
 	// (DELETE /profiles/me/interests/{tagId})
 	RemoveMyInterest(ctx context.Context, request RemoveMyInterestRequestObject) (RemoveMyInterestResponseObject, error)
+	// AddMyLanguage Add a language to the logged-in user's profile (FR-4.9)
+	// (POST /profiles/me/languages)
+	AddMyLanguage(ctx context.Context, request AddMyLanguageRequestObject) (AddMyLanguageResponseObject, error)
+	// RemoveMyLanguage Remove one of the logged-in user's languages (FR-4.9)
+	// (DELETE /profiles/me/languages/{languageId})
+	RemoveMyLanguage(ctx context.Context, request RemoveMyLanguageRequestObject) (RemoveMyLanguageResponseObject, error)
+	// UpdateMyLanguage Change the name or proficiency of one of the logged-in user's languages (FR-4.9)
+	// (PATCH /profiles/me/languages/{languageId})
+	UpdateMyLanguage(ctx context.Context, request UpdateMyLanguageRequestObject) (UpdateMyLanguageResponseObject, error)
 	// AddMyLink Add a link to the logged-in user's profile (FR-4.7)
 	// (POST /profiles/me/links)
 	AddMyLink(ctx context.Context, request AddMyLinkRequestObject) (AddMyLinkResponseObject, error)
@@ -5311,6 +6317,96 @@ func (sh *strictHandler) UpdateMyEducation(w http.ResponseWriter, r *http.Reques
 	}
 }
 
+// AddMyExperience operation middleware
+func (sh *strictHandler) AddMyExperience(w http.ResponseWriter, r *http.Request) {
+	var request AddMyExperienceRequestObject
+
+	var body AddMyExperienceJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AddMyExperience(ctx, request.(AddMyExperienceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AddMyExperience")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AddMyExperienceResponseObject); ok {
+		if err := validResponse.VisitAddMyExperienceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RemoveMyExperience operation middleware
+func (sh *strictHandler) RemoveMyExperience(w http.ResponseWriter, r *http.Request, experienceId ExperienceID) {
+	var request RemoveMyExperienceRequestObject
+
+	request.ExperienceId = experienceId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RemoveMyExperience(ctx, request.(RemoveMyExperienceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RemoveMyExperience")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RemoveMyExperienceResponseObject); ok {
+		if err := validResponse.VisitRemoveMyExperienceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateMyExperience operation middleware
+func (sh *strictHandler) UpdateMyExperience(w http.ResponseWriter, r *http.Request, experienceId ExperienceID) {
+	var request UpdateMyExperienceRequestObject
+
+	request.ExperienceId = experienceId
+
+	var body UpdateMyExperienceJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateMyExperience(ctx, request.(UpdateMyExperienceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateMyExperience")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateMyExperienceResponseObject); ok {
+		if err := validResponse.VisitUpdateMyExperienceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // AddMyInterest operation middleware
 func (sh *strictHandler) AddMyInterest(w http.ResponseWriter, r *http.Request) {
 	var request AddMyInterestRequestObject
@@ -5361,6 +6457,96 @@ func (sh *strictHandler) RemoveMyInterest(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RemoveMyInterestResponseObject); ok {
 		if err := validResponse.VisitRemoveMyInterestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AddMyLanguage operation middleware
+func (sh *strictHandler) AddMyLanguage(w http.ResponseWriter, r *http.Request) {
+	var request AddMyLanguageRequestObject
+
+	var body AddMyLanguageJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AddMyLanguage(ctx, request.(AddMyLanguageRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AddMyLanguage")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AddMyLanguageResponseObject); ok {
+		if err := validResponse.VisitAddMyLanguageResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RemoveMyLanguage operation middleware
+func (sh *strictHandler) RemoveMyLanguage(w http.ResponseWriter, r *http.Request, languageId LanguageID) {
+	var request RemoveMyLanguageRequestObject
+
+	request.LanguageId = languageId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RemoveMyLanguage(ctx, request.(RemoveMyLanguageRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RemoveMyLanguage")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RemoveMyLanguageResponseObject); ok {
+		if err := validResponse.VisitRemoveMyLanguageResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateMyLanguage operation middleware
+func (sh *strictHandler) UpdateMyLanguage(w http.ResponseWriter, r *http.Request, languageId LanguageID) {
+	var request UpdateMyLanguageRequestObject
+
+	request.LanguageId = languageId
+
+	var body UpdateMyLanguageJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateMyLanguage(ctx, request.(UpdateMyLanguageRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateMyLanguage")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateMyLanguageResponseObject); ok {
+		if err := validResponse.VisitUpdateMyLanguageResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

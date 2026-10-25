@@ -72,6 +72,7 @@ func (s *Store) FindAccount(ctx context.Context, userID string) (domain.Account,
 			Department:  textPtr(row.Department),
 			JobTitle:    textPtr(row.JobTitle),
 			Country:     textPtr(row.Country),
+			City:        textPtr(row.City),
 			PhotoFileID: uuidPtr(row.PhotoFileID),
 			CoverFileID: uuidPtr(row.CoverFileID),
 		}
@@ -94,6 +95,7 @@ func (s *Store) UpsertProfile(ctx context.Context, p domain.Profile) (domain.Pro
 		Department:  text(p.Department),
 		JobTitle:    text(p.JobTitle),
 		Country:     text(p.Country),
+		City:        text(p.City),
 	})
 	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == foreignKeyViolation {
 		return domain.Profile{}, domain.ErrNotFound
@@ -110,6 +112,7 @@ func (s *Store) UpsertProfile(ctx context.Context, p domain.Profile) (domain.Pro
 		Department:  textPtr(row.Department),
 		JobTitle:    textPtr(row.JobTitle),
 		Country:     textPtr(row.Country),
+		City:        textPtr(row.City),
 		PhotoFileID: uuidPtr(row.PhotoFileID),
 		CoverFileID: uuidPtr(row.CoverFileID),
 	}, nil

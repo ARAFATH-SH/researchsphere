@@ -1,12 +1,25 @@
 // EditSection names a part of the own profile that has its own edit dialog. It is also
 // the value of /profile?edit=…, which opens that dialog.
-export type EditSection = "intro" | "about" | "interests" | "skills" | "education" | "contact" | "photo" | "cover";
+// "experience" and "languages" open the form for a new entry.
+export type EditSection =
+  | "intro"
+  | "about"
+  | "interests"
+  | "skills"
+  | "experience"
+  | "languages"
+  | "education"
+  | "contact"
+  | "photo"
+  | "cover";
 
 export const editSections: readonly EditSection[] = [
   "intro",
   "about",
   "interests",
   "skills",
+  "experience",
+  "languages",
   "education",
   "contact",
   "photo",
@@ -22,6 +35,16 @@ export function editButtonId(section: EditSection): string {
   return `edit-${section}-button`;
 }
 
+// experienceButtonId is the id of an experience entry's pencil.
+export function experienceButtonId(experienceId: string): string {
+  return `edit-experience-${experienceId}-button`;
+}
+
+// languageButtonId is the id of a language's pencil.
+export function languageButtonId(languageId: string): string {
+  return `edit-language-${languageId}-button`;
+}
+
 // editHref links to the own profile with a section's dialog open.
 export function editHref(section: EditSection): string {
   return `/profile?edit=${section}`;
@@ -29,7 +52,15 @@ export function editHref(section: EditSection): string {
 
 // EditButton is the pencil on a card that opens its edit dialog. The icon is its only
 // content, so label names what it edits ("Edit skills").
-export function EditButton({ id, label, onClick }: { id?: string; label: string; onClick: () => void }) {
+export function EditButton({
+  id,
+  label,
+  onClick,
+}: {
+  id?: string;
+  label: string;
+  onClick: () => void;
+}) {
   return (
     <button
       id={id}
@@ -40,6 +71,59 @@ export function EditButton({ id, label, onClick }: { id?: string; label: string;
     >
       <PencilIcon />
     </button>
+  );
+}
+
+// AddButton is the "+" on a card that opens the form for a new entry.
+export function AddButton({
+  id,
+  label,
+  onClick,
+}: {
+  id?: string;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      id={id}
+      type="button"
+      aria-label={label}
+      onClick={onClick}
+      className="shrink-0 rounded-full p-2 text-text-muted transition-colors hover:bg-background hover:text-text focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none"
+    >
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.75}
+        strokeLinecap="round"
+        className="size-6"
+      >
+        <path d="M12 5v14M5 12h14" />
+      </svg>
+    </button>
+  );
+}
+
+// BriefcaseIcon stands in for an organization's logo on an experience entry.
+export function BriefcaseIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-6"
+    >
+      <rect x="3" y="7" width="18" height="13" rx="2" />
+      <path d="M8 7V5.5A1.5 1.5 0 0 1 9.5 4h5A1.5 1.5 0 0 1 16 5.5V7" />
+      <path d="M3 12.5h18" />
+    </svg>
   );
 }
 

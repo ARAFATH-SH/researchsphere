@@ -105,7 +105,12 @@ export function MoreMenu({ userId }: { userId: string }) {
 
 function DotsIcon() {
   return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor" className="size-6">
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      className="size-6"
+    >
       <circle cx="5" cy="12" r="1.75" />
       <circle cx="12" cy="12" r="1.75" />
       <circle cx="19" cy="12" r="1.75" />

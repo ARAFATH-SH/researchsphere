@@ -7,7 +7,13 @@ import { profileStrength } from "./strength";
 
 // ProfileSidebar is the narrow column: the owner's profile strength, or a placeholder
 // for similar researchers on anyone else's profile (AI recommendations, slice 17).
-export function ProfileSidebar({ profile, own }: { profile: Profile; own: boolean }) {
+export function ProfileSidebar({
+  profile,
+  own,
+}: {
+  profile: Profile;
+  own: boolean;
+}) {
   return own ? <StrengthCard profile={profile} /> : <SimilarResearchers />;
 }
 
@@ -23,7 +29,10 @@ function StrengthCard({ profile }: { profile: Profile }) {
         aria-valuenow={percent}
         className="h-2 overflow-hidden rounded-full bg-primary-soft"
       >
-        <div className="h-full rounded-full bg-primary" style={{ width: `${percent}%` }} />
+        <div
+          className="h-full rounded-full bg-primary"
+          style={{ width: `${percent}%` }}
+        />
       </div>
       <p className="mt-2 text-sm text-text-muted">{percent}% complete</p>
       <ul aria-label="Profile checklist" className="mt-4 space-y-2 text-sm">
@@ -36,7 +45,10 @@ function StrengthCard({ profile }: { profile: Profile }) {
                 <span className="sr-only"> (done)</span>
               </span>
             ) : (
-              <Link href={editHref(item.section)} className="text-secondary hover:underline">
+              <Link
+                href={editHref(item.section)}
+                className="text-secondary hover:underline"
+              >
                 {item.action}
               </Link>
             )}
@@ -68,7 +80,9 @@ function CheckMark({ done }: { done: boolean }) {
 function SimilarResearchers() {
   return (
     <SectionCard title="Similar researchers">
-      <p className="text-sm text-text-muted">More researchers like this will appear here</p>
+      <p className="text-sm text-text-muted">
+        More researchers like this will appear here
+      </p>
     </SectionCard>
   );
 }

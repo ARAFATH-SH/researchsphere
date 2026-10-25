@@ -21,12 +21,13 @@ func iptr(n int) *int { return &n }
 
 var phd = domain.Education{
 	ID: educationID, UserID: callerID, Institution: "MIT", Degree: ptr("PhD"), StartYear: 2019,
+	Grade: ptr("First class"), Description: ptr("Line one\nLine two"),
 }
 
 // phdBody is phd as JSON: every field present, null when not set.
 var phdBody = map[string]any{
 	"id": educationID, "institution": "MIT", "degree": "PhD", "fieldOfStudy": nil,
-	"startYear": float64(2019), "endYear": nil,
+	"startYear": float64(2019), "endYear": nil, "grade": "First class", "description": "Line one\nLine two",
 }
 
 // The validation errors in the contract's order, and the codes they become.
@@ -39,17 +40,21 @@ var educationInputErrors = []struct {
 	{domain.ErrInvalidFieldOfStudy, CodeInvalidFieldOfStudy},
 	{domain.ErrInvalidStartYear, CodeInvalidStartYear},
 	{domain.ErrInvalidEndYear, CodeInvalidEndYear},
+	{domain.ErrInvalidGrade, CodeInvalidGrade},
+	{domain.ErrInvalidDescription, CodeInvalidDescription},
 }
 
 func TestAddMyEducation(t *testing.T) {
 	t.Run("created: 201 with the stored entry", func(t *testing.T) {
 		svc := &fakeService{education: phd}
 		rec := send(t, svc, http.MethodPost, educationPath,
-			`{"institution":" MIT ","degree":"PhD","startYear":2019,"endYear":null}`, callerID)
+			`{"institution":" MIT ","degree":"PhD","startYear":2019,"endYear":null,"grade":" First class ","description":"a\nb"}`, callerID)
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("status = %d, want 201; body %s", rec.Code, rec.Body)
 		}
-		want := usecase.EducationInput{Institution: " MIT ", Degree: ptr("PhD"), StartYear: 2019}
+		want := usecase.EducationInput{
+			Institution: " MIT ", Degree: ptr("PhD"), StartYear: 2019, Grade: ptr(" First class "), Description: ptr("a\nb"),
+		}
 		if svc.userID != callerID || !reflect.DeepEqual(svc.educationIn, want) {
 			t.Errorf("service got user %q, %+v; want %q, %+v", svc.userID, svc.educationIn, callerID, want)
 		}
@@ -119,7 +124,7 @@ func TestUpdateMyEducation(t *testing.T) {
 	t.Run("missing, null and set fields reach the usecase apart", func(t *testing.T) {
 		svc := &fakeService{education: phd}
 		rec := send(t, svc, http.MethodPatch, entryPath,
-			`{"degree":null,"fieldOfStudy":"Physics","endYear":null,"startYear":2018}`, callerID)
+			`{"degree":null,"fieldOfStudy":"Physics","endYear":null,"startYear":2018,"grade":null,"description":"New"}`, callerID)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200; body %s", rec.Code, rec.Body)
 		}
@@ -128,6 +133,8 @@ func TestUpdateMyEducation(t *testing.T) {
 			FieldOfStudy: usecase.Field[string]{Set: true, Value: "Physics"},
 			StartYear:    usecase.Field[int]{Set: true, Value: 2018},
 			EndYear:      usecase.Field[int]{Set: true, Null: true},
+			Grade:        usecase.Field[string]{Set: true, Null: true},
+			Description:  usecase.Field[string]{Set: true, Value: "New"},
 		}
 		if svc.userID != callerID || svc.educationID != educationID || !reflect.DeepEqual(svc.educationPatch, want) {
 			t.Errorf("service got user %q, id %q, %+v; want %+v", svc.userID, svc.educationID, svc.educationPatch, want)
@@ -237,8 +244,14 @@ func TestProfileBodyHasEducation(t *testing.T) {
 	p.Education = []domain.Education{current, done}
 	rec := send(t, &fakeService{profile: p}, http.MethodGet, "/api/v1/profiles/me", "", callerID)
 	want := []any{
-		map[string]any{"id": otherID, "institution": "ETH", "degree": nil, "fieldOfStudy": "CS", "startYear": float64(2023), "endYear": nil},
-		map[string]any{"id": educationID, "institution": "MIT", "degree": "PhD", "fieldOfStudy": nil, "startYear": float64(2019), "endYear": float64(2023)},
+		map[string]any{
+			"id": otherID, "institution": "ETH", "degree": nil, "fieldOfStudy": "CS", "startYear": float64(2023), "endYear": nil,
+			"grade": nil, "description": nil,
+		},
+		map[string]any{
+			"id": educationID, "institution": "MIT", "degree": "PhD", "fieldOfStudy": nil, "startYear": float64(2019), "endYear": float64(2023),
+			"grade": "First class", "description": "Line one\nLine two",
+		},
 	}
 	if got := decode(t, rec)["education"]; !reflect.DeepEqual(got, want) {
 		t.Errorf("education = %v, want %v", got, want)

@@ -18,7 +18,12 @@ import {
   validateIntro,
 } from "./validation";
 
-type DialogProps = { profile: Profile; onClose: () => void; onSaved: () => void; returnFocusId?: string };
+type DialogProps = {
+  profile: Profile;
+  onClose: () => void;
+  onSaved: () => void;
+  returnFocusId?: string;
+};
 
 function initialValues(p: Profile): IntroValues {
   return {
@@ -28,18 +33,26 @@ function initialValues(p: Profile): IntroValues {
     institution: p.institution ?? "",
     department: p.department ?? "",
     country: p.country ?? "",
+    city: p.city ?? "",
   };
 }
 
 // IntroDialog edits the header card: name, headline, where the researcher works and the
-// country (FR-4.1).
-export function IntroDialog({ profile, onClose, onSaved, returnFocusId }: DialogProps) {
+// country and city (FR-4.1).
+export function IntroDialog({
+  profile,
+  onClose,
+  onSaved,
+  returnFocusId,
+}: DialogProps) {
   const initial = useMemo(() => initialValues(profile), [profile]);
   const [values, setValues] = useState(initial);
   const [errors, setErrors] = useState<IntroErrors>({});
   const [formError, setFormError] = useState<string>();
   const [saving, setSaving] = useState(false);
-  const dirty = (Object.keys(initial) as IntroField[]).some((f) => values[f] !== initial[f]);
+  const dirty = (Object.keys(initial) as IntroField[]).some(
+    (f) => values[f] !== initial[f],
+  );
   const countries = useMemo(() => countryOptions(), []);
 
   function set(field: IntroField, value: string) {
@@ -62,6 +75,7 @@ export function IntroDialog({ profile, onClose, onSaved, returnFocusId }: Dialog
         institution: orNull(values.institution),
         department: orNull(values.department),
         country: orNull(values.country),
+        city: orNull(values.city),
       }),
     );
     setSaving(false);
@@ -71,7 +85,15 @@ export function IntroDialog({ profile, onClose, onSaved, returnFocusId }: Dialog
     else setFormError(genericError);
   }
 
-  const text = (field: Exclude<IntroField, "country">, label: string, extra: { required?: boolean; autoComplete?: string } = {}) => (
+  const text = (
+    field: Exclude<IntroField, "country">,
+    label: string,
+    extra: {
+      required?: boolean;
+      autoComplete?: string;
+      className?: string;
+    } = {},
+  ) => (
     <Field
       id={`intro-${field}`}
       name={field}
@@ -84,31 +106,48 @@ export function IntroDialog({ profile, onClose, onSaved, returnFocusId }: Dialog
   );
 
   return (
-    <Dialog title="Edit intro" dirty={dirty} onClose={onClose} returnFocusId={returnFocusId}>
+    <Dialog
+      title="Edit intro"
+      dirty={dirty}
+      onClose={onClose}
+      returnFocusId={returnFocusId}
+    >
       <form noValidate onSubmit={onSubmit} className="space-y-4">
         {formError ? <FormError>{formError}</FormError> : null}
-        {text("fullName", "Full name", { required: true, autoComplete: "name" })}
+        {text("fullName", "Full name", {
+          required: true,
+          autoComplete: "name",
+        })}
         {text("headline", "Headline")}
         {text("jobTitle", "Job title", { autoComplete: "organization-title" })}
         {text("institution", "Institution", { autoComplete: "organization" })}
         {text("department", "Department")}
-        <SelectField
-          id="intro-country"
-          name="country"
-          label="Country"
-          error={errors.country}
-          value={values.country}
-          onChange={(e) => set("country", e.target.value)}
-        >
-          <option value="">Not set</option>
-          {/* A stored value the list does not know stays selectable, so it can be seen and changed. */}
-          {values.country && !isCountryCode(values.country) && <option value={values.country}>{values.country}</option>}
-          {countries.map((c) => (
-            <option key={c.code} value={c.code}>
-              {c.name}
-            </option>
-          ))}
-        </SelectField>
+        <div className="flex flex-col gap-4 sm:flex-row">
+          <SelectField
+            id="intro-country"
+            name="country"
+            label="Country"
+            error={errors.country}
+            value={values.country}
+            onChange={(e) => set("country", e.target.value)}
+            className="flex-1"
+          >
+            <option value="">Not set</option>
+            {/* A stored value the list does not know stays selectable, so it can be seen and changed. */}
+            {values.country && !isCountryCode(values.country) && (
+              <option value={values.country}>{values.country}</option>
+            )}
+            {countries.map((c) => (
+              <option key={c.code} value={c.code}>
+                {c.name}
+              </option>
+            ))}
+          </SelectField>
+          {text("city", "City", {
+            autoComplete: "address-level2",
+            className: "flex-1",
+          })}
+        </div>
         <SaveButton saving={saving} />
       </form>
     </Dialog>

@@ -9,7 +9,12 @@ import { Spinner } from "@/components/ui/spinner";
 import { initials } from "@/lib/initials";
 
 import { type ImageKind, removeProfileImage, uploadProfileImage } from "./api";
-import { checkImageFile, imageMessages, imageTypes, uploadErrorMessage } from "./image-upload";
+import {
+  checkImageFile,
+  imageMessages,
+  imageTypes,
+  uploadErrorMessage,
+} from "./image-upload";
 
 type ImageDialogProps = {
   kind: ImageKind;
@@ -23,7 +28,17 @@ type ImageDialogProps = {
   returnFocusId?: string;
 };
 
-const words: Record<ImageKind, { title: string; upload: string; what: string; done: string; deleted: string; instead: string }> = {
+const words: Record<
+  ImageKind,
+  {
+    title: string;
+    upload: string;
+    what: string;
+    done: string;
+    deleted: string;
+    instead: string;
+  }
+> = {
   photo: {
     title: "Profile photo",
     upload: "Upload photo",
@@ -47,7 +62,14 @@ type Busy = "upload" | "delete" | null;
 // ImageDialog shows the profile photo or cover image and lets the owner replace or delete
 // it (FR-4.6). A chosen file is checked here first (type and size) and previewed cropped
 // the way the server crops it, a centred square or 4:1; the server checks it again.
-export function ImageDialog({ kind, name, currentUrl, onClose, onChanged, returnFocusId }: ImageDialogProps) {
+export function ImageDialog({
+  kind,
+  name,
+  currentUrl,
+  onClose,
+  onChanged,
+  returnFocusId,
+}: ImageDialogProps) {
   const w = words[kind];
   const input = useRef<HTMLInputElement>(null);
   const saveRef = useRef<HTMLButtonElement>(null);
@@ -69,7 +91,12 @@ export function ImageDialog({ kind, name, currentUrl, onClose, onChanged, return
 
   useEffect(() => {
     if (!focusNext.current) return;
-    const target = { upload: uploadRef, save: saveRef, keep: keepRef, delete: deleteRef }[focusNext.current];
+    const target = {
+      upload: uploadRef,
+      save: saveRef,
+      keep: keepRef,
+      delete: deleteRef,
+    }[focusNext.current];
     focusNext.current = null;
     target.current?.focus();
   });
@@ -133,9 +160,18 @@ export function ImageDialog({ kind, name, currentUrl, onClose, onChanged, return
     >
       <div className="space-y-4">
         {error && <FormError>{error}</FormError>}
-        <Frame kind={kind} name={name} src={preview ?? currentUrl} local={preview !== null} />
+        <Frame
+          kind={kind}
+          name={name}
+          src={preview ?? currentUrl}
+          local={preview !== null}
+        />
         {confirming ? (
-          <div role="group" aria-labelledby="image-delete-question" className="space-y-3">
+          <div
+            role="group"
+            aria-labelledby="image-delete-question"
+            className="space-y-3"
+          >
             <p id="image-delete-question" className="font-semibold text-text">
               Delete your {w.what}?
             </p>
@@ -178,7 +214,13 @@ export function ImageDialog({ kind, name, currentUrl, onClose, onChanged, return
             >
               Cancel
             </button>
-            <button ref={saveRef} type="button" disabled={disabled} onClick={save} className={primary}>
+            <button
+              ref={saveRef}
+              type="button"
+              disabled={disabled}
+              onClick={save}
+              className={primary}
+            >
               {busy === "upload" && <Spinner />}
               {busy === "upload" ? "Uploading…" : "Save"}
             </button>
@@ -213,7 +255,12 @@ export function ImageDialog({ kind, name, currentUrl, onClose, onChanged, return
                   Delete
                 </button>
               )}
-              <button type="button" disabled={disabled} onClick={onClose} className={outline}>
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={onClose}
+                className={outline}
+              >
                 Cancel
               </button>
             </div>
@@ -240,12 +287,26 @@ function release(url: string | null) {
 // Frame shows the image cropped as the server stores it: a centred circle-cut square for
 // the photo, a centred 4:1 band for the cover. object-cover crops from the centre, as the
 // server does.
-function Frame({ kind, name, src, local }: { kind: ImageKind; name: string; src: string | null; local: boolean }) {
+function Frame({
+  kind,
+  name,
+  src,
+  local,
+}: {
+  kind: ImageKind;
+  name: string;
+  src: string | null;
+  local: boolean;
+}) {
   const box =
     kind === "photo"
       ? "mx-auto flex size-40 items-center justify-center overflow-hidden rounded-full bg-primary text-5xl font-semibold text-surface"
       : "aspect-[4/1] w-full overflow-hidden rounded-lg bg-linear-to-r from-primary to-secondary";
-  const alt = local ? `Preview of the new ${words[kind].what}` : kind === "photo" ? name : `Cover image of ${name}`;
+  const alt = local
+    ? `Preview of the new ${words[kind].what}`
+    : kind === "photo"
+      ? name
+      : `Cover image of ${name}`;
   return (
     <div className={box}>
       {src ? (
@@ -257,7 +318,11 @@ function Frame({ kind, name, src, local }: { kind: ImageKind; name: string; src:
           {initials(name)}
         </span>
       ) : (
-        <span role="img" aria-label="No cover image" className="block size-full" />
+        <span
+          role="img"
+          aria-label="No cover image"
+          className="block size-full"
+        />
       )}
     </div>
   );

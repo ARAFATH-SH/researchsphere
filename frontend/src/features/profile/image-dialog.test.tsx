@@ -19,11 +19,20 @@ beforeAll(() => {
 });
 afterEach(() => jest.clearAllMocks());
 
-function renderDialog(kind: ImageKind = "photo", currentUrl: string | null = photoUrl) {
+function renderDialog(
+  kind: ImageKind = "photo",
+  currentUrl: string | null = photoUrl,
+) {
   const onClose = jest.fn();
   const onChanged = jest.fn();
   render(
-    <ImageDialog kind={kind} name="Ada Lovelace" currentUrl={currentUrl} onClose={onClose} onChanged={onChanged} />,
+    <ImageDialog
+      kind={kind}
+      name="Ada Lovelace"
+      currentUrl={currentUrl}
+      onClose={onClose}
+      onChanged={onChanged}
+    />,
   );
   return { onClose, onChanged };
 }
@@ -32,7 +41,8 @@ function renderDialog(kind: ImageKind = "photo", currentUrl: string | null = pho
 function choose(type: string, size = 1000, kind: ImageKind = "photo") {
   const file = new File(["x"], "picture", { type });
   Object.defineProperty(file, "size", { value: size });
-  const label = kind === "photo" ? "Choose a profile photo" : "Choose a cover image";
+  const label =
+    kind === "photo" ? "Choose a profile photo" : "Choose a cover image";
   fireEvent.change(screen.getByLabelText(label), { target: { files: [file] } });
   return file;
 }
@@ -43,7 +53,9 @@ describe("ImageDialog", () => {
   it("shows the current photo with Upload photo, Delete and Cancel", () => {
     const { onClose } = renderDialog();
     expect(screen.getByRole("heading", { name: "Profile photo" })).toBeTruthy();
-    expect(screen.getByRole("img", { name: "Ada Lovelace" }).getAttribute("src")).toBe(photoUrl);
+    expect(
+      screen.getByRole("img", { name: "Ada Lovelace" }).getAttribute("src"),
+    ).toBe(photoUrl);
     expect(document.activeElement).toBe(button("Upload photo"));
     expect(button("Delete")).toBeTruthy();
     fireEvent.click(button("Cancel"));
@@ -52,7 +64,9 @@ describe("ImageDialog", () => {
 
   it("shows the initials and no Delete when there is no photo", () => {
     renderDialog("photo", null);
-    expect(screen.getByRole("img", { name: "Ada Lovelace" }).textContent).toBe("AL");
+    expect(screen.getByRole("img", { name: "Ada Lovelace" }).textContent).toBe(
+      "AL",
+    );
     expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
   });
 
@@ -66,13 +80,16 @@ describe("ImageDialog", () => {
     ["photo", "image/gif", 1000, "Use a JPG, PNG or WebP image."],
     ["photo", "image/jpeg", 5 * MB + 1, "This file is too large (max 5 MB)."],
     ["cover", "image/png", 8 * MB + 1, "This file is too large (max 8 MB)."],
-  ] as const)("refuses a %s file of type %j and %d bytes without uploading", (kind, type, size, message) => {
-    renderDialog(kind, null);
-    choose(type, size, kind);
-    expect(screen.getByRole("alert").textContent).toBe(message);
-    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
-    expect(mockUpload).not.toHaveBeenCalled();
-  });
+  ] as const)(
+    "refuses a %s file of type %j and %d bytes without uploading",
+    (kind, type, size, message) => {
+      renderDialog(kind, null);
+      choose(type, size, kind);
+      expect(screen.getByRole("alert").textContent).toBe(message);
+      expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+      expect(mockUpload).not.toHaveBeenCalled();
+    },
+  );
 
   it("previews a chosen file and uploads it on Save, disabling the buttons meanwhile", async () => {
     let finish: (value: { ok: true }) => void = () => {};
@@ -80,9 +97,11 @@ describe("ImageDialog", () => {
     const { onChanged } = renderDialog();
     const file = choose("image/png");
 
-    expect(screen.getByRole("img", { name: "Preview of the new profile photo" }).getAttribute("src")).toBe(
-      "blob:preview",
-    );
+    expect(
+      screen
+        .getByRole("img", { name: "Preview of the new profile photo" })
+        .getAttribute("src"),
+    ).toBe("blob:preview");
     expect(document.activeElement).toBe(button("Save"));
     fireEvent.click(button("Save"));
 
@@ -98,17 +117,31 @@ describe("ImageDialog", () => {
     renderDialog();
     choose("image/jpeg");
     fireEvent.click(button("Cancel"));
-    expect(screen.getByRole("img", { name: "Ada Lovelace" }).getAttribute("src")).toBe(photoUrl);
+    expect(
+      screen.getByRole("img", { name: "Ada Lovelace" }).getAttribute("src"),
+    ).toBe(photoUrl);
     expect(document.activeElement).toBe(button("Upload photo"));
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview");
   });
 
   it.each([
     [{ status: 413 }, "This file is too large (max 5 MB)."],
-    [{ status: 415, code: "unsupported_type" }, "Use a JPG, PNG or WebP image."],
-    [{ status: 400, code: "image_too_large" }, "This image is too large. Use one under 8000 px on each side."],
-    [{ status: 429, retryAfter: 1500 }, "You've reached the upload limit. Try again in 25 minutes."],
-    [{ status: 500, code: "internal_error" }, "Upload failed. Please try again."],
+    [
+      { status: 415, code: "unsupported_type" },
+      "Use a JPG, PNG or WebP image.",
+    ],
+    [
+      { status: 400, code: "image_too_large" },
+      "This image is too large. Use one under 8000 px on each side.",
+    ],
+    [
+      { status: 429, retryAfter: 1500 },
+      "You've reached the upload limit. Try again in 25 minutes.",
+    ],
+    [
+      { status: 500, code: "internal_error" },
+      "Upload failed. Please try again.",
+    ],
     [{ status: 0 }, "Upload failed. Please try again."],
   ])("shows the message for a refused upload %j", async (failure, message) => {
     mockUpload.mockResolvedValue({ ok: false, ...failure });
@@ -153,7 +186,9 @@ describe("ImageDialog", () => {
     const { onChanged } = renderDialog();
     fireEvent.click(button("Delete"));
     fireEvent.click(button("Delete"));
-    expect((await screen.findByRole("alert")).textContent).toBe("Delete failed. Please try again.");
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Delete failed. Please try again.",
+    );
     expect(onChanged).not.toHaveBeenCalled();
   });
 });

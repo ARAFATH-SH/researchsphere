@@ -81,6 +81,8 @@ func (t tx) InsertEducation(ctx context.Context, e domain.Education) (domain.Edu
 		FieldOfStudy: text(e.FieldOfStudy),
 		StartYear:    start,
 		EndYear:      end,
+		Grade:        text(e.Grade),
+		Description:  text(e.Description),
 	})
 	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == foreignKeyViolation {
 		return domain.Education{}, domain.ErrNotFound
@@ -124,6 +126,8 @@ func (t tx) UpdateEducation(ctx context.Context, e domain.Education) (domain.Edu
 		FieldOfStudy: text(e.FieldOfStudy),
 		StartYear:    start,
 		EndYear:      end,
+		Grade:        text(e.Grade),
+		Description:  text(e.Description),
 		ID:           eid,
 		UserID:       uid,
 	})
@@ -159,6 +163,8 @@ func education(r educationRow) domain.Education {
 		Degree:       textPtr(r.Degree),
 		FieldOfStudy: textPtr(r.FieldOfStudy),
 		StartYear:    int(r.StartYear),
+		Grade:        textPtr(r.Grade),
+		Description:  textPtr(r.Description),
 	}
 	if r.EndYear.Valid {
 		end := int(r.EndYear.Int32)

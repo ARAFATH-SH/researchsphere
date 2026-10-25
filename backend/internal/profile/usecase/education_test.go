@@ -21,7 +21,10 @@ func newEducationService(store *fakeStore) *Service {
 func iptr(n int) *int { return &n }
 
 func validEducation() EducationInput {
-	return EducationInput{Institution: "MIT", Degree: ptr("PhD"), FieldOfStudy: ptr("Physics"), StartYear: 2019, EndYear: iptr(2023)}
+	return EducationInput{
+		Institution: "MIT", Degree: ptr("PhD"), FieldOfStudy: ptr("Physics"), StartYear: 2019, EndYear: iptr(2023),
+		Grade: ptr("CGPA 3.57 / 4.00"), Description: ptr("Thesis on quantum optics.\nAdvisor: Prof. Lee."),
+	}
 }
 
 func TestAddEducation(t *testing.T) {
@@ -29,11 +32,15 @@ func TestAddEducation(t *testing.T) {
 		store := newFakeStore(testAccounts()...)
 		got, err := newEducationService(store).AddEducation(t.Context(), adaID, EducationInput{
 			Institution: "  University of London ", Degree: ptr("  "), FieldOfStudy: ptr(" Mathematics "), StartYear: 1950,
+			Grade: ptr(" First class "), Description: ptr(" \n\t "),
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := domain.Education{ID: got.ID, UserID: adaID, Institution: "University of London", FieldOfStudy: ptr("Mathematics"), StartYear: 1950}
+		want := domain.Education{
+			ID: got.ID, UserID: adaID, Institution: "University of London", FieldOfStudy: ptr("Mathematics"), StartYear: 1950,
+			Grade: ptr("First class"),
+		}
 		if got.ID == "" || !reflect.DeepEqual(got, want) {
 			t.Errorf("got %+v, want %+v", got, want)
 		}
@@ -61,6 +68,11 @@ func TestAddEducation(t *testing.T) {
 		{"degree and field of 100 characters", func(in *EducationInput) {
 			in.Degree, in.FieldOfStudy = ptr(strings.Repeat("é", 100)), ptr(strings.Repeat("é", 100))
 		}, nil},
+		{"grade and description missing", func(in *EducationInput) { in.Grade, in.Description = nil, nil }, nil},
+		{"grade of 50 characters", func(in *EducationInput) { in.Grade = ptr(strings.Repeat("é", 50)) }, nil},
+		{"description of 2000 characters with line breaks", func(in *EducationInput) {
+			in.Description = ptr(strings.Repeat("é\n", 999) + "éé")
+		}, nil},
 
 		{"institution missing", func(in *EducationInput) { in.Institution = "" }, domain.ErrInvalidEducationInstitution},
 		{"institution blank", func(in *EducationInput) { in.Institution = " \t " }, domain.ErrInvalidEducationInstitution},
@@ -74,11 +86,19 @@ func TestAddEducation(t *testing.T) {
 		{"start year more than ten years ahead", func(in *EducationInput) { in.StartYear, in.EndYear = 2037, nil }, domain.ErrInvalidStartYear},
 		{"end year before start year", func(in *EducationInput) { in.EndYear = iptr(2018) }, domain.ErrInvalidEndYear},
 		{"end year more than ten years ahead", func(in *EducationInput) { in.EndYear = iptr(2037) }, domain.ErrInvalidEndYear},
+		{"grade of 51 characters", func(in *EducationInput) { in.Grade = ptr(strings.Repeat("é", 51)) }, domain.ErrInvalidGrade},
+		{"grade with a line break", func(in *EducationInput) { in.Grade = ptr("CGPA 3.57\n/ 4.00") }, domain.ErrInvalidGrade},
+		{"grade with a carriage return", func(in *EducationInput) { in.Grade = ptr("First\rclass") }, domain.ErrInvalidGrade},
+		{"description of 2001 characters", func(in *EducationInput) { in.Description = ptr(strings.Repeat("é", 2001)) }, domain.ErrInvalidDescription},
 		// The first invalid field in the contract's order is reported.
 		{"institution before the other fields", func(in *EducationInput) {
 			in.Institution, in.Degree, in.StartYear = "", ptr(strings.Repeat("a", 101)), 1900
 		}, domain.ErrInvalidEducationInstitution},
 		{"start year before end year", func(in *EducationInput) { in.StartYear, in.EndYear = 1900, iptr(1800) }, domain.ErrInvalidStartYear},
+		{"end year before grade", func(in *EducationInput) { in.EndYear, in.Grade = iptr(1800), ptr("a\nb") }, domain.ErrInvalidEndYear},
+		{"grade before description", func(in *EducationInput) {
+			in.Grade, in.Description = ptr("a\nb"), ptr(strings.Repeat("a", 2001))
+		}, domain.ErrInvalidGrade},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -136,7 +156,8 @@ func set[T any](v T) Field[T] { return Field[T]{Set: true, Value: v} }
 func null[T any]() Field[T] { return Field[T]{Set: true, Null: true} }
 
 func TestUpdateEducation(t *testing.T) {
-	// stored is Ada's entry: MIT, PhD in Physics, 2019 to 2023.
+	// stored is Ada's entry: MIT, PhD in Physics, 2019 to 2023, with a grade and a
+	// description.
 	setup := func(t *testing.T) (*fakeStore, *Service, domain.Education) {
 		t.Helper()
 		store := newFakeStore(testAccounts()...)
@@ -153,6 +174,7 @@ func TestUpdateEducation(t *testing.T) {
 		patch EducationPatch
 		want  func(e *domain.Education) // the change to the stored entry
 	}{
+		// A field left out keeps its stored value, the grade and description included.
 		{"empty patch changes nothing", EducationPatch{}, func(*domain.Education) {}},
 		{"only the degree, trimmed", EducationPatch{Degree: set(" MSc ")}, func(e *domain.Education) { e.Degree = ptr("MSc") }},
 		{"null degree clears it", EducationPatch{Degree: null[string]()}, func(e *domain.Education) { e.Degree = nil }},
@@ -162,6 +184,16 @@ func TestUpdateEducation(t *testing.T) {
 			e.Institution, e.StartYear, e.EndYear = "ETH Zürich", 2020, iptr(2024)
 		}},
 		{"start year up to the stored end year", EducationPatch{StartYear: set(2023)}, func(e *domain.Education) { e.StartYear = 2023 }},
+		{"grade replaced, trimmed; description kept", EducationPatch{Grade: set("  First class ")}, func(e *domain.Education) { e.Grade = ptr("First class") }},
+		{"description replaced; grade kept", EducationPatch{Description: set("Line one\nLine two")}, func(e *domain.Education) {
+			e.Description = ptr("Line one\nLine two")
+		}},
+		{"null grade clears it", EducationPatch{Grade: null[string]()}, func(e *domain.Education) { e.Grade = nil }},
+		{"null description clears it", EducationPatch{Description: null[string]()}, func(e *domain.Education) { e.Description = nil }},
+		{"blank grade and description clear them", EducationPatch{Grade: set(" "), Description: set("\n\n")}, func(e *domain.Education) {
+			e.Grade, e.Description = nil, nil
+		}},
+		{"other fields change, grade and description kept", EducationPatch{Degree: set("MSc")}, func(e *domain.Education) { e.Degree = ptr("MSc") }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -193,6 +225,9 @@ func TestUpdateEducation(t *testing.T) {
 		{"end year before the stored start year", EducationPatch{EndYear: set(2018)}, domain.ErrInvalidEndYear},
 		{"start year after the stored end year", EducationPatch{StartYear: set(2024)}, domain.ErrInvalidEndYear},
 		{"end year more than ten years ahead", EducationPatch{EndYear: set(2037)}, domain.ErrInvalidEndYear},
+		{"grade of 51 characters", EducationPatch{Grade: set(strings.Repeat("a", 51))}, domain.ErrInvalidGrade},
+		{"grade with a line break", EducationPatch{Grade: set("a\nb")}, domain.ErrInvalidGrade},
+		{"description of 2001 characters", EducationPatch{Description: set(strings.Repeat("a", 2001))}, domain.ErrInvalidDescription},
 	}
 	for _, tt := range refused {
 		t.Run(tt.name, func(t *testing.T) {

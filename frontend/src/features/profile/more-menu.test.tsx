@@ -1,11 +1,20 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 
 import { MoreMenu } from "./more-menu";
 import { bobID } from "./test-profiles";
 
 const writeText = jest.fn<Promise<void>, [string]>();
 beforeAll(() => {
-  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { writeText },
+  });
 });
 afterEach(() => writeText.mockReset());
 
@@ -41,9 +50,15 @@ describe("MoreMenu", () => {
     writeText.mockResolvedValue();
     render(<MoreMenu userId={bobID} />);
     fireEvent.click(menuButton());
-    await act(async () => fireEvent.click(screen.getByRole("menuitem", { name: "Copy profile link" })));
+    await act(async () =>
+      fireEvent.click(
+        screen.getByRole("menuitem", { name: "Copy profile link" }),
+      ),
+    );
 
-    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/profile/${bobID}`);
+    expect(writeText).toHaveBeenCalledWith(
+      `${window.location.origin}/profile/${bobID}`,
+    );
     expect((await screen.findByRole("status")).textContent).toBe("Link copied");
     expect(screen.queryByRole("menu")).toBeNull();
   });
@@ -52,7 +67,13 @@ describe("MoreMenu", () => {
     writeText.mockRejectedValue(new Error("denied"));
     render(<MoreMenu userId={bobID} />);
     fireEvent.click(menuButton());
-    fireEvent.click(screen.getByRole("menuitem", { name: "Copy profile link" }));
-    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Couldn't copy the link"));
+    fireEvent.click(
+      screen.getByRole("menuitem", { name: "Copy profile link" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toBe(
+        "Couldn't copy the link",
+      ),
+    );
   });
 });

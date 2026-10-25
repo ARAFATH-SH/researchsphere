@@ -54,7 +54,8 @@ export function useMyProfile(): ProfileResult | null {
   );
   const stale = userId !== null && current?.userId !== userId;
   useEffect(() => {
-    if (userId !== null && stale && loadingFor !== userId) void reloadMyProfile(userId);
+    if (userId !== null && stale && loadingFor !== userId)
+      void reloadMyProfile(userId);
   }, [stale, userId]);
   return userId !== null && current?.userId === userId ? current.result : null;
 }

@@ -42,6 +42,16 @@ type fakeService struct {
 	educationPatch usecase.EducationPatch // given to UpdateEducation
 	educationID    string                 // given to UpdateEducation and RemoveEducation
 
+	experience      domain.Experience       // returned by the experience operations
+	experienceIn    usecase.ExperienceInput // given to AddExperience
+	experiencePatch usecase.ExperiencePatch // given to UpdateExperience
+	experienceID    string                  // given to UpdateExperience and RemoveExperience
+
+	language      domain.Language       // returned by the language operations
+	languageIn    usecase.LanguageInput // given to AddLanguage
+	languagePatch usecase.LanguagePatch // given to UpdateLanguage
+	languageID    string                // given to UpdateLanguage and RemoveLanguage
+
 	viewerID  string               // given to View
 	contact   domain.Contact       // returned by GetContact and UpdateContact
 	contactIn usecase.ContactInput // given to UpdateContact
@@ -83,6 +93,36 @@ func (f *fakeService) UpdateEducation(_ context.Context, userID, id string, patc
 
 func (f *fakeService) RemoveEducation(_ context.Context, userID, id string) error {
 	f.userID, f.educationID = userID, id
+	return f.err
+}
+
+func (f *fakeService) AddExperience(_ context.Context, userID string, in usecase.ExperienceInput) (domain.Experience, error) {
+	f.userID, f.experienceIn = userID, in
+	return f.experience, f.err
+}
+
+func (f *fakeService) UpdateExperience(_ context.Context, userID, id string, patch usecase.ExperiencePatch) (domain.Experience, error) {
+	f.userID, f.experienceID, f.experiencePatch = userID, id, patch
+	return f.experience, f.err
+}
+
+func (f *fakeService) RemoveExperience(_ context.Context, userID, id string) error {
+	f.userID, f.experienceID = userID, id
+	return f.err
+}
+
+func (f *fakeService) AddLanguage(_ context.Context, userID string, in usecase.LanguageInput) (domain.Language, error) {
+	f.userID, f.languageIn = userID, in
+	return f.language, f.err
+}
+
+func (f *fakeService) UpdateLanguage(_ context.Context, userID, id string, patch usecase.LanguagePatch) (domain.Language, error) {
+	f.userID, f.languageID, f.languagePatch = userID, id, patch
+	return f.language, f.err
+}
+
+func (f *fakeService) RemoveLanguage(_ context.Context, userID, id string) error {
+	f.userID, f.languageID = userID, id
 	return f.err
 }
 
@@ -162,7 +202,7 @@ func decode(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 func ptr(s string) *string { return &s }
 
 var ada = domain.Profile{
-	UserID: callerID, FullName: "Ada Lovelace", Headline: ptr("Analyst"), Country: ptr("GB"),
+	UserID: callerID, FullName: "Ada Lovelace", Headline: ptr("Analyst"), Country: ptr("GB"), City: ptr("London"),
 }
 
 // The body has every field, nulls for unset ones, the placeholders (FR-4.5) and the
@@ -172,8 +212,8 @@ func checkProfileBody(t *testing.T, rec *httptest.ResponseRecorder, wantID strin
 	got := decode(t, rec)
 	want := map[string]any{
 		"userId": wantID, "fullName": "Ada Lovelace", "headline": "Analyst", "bio": nil,
-		"institution": nil, "department": nil, "jobTitle": nil, "country": "GB",
-		"interests": []any{}, "skills": []any{}, "education": []any{}, "publications": []any{},
+		"institution": nil, "department": nil, "jobTitle": nil, "country": "GB", "city": "London",
+		"interests": []any{}, "skills": []any{}, "education": []any{}, "experience": []any{}, "languages": []any{}, "publications": []any{},
 		"connectionStatus": "none", "contact": map[string]any{"links": []any{}},
 		"photoUrl": nil, "coverUrl": nil,
 	}
@@ -242,7 +282,7 @@ func TestGetMyProfile(t *testing.T) {
 func TestUpdateMyProfile(t *testing.T) {
 	t.Run("saved", func(t *testing.T) {
 		svc := &fakeService{profile: ada}
-		body := `{"fullName":" Ada Lovelace ","headline":"Analyst","bio":null,"country":"gb"}`
+		body := `{"fullName":" Ada Lovelace ","headline":"Analyst","bio":null,"country":"gb","city":" London "}`
 		rec := send(t, svc, http.MethodPut, "/api/v1/profiles/me", body, callerID)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200; body %s", rec.Code, rec.Body)
@@ -250,7 +290,7 @@ func TestUpdateMyProfile(t *testing.T) {
 		if svc.userID != callerID {
 			t.Errorf("service updated %q, want the caller %q", svc.userID, callerID)
 		}
-		want := usecase.UpdateInput{FullName: " Ada Lovelace ", Headline: ptr("Analyst"), Country: ptr("gb")}
+		want := usecase.UpdateInput{FullName: " Ada Lovelace ", Headline: ptr("Analyst"), Country: ptr("gb"), City: ptr(" London ")}
 		if !reflect.DeepEqual(svc.update, want) {
 			t.Errorf("service got %+v, want the body unchanged %+v", svc.update, want)
 		}
@@ -268,6 +308,7 @@ func TestUpdateMyProfile(t *testing.T) {
 		{domain.ErrInvalidDepartment, CodeInvalidDepartment},
 		{domain.ErrInvalidJobTitle, CodeInvalidJobTitle},
 		{domain.ErrInvalidCountry, CodeInvalidCountry},
+		{domain.ErrInvalidCity, CodeInvalidCity},
 	}
 	for _, tt := range tests {
 		t.Run(tt.code, func(t *testing.T) {
@@ -297,7 +338,7 @@ func TestUpdateMyProfile(t *testing.T) {
 
 func TestGetProfile(t *testing.T) {
 	t.Run("another user's profile", func(t *testing.T) {
-		svc := &fakeService{profile: domain.Profile{UserID: otherID, FullName: "Ada Lovelace", Headline: ptr("Analyst"), Country: ptr("GB")}}
+		svc := &fakeService{profile: domain.Profile{UserID: otherID, FullName: "Ada Lovelace", Headline: ptr("Analyst"), Country: ptr("GB"), City: ptr("London")}}
 		rec := send(t, svc, http.MethodGet, "/api/v1/profiles/"+otherID, "", callerID)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200; body %s", rec.Code, rec.Body)

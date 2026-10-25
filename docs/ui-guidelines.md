@@ -118,6 +118,14 @@ Landing, register, check-email, verify-email, sign-in and reset-password.
   card, editor, venue list), built from theme tokens. Their names and numbers are fictional
   and each carries a "Sample data" badge. Never show testimonials, user counts or statistics
   that are not real.
+- **Experience (FR-4.8):** the card comes above Education. Each entry has a square
+  briefcase tile (`primary-soft` with a `primary` icon, no logos), the title in bold,
+  "Organization · Employment type", "Mar 2025 - Present · 1 yr 8 mos" (months counted
+  inclusive, to the current month while the role is current), "Location · Location type"
+  (whichever is set) and the description clamped to 3 lines with "…see more" / "see less".
+  On the own profile the header has a "+" that opens the Add form and each entry has a
+  pencil that opens its Edit form, which also deletes (confirmed inside the dialog); after
+  a delete the focus goes to "+".
 - **Footer:** `surface` with a top border: About, Privacy, Terms and Contact links, "©
   ResearchSphere" and the API status.
 
@@ -168,9 +176,9 @@ Landing, register, check-email, verify-email, sign-in and reset-password.
   (centre square, centre 4:1), "Upload", "Delete" (confirmed inside the dialog) and "Cancel".
   The own profile is shared by the Me menu, home card and profile page
   (`features/profile/my-profile.ts`), so a change shows everywhere without a reload.
-- **Show all:** long lists in profile cards show their first entries (Education 2, Skills
-  6) and then a full-width "Show all N →" row at the bottom of the card that expands the
-  list in place. The About card ends with a "Top skills" box: the first 5 skills joined by
+- **Show all:** long lists in profile cards show their first entries (Experience 3,
+  Education 2, Skills 6) and then a full-width "Show all N →" row at the bottom of the card
+  that expands the list in place (Experience says "Show all N experiences →"). The About card ends with a "Top skills" box: the first 5 skills joined by
   " • ", linking to the Skills card.
 - **Footer:** every signed-in page except the editor workspace ends with the signed-in footer
   inside the main Container (not full-bleed): three columns of small `text-muted` links,

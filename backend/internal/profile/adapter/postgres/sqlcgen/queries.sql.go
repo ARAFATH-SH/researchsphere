@@ -13,7 +13,7 @@ import (
 
 const countUserEducation = `-- name: CountUserEducation :one
 
-SELECT count(*) FROM education WHERE user_id = $1
+SELECT count(*) FROM profile_education WHERE user_id = $1
 `
 
 // Education entries (FR-4.4). Every query names the owner in its WHERE clause, so an entry
@@ -25,12 +25,40 @@ func (q *Queries) CountUserEducation(ctx context.Context, userID pgtype.UUID) (i
 	return count, err
 }
 
+const countUserExperience = `-- name: CountUserExperience :one
+
+SELECT count(*) FROM profile_experience WHERE user_id = $1
+`
+
+// Work experience entries (FR-4.8). Every query names the owner in its WHERE clause, so
+// an entry of another user is never read, changed or deleted: it is simply not found.
+func (q *Queries) CountUserExperience(ctx context.Context, userID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countUserExperience, userID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countUserInterests = `-- name: CountUserInterests :one
 SELECT count(*) FROM user_interests WHERE user_id = $1
 `
 
 func (q *Queries) CountUserInterests(ctx context.Context, userID pgtype.UUID) (int64, error) {
 	row := q.db.QueryRow(ctx, countUserInterests, userID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countUserLanguages = `-- name: CountUserLanguages :one
+
+SELECT count(*) FROM profile_languages WHERE user_id = $1
+`
+
+// Languages (FR-4.9). Every query names the owner in its WHERE clause, so a language of
+// another user is never read, changed or deleted: it is simply not found.
+func (q *Queries) CountUserLanguages(ctx context.Context, userID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countUserLanguages, userID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -59,7 +87,7 @@ func (q *Queries) CountUserSkills(ctx context.Context, userID pgtype.UUID) (int6
 }
 
 const deleteUserEducation = `-- name: DeleteUserEducation :execrows
-DELETE FROM education WHERE id = $1 AND user_id = $2
+DELETE FROM profile_education WHERE id = $1 AND user_id = $2
 `
 
 type DeleteUserEducationParams struct {
@@ -69,6 +97,40 @@ type DeleteUserEducationParams struct {
 
 func (q *Queries) DeleteUserEducation(ctx context.Context, arg DeleteUserEducationParams) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteUserEducation, arg.ID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteUserExperience = `-- name: DeleteUserExperience :execrows
+DELETE FROM profile_experience WHERE id = $1 AND user_id = $2
+`
+
+type DeleteUserExperienceParams struct {
+	ID     pgtype.UUID
+	UserID pgtype.UUID
+}
+
+func (q *Queries) DeleteUserExperience(ctx context.Context, arg DeleteUserExperienceParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteUserExperience, arg.ID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteUserLanguage = `-- name: DeleteUserLanguage :execrows
+DELETE FROM profile_languages WHERE id = $1 AND user_id = $2
+`
+
+type DeleteUserLanguageParams struct {
+	ID     pgtype.UUID
+	UserID pgtype.UUID
+}
+
+func (q *Queries) DeleteUserLanguage(ctx context.Context, arg DeleteUserLanguageParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteUserLanguage, arg.ID, arg.UserID)
 	if err != nil {
 		return 0, err
 	}
@@ -95,7 +157,7 @@ func (q *Queries) DeleteUserLink(ctx context.Context, arg DeleteUserLinkParams) 
 const findAccount = `-- name: FindAccount :one
 SELECT u.id, u.email_verified_at, u.suspended_at,
        p.user_id AS profile_user_id, p.full_name, p.headline, p.bio, p.institution,
-       p.department, p.job_title, p.country, p.photo_file_id, p.cover_file_id
+       p.department, p.job_title, p.country, p.city, p.photo_file_id, p.cover_file_id
 FROM users u
 LEFT JOIN profiles p ON p.user_id = u.id
 WHERE u.id = $1
@@ -113,6 +175,7 @@ type FindAccountRow struct {
 	Department      pgtype.Text
 	JobTitle        pgtype.Text
 	Country         pgtype.Text
+	City            pgtype.Text
 	PhotoFileID     pgtype.UUID
 	CoverFileID     pgtype.UUID
 }
@@ -133,6 +196,7 @@ func (q *Queries) FindAccount(ctx context.Context, id pgtype.UUID) (FindAccountR
 		&i.Department,
 		&i.JobTitle,
 		&i.Country,
+		&i.City,
 		&i.PhotoFileID,
 		&i.CoverFileID,
 	)
@@ -202,8 +266,8 @@ func (q *Queries) FindSkillByName(ctx context.Context, name string) (Skill, erro
 }
 
 const findUserEducationForUpdate = `-- name: FindUserEducationForUpdate :one
-SELECT id, user_id, institution, degree, field_of_study, start_year, end_year
-FROM education
+SELECT id, user_id, institution, degree, field_of_study, start_year, end_year, grade, description
+FROM profile_education
 WHERE id = $1 AND user_id = $2
 FOR UPDATE
 `
@@ -221,6 +285,8 @@ type FindUserEducationForUpdateRow struct {
 	FieldOfStudy pgtype.Text
 	StartYear    int32
 	EndYear      pgtype.Int4
+	Grade        pgtype.Text
+	Description  pgtype.Text
 }
 
 // Locks the entry until the transaction ends, so two changes to it cannot both pass the
@@ -236,14 +302,100 @@ func (q *Queries) FindUserEducationForUpdate(ctx context.Context, arg FindUserEd
 		&i.FieldOfStudy,
 		&i.StartYear,
 		&i.EndYear,
+		&i.Grade,
+		&i.Description,
+	)
+	return i, err
+}
+
+const findUserExperienceForUpdate = `-- name: FindUserExperienceForUpdate :one
+SELECT id, user_id, title, organization, employment_type, location, location_type,
+       start_year, start_month, end_year, end_month, is_current, description
+FROM profile_experience
+WHERE id = $1 AND user_id = $2
+FOR UPDATE
+`
+
+type FindUserExperienceForUpdateParams struct {
+	ID     pgtype.UUID
+	UserID pgtype.UUID
+}
+
+type FindUserExperienceForUpdateRow struct {
+	ID             pgtype.UUID
+	UserID         pgtype.UUID
+	Title          string
+	Organization   string
+	EmploymentType string
+	Location       pgtype.Text
+	LocationType   pgtype.Text
+	StartYear      int16
+	StartMonth     int16
+	EndYear        pgtype.Int2
+	EndMonth       pgtype.Int2
+	IsCurrent      bool
+	Description    pgtype.Text
+}
+
+// Locks the entry until the transaction ends, so two changes to it cannot both pass the
+// date checks against old values.
+func (q *Queries) FindUserExperienceForUpdate(ctx context.Context, arg FindUserExperienceForUpdateParams) (FindUserExperienceForUpdateRow, error) {
+	row := q.db.QueryRow(ctx, findUserExperienceForUpdate, arg.ID, arg.UserID)
+	var i FindUserExperienceForUpdateRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Title,
+		&i.Organization,
+		&i.EmploymentType,
+		&i.Location,
+		&i.LocationType,
+		&i.StartYear,
+		&i.StartMonth,
+		&i.EndYear,
+		&i.EndMonth,
+		&i.IsCurrent,
+		&i.Description,
+	)
+	return i, err
+}
+
+const findUserLanguageForUpdate = `-- name: FindUserLanguageForUpdate :one
+SELECT id, user_id, name, proficiency
+FROM profile_languages
+WHERE id = $1 AND user_id = $2
+FOR UPDATE
+`
+
+type FindUserLanguageForUpdateParams struct {
+	ID     pgtype.UUID
+	UserID pgtype.UUID
+}
+
+type FindUserLanguageForUpdateRow struct {
+	ID          pgtype.UUID
+	UserID      pgtype.UUID
+	Name        string
+	Proficiency string
+}
+
+// Locks the language until the transaction ends.
+func (q *Queries) FindUserLanguageForUpdate(ctx context.Context, arg FindUserLanguageForUpdateParams) (FindUserLanguageForUpdateRow, error) {
+	row := q.db.QueryRow(ctx, findUserLanguageForUpdate, arg.ID, arg.UserID)
+	var i FindUserLanguageForUpdateRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Name,
+		&i.Proficiency,
 	)
 	return i, err
 }
 
 const insertEducation = `-- name: InsertEducation :one
-INSERT INTO education (user_id, institution, degree, field_of_study, start_year, end_year)
-VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, user_id, institution, degree, field_of_study, start_year, end_year
+INSERT INTO profile_education (user_id, institution, degree, field_of_study, start_year, end_year, grade, description)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING id, user_id, institution, degree, field_of_study, start_year, end_year, grade, description
 `
 
 type InsertEducationParams struct {
@@ -253,6 +405,8 @@ type InsertEducationParams struct {
 	FieldOfStudy pgtype.Text
 	StartYear    int32
 	EndYear      pgtype.Int4
+	Grade        pgtype.Text
+	Description  pgtype.Text
 }
 
 type InsertEducationRow struct {
@@ -263,6 +417,8 @@ type InsertEducationRow struct {
 	FieldOfStudy pgtype.Text
 	StartYear    int32
 	EndYear      pgtype.Int4
+	Grade        pgtype.Text
+	Description  pgtype.Text
 }
 
 func (q *Queries) InsertEducation(ctx context.Context, arg InsertEducationParams) (InsertEducationRow, error) {
@@ -273,6 +429,8 @@ func (q *Queries) InsertEducation(ctx context.Context, arg InsertEducationParams
 		arg.FieldOfStudy,
 		arg.StartYear,
 		arg.EndYear,
+		arg.Grade,
+		arg.Description,
 	)
 	var i InsertEducationRow
 	err := row.Scan(
@@ -283,6 +441,82 @@ func (q *Queries) InsertEducation(ctx context.Context, arg InsertEducationParams
 		&i.FieldOfStudy,
 		&i.StartYear,
 		&i.EndYear,
+		&i.Grade,
+		&i.Description,
+	)
+	return i, err
+}
+
+const insertExperience = `-- name: InsertExperience :one
+INSERT INTO profile_experience (user_id, title, organization, employment_type, location, location_type,
+                                start_year, start_month, end_year, end_month, is_current, description)
+VALUES ($1, $2, $3, $4, $5, $6,
+        $7, $8, $9, $10, $11, $12)
+RETURNING id, user_id, title, organization, employment_type, location, location_type,
+       start_year, start_month, end_year, end_month, is_current, description
+`
+
+type InsertExperienceParams struct {
+	UserID         pgtype.UUID
+	Title          string
+	Organization   string
+	EmploymentType string
+	Location       pgtype.Text
+	LocationType   pgtype.Text
+	StartYear      int16
+	StartMonth     int16
+	EndYear        pgtype.Int2
+	EndMonth       pgtype.Int2
+	IsCurrent      bool
+	Description    pgtype.Text
+}
+
+type InsertExperienceRow struct {
+	ID             pgtype.UUID
+	UserID         pgtype.UUID
+	Title          string
+	Organization   string
+	EmploymentType string
+	Location       pgtype.Text
+	LocationType   pgtype.Text
+	StartYear      int16
+	StartMonth     int16
+	EndYear        pgtype.Int2
+	EndMonth       pgtype.Int2
+	IsCurrent      bool
+	Description    pgtype.Text
+}
+
+func (q *Queries) InsertExperience(ctx context.Context, arg InsertExperienceParams) (InsertExperienceRow, error) {
+	row := q.db.QueryRow(ctx, insertExperience,
+		arg.UserID,
+		arg.Title,
+		arg.Organization,
+		arg.EmploymentType,
+		arg.Location,
+		arg.LocationType,
+		arg.StartYear,
+		arg.StartMonth,
+		arg.EndYear,
+		arg.EndMonth,
+		arg.IsCurrent,
+		arg.Description,
+	)
+	var i InsertExperienceRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Title,
+		&i.Organization,
+		&i.EmploymentType,
+		&i.Location,
+		&i.LocationType,
+		&i.StartYear,
+		&i.StartMonth,
+		&i.EndYear,
+		&i.EndMonth,
+		&i.IsCurrent,
+		&i.Description,
 	)
 	return i, err
 }
@@ -300,6 +534,37 @@ INSERT INTO research_interests (name) VALUES ($1) ON CONFLICT (name) DO NOTHING
 func (q *Queries) InsertInterestIfMissing(ctx context.Context, name string) error {
 	_, err := q.db.Exec(ctx, insertInterestIfMissing, name)
 	return err
+}
+
+const insertLanguage = `-- name: InsertLanguage :one
+INSERT INTO profile_languages (user_id, name, proficiency)
+VALUES ($1, $2, $3)
+RETURNING id, user_id, name, proficiency
+`
+
+type InsertLanguageParams struct {
+	UserID      pgtype.UUID
+	Name        string
+	Proficiency string
+}
+
+type InsertLanguageRow struct {
+	ID          pgtype.UUID
+	UserID      pgtype.UUID
+	Name        string
+	Proficiency string
+}
+
+func (q *Queries) InsertLanguage(ctx context.Context, arg InsertLanguageParams) (InsertLanguageRow, error) {
+	row := q.db.QueryRow(ctx, insertLanguage, arg.UserID, arg.Name, arg.Proficiency)
+	var i InsertLanguageRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Name,
+		&i.Proficiency,
+	)
+	return i, err
 }
 
 const insertLink = `-- name: InsertLink :one
@@ -347,6 +612,29 @@ func (q *Queries) InsertSkillIfMissing(ctx context.Context, name string) error {
 	return err
 }
 
+const languageNameTaken = `-- name: LanguageNameTaken :one
+SELECT EXISTS (
+    SELECT 1 FROM profile_languages
+    WHERE user_id = $1 AND lower(name) = lower($2::text)
+      AND id IS DISTINCT FROM $3::uuid
+)
+`
+
+type LanguageNameTakenParams struct {
+	UserID   pgtype.UUID
+	Name     string
+	ExceptID pgtype.UUID
+}
+
+// Compares names as the unique index profile_languages_user_name_key does. A NULL
+// except_id excepts no language.
+func (q *Queries) LanguageNameTaken(ctx context.Context, arg LanguageNameTakenParams) (bool, error) {
+	row := q.db.QueryRow(ctx, languageNameTaken, arg.UserID, arg.Name, arg.ExceptID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const linkUserInterest = `-- name: LinkUserInterest :exec
 INSERT INTO user_interests (user_id, interest_id) VALUES ($1, $2) ON CONFLICT DO NOTHING
 `
@@ -376,8 +664,8 @@ func (q *Queries) LinkUserSkill(ctx context.Context, arg LinkUserSkillParams) er
 }
 
 const listUserEducation = `-- name: ListUserEducation :many
-SELECT id, user_id, institution, degree, field_of_study, start_year, end_year
-FROM education
+SELECT id, user_id, institution, degree, field_of_study, start_year, end_year, grade, description
+FROM profile_education
 WHERE user_id = $1
 ORDER BY end_year DESC NULLS FIRST, start_year DESC, created_at DESC, id
 `
@@ -390,6 +678,8 @@ type ListUserEducationRow struct {
 	FieldOfStudy pgtype.Text
 	StartYear    int32
 	EndYear      pgtype.Int4
+	Grade        pgtype.Text
+	Description  pgtype.Text
 }
 
 // Current entries (no end year) first, then the latest end year, then the latest start
@@ -411,6 +701,68 @@ func (q *Queries) ListUserEducation(ctx context.Context, userID pgtype.UUID) ([]
 			&i.FieldOfStudy,
 			&i.StartYear,
 			&i.EndYear,
+			&i.Grade,
+			&i.Description,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUserExperience = `-- name: ListUserExperience :many
+SELECT id, user_id, title, organization, employment_type, location, location_type,
+       start_year, start_month, end_year, end_month, is_current, description
+FROM profile_experience
+WHERE user_id = $1
+ORDER BY is_current DESC, start_year DESC, start_month DESC, created_at, id
+`
+
+type ListUserExperienceRow struct {
+	ID             pgtype.UUID
+	UserID         pgtype.UUID
+	Title          string
+	Organization   string
+	EmploymentType string
+	Location       pgtype.Text
+	LocationType   pgtype.Text
+	StartYear      int16
+	StartMonth     int16
+	EndYear        pgtype.Int2
+	EndMonth       pgtype.Int2
+	IsCurrent      bool
+	Description    pgtype.Text
+}
+
+// Current roles first, then the latest start, then the oldest entry; id makes the order
+// stable.
+func (q *Queries) ListUserExperience(ctx context.Context, userID pgtype.UUID) ([]ListUserExperienceRow, error) {
+	rows, err := q.db.Query(ctx, listUserExperience, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUserExperienceRow
+	for rows.Next() {
+		var i ListUserExperienceRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.Title,
+			&i.Organization,
+			&i.EmploymentType,
+			&i.Location,
+			&i.LocationType,
+			&i.StartYear,
+			&i.StartMonth,
+			&i.EndYear,
+			&i.EndMonth,
+			&i.IsCurrent,
+			&i.Description,
 		); err != nil {
 			return nil, err
 		}
@@ -441,6 +793,47 @@ func (q *Queries) ListUserInterests(ctx context.Context, userID pgtype.UUID) ([]
 	for rows.Next() {
 		var i ResearchInterest
 		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUserLanguages = `-- name: ListUserLanguages :many
+SELECT id, user_id, name, proficiency
+FROM profile_languages
+WHERE user_id = $1
+ORDER BY created_at, id
+`
+
+type ListUserLanguagesRow struct {
+	ID          pgtype.UUID
+	UserID      pgtype.UUID
+	Name        string
+	Proficiency string
+}
+
+// Oldest first; the usecase then puts the highest proficiency first. id makes the order
+// stable.
+func (q *Queries) ListUserLanguages(ctx context.Context, userID pgtype.UUID) ([]ListUserLanguagesRow, error) {
+	rows, err := q.db.Query(ctx, listUserLanguages, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUserLanguagesRow
+	for rows.Next() {
+		var i ListUserLanguagesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.Name,
+			&i.Proficiency,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -638,14 +1031,16 @@ func (q *Queries) UnlinkUserSkill(ctx context.Context, arg UnlinkUserSkillParams
 }
 
 const updateUserEducation = `-- name: UpdateUserEducation :one
-UPDATE education SET
+UPDATE profile_education SET
     institution    = $1,
     degree         = $2,
     field_of_study = $3,
     start_year     = $4,
-    end_year       = $5
-WHERE id = $6 AND user_id = $7
-RETURNING id, user_id, institution, degree, field_of_study, start_year, end_year
+    end_year       = $5,
+    grade          = $6,
+    description    = $7
+WHERE id = $8 AND user_id = $9
+RETURNING id, user_id, institution, degree, field_of_study, start_year, end_year, grade, description
 `
 
 type UpdateUserEducationParams struct {
@@ -654,6 +1049,8 @@ type UpdateUserEducationParams struct {
 	FieldOfStudy pgtype.Text
 	StartYear    int32
 	EndYear      pgtype.Int4
+	Grade        pgtype.Text
+	Description  pgtype.Text
 	ID           pgtype.UUID
 	UserID       pgtype.UUID
 }
@@ -666,6 +1063,8 @@ type UpdateUserEducationRow struct {
 	FieldOfStudy pgtype.Text
 	StartYear    int32
 	EndYear      pgtype.Int4
+	Grade        pgtype.Text
+	Description  pgtype.Text
 }
 
 func (q *Queries) UpdateUserEducation(ctx context.Context, arg UpdateUserEducationParams) (UpdateUserEducationRow, error) {
@@ -675,6 +1074,8 @@ func (q *Queries) UpdateUserEducation(ctx context.Context, arg UpdateUserEducati
 		arg.FieldOfStudy,
 		arg.StartYear,
 		arg.EndYear,
+		arg.Grade,
+		arg.Description,
 		arg.ID,
 		arg.UserID,
 	)
@@ -687,6 +1088,132 @@ func (q *Queries) UpdateUserEducation(ctx context.Context, arg UpdateUserEducati
 		&i.FieldOfStudy,
 		&i.StartYear,
 		&i.EndYear,
+		&i.Grade,
+		&i.Description,
+	)
+	return i, err
+}
+
+const updateUserExperience = `-- name: UpdateUserExperience :one
+UPDATE profile_experience SET
+    title           = $1,
+    organization    = $2,
+    employment_type = $3,
+    location        = $4,
+    location_type   = $5,
+    start_year      = $6,
+    start_month     = $7,
+    end_year        = $8,
+    end_month       = $9,
+    is_current      = $10,
+    description     = $11
+WHERE id = $12 AND user_id = $13
+RETURNING id, user_id, title, organization, employment_type, location, location_type,
+       start_year, start_month, end_year, end_month, is_current, description
+`
+
+type UpdateUserExperienceParams struct {
+	Title          string
+	Organization   string
+	EmploymentType string
+	Location       pgtype.Text
+	LocationType   pgtype.Text
+	StartYear      int16
+	StartMonth     int16
+	EndYear        pgtype.Int2
+	EndMonth       pgtype.Int2
+	IsCurrent      bool
+	Description    pgtype.Text
+	ID             pgtype.UUID
+	UserID         pgtype.UUID
+}
+
+type UpdateUserExperienceRow struct {
+	ID             pgtype.UUID
+	UserID         pgtype.UUID
+	Title          string
+	Organization   string
+	EmploymentType string
+	Location       pgtype.Text
+	LocationType   pgtype.Text
+	StartYear      int16
+	StartMonth     int16
+	EndYear        pgtype.Int2
+	EndMonth       pgtype.Int2
+	IsCurrent      bool
+	Description    pgtype.Text
+}
+
+func (q *Queries) UpdateUserExperience(ctx context.Context, arg UpdateUserExperienceParams) (UpdateUserExperienceRow, error) {
+	row := q.db.QueryRow(ctx, updateUserExperience,
+		arg.Title,
+		arg.Organization,
+		arg.EmploymentType,
+		arg.Location,
+		arg.LocationType,
+		arg.StartYear,
+		arg.StartMonth,
+		arg.EndYear,
+		arg.EndMonth,
+		arg.IsCurrent,
+		arg.Description,
+		arg.ID,
+		arg.UserID,
+	)
+	var i UpdateUserExperienceRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Title,
+		&i.Organization,
+		&i.EmploymentType,
+		&i.Location,
+		&i.LocationType,
+		&i.StartYear,
+		&i.StartMonth,
+		&i.EndYear,
+		&i.EndMonth,
+		&i.IsCurrent,
+		&i.Description,
+	)
+	return i, err
+}
+
+const updateUserLanguage = `-- name: UpdateUserLanguage :one
+UPDATE profile_languages SET
+    name        = $1,
+    proficiency = $2
+WHERE id = $3 AND user_id = $4
+RETURNING id, user_id, name, proficiency
+`
+
+type UpdateUserLanguageParams struct {
+	Name        string
+	Proficiency string
+	ID          pgtype.UUID
+	UserID      pgtype.UUID
+}
+
+type UpdateUserLanguageRow struct {
+	ID          pgtype.UUID
+	UserID      pgtype.UUID
+	Name        string
+	Proficiency string
+}
+
+func (q *Queries) UpdateUserLanguage(ctx context.Context, arg UpdateUserLanguageParams) (UpdateUserLanguageRow, error) {
+	row := q.db.QueryRow(ctx, updateUserLanguage,
+		arg.Name,
+		arg.Proficiency,
+		arg.ID,
+		arg.UserID,
+	)
+	var i UpdateUserLanguageRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Name,
+		&i.Proficiency,
 	)
 	return i, err
 }
@@ -727,8 +1254,8 @@ func (q *Queries) UpsertContact(ctx context.Context, arg UpsertContactParams) er
 }
 
 const upsertProfile = `-- name: UpsertProfile :one
-INSERT INTO profiles (user_id, full_name, headline, bio, institution, department, job_title, country)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+INSERT INTO profiles (user_id, full_name, headline, bio, institution, department, job_title, country, city)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 ON CONFLICT (user_id) DO UPDATE SET
     full_name   = EXCLUDED.full_name,
     headline    = EXCLUDED.headline,
@@ -736,8 +1263,9 @@ ON CONFLICT (user_id) DO UPDATE SET
     institution = EXCLUDED.institution,
     department  = EXCLUDED.department,
     job_title   = EXCLUDED.job_title,
-    country     = EXCLUDED.country
-RETURNING user_id, full_name, headline, bio, institution, department, job_title, country,
+    country     = EXCLUDED.country,
+    city        = EXCLUDED.city
+RETURNING user_id, full_name, headline, bio, institution, department, job_title, country, city,
           photo_file_id, cover_file_id
 `
 
@@ -750,6 +1278,7 @@ type UpsertProfileParams struct {
 	Department  pgtype.Text
 	JobTitle    pgtype.Text
 	Country     pgtype.Text
+	City        pgtype.Text
 }
 
 type UpsertProfileRow struct {
@@ -761,6 +1290,7 @@ type UpsertProfileRow struct {
 	Department  pgtype.Text
 	JobTitle    pgtype.Text
 	Country     pgtype.Text
+	City        pgtype.Text
 	PhotoFileID pgtype.UUID
 	CoverFileID pgtype.UUID
 }
@@ -776,6 +1306,7 @@ func (q *Queries) UpsertProfile(ctx context.Context, arg UpsertProfileParams) (U
 		arg.Department,
 		arg.JobTitle,
 		arg.Country,
+		arg.City,
 	)
 	var i UpsertProfileRow
 	err := row.Scan(
@@ -787,6 +1318,7 @@ func (q *Queries) UpsertProfile(ctx context.Context, arg UpsertProfileParams) (U
 		&i.Department,
 		&i.JobTitle,
 		&i.Country,
+		&i.City,
 		&i.PhotoFileID,
 		&i.CoverFileID,
 	)

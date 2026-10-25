@@ -6,7 +6,10 @@ export const toastDuration = 3000;
 export function Toast({ message }: { message: string }) {
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-20 z-50 flex justify-center px-4 md:bottom-6">
-      <p role="status" className="rounded-full bg-text px-4 py-2 text-sm font-semibold text-surface shadow-sm">
+      <p
+        role="status"
+        className="rounded-full bg-text px-4 py-2 text-sm font-semibold text-surface shadow-sm"
+      >
         {message}
       </p>
     </div>

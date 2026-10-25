@@ -1,4 +1,8 @@
-import { checkImageFile, imageMessages, uploadErrorMessage } from "./image-upload";
+import {
+  checkImageFile,
+  imageMessages,
+  uploadErrorMessage,
+} from "./image-upload";
 
 const MB = 1024 * 1024;
 
@@ -31,13 +35,41 @@ describe("uploadErrorMessage", () => {
   it.each([
     ["photo", { status: 413 }, "This file is too large (max 5 MB)."],
     ["cover", { status: 413 }, "This file is too large (max 8 MB)."],
-    ["photo", { status: 415, code: "unsupported_type" }, "Use a JPG, PNG or WebP image."],
-    ["photo", { status: 400, code: "image_too_large" }, "This image is too large. Use one under 8000 px on each side."],
-    ["photo", { status: 400, code: "invalid_image" }, "Upload failed. Please try again."],
-    ["photo", { status: 429, retryAfter: 1 }, "You've reached the upload limit. Try again in 1 minute."],
-    ["photo", { status: 429, retryAfter: 60 }, "You've reached the upload limit. Try again in 1 minute."],
-    ["photo", { status: 429, retryAfter: 61 }, "You've reached the upload limit. Try again in 2 minutes."],
-    ["photo", { status: 429, retryAfter: 3599 }, "You've reached the upload limit. Try again in 60 minutes."],
+    [
+      "photo",
+      { status: 415, code: "unsupported_type" },
+      "Use a JPG, PNG or WebP image.",
+    ],
+    [
+      "photo",
+      { status: 400, code: "image_too_large" },
+      "This image is too large. Use one under 8000 px on each side.",
+    ],
+    [
+      "photo",
+      { status: 400, code: "invalid_image" },
+      "Upload failed. Please try again.",
+    ],
+    [
+      "photo",
+      { status: 429, retryAfter: 1 },
+      "You've reached the upload limit. Try again in 1 minute.",
+    ],
+    [
+      "photo",
+      { status: 429, retryAfter: 60 },
+      "You've reached the upload limit. Try again in 1 minute.",
+    ],
+    [
+      "photo",
+      { status: 429, retryAfter: 61 },
+      "You've reached the upload limit. Try again in 2 minutes.",
+    ],
+    [
+      "photo",
+      { status: 429, retryAfter: 3599 },
+      "You've reached the upload limit. Try again in 60 minutes.",
+    ],
     ["photo", { status: 429 }, "Upload failed. Please try again."],
     ["photo", { status: 500 }, "Upload failed. Please try again."],
     ["photo", { status: 0 }, "Upload failed. Please try again."],

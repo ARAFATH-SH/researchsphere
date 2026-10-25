@@ -10,7 +10,7 @@ import { Card } from "@/components/ui/card";
 import type { Profile } from "./api";
 import { Cover } from "./cover";
 import { CameraIcon, EditButton, editButtonId } from "./edit-button";
-import { affiliation, countryName, initials } from "./format";
+import { affiliation, initials, locationLine } from "./format";
 import { MoreMenu } from "./more-menu";
 import type { EditControls } from "./profile-sections";
 
@@ -30,8 +30,13 @@ const topBarHeight = 56;
 // button on the cover, a clickable photo and a pencil that opens the intro dialog; anyone
 // else sees the same images and a Connect button that waits for connections (slice 13).
 // Once the card scrolls out of view, a slim bar under the top bar repeats the name and buttons.
-export function ProfileHeader({ profile, edit, onContact }: ProfileHeaderProps) {
+export function ProfileHeader({
+  profile,
+  edit,
+  onContact,
+}: ProfileHeaderProps) {
   const works = affiliation(profile);
+  const location = locationLine(profile);
   const card = useRef<HTMLDivElement>(null);
   const pinned = useScrolledPast(card);
   return (
@@ -61,10 +66,20 @@ export function ProfileHeader({ profile, edit, onContact }: ProfileHeaderProps) 
                   onClick={() => edit.open("photo")}
                   className="block rounded-full focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:outline-none"
                 >
-                  <Avatar name={profile.fullName} src={profile.photoUrl} size="lg" className="border-4 border-surface" />
+                  <Avatar
+                    name={profile.fullName}
+                    src={profile.photoUrl}
+                    size="lg"
+                    className="border-4 border-surface"
+                  />
                 </button>
               ) : (
-                <Avatar name={profile.fullName} src={profile.photoUrl} size="lg" className="border-4 border-surface" />
+                <Avatar
+                  name={profile.fullName}
+                  src={profile.photoUrl}
+                  size="lg"
+                  className="border-4 border-surface"
+                />
               )}
             </div>
             <div className="flex items-center gap-1 pt-4">
@@ -73,12 +88,16 @@ export function ProfileHeader({ profile, edit, onContact }: ProfileHeaderProps) 
           </div>
           <div className="flex gap-6">
             <div className="min-w-0 flex-1">
-              <h1 className="mt-4 text-2xl font-semibold break-words text-text md:text-3xl">{profile.fullName}</h1>
-              {profile.headline && <p className="mt-1 text-base text-text">{profile.headline}</p>}
+              <h1 className="mt-4 text-2xl font-semibold break-words text-text md:text-3xl">
+                {profile.fullName}
+              </h1>
+              {profile.headline && (
+                <p className="mt-1 text-base text-text">{profile.headline}</p>
+              )}
               <div className="mt-2 space-y-0.5 text-sm text-text-muted">
                 {works && <p>{works}</p>}
                 {profile.department && <p>{profile.department}</p>}
-                {profile.country && <p>{countryName(profile.country)}</p>}
+                {location && <p>{location}</p>}
               </div>
               {onContact && (
                 <button
@@ -102,11 +121,19 @@ export function ProfileHeader({ profile, edit, onContact }: ProfileHeaderProps) 
 
 // HeaderActions are the header's buttons: the pencil or Connect, then More. Only the
 // header card's own pencil carries the id that edit dialogs give the focus back to.
-function HeaderActions({ profile, edit, withIds = false }: Pick<ProfileHeaderProps, "profile" | "edit"> & { withIds?: boolean }) {
+function HeaderActions({
+  profile,
+  edit,
+  withIds = false,
+}: Pick<ProfileHeaderProps, "profile" | "edit"> & { withIds?: boolean }) {
   return (
     <>
       {edit ? (
-        <EditButton id={withIds ? editButtonId("intro") : undefined} label="Edit intro" onClick={() => edit.open("intro")} />
+        <EditButton
+          id={withIds ? editButtonId("intro") : undefined}
+          label="Edit intro"
+          onClick={() => edit.open("intro")}
+        />
       ) : (
         <ConnectButton />
       )}
@@ -119,12 +146,20 @@ function HeaderActions({ profile, edit, withIds = false }: Pick<ProfileHeaderPro
 // square initial badge. The API returns education newest first. Below 768px they are left
 // out: the institution is already in the text beside them.
 function Affiliations({ profile }: { profile: Profile }) {
-  const items = [profile.institution, profile.education[0]?.institution].filter((name): name is string => Boolean(name));
+  const items = [profile.institution, profile.education[0]?.institution].filter(
+    (name): name is string => Boolean(name),
+  );
   if (items.length === 0) return null;
   return (
-    <ul aria-label="Affiliations" className="mt-4 hidden w-56 shrink-0 space-y-3 md:block">
+    <ul
+      aria-label="Affiliations"
+      className="mt-4 hidden w-56 shrink-0 space-y-3 md:block"
+    >
       {items.map((name, i) => (
-        <li key={i} className="flex items-center gap-2 text-sm font-semibold text-text">
+        <li
+          key={i}
+          className="flex items-center gap-2 text-sm font-semibold text-text"
+        >
           <span
             aria-hidden="true"
             className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary-soft text-sm text-primary"
@@ -146,7 +181,10 @@ function useScrolledPast(target: RefObject<HTMLElement | null>): boolean {
     const el = target.current;
     if (!el || typeof IntersectionObserver === "undefined") return;
     const observer = new IntersectionObserver(
-      ([entry]) => setPast(!entry.isIntersecting && entry.boundingClientRect.top < topBarHeight),
+      ([entry]) =>
+        setPast(
+          !entry.isIntersecting && entry.boundingClientRect.top < topBarHeight,
+        ),
       { rootMargin: `-${topBarHeight}px 0px 0px 0px` },
     );
     observer.observe(el);
@@ -156,7 +194,10 @@ function useScrolledPast(target: RefObject<HTMLElement | null>): boolean {
 }
 
 // StickyBar is the slim bar under the top bar while the header card is out of view.
-function StickyBar({ profile, edit }: Pick<ProfileHeaderProps, "profile" | "edit">) {
+function StickyBar({
+  profile,
+  edit,
+}: Pick<ProfileHeaderProps, "profile" | "edit">) {
   return (
     <div
       role="region"
@@ -164,10 +205,21 @@ function StickyBar({ profile, edit }: Pick<ProfileHeaderProps, "profile" | "edit
       className="fixed inset-x-0 top-14 z-10 border-b border-border bg-surface shadow-sm"
     >
       <Container size="app" className="flex h-14 items-center gap-3">
-        <Avatar name={profile.fullName} src={profile.photoUrl} size="bar" decorative />
+        <Avatar
+          name={profile.fullName}
+          src={profile.photoUrl}
+          size="bar"
+          decorative
+        />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-text">{profile.fullName}</p>
-          {profile.headline && <p className="truncate text-xs text-text-muted">{profile.headline}</p>}
+          <p className="truncate text-sm font-semibold text-text">
+            {profile.fullName}
+          </p>
+          {profile.headline && (
+            <p className="truncate text-xs text-text-muted">
+              {profile.headline}
+            </p>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <HeaderActions profile={profile} edit={edit} />

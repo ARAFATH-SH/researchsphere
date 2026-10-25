@@ -1,8 +1,8 @@
 // Package http serves the profile operations in docs/openapi.yaml: the caller's own
 // profile and editing its basic fields (FR-4.1), research interests and skills (FR-4.2)
 // with suggestions (FR-4.3), education entries (FR-4.4), contact info and links (FR-4.7),
-// and any user's profile (FR-4.5). It
-// turns the usecase's errors into the error codes the web client shows next to each
+// work experience entries (FR-4.8), languages (FR-4.9) and any user's profile (FR-4.5).
+// It turns the usecase's errors into the error codes the web client shows next to each
 // field. cmd/api guards each route with its platform action (SRS 2.3) before it gets here.
 package http
 
@@ -28,6 +28,7 @@ const (
 	CodeInvalidDepartment  = "invalid_department"
 	CodeInvalidJobTitle    = "invalid_job_title"
 	CodeInvalidCountry     = "invalid_country"
+	CodeInvalidCity        = "invalid_city"
 	CodeInvalidTagName     = "invalid_tag_name"
 	CodeTagLimitReached    = "tag_limit_reached"
 
@@ -35,7 +36,27 @@ const (
 	CodeInvalidFieldOfStudy   = "invalid_field_of_study"
 	CodeInvalidStartYear      = "invalid_start_year"
 	CodeInvalidEndYear        = "invalid_end_year"
+	CodeInvalidGrade          = "invalid_grade"
 	CodeEducationLimitReached = "education_limit_reached"
+
+	CodeInvalidTitle           = "invalid_title"
+	CodeInvalidOrganization    = "invalid_organization"
+	CodeInvalidEmploymentType  = "invalid_employment_type"
+	CodeInvalidLocation        = "invalid_location"
+	CodeInvalidLocationType    = "invalid_location_type"
+	CodeInvalidStartDate       = "invalid_start_date"
+	CodeInvalidEndDate         = "invalid_end_date"
+	CodeInvalidIsCurrent       = "invalid_is_current"
+	CodeEndDateRequired        = "end_date_required"
+	CodeEndDateNotAllowed      = "end_date_not_allowed"
+	CodeInvalidDateRange       = "invalid_date_range"
+	CodeInvalidDescription     = "invalid_description"
+	CodeExperienceLimitReached = "experience_limit_reached"
+
+	CodeInvalidLanguageName  = "invalid_language_name"
+	CodeInvalidProficiency   = "invalid_proficiency"
+	CodeLanguageExists       = "language_exists"
+	CodeLanguageLimitReached = "language_limit_reached"
 
 	CodeInvalidPhone      = "invalid_phone"
 	CodeInvalidBirthday   = "invalid_birthday"
@@ -56,6 +77,12 @@ type service interface {
 	AddEducation(ctx context.Context, userID string, in usecase.EducationInput) (domain.Education, error)
 	UpdateEducation(ctx context.Context, userID, id string, patch usecase.EducationPatch) (domain.Education, error)
 	RemoveEducation(ctx context.Context, userID, id string) error
+	AddExperience(ctx context.Context, userID string, in usecase.ExperienceInput) (domain.Experience, error)
+	UpdateExperience(ctx context.Context, userID, id string, patch usecase.ExperiencePatch) (domain.Experience, error)
+	RemoveExperience(ctx context.Context, userID, id string) error
+	AddLanguage(ctx context.Context, userID string, in usecase.LanguageInput) (domain.Language, error)
+	UpdateLanguage(ctx context.Context, userID, id string, patch usecase.LanguagePatch) (domain.Language, error)
+	RemoveLanguage(ctx context.Context, userID, id string) error
 	GetContact(ctx context.Context, userID string) (domain.Contact, error)
 	UpdateContact(ctx context.Context, userID string, in usecase.ContactInput) (domain.Contact, error)
 	AddLink(ctx context.Context, userID string, kind domain.LinkKind, url string) (domain.Link, error)
@@ -84,6 +111,7 @@ var inputErrors = []struct {
 	{domain.ErrInvalidDepartment, CodeInvalidDepartment, "The department must be one line of at most 200 characters."},
 	{domain.ErrInvalidJobTitle, CodeInvalidJobTitle, "The job title must be one line of at most 200 characters."},
 	{domain.ErrInvalidCountry, CodeInvalidCountry, "Choose a country from the list."},
+	{domain.ErrInvalidCity, CodeInvalidCity, fmt.Sprintf("The city must be one line of at most %d characters.", usecase.MaxCityLength)},
 }
 
 func inputError(err error) (gen.Error, bool) {
@@ -135,6 +163,7 @@ func (h *Handler) UpdateMyProfile(ctx context.Context, req gen.UpdateMyProfileRe
 		Department:  req.Body.Department,
 		JobTitle:    req.Body.JobTitle,
 		Country:     req.Body.Country,
+		City:        req.Body.City,
 	})
 	if e, ok := inputError(err); ok {
 		return gen.UpdateMyProfile400JSONResponse(e), nil
@@ -196,6 +225,14 @@ func profileBody(p domain.Profile) (gen.Profile, error) {
 	if err != nil {
 		return gen.Profile{}, err
 	}
+	experience, err := experienceBodies(p.Experience)
+	if err != nil {
+		return gen.Profile{}, err
+	}
+	languages, err := languageBodies(p.Languages)
+	if err != nil {
+		return gen.Profile{}, err
+	}
 	contact, err := publicContactBody(p.Contact)
 	if err != nil {
 		return gen.Profile{}, err
@@ -209,9 +246,12 @@ func profileBody(p domain.Profile) (gen.Profile, error) {
 		Department:       p.Department,
 		JobTitle:         p.JobTitle,
 		Country:          p.Country,
+		City:             p.City,
 		Interests:        interests,
 		Skills:           skills,
 		Education:        education,
+		Experience:       experience,
+		Languages:        languages,
 		Publications:     []map[string]any{},
 		ConnectionStatus: gen.None,
 		Contact:          contact,
