@@ -10,7 +10,145 @@ Components use only these names, for example `bg-background`, `bg-surface`,
 `border-border`, `text-text-muted`, `bg-primary`, `text-secondary`. Never write raw colors
 (hex values, `white`, `gray-400` …) in components.
 
-## Foundations
+## Design reference
+
+`design/screens/` is the source of truth for look and spacing: colors, fonts, sizes, radii,
+shadows, gaps and widths. Each screen has a desktop artboard (`<Name>.html`, 1280px) and a
+mobile one (`<Name>_m.html`, 390px); `Main.html` is a requirement map, not a screen. Use the
+light theme only and ignore the design-tool markup (`{{theme}}`, `<x-dc>`, `<sc-if>`,
+`support.js`); see `design/README.md`.
+
+- When this document and the design disagree on how something looks, the design wins.
+  Layout rules here (Container, grids, accessibility, what each page holds) still apply.
+- Pages move to the design tokens below one at a time. A restyled page uses only `rs-*`
+  tokens; the [legacy tokens](#foundations-legacy) are removed once no page uses them.
+- Check a page against its design with `npm run ui:compare` ([Visual
+  comparison](#visual-comparison)).
+
+## Design tokens
+
+CSS variables in `:root` of `frontend/src/app/globals.css`, each mapped to a Tailwind utility
+in its `@theme inline` block. Taken from the 15 desktop screens; light theme only.
+`src/app/tokens.test.ts` fails when a token is missing from Tailwind or from these tables.
+
+### Colors
+
+Tailwind: `bg-`, `text-`, `border-`, `ring-` … plus the name after `--`, for example
+`bg-rs-surface`, `text-rs-heading`, `border-rs-border`.
+
+| Variable | Value | Use |
+| --- | --- | --- |
+| `--rs-surface` | `#FFFFFF` | Page background, cards, top bar |
+| `--rs-text` | `#191919` | Main text |
+| `--rs-text-muted` | `#666666` | Secondary text, meta lines |
+| `--rs-heading` | `#0B5F58` | Card and section headings |
+| `--rs-accent` | `#0B7A75` | Logo, active tab, nav accent, focus ring |
+| `--rs-accent-strong` | `#0F766E` | Links, primary buttons |
+| `--rs-accent-hover` | `#115E59` | Hover of links and `accent-strong` |
+| `--rs-accent-deep` | `#134E4A` | Deep teal fills (initials, banners) |
+| `--rs-accent-soft` | `#E6F4F2` | Soft teal fills: chips, tiles, selected rows |
+| `--rs-accent-line` | `#9FD3CC` | Border of soft teal boxes |
+| `--rs-border` | `#DDE3E1` | Card borders |
+| `--rs-divider` | `#EEF2F1` | Dividers between rows inside a card |
+| `--rs-control` | `#8A979E` | Input and dashed borders |
+| `--rs-subtle` | `#F5F8F7` | Subtle panels inside a card |
+| `--rs-neutral` | `#E3E8E7` | Neutral fills, skeletons |
+| `--rs-search` | `#EDF3F3` | Top-bar search field |
+| `--rs-nav-border` | `#E2E7E7` | Top bar and footer borders |
+| `--rs-nav-text` | `rgba(0,0,0,.9)` | Top-bar text, active tab |
+| `--rs-nav-muted` | `rgba(0,0,0,.6)` | Inactive tabs, menu links |
+| `--rs-footer-bg` | `#F4F6F6` | Footer background |
+| `--rs-footer-muted` | `#5C6868` | Footer secondary text |
+| `--rs-footer-link` | `#46625F` | Footer links |
+| `--rs-danger` | `#B42318` | Errors, danger buttons, count badges |
+| `--rs-danger-strong` | `#912018` | Error text on `danger-soft` |
+| `--rs-danger-soft` | `#FEF3F2` | Error banner background |
+| `--rs-danger-line` | `#F4C7C3` | Danger card border |
+| `--rs-warning` | `#7A4100` | Warning text |
+| `--rs-warning-soft` | `#FFF8E6` | Warning banner background |
+| `--rs-warning-line` | `#F0C27B` | Warning border |
+| `--rs-orange` | `#8A4B00` | Orange chip text |
+| `--rs-orange-soft` | `#FFF4E5` | Orange chip background |
+| `--rs-violet` | `#5B21B6` | Violet chip text |
+| `--rs-violet-soft` | `#EDE9FE` | Violet chip background |
+| `--rs-info` | `#2B6CB0` | Info accents |
+| `--rs-success` | `#15803D` | Success text |
+
+One-offs in the design that are not tokens (avatar and chip shades used once or twice):
+`#7B341E`, `#9A3412`, `#09615D`, `#7C3AED`, `#16A34A`, `#F1F4F3`, `#0D3B38`, `#553C9A`,
+`#C4CDD1`, `#C2410C`, `#F5F3FF`, `#C4B5FD`, `#4C1D95`, `rgba(11,122,117,.10)`. If a page
+needs one, add a token first.
+
+### Type
+
+| Variable | Value | Tailwind |
+| --- | --- | --- |
+| `--rs-font-sans` | Source Sans 3 (400, 500, 700, from `next/font/google` in `app/layout.tsx`), then `'Helvetica Neue', Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif` | `font-rs-sans` (page text) |
+| `--rs-font-ui` | `-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif` | `font-rs-ui` (top bar and footer) |
+| `--rs-font-mono` | `'JetBrains Mono', ui-monospace, monospace` (no web font loaded) | `font-rs-mono` |
+| `--rs-size-micro` | 10px | `text-rs-micro` |
+| `--rs-size-tiny` | 11px | `text-rs-tiny` |
+| `--rs-size-caption` | 12px | `text-rs-caption` |
+| `--rs-size-body` | 14px (the most used size) | `text-rs-body` |
+| `--rs-size-lead` | 16px | `text-rs-lead` |
+| `--rs-size-title-sm` | 18px | `text-rs-title-sm` |
+| `--rs-size-title` | 20px | `text-rs-title` |
+| `--rs-size-title-md` | 22px | `text-rs-title-md` |
+| `--rs-size-h3` | 24px | `text-rs-h3` |
+| `--rs-size-h2` | 28px | `text-rs-h2` |
+| `--rs-size-h1` | 32px | `text-rs-h1` |
+| `--rs-size-display` | 52px (landing headline) | `text-rs-display` |
+| `--rs-leading-tight` | 1.2 | `leading-rs-tight` |
+| `--rs-leading-snug` | 1.3 (the most used) | `leading-rs-snug` |
+| `--rs-leading-body` | 1.45 | `leading-rs-body` |
+| `--rs-leading-relaxed` | 1.5 | `leading-rs-relaxed` |
+
+Weights are 400, 500 and 700: Tailwind's `font-normal`, `font-medium`, `font-bold`.
+
+### Radii, shadows and widths
+
+| Variable | Value | Tailwind |
+| --- | --- | --- |
+| `--rs-radius-pill` | 999px (buttons, chips) | `rounded-rs-pill` |
+| `--rs-radius-card` | 10px | `rounded-card` |
+| `--rs-radius-card-lg` | 12px | `rounded-card-lg` |
+| `--rs-radius-md` | 8px (menus, inputs) | `rounded-rs-md` |
+| `--rs-radius-control` | 6px | `rounded-control` |
+| `--rs-radius-chip` | 5px | `rounded-rs-chip` |
+| `--rs-radius-xs` | 4px (logo, search) | `rounded-rs-xs` |
+| `--rs-radius-2xs` | 3px | `rounded-rs-2xs` |
+| `--rs-shadow-card` | `0 2px 6px rgba(16,24,40,.06), 0 12px 32px rgba(16,24,40,.12)` | `shadow-card` (every bordered card) |
+| `--rs-shadow-menu` | `0 8px 24px rgba(0,0,0,.14)` | `shadow-menu` |
+| `--rs-shadow-popover` | `0 6px 18px rgba(16,24,40,.12)` | `shadow-popover` |
+| `--rs-shadow-focus` | `0 0 0 2px` accent | `shadow-focus` |
+| `--rs-content` | 1128px, page content width | `max-w-content` |
+| `--rs-gutter` | 16px, page side padding | `px-gutter` |
+| `--rs-menu` | 264px, Me menu width | `w-rs-menu` |
+
+Spacing uses Tailwind's default 4px scale, which covers the design's values (`1.5` = 6px,
+`2.5` = 10px, `3.5` = 14px).
+
+### Visual comparison
+
+`npm run ui:compare -- <route> <design-file>` (in `frontend/`, with `make web` running)
+screenshots the route and `design/screens/<design-file>.html` at 1280×900, and the route and
+`<design-file>_m.html` (or the desktop file when there is none) at 390×844. It saves app,
+design and a diff (changed pixels red) side by side in `frontend/ui-compare/` (gitignored)
+and prints the share of pixels that differ (any color channel by more than 16).
+
+```sh
+npm run ui:compare -- /login Auth
+UI_COMPARE_EMAIL=ada@example.org UI_COMPARE_PASSWORD=... npm run ui:compare -- /home Home
+```
+
+It drives the installed Google Chrome through `playwright-core`; set `UI_COMPARE_CHROME` to
+another executable, `UI_COMPARE_BASE_URL` for another server. For signed-in routes it signs in
+with `UI_COMPARE_EMAIL` and `UI_COMPARE_PASSWORD` (a local test account; never commit them).
+Design images (`/_blob/…`) are placeholders and always differ.
+
+## Foundations (legacy)
+
+The tokens below style pages that are not restyled yet. Do not use them in a restyled page.
 
 | Token | Value | Use |
 | --- | --- | --- |

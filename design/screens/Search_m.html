@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Search</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#fff}
+a{color:#0F766E}a:hover{color:#115E59}
+p+p{margin-top:8px!important}
+/* card elevation */
+[style*="solid #DDE3E1"][style*="radius:10px"],[style*="solid #DDE3E1"][style*="radius: 10px"],[style*="solid #DDE3E1"][style*="radius:12px"],[style*="solid #DDE3E1"][style*="radius: 12px"],[style*="solid #F4C7C3"][style*="radius:10px"],[style*="solid #F4C7C3"][style*="radius: 10px"],[style*="solid #F4C7C3"][style*="radius:12px"],[style*="solid #F4C7C3"][style*="radius: 12px"],[style*="dashed #8A979E"][style*="radius:10px"],[style*="dashed #8A979E"][style*="radius: 10px"],[style*="dashed #8A979E"][style*="radius:12px"],[style*="dashed #8A979E"][style*="radius: 12px"]{background-color:#FFFFFF;box-shadow:0 2px 6px rgba(16,24,40,.06),0 12px 32px rgba(16,24,40,.12)}
+.rs-post,.rs-profile{box-shadow:0 2px 6px rgba(16,24,40,.06),0 12px 32px rgba(16,24,40,.12)!important}
+body{background:#FFFFFF}
+/* mobile */
+@media (max-width:640px){
+body{padding-bottom:56px}
+main{padding:16px 12px 32px!important;gap:16px!important}
+[style*="max-width:240px"],[style*="max-width:250px"],[style*="max-width:260px"],[style*="max-width:320px"],[style*="max-width:340px"],[style*="max-width:400px"],[style*="max-width:420px"]{max-width:none!important}
+[style*="grid-template-columns:repeat(2,minmax(0,1fr))"],[style*="grid-template-columns:repeat(3,minmax(0,1fr))"]{grid-template-columns:1fr!important}
+[style*="grid-template-columns:repeat(4,minmax(0,1fr))"]{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+h1[style*="font-size:52px"]{font-size:32px!important}
+p[style*="font-size:20px"]{font-size:16px!important}
+.rs-nav-inner{padding:0 12px}
+.rs-search{flex:1 1 auto!important}
+.rs-search .rs-search-txt{display:inline!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rs-nav .rs-tabs{position:fixed;left:0;right:0;bottom:0;height:56px;margin:0;background:var(--n-bg);border-top:1px solid var(--n-border);justify-content:space-around;z-index:50}
+.rs-nav .rs-tabs .rs-tab,.rs-nav .rs-tabs>span{flex:1;width:auto;height:56px}
+.rs-nav .rs-tabs .rs-tab-lbl{display:flex!important;font-size:10px}
+.rs-nav .rs-tab[aria-current="page"]::after{top:0;bottom:auto}
+.rs-nav-inner>div>.rs-tab{display:none}
+.rs-menu{position:fixed!important;top:auto!important;bottom:64px;left:8px;right:8px;width:auto!important}
+.rs-post-actions .rs-act span{display:none}
+}
+.rs-nav{--n-bg:#ffffff;--n-border:#e2e7e7;--n-text:rgba(0,0,0,.9);--n-muted:rgba(0,0,0,.6);--n-accent:#0B7A75;--n-search:#edf3f3;position:sticky;top:0;z-index:50;height:52px;background:var(--n-bg);border-bottom:1px solid var(--n-border);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:var(--n-text)}
+[data-theme="dark"] .rs-nav,.rs-nav[data-theme="dark"]{--n-bg:#0d1b1a;--n-border:#09615D;--n-text:#ffffff;--n-muted:rgba(255,255,255,.7);--n-accent:#a3e2de;--n-search:#09615D}
+.rs-nav-inner{max-width:1128px;height:52px;margin:0 auto;padding:0 16px;display:flex;align-items:center;gap:8px;box-sizing:border-box}
+.rs-logo{flex:none;width:34px;height:34px;border-radius:4px;background:var(--n-accent);color:var(--n-bg)!important;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;text-decoration:none!important}
+.rs-search{flex:0 1 280px;min-width:0;height:34px;display:flex;align-items:center;gap:8px;padding:0 10px;border-radius:4px;background:var(--n-search);color:var(--n-muted)!important;text-decoration:none!important;font-size:14px;box-sizing:border-box}
+.rs-search input{flex:1;min-width:0;border:0;outline:0;background:transparent;color:var(--n-text);font:inherit}
+.rs-search:focus-within{box-shadow:0 0 0 2px var(--n-accent)}
+.rs-tabs{margin-left:auto;display:flex;height:52px}
+.rs-tab{position:relative;width:80px;height:52px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;color:var(--n-muted)!important;text-decoration:none!important;font-size:11px;line-height:1.2;letter-spacing:.01em;box-sizing:border-box}
+.rs-tab svg{width:24px;height:24px}
+.rs-tab:hover,.rs-tab:focus-visible{color:var(--n-accent)!important}
+.rs-tab[aria-current="page"]{color:var(--n-text)!important}
+.rs-tab[aria-current="page"]::after{content:"";position:absolute;left:0;right:0;bottom:0;height:2px;background:var(--n-accent)}
+.rs-badge{position:absolute;top:4px;left:calc(50% + 4px);min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:#B42318;color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;box-sizing:border-box}
+.rs-me-img{width:24px;height:24px;border-radius:50%;object-fit:cover}
+.rs-tab-lbl{display:flex;align-items:center;gap:1px}
+.rs-menu{position:absolute;right:0;top:52px;width:264px;background:var(--n-bg);border:1px solid var(--n-border);border-radius:8px 0 8px 8px;box-shadow:0 8px 24px rgba(0,0,0,.14);padding:12px 0;z-index:60;font-size:14px;color:var(--n-text)}
+.rs-menu a{display:block;padding:6px 16px;color:var(--n-muted)!important;text-decoration:none!important}
+.rs-menu a:hover{color:var(--n-accent)!important;text-decoration:underline!important}
+.rs-menu-h{padding:8px 16px 4px;font-weight:500;font-size:14px;color:var(--n-text);border-top:1px solid var(--n-border);margin-top:8px}
+@media (max-width:760px){.rs-tab{width:52px}.rs-tab .rs-tab-lbl{display:none}.rs-search{flex:0 1 40px}.rs-search .rs-search-txt{display:none}}
+.rs-footer{--f-bg:#f4f6f6;--f-border:#e2e7e7;--f-text:#191919;--f-muted:#5c6868;--f-link:#46625f;--f-accent:#0B7A75;--f-control:#8A979E;background:var(--f-bg);color:var(--f-text);border-top:1px solid var(--f-border);font:12px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+.rs-footer[data-theme="dark"]{--f-bg:#09615D;--f-border:#0B7A75;--f-text:#F3F8F8;--f-muted:#C9E4E2;--f-link:#D6EEEC;--f-accent:#a3e2de;--f-control:#a3e2de}
+.rs-footer a{color:var(--f-link);text-decoration:none}
+.rs-footer a:hover,.rs-footer a:focus-visible,.rs-footer a[aria-current]{color:var(--f-accent);text-decoration:underline}
+.rs-f-inner{max-width:1128px;margin:0 auto;padding:24px 16px;display:grid;grid-template-columns:minmax(150px,1.1fr) repeat(3,minmax(110px,1fr)) minmax(190px,1.4fr) minmax(150px,1fr);gap:16px 0}
+.rs-f-brand{padding-right:16px}
+.rs-f-logo{display:inline-flex;align-items:center;gap:6px;font-weight:700;font-size:14px;color:var(--f-accent)!important;text-decoration:none!important}
+.rs-f-mark{width:22px;height:22px;border-radius:5px;background:var(--f-accent);color:var(--f-bg);display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700}
+.rs-f-copy{margin:6px 0 0!important;color:var(--f-muted)}
+.rs-f-col{display:flex;flex-direction:column;gap:6px;padding:0 16px;border-left:1px solid var(--f-border)}
+.rs-f-title{font-weight:500;color:var(--f-text);margin-bottom:2px}
+.rs-f-short{display:flex;flex-direction:column;gap:10px}
+.rs-f-short a{font-weight:500;color:var(--f-text)}
+.rs-f-sub{display:block;color:var(--f-muted)}
+.rs-f-lang label{display:block;color:var(--f-muted);margin-bottom:4px}
+.rs-f-lang select{width:100%;height:32px;border:1px solid var(--f-control);border-radius:4px;background:var(--f-bg);color:var(--f-text);font:inherit;padding:0 6px}
+.rs-f-lang select:focus-visible{outline:2px solid var(--f-accent);outline-offset:1px}
+@media (max-width:960px){.rs-f-inner{grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.rs-f-brand{grid-column:1/-1;padding:0}.rs-f-col{border-left:0;padding:0}}
+@media (max-width:560px){.rs-f-inner{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.rs-footer-compact{border:1px solid var(--f-border);border-radius:10px}
+.rs-f-compact{padding:12px;display:flex;flex-wrap:wrap;gap:4px 12px;justify-content:center;text-align:center}
+input,select{box-sizing:border-box}
+
+/* mobile app shell */
+.rs-mtop,.rs-mbot{display:none}
+@media (max-width:480px){
+.rs-nav{display:none!important}
+body{padding-top:56px;padding-bottom:64px!important}
+.rs-mtop{--m-bg:#ffffff;--m-border:#e2e7e7;--m-text:rgba(0,0,0,.9);--m-muted:rgba(0,0,0,.6);--m-accent:#0B7A75;--m-search:#edf3f3;display:flex;position:fixed;top:0;left:0;right:0;z-index:70;height:56px;align-items:center;gap:12px;padding:0 12px;box-sizing:border-box;background:var(--m-bg);border-bottom:1px solid var(--m-border);box-shadow:0 1px 3px rgba(16,24,40,.06);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+.rs-mbot{--m-bg:#ffffff;--m-border:#e2e7e7;--m-text:rgba(0,0,0,.9);--m-muted:rgba(0,0,0,.6);--m-accent:#0B7A75;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));position:fixed;left:0;right:0;bottom:0;z-index:70;height:64px;background:var(--m-bg);border-top:1px solid var(--m-border);box-shadow:0 -1px 3px rgba(16,24,40,.06);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+.rs-mtop[data-theme="dark"],.rs-mbot[data-theme="dark"]{--m-bg:#0d1b1a;--m-border:#09615D;--m-text:#ffffff;--m-muted:rgba(255,255,255,.7);--m-accent:#a3e2de;--m-search:#09615D}
+.rs-mtop-av{flex:none;width:36px;height:36px;border-radius:50%;overflow:hidden;display:block}
+.rs-mtop-av img{width:100%;height:100%;object-fit:cover;display:block}
+.rs-mtop-search{flex:1;min-width:0;height:36px;display:flex;align-items:center;gap:8px;padding:0 12px;border-radius:999px;background:var(--m-search);color:var(--m-muted);box-sizing:border-box}
+.rs-mtop-search input{flex:1;min-width:0;border:0;outline:0;background:transparent;color:var(--m-text);font-family:inherit;font-size:14px}
+.rs-mtop-search input::placeholder{color:var(--m-muted)}
+.rs-mtop-search:focus-within{box-shadow:0 0 0 2px var(--m-accent)}
+.rs-mtop-msg{position:relative;flex:none;width:44px;height:44px;display:flex;align-items:center;justify-content:center;border-radius:50%;color:var(--m-muted)!important;text-decoration:none!important}
+.rs-mtop-msg[aria-current="page"]{color:var(--m-accent)!important}
+.rs-mtop-msg svg{width:24px;height:24px}
+.rs-mbot a{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:64px;color:var(--m-muted)!important;text-decoration:none!important;font-size:11px;line-height:1.2}
+.rs-mbot a svg{width:24px;height:24px}
+.rs-mbot a[aria-current="page"]{color:var(--m-text)!important;font-weight:600}
+.rs-mbot a[aria-current="page"]::before{content:"";position:absolute;top:0;left:25%;right:25%;height:2px;border-radius:0 0 2px 2px;background:var(--m-accent)}
+.rs-mbot a[aria-current="page"] svg{color:var(--m-accent)}
+.rs-mbadge{position:absolute;top:4px;left:calc(50% + 6px);min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:#B42318;color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;box-sizing:border-box}
+.rs-mtop-msg .rs-mbadge{top:4px;left:auto;right:2px}
+}
+</style>
+</helmet>
+<div style="font-family:'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:14px;line-height:1.45;color:#191919;background:#FFFFFF;min-height:100%">
+  <header class="rs-nav" data-theme="{{theme}}">
+    <nav class="rs-nav-inner" aria-label="Main">
+      <a href="Home_m.dc.html" class="rs-logo" aria-label="ResearchSphere home">RS</a>
+      <label class="rs-search"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" style="flex:none"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg><input aria-label="Search" value="people working on eye strain from screens"></label>
+      <div class="rs-tabs">
+        <a href="Home_m.dc.html" class="rs-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"></path></svg><span class="rs-tab-lbl">Home</span></a>
+        <a href="Network_m.dc.html" class="rs-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"></path><circle cx="17" cy="9" r="2.5"></circle><path d="M17 14c2.6 0 4.5 1.8 4.5 4.5"></path></svg><span class="rs-tab-lbl">My Network</span></a>
+        <a href="Projects_m.dc.html" class="rs-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg><span class="rs-tab-lbl">Projects</span></a>
+        <a href="Messaging_m.dc.html" class="rs-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z"></path></svg><span class="rs-tab-lbl">Messaging</span><span class="rs-badge">2</span></a>
+        <a href="Notifications_m.dc.html" class="rs-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"></path><path d="M10 20a2 2 0 0 0 4 0"></path></svg><span class="rs-tab-lbl">Notifications</span><span class="rs-badge">3</span></a>
+        <span style="position:relative;display:flex">
+          <a href="Profile_m.dc.html" class="rs-tab" aria-haspopup="menu" aria-expanded="false"><img class="rs-me-img" src="/_blob/dc59cd42095a50d1fde9b68f6a4f7c21" alt=""><span class="rs-tab-lbl">Me<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="width:12px;height:12px"><path d="M6 9l6 6 6-6"></path></svg></span></a>
+        </span>
+      </div>
+    </nav>
+  </header>
+  <header class="rs-mtop" data-theme="{{theme}}">
+    <a href="Profile_m.dc.html" class="rs-mtop-av" aria-label="Your profile"><img src="/_blob/dc59cd42095a50d1fde9b68f6a4f7c21" alt=""></a>
+    <label class="rs-mtop-search"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" style="flex:none"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg><span style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Search</span><input type="search" placeholder="Search researchers, projects"></label>
+    <a href="Messaging_m.dc.html" class="rs-mtop-msg" aria-label="Messaging, 2 unread"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z"></path></svg><span class="rs-mbadge">2</span></a>
+  </header>
+  <nav class="rs-mbot" data-theme="{{theme}}" aria-label="Main">
+    <a href="Home_m.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"></path></svg>Home</a>
+    <a href="Network_m.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"></path><circle cx="17" cy="9" r="2.5"></circle><path d="M17 14c2.6 0 4.5 1.8 4.5 4.5"></path></svg>Network</a>
+    <a href="Home_m.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"></rect><path d="M12 8v8M8 12h8"></path></svg>Post</a>
+    <a href="Notifications_m.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"></path><path d="M10 20a2 2 0 0 0 4 0"></path></svg>Alerts<span class="rs-mbadge">3</span></a>
+    <a href="Projects_m.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>Projects</a>
+  </nav>
+
+  <!-- Search sub-bar -->
+  <div style="border-bottom:1px solid #DDE3E1">
+    <div style="max-width:1128px;margin:0 auto;padding:10px 16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <div role="tablist" aria-label="Result type" style="display:flex;gap:6px;flex-wrap:wrap">
+        <button role="tab" aria-selected="true" style="min-height:36px;border:0;border-radius:999px;background:#0F766E;color:#FFFFFF;font:500 14px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:0 16px">People</button>
+        <button role="tab" aria-selected="false" style="min-height:36px;border:1px solid #8A979E;border-radius:999px;background:#FFFFFF;color:#191919;font:500 14px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:0 16px">Projects</button>
+        <button role="tab" aria-selected="false" style="min-height:36px;border:1px solid #8A979E;border-radius:999px;background:#FFFFFF;color:#191919;font:500 14px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:0 16px">Posts</button>
+      </div>
+      <span style="width:1px;height:28px;background:#DDE3E1;margin:0 4px"></span>
+      <div role="radiogroup" aria-label="Search mode" style="display:flex;border:1px solid #0F766E;border-radius:999px;overflow:hidden">
+        <button role="radio" aria-checked="false" style="min-height:34px;border:0;background:#FFFFFF;color:#0F766E;font:500 12px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:0 14px">Keyword</button>
+        <button role="radio" aria-checked="true" style="min-height:34px;border:0;background:#E6F4F2;color:#0B5F58;font:500 12px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:0 14px;display:flex;align-items:center;gap:6px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"></path></svg>By meaning (AI)</button>
+      </div>
+      <sc-if value="{{showFR}}" hint-placeholder-val="{{true}}"></sc-if>
+      <span style="margin-left:auto;font-size:12px;color:#666666">41 / 300 characters</span>
+    </div>
+  </div>
+
+  <main style="max-width:1128px;margin:0 auto;padding:20px 16px 48px;display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start">
+    <aside aria-label="Filters" style="flex:1 1 220px;max-width:260px;min-width:0;border:1px solid #DDE3E1;border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:center"><h2 style="margin:0;font-size:16px;font-weight:500;line-height:1.3">Filters</h2><sc-if value="{{showFR}}" hint-placeholder-val="{{true}}"></sc-if></div>
+      <label style="display:flex;flex-direction:column;gap:4px;font-size:14px;font-weight:500">Institution<select style="height:44px;border:1px solid #8A979E;border-radius:6px;padding:0 8px;font:400 14px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#FFFFFF"><option>Any institution</option></select></label>
+      <fieldset style="border:0;padding:0;margin:0;display:flex;flex-direction:column;gap:6px">
+        <legend style="font-size:14px;font-weight:500;margin-bottom:4px">Research interest</legend>
+        <label style="display:flex;gap:8px;align-items:center;font-size:14px;min-height:32px"><input type="checkbox" checked="" style="width:18px;height:18px;accent-color:#0F766E">Eye health</label>
+        <label style="display:flex;gap:8px;align-items:center;font-size:14px;min-height:32px"><input type="checkbox" style="width:18px;height:18px;accent-color:#0F766E">Human–computer interaction</label>
+        <label style="display:flex;gap:8px;align-items:center;font-size:14px;min-height:32px"><input type="checkbox" style="width:18px;height:18px;accent-color:#0F766E">Digital phenotyping</label>
+      </fieldset>
+      <button style="height:40px;border:1px solid #8A979E;border-radius:999px;background:#FFFFFF;color:#191919;font:500 14px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif">Reset filters</button>
+    </aside>
+
+    <section aria-label="Results" style="flex:999 1 560px;min-width:0;display:flex;flex-direction:column;gap:12px">
+      <div style="background:#FFF8E6;border:1px solid #F0C27B;border-radius:8px;padding:10px 12px;font-size:14px;color:#7A4100;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span style="flex:1;min-width:240px"><strong>Fallback state:</strong> AI search isn’t responding, so these are keyword results.</span>
+        <sc-if value="{{showFR}}" hint-placeholder-val="{{true}}"></sc-if>
+      </div>
+
+      <div style="border:1px solid #DDE3E1;border-radius:10px">
+        <div style="padding:12px 16px;border-bottom:1px solid #EEF2F1;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center">
+          <span style="font-size:14px;color:#666666">About 63 people · ranked by similarity of meaning · page 1 of 4</span>
+          <sc-if value="{{showFR}}" hint-placeholder-val="{{true}}"></sc-if>
+        </div>
+        <sc-for list="{{people}}" as="p" hint-placeholder-count="4">
+          <div style="display:flex;gap:12px;padding:14px 16px;border-bottom:1px solid #EEF2F1;align-items:flex-start;flex-wrap:wrap">
+            <span style="width:56px;height:56px;flex:none;border-radius:50%;background:{{p.color}};color:#FFFFFF;display:flex;align-items:center;justify-content:center;font-weight:700;position:relative;overflow:hidden">{{p.ini}}<sc-if value="{{p.img}}" hint-placeholder-val="{{false}}"><img src="{{p.img}}" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"></sc-if></span>
+            <div style="flex:1;min-width:220px;display:flex;flex-direction:column;gap:2px">
+              <a href="Profile_m.dc.html" style="font-weight:700;font-size:16px;color:#191919;text-decoration:none">{{p.name}}</a>
+              <span style="font-size:14px">{{p.head}}</span>
+              <span style="font-size:12px;color:#666666">{{p.inst}}</span>
+              <span style="font-size:12px;color:#0B5F58">{{p.why}}</span>
+            </div>
+            <button style="height:36px;border:1px solid #0F766E;border-radius:999px;background:#FFFFFF;color:#0F766E;font:500 14px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:0 16px">{{p.cta}}</button>
+          </div>
+        </sc-for>
+        <nav aria-label="Pages" style="display:flex;gap:6px;justify-content:center;padding:12px;align-items:center">
+          <button style="min-width:40px;height:40px;border:0;border-radius:50%;background:#0F766E;color:#FFFFFF;font:500 14px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif">1</button>
+          <button style="min-width:40px;height:40px;border:0;border-radius:50%;background:#FFFFFF;color:#191919;font:500 14px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif">2</button>
+          <button style="min-width:40px;height:40px;border:0;border-radius:50%;background:#FFFFFF;color:#191919;font:500 14px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif">3</button>
+          <button style="min-width:40px;height:40px;border:0;border-radius:50%;background:#FFFFFF;color:#191919;font:500 14px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif">4</button>
+          <button style="height:40px;border:0;background:#FFFFFF;color:#0F766E;font:500 14px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:0 10px">Next</button>
+        </nav>
+      </div>
+
+      <div style="border:1px dashed #8A979E;border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:6px">
+        <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center"><span style="font-size:12px;font-weight:500;color:#666666">Keyword mode · typo tolerance</span><sc-if value="{{showFR}}" hint-placeholder-val="{{true}}"></sc-if></div>
+        <span style="font-size:14px">Showing results for <strong>All Arafath</strong> · searched for “Mahmod Rahmn”</span>
+      </div>
+
+      <div style="border:1px solid #DDE3E1;border-radius:10px">
+        <div style="padding:12px 16px;border-bottom:1px solid #EEF2F1;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center">
+          <h2 style="margin:0;font-size:16px;font-weight:500;line-height:1.3">Projects tab · open projects only</h2>
+          <sc-if value="{{showFR}}" hint-placeholder-val="{{true}}"></sc-if>
+        </div>
+        <a href="ProjectDetail_m.dc.html" style="display:flex;flex-direction:column;gap:4px;padding:14px 16px;border-bottom:1px solid #EEF2F1;text-decoration:none;color:#191919">
+          <span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><strong style="font-size:16px">Blink-rate sensing from webcams</strong><span style="background:#E6F4F2;color:#0B5F58;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:500">Open</span></span>
+          <span style="font-size:14px;color:#191919">Measuring blink frequency during screen work to flag early eye strain.</span>
+          <span style="font-size:12px;color:#666666">Needs: OpenCV · signal processing · Owner: Nafisa Hasan · 3 members</span>
+        </a>
+        <a href="ProjectDetail_m.dc.html" style="display:flex;flex-direction:column;gap:4px;padding:14px 16px;text-decoration:none;color:#191919">
+          <span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><strong style="font-size:16px">Screen-time and sleep survey</strong><span style="background:#E6F4F2;color:#0B5F58;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:500">Open</span></span>
+          <span style="font-size:14px;color:#191919">A nationwide survey of students’ evening device use.</span>
+          <span style="font-size:12px;color:#666666">Needs: statistics · R · Owner: Farhan Tanvir · 4 members</span>
+        </a>
+      </div>
+
+      <div style="border:1px solid #DDE3E1;border-radius:10px">
+        <div style="padding:12px 16px;border-bottom:1px solid #EEF2F1"><h2 style="margin:0;font-size:16px;font-weight:500;line-height:1.3">Posts tab</h2></div>
+        <div style="padding:14px 16px;display:flex;flex-direction:column;gap:4px">
+          <span style="font-size:14px"><strong>Nafisa Hasan</strong> <span style="color:#666666">· 3 d</span></span>
+          <span style="font-size:14px">We’re recruiting students who use laptops 6+ hours a day for a two-week dry-eye diary study…</span>
+        </div>
+      </div>
+    </section>
+  </main>
+  <footer class="rs-footer" data-theme="{{theme}}" aria-label="Site footer">
+    <div class="rs-f-inner">
+      <div class="rs-f-brand">
+        <a href="Home_m.dc.html" class="rs-f-logo"><span class="rs-f-mark">RS</span>ResearchSphere</a>
+        <p class="rs-f-copy">ResearchSphere © 2026</p>
+      </div>
+      <nav class="rs-f-col" aria-label="About">
+        <span class="rs-f-title">About</span>
+        <a href="#">About ResearchSphere</a>
+        <a href="#">Community guidelines</a>
+        <a href="#">Privacy &amp; terms</a>
+        <a href="#">Accessibility</a>
+      </nav>
+      <nav class="rs-f-col" aria-label="For researchers">
+        <span class="rs-f-title">For researchers</span>
+        <a href="Network_m.dc.html">Find collaborators</a>
+        <a href="Projects_m.dc.html">Research projects</a>
+        <a href="Events_m.dc.html">Events &amp; venues</a>
+        <a href="Workspace_m.dc.html">LaTeX workspace</a>
+      </nav>
+      <nav class="rs-f-col" aria-label="Platform">
+        <span class="rs-f-title">Platform</span>
+        <a href="#">How AI matching works</a>
+        <a href="#">Publications &amp; ORCID</a>
+        <a href="#">Safety center</a>
+        <a href="#">Developers</a>
+      </nav>
+      <div class="rs-f-col rs-f-short">
+        <span><a href="#">Questions?</a><span class="rs-f-sub">Visit our Help Center.</span></span>
+        <span><a href="Settings_m.dc.html">Manage your account and privacy</a><span class="rs-f-sub">Go to your Settings.</span></span>
+        <span><a href="#">Report a problem</a><span class="rs-f-sub">Content, safety and bug reports.</span></span>
+      </div>
+      <div class="rs-f-col rs-f-lang">
+        <label for="rs-lang">Select language</label>
+        <select id="rs-lang"><option>English (English)</option><option>বাংলা (Bangla)</option></select>
+      </div>
+    </div>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"showFR":{"editor":"boolean","default":true},"$preview":{"width":390,"height":3472}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      theme: this.props.theme ?? 'light', showFR: this.props.showFR ?? true,
+      people: [
+        { ini: 'NH', img: '/_blob/ef7f0c3134c25bad49120fe344f0bffc', color: '#7B341E', name: 'Nafisa Hasan', head: 'Lecturer · Optometry', inst: 'North South University · Dhaka', why: 'Interests: dry eye, visual ergonomics', cta: '+ Connect' },
+        { ini: 'SU', img: '/_blob/d06ee79103169babf3adc8c8ee6a76a5', color: '#553C9A', name: 'Shihab Uddin', head: 'PhD candidate · Wearable sensing', inst: 'University of Dhaka', why: 'Matches by meaning: “blink detection with smart glasses”', cta: '+ Connect' },
+        { ini: 'AA', img: '/_blob/ca920dda509b8d422b6789d7870d8b6d', color: '#2B6CB0', name: 'All Arafath', head: 'PhD student · Medical imaging', inst: 'BUET · Dhaka', why: 'Interests: retinal analysis, explainable AI', cta: 'Pending' },
+        { ini: 'FT', img: '/_blob/00bb13541434673f54d9fdb50aba2203', color: '#134E4A', name: 'Farhan Tanvir', head: 'Research assistant · Health informatics', inst: 'Daffodil International University', why: 'Connected · Interests: screen-time, sleep', cta: 'Message' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

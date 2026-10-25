@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Researcher profile</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#fff}
+a{color:#0F766E}a:hover{color:#115E59}
+p+p{margin-top:8px!important}
+/* card elevation */
+[style*="solid #DDE3E1"][style*="radius:10px"],[style*="solid #DDE3E1"][style*="radius: 10px"],[style*="solid #DDE3E1"][style*="radius:12px"],[style*="solid #DDE3E1"][style*="radius: 12px"],[style*="solid #F4C7C3"][style*="radius:10px"],[style*="solid #F4C7C3"][style*="radius: 10px"],[style*="solid #F4C7C3"][style*="radius:12px"],[style*="solid #F4C7C3"][style*="radius: 12px"],[style*="dashed #8A979E"][style*="radius:10px"],[style*="dashed #8A979E"][style*="radius: 10px"],[style*="dashed #8A979E"][style*="radius:12px"],[style*="dashed #8A979E"][style*="radius: 12px"]{background-color:#FFFFFF;box-shadow:0 2px 6px rgba(16,24,40,.06),0 12px 32px rgba(16,24,40,.12)}
+.rs-post,.rs-profile{box-shadow:0 2px 6px rgba(16,24,40,.06),0 12px 32px rgba(16,24,40,.12)!important}
+body{background:#FFFFFF}
+/* mobile */
+@media (max-width:640px){
+body{padding-bottom:56px}
+main{padding:16px 12px 32px!important;gap:16px!important}
+[style*="max-width:240px"],[style*="max-width:250px"],[style*="max-width:260px"],[style*="max-width:320px"],[style*="max-width:340px"],[style*="max-width:400px"],[style*="max-width:420px"]{max-width:none!important}
+[style*="grid-template-columns:repeat(2,minmax(0,1fr))"],[style*="grid-template-columns:repeat(3,minmax(0,1fr))"]{grid-template-columns:1fr!important}
+[style*="grid-template-columns:repeat(4,minmax(0,1fr))"]{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+h1[style*="font-size:52px"]{font-size:32px!important}
+p[style*="font-size:20px"]{font-size:16px!important}
+.rs-nav-inner{padding:0 12px}
+.rs-search{flex:1 1 auto!important}
+.rs-search .rs-search-txt{display:inline!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rs-nav .rs-tabs{position:fixed;left:0;right:0;bottom:0;height:56px;margin:0;background:var(--n-bg);border-top:1px solid var(--n-border);justify-content:space-around;z-index:50}
+.rs-nav .rs-tabs .rs-tab,.rs-nav .rs-tabs>span{flex:1;width:auto;height:56px}
+.rs-nav .rs-tabs .rs-tab-lbl{display:flex!important;font-size:10px}
+.rs-nav .rs-tab[aria-current="page"]::after{top:0;bottom:auto}
+.rs-nav-inner>div>.rs-tab{display:none}
+.rs-menu{position:fixed!important;top:auto!important;bottom:64px;left:8px;right:8px;width:auto!important}
+.rs-post-actions .rs-act span{display:none}
+}
+.rs-profile{--p-bg:#ffffff;--p-border:#e2e7e7;--p-text:rgba(0,0,0,.9);--p-muted:rgba(0,0,0,.6);--p-accent:#0B7A75;background:var(--p-bg);color:var(--p-text);border:1px solid var(--p-border);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+.rs-profile[data-theme="dark"]{--p-bg:#0d1b1a;--p-border:#09615D;--p-text:#ffffff;--p-muted:rgba(255,255,255,.7);--p-accent:#a3e2de}
+.rs-banner{position:relative;height:200px;overflow:hidden;background:linear-gradient(120deg,#0B7A75 0%,#09615D 60%,#0d3b38 100%)}
+.rs-banner img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.rs-avatar{width:152px;height:152px;margin-top:-76px;border-radius:50%;border:4px solid var(--p-bg);box-shadow:0 0 0 1px var(--p-border);object-fit:cover;box-sizing:border-box;position:relative;background:var(--p-bg)}
+@media (max-width:640px){.rs-banner{height:120px}.rs-avatar{width:104px;height:104px;margin-top:-52px}}
+.rs-nav{--n-bg:#ffffff;--n-border:#e2e7e7;--n-text:rgba(0,0,0,.9);--n-muted:rgba(0,0,0,.6);--n-accent:#0B7A75;--n-search:#edf3f3;position:sticky;top:0;z-index:50;height:52px;background:var(--n-bg);border-bottom:1px solid var(--n-border);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:var(--n-text)}
+[data-theme="dark"] .rs-nav,.rs-nav[data-theme="dark"]{--n-bg:#0d1b1a;--n-border:#09615D;--n-text:#ffffff;--n-muted:rgba(255,255,255,.7);--n-accent:#a3e2de;--n-search:#09615D}
+.rs-nav-inner{max-width:1128px;height:52px;margin:0 auto;padding:0 16px;display:flex;align-items:center;gap:8px;box-sizing:border-box}
+.rs-logo{flex:none;width:34px;height:34px;border-radius:4px;background:var(--n-accent);color:var(--n-bg)!important;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;text-decoration:none!important}
+.rs-search{flex:0 1 280px;min-width:0;height:34px;display:flex;align-items:center;gap:8px;padding:0 10px;border-radius:4px;background:var(--n-search);color:var(--n-muted)!important;text-decoration:none!important;font-size:14px;box-sizing:border-box}
+.rs-search input{flex:1;min-width:0;border:0;outline:0;background:transparent;color:var(--n-text);font:inherit}
+.rs-search:focus-within{box-shadow:0 0 0 2px var(--n-accent)}
+.rs-tabs{margin-left:auto;display:flex;height:52px}
+.rs-tab{position:relative;width:80px;height:52px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;color:var(--n-muted)!important;text-decoration:none!important;font-size:11px;line-height:1.2;letter-spacing:.01em;box-sizing:border-box}
+.rs-tab svg{width:24px;height:24px}
+.rs-tab:hover,.rs-tab:focus-visible{color:var(--n-accent)!important}
+.rs-tab[aria-current="page"]{color:var(--n-text)!important}
+.rs-tab[aria-current="page"]::after{content:"";position:absolute;left:0;right:0;bottom:0;height:2px;background:var(--n-accent)}
+.rs-badge{position:absolute;top:4px;left:calc(50% + 4px);min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:#B42318;color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;box-sizing:border-box}
+.rs-me-img{width:24px;height:24px;border-radius:50%;object-fit:cover}
+.rs-tab-lbl{display:flex;align-items:center;gap:1px}
+.rs-menu{position:absolute;right:0;top:52px;width:264px;background:var(--n-bg);border:1px solid var(--n-border);border-radius:8px 0 8px 8px;box-shadow:0 8px 24px rgba(0,0,0,.14);padding:12px 0;z-index:60;font-size:14px;color:var(--n-text)}
+.rs-menu a{display:block;padding:6px 16px;color:var(--n-muted)!important;text-decoration:none!important}
+.rs-menu a:hover{color:var(--n-accent)!important;text-decoration:underline!important}
+.rs-menu-h{padding:8px 16px 4px;font-weight:500;font-size:14px;color:var(--n-text);border-top:1px solid var(--n-border);margin-top:8px}
+@media (max-width:760px){.rs-tab{width:52px}.rs-tab .rs-tab-lbl{display:none}.rs-search{flex:0 1 40px}.rs-search .rs-search-txt{display:none}}
+.rs-footer{--f-bg:#f4f6f6;--f-border:#e2e7e7;--f-text:#191919;--f-muted:#5c6868;--f-link:#46625f;--f-accent:#0B7A75;--f-control:#8A979E;background:var(--f-bg);color:var(--f-text);border-top:1px solid var(--f-border);font:12px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+.rs-footer[data-theme="dark"]{--f-bg:#09615D;--f-border:#0B7A75;--f-text:#F3F8F8;--f-muted:#C9E4E2;--f-link:#D6EEEC;--f-accent:#a3e2de;--f-control:#a3e2de}
+.rs-footer a{color:var(--f-link);text-decoration:none}
+.rs-footer a:hover,.rs-footer a:focus-visible,.rs-footer a[aria-current]{color:var(--f-accent);text-decoration:underline}
+.rs-f-inner{max-width:1128px;margin:0 auto;padding:24px 16px;display:grid;grid-template-columns:minmax(150px,1.1fr) repeat(3,minmax(110px,1fr)) minmax(190px,1.4fr) minmax(150px,1fr);gap:16px 0}
+.rs-f-brand{padding-right:16px}
+.rs-f-logo{display:inline-flex;align-items:center;gap:6px;font-weight:700;font-size:14px;color:var(--f-accent)!important;text-decoration:none!important}
+.rs-f-mark{width:22px;height:22px;border-radius:5px;background:var(--f-accent);color:var(--f-bg);display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700}
+.rs-f-copy{margin:6px 0 0!important;color:var(--f-muted)}
+.rs-f-col{display:flex;flex-direction:column;gap:6px;padding:0 16px;border-left:1px solid var(--f-border)}
+.rs-f-title{font-weight:500;color:var(--f-text);margin-bottom:2px}
+.rs-f-short{display:flex;flex-direction:column;gap:10px}
+.rs-f-short a{font-weight:500;color:var(--f-text)}
+.rs-f-sub{display:block;color:var(--f-muted)}
+.rs-f-lang label{display:block;color:var(--f-muted);margin-bottom:4px}
+.rs-f-lang select{width:100%;height:32px;border:1px solid var(--f-control);border-radius:4px;background:var(--f-bg);color:var(--f-text);font:inherit;padding:0 6px}
+.rs-f-lang select:focus-visible{outline:2px solid var(--f-accent);outline-offset:1px}
+@media (max-width:960px){.rs-f-inner{grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.rs-f-brand{grid-column:1/-1;padding:0}.rs-f-col{border-left:0;padding:0}}
+@media (max-width:560px){.rs-f-inner{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.rs-footer-compact{border:1px solid var(--f-border);border-radius:10px}
+.rs-f-compact{padding:12px;display:flex;flex-wrap:wrap;gap:4px 12px;justify-content:center;text-align:center}
+</style>
+</helmet>
+<div style="font-family:'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:14px;line-height:1.45;color:#191919;background:#FFFFFF;min-height:100%">
+  <header class="rs-nav" data-theme="{{theme}}">
+    <nav class="rs-nav-inner" aria-label="Main">
+      <a href="Home.dc.html" class="rs-logo" aria-label="ResearchSphere home">RS</a>
+      <a href="Search.dc.html" class="rs-search"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" style="flex:none"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg><span class="rs-search-txt">Search researchers, projects, posts</span></a>
+      <div class="rs-tabs">
+        <a href="Home.dc.html" class="rs-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"></path></svg><span class="rs-tab-lbl">Home</span></a>
+        <a href="Network.dc.html" class="rs-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"></path><circle cx="17" cy="9" r="2.5"></circle><path d="M17 14c2.6 0 4.5 1.8 4.5 4.5"></path></svg><span class="rs-tab-lbl">My Network</span></a>
+        <a href="Projects.dc.html" class="rs-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg><span class="rs-tab-lbl">Projects</span></a>
+        <a href="Messaging.dc.html" class="rs-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z"></path></svg><span class="rs-tab-lbl">Messaging</span><span class="rs-badge">2</span></a>
+        <a href="Notifications.dc.html" class="rs-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"></path><path d="M10 20a2 2 0 0 0 4 0"></path></svg><span class="rs-tab-lbl">Notifications</span><span class="rs-badge">3</span></a>
+        <span style="position:relative;display:flex">
+          <a href="Profile.dc.html" class="rs-tab" aria-haspopup="menu" aria-expanded="false"><img class="rs-me-img" src="/_blob/dc59cd42095a50d1fde9b68f6a4f7c21" alt=""><span class="rs-tab-lbl">Me<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="width:12px;height:12px"><path d="M6 9l6 6 6-6"></path></svg></span></a>
+        </span>
+      </div>
+    </nav>
+  </header>
+
+  <main style="max-width:1128px;margin:0 auto;padding:24px 16px 48px;display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start">
+    <div style="flex:999 1 560px;min-width:0;display:flex;flex-direction:column;gap:12px">
+      <!-- Top card -->
+      <section class="rs-profile" data-theme="{{theme}}" aria-label="Profile summary" style="border-radius:10px;overflow:hidden">
+        <div class="rs-banner">
+          <img src="/_blob/771675b725314def98c450ffad18c0b9" alt="All Arafath cover photo" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">
+        </div>
+        <div style="padding:0 24px 20px;display:flex;flex-direction:column;gap:6px">
+          <img class="rs-avatar" src="/_blob/ca920dda509b8d422b6789d7870d8b6d" alt="All Arafath">
+          <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:flex-start">
+            <div>
+              <h1 style="margin:0;font-size:24px;font-weight:700;line-height:1.2;color:var(--p-text)">All Arafath</h1>
+              <p style="margin:4px 0 0;font-size:16px;line-height:1.4;color:var(--p-text)">PhD student in Computer Vision · Medical imaging &amp; explainable AI</p>
+              <p style="margin:4px 0 0;font-size:14px;color:var(--p-muted)">Research Assistant, Dept. of CSE · Bangladesh University of Engineering and Technology · Dhaka, Bangladesh · <a href="#contact-h" style="font-weight:500;color:var(--p-accent)">Contact info</a></p>
+              <p style="margin:4px 0 0;font-size:14px"><a href="Network.dc.html" style="font-weight:500;color:var(--p-accent)">312 connections</a> · <span style="color:var(--p-muted)">14 shared connections</span></p>
+            </div>
+            <sc-if value="{{showFR}}" hint-placeholder-val="{{true}}"></sc-if>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center">
+            <button style="height:40px;border:0;border-radius:999px;background:var(--p-accent);color:var(--p-bg);font:500 14px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:0 20px;display:flex;align-items:center;gap:6px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Connect</button>
+            <a href="Messaging.dc.html" style="height:40px;box-sizing:border-box;border:1px solid var(--p-accent);border-radius:999px;background:transparent;color:var(--p-accent);font-weight:500;font-size:14px;padding:0 20px;display:flex;align-items:center;text-decoration:none">Message request</a>
+            <button style="height:40px;border:1px solid var(--p-muted);border-radius:999px;background:transparent;color:var(--p-text);font:500 14px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:0 16px">More</button>
+            <sc-if value="{{showFR}}" hint-placeholder-val="{{true}}"></sc-if>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="about-h" style="border:1px solid #DDE3E1;border-radius:10px;padding:20px;display:flex;flex-direction:column;gap:8px">
+        <h2 id="about-h" style="margin:0;font-size:16px;font-weight:500;line-height:1.3">About</h2>
+        <p style="margin:0;font-size:14px;line-height:1.55">I build interpretable models for retinal and dermatology imaging. Currently working on uncertainty-aware saliency maps that clinicians can audit. Open to collaborations on public medical datasets and reproducibility studies.</p>
+      </section>
+
+      <section aria-labelledby="tags-h" style="border:1px solid #DDE3E1;border-radius:10px;padding:20px;display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap"><h2 id="tags-h" style="margin:0;font-size:16px;font-weight:500;line-height:1.3">Research interests &amp; skills</h2><sc-if value="{{showFR}}" hint-placeholder-val="{{true}}"></sc-if></div>
+        <div style="font-size:12px;font-weight:500;color:#666666">Interests</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <sc-for list="{{interests}}" as="t" hint-placeholder-count="5"><span style="background:#E6F4F2;color:#0B5F58;border-radius:999px;padding:5px 12px;font-size:14px">{{t}}</span></sc-for>
+        </div>
+        <div style="font-size:12px;font-weight:500;color:#666666">Skills</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <sc-for list="{{skills}}" as="t" hint-placeholder-count="5"><span style="border:1px solid #8A979E;color:#191919;border-radius:999px;padding:4px 12px;font-size:14px">{{t}}</span></sc-for>
+        </div>
+      </section>
+
+      <section aria-labelledby="pub-h" style="border:1px solid #DDE3E1;border-radius:10px;padding:20px;display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap"><h2 id="pub-h" style="margin:0;font-size:16px;font-weight:500;line-height:1.3">Publications</h2><sc-if value="{{showFR}}" hint-placeholder-val="{{true}}"></sc-if></div>
+        <sc-for list="{{pubs}}" as="p" hint-placeholder-count="3">
+          <div style="display:flex;gap:12px;border-top:1px solid #EEF2F1;padding-top:12px">
+            <span style="width:40px;height:40px;flex:none;border-radius:6px;background:#E6F4F2;display:flex;align-items:center;justify-content:center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0F766E" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h9l4 4v14H6z"></path><path d="M14 3v5h5M9 13h7M9 17h7"></path></svg></span>
+            <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
+              <strong style="font-size:14px">{{p.title}}</strong>
+              <span style="font-size:14px;color:#191919">{{p.venue}} · {{p.year}}</span>
+              <a href="#pub-h" style="font-size:12px">{{p.doi}}</a>
+            </div>
+          </div>
+        </sc-for>
+      </section>
+
+      <section aria-labelledby="exp-h" style="border:1px solid #DDE3E1;border-radius:10px;padding:20px;display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap"><h2 id="exp-h" style="margin:0;font-size:16px;font-weight:500;line-height:1.3">Experience</h2><sc-if value="{{showFR}}" hint-placeholder-val="{{true}}"></sc-if></div>
+        <div style="display:flex;gap:12px">
+          <span style="width:48px;height:48px;flex:none;border-radius:6px;background:#134E4A;color:#FFFFFF;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px">BU</span>
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <strong style="font-size:14px">Research Assistant</strong>
+            <span style="font-size:14px">BUET Vision Lab · Part-time</span>
+            <span style="font-size:12px;color:#666666">Jan 2025 – Present · Dhaka, Bangladesh</span>
+            <span style="font-size:14px;color:#191919">Built the annotation pipeline for a 4,200-image fundus dataset.</span>
+            <span style="font-size:12px;color:#666666">Skills: PyTorch · Grad-CAM · Label Studio</span>
+          </div>
+        </div>
+        <div style="display:flex;gap:12px;border-top:1px solid #EEF2F1;padding-top:12px">
+          <span style="width:48px;height:48px;flex:none;border-radius:6px;background:#7B341E;color:#FFFFFF;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px">PL</span>
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <strong style="font-size:14px">ML Engineer Intern</strong>
+            <span style="font-size:14px">Pathao Labs · Internship</span>
+            <span style="font-size:12px;color:#666666">Jun 2023 – Dec 2023 · Dhaka, Bangladesh</span>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="edu-h" style="border:1px solid #DDE3E1;border-radius:10px;padding:20px;display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap"><h2 id="edu-h" style="margin:0;font-size:16px;font-weight:500;line-height:1.3">Education</h2><sc-if value="{{showFR}}" hint-placeholder-val="{{true}}"><span style="font:500 11px/1.6 ui-monospace,monospace;background:#FFF4E5;color:#8A4B00;border:1px solid #F0C27B;border-radius:4px;padding:0 6px">FR-4.4</span></sc-if></div>
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <strong style="font-size:14px">Bangladesh University of Engineering and Technology</strong>
+          <span style="font-size:14px">PhD · Computer Science and Engineering</span>
+          <span style="font-size:12px;color:#666666">2024 – 2028</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:2px;border-top:1px solid #EEF2F1;padding-top:12px">
+          <strong style="font-size:14px">Khulna University of Engineering and Technology</strong>
+          <span style="font-size:14px">BSc · Computer Science and Engineering · CGPA 3.82</span>
+          <span style="font-size:12px;color:#666666">2019 – 2023</span>
+        </div>
+      </section>
+
+      <section aria-labelledby="lang-h" style="border:1px solid #DDE3E1;border-radius:10px;padding:20px;display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap"><h2 id="lang-h" style="margin:0;font-size:16px;font-weight:500;line-height:1.3">Languages</h2><sc-if value="{{showFR}}" hint-placeholder-val="{{true}}"><span style="font:500 11px/1.6 ui-monospace,monospace;background:#FFF4E5;color:#8A4B00;border:1px solid #F0C27B;border-radius:4px;padding:0 6px">FR-4.9</span></sc-if></div>
+        <div style="font-size:14px"><strong>Bangla</strong> <span style="color:#666666">· Native</span></div>
+        <div style="font-size:14px"><strong>English</strong> <span style="color:#666666">· Full professional</span></div>
+      </section>
+
+      <section aria-labelledby="act-h" style="border:1px solid #DDE3E1;border-radius:10px;padding:20px;display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap"><h2 id="act-h" style="margin:0;font-size:16px;font-weight:500;line-height:1.3">Activity</h2><sc-if value="{{showFR}}" hint-placeholder-val="{{true}}"><span style="font:500 11px/1.6 ui-monospace,monospace;background:#FFF4E5;color:#8A4B00;border:1px solid #F0C27B;border-radius:4px;padding:0 6px">FR-8.6</span></sc-if></div>
+        <div style="border-top:1px solid #EEF2F1;padding-top:10px"><span style="font-size:12px;color:#666666">Posted 2 h ago</span><p style="margin:2px 0 0;font-size:14px">Sharing our open dataset of 4,200 annotated fundus images for diabetic retinopathy grading…</p><span style="font-size:12px;color:#666666">24 likes · 3 comments</span></div>
+        <div style="border-top:1px solid #EEF2F1;padding-top:10px"><span style="font-size:12px;color:#666666">Posted 1 w ago</span><p style="margin:2px 0 0;font-size:14px">Slides from my talk on auditing saliency maps are now linked to the publication below…</p><span style="font-size:12px;color:#666666">41 likes · 9 comments</span></div>
+        <a href="Home.dc.html" style="font-size:14px;font-weight:500">Show all posts</a>
+      </section>
+    </div>
+
+    <aside style="flex:1 1 280px;max-width:320px;min-width:0;display:flex;flex-direction:column;gap:12px">
+      <section aria-labelledby="contact-h" style="border:1px solid #DDE3E1;border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap"><h2 id="contact-h" style="margin:0;font-size:16px;font-weight:500;line-height:1.3">Contact info</h2><sc-if value="{{showFR}}" hint-placeholder-val="{{true}}"></sc-if></div>
+        <div style="font-size:14px"><div style="color:#666666;font-size:12px">Email</div>arafath@cse.buet.ac.bd</div>
+        <div style="font-size:14px"><div style="color:#666666;font-size:12px">Birthday</div>14 March</div>
+        <div style="font-size:14px"><div style="color:#666666;font-size:12px">Websites</div><a href="#contact-h">Google Scholar</a> · <a href="#contact-h">GitHub</a> · <a href="#contact-h">ORCID iD</a></div>
+        <span style="font-size:12px;color:#666666">Phone is hidden by this user.</span>
+      </section>
+
+      <section aria-labelledby="cs-h" style="border:1px solid #DDE3E1;border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap">
+          <span style="display:flex;align-items:center;gap:6px"><h2 id="cs-h" style="margin:0;font-size:16px;font-weight:500;line-height:1.3">Connect with researchers</h2><span style="background:#EDE9FE;color:#5B21B6;border-radius:999px;padding:1px 8px;font-size:11px;font-weight:700">AI</span></span>
+          <sc-if value="{{showFR}}" hint-placeholder-val="{{true}}"></sc-if>
+        </div>
+        <p style="margin:0;font-size:12px;color:#666666">Top 3 researchers whose profiles match yours most closely.</p>
+        <sc-for list="{{cstates}}" as="c" hint-placeholder-count="3">
+          <div style="border:1px solid #DDE3E1;border-radius:10px;overflow:hidden;background:#FFFFFF">
+            <div style="background:#0F766E;aspect-ratio:1584 / 396;position:relative;overflow:hidden"><sc-if value="{{c.cover}}" hint-placeholder-val="{{true}}"><img src="{{c.cover}}" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"></sc-if><span style="position:absolute;right:8px;top:8px;background:#FFFFFF;color:#0B5F58;border-radius:999px;padding:1px 9px;font-size:11px;font-weight:700">{{c.score}} match</span></div>
+            <div style="padding: 0 12px 12px; display: flex; flex-direction: column; gap: 5px; position: relative">
+              <span style="width:52px;height:52px;margin-top:-26px;border-radius:50%;border:3px solid #FFFFFF;background:{{c.color}};color:#FFFFFF;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;position:relative;overflow:hidden">{{c.ini}}<sc-if value="{{c.img}}" hint-placeholder-val="{{false}}"><img src="{{c.img}}" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"></sc-if></span>
+              <a href="Profile.dc.html" style="font-weight:700;font-size:14px;color:#191919;text-decoration:none">{{c.name}}</a>
+              <span style="font-size:12px;color:#666666">{{c.head}}</span>
+              <span style="display:flex;align-items:center;gap:8px"><span style="flex:1;height:6px;border-radius:3px;background:#E3E8E7;overflow:hidden"><span style="display:block;height:100%;width:{{c.score}};background:#0F766E"></span></span><strong style="font-size:12px;color:#0B5F58">{{c.score}}</strong></span>
+              <span style="display:flex;gap:4px;flex-wrap:wrap"><sc-for list="{{c.shared}}" as="t" hint-placeholder-count="3"><span style="background:#E6F4F2;color:#0B5F58;border-radius:999px;padding:2px 8px;font-size:11px">{{t}}</span></sc-for></span>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">
+                <a href="#cs-h" style="border-radius:999px;padding:6px 14px;font-weight:500;font-size:12px;text-decoration:none;background:#0F766E;color:#FFFFFF;border:1px solid #0F766E">+ Connect</a>
+                <a href="Messaging.dc.html" style="border-radius:999px;padding:6px 14px;font-weight:500;font-size:12px;text-decoration:none;background:#FFFFFF;color:#0F766E;border:1px solid #0F766E">Message request</a>
+              </div>
+            </div>
+          </div>
+        </sc-for>
+        <a href="Network.dc.html" style="font-size:14px;font-weight:500">See all 10 recommendations</a>
+      </section>
+
+      <section aria-labelledby="also-h" style="border:1px solid #DDE3E1;border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:10px">
+        <h2 id="also-h" style="margin:0;font-size:16px;font-weight:500;line-height:1.3">People also viewed</h2>
+        <div style="display:flex;gap:10px;align-items:center"><img src="/_blob/ef7f0c3134c25bad49120fe344f0bffc" alt="" style="width:40px;height:40px;border-radius:50%;background:#7B341E;color:#FFFFFF;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;object-fit:cover;box-sizing:border-box"><span style="font-size:14px"><strong>Nafisa Hasan</strong><br><span style="color:#666666;font-size:12px">Lecturer · Optometry · NSU</span></span></div>
+        <div style="display:flex;gap:10px;align-items:center"><img src="/_blob/d06ee79103169babf3adc8c8ee6a76a5" alt="" style="width:40px;height:40px;border-radius:50%;background:#553C9A;color:#FFFFFF;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;object-fit:cover;box-sizing:border-box"><span style="font-size:14px"><strong>Shihab Uddin</strong><br><span style="color:#666666;font-size:12px">PhD candidate · Wearable sensing</span></span></div>
+      </section>
+    </aside>
+  </main>
+  <footer class="rs-footer" data-theme="{{theme}}" aria-label="Site footer">
+    <div class="rs-f-inner">
+      <div class="rs-f-brand">
+        <a href="Home.dc.html" class="rs-f-logo"><span class="rs-f-mark">RS</span>ResearchSphere</a>
+        <p class="rs-f-copy">ResearchSphere © 2026</p>
+      </div>
+      <nav class="rs-f-col" aria-label="About">
+        <span class="rs-f-title">About</span>
+        <a href="#">About ResearchSphere</a>
+        <a href="#">Community guidelines</a>
+        <a href="#">Privacy &amp; terms</a>
+        <a href="#">Accessibility</a>
+      </nav>
+      <nav class="rs-f-col" aria-label="For researchers">
+        <span class="rs-f-title">For researchers</span>
+        <a href="Network.dc.html">Find collaborators</a>
+        <a href="Projects.dc.html">Research projects</a>
+        <a href="Events.dc.html">Events &amp; venues</a>
+        <a href="Workspace.dc.html">LaTeX workspace</a>
+      </nav>
+      <nav class="rs-f-col" aria-label="Platform">
+        <span class="rs-f-title">Platform</span>
+        <a href="#">How AI matching works</a>
+        <a href="#">Publications &amp; ORCID</a>
+        <a href="#">Safety center</a>
+        <a href="#">Developers</a>
+      </nav>
+      <div class="rs-f-col rs-f-short">
+        <span><a href="#">Questions?</a><span class="rs-f-sub">Visit our Help Center.</span></span>
+        <span><a href="Settings.dc.html">Manage your account and privacy</a><span class="rs-f-sub">Go to your Settings.</span></span>
+        <span><a href="#">Report a problem</a><span class="rs-f-sub">Content, safety and bug reports.</span></span>
+      </div>
+      <div class="rs-f-col rs-f-lang">
+        <label for="rs-lang">Select language</label>
+        <select id="rs-lang"><option>English (English)</option><option>বাংলা (Bangla)</option></select>
+      </div>
+    </div>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"showFR":{"editor":"boolean","default":true},"$preview":{"width":1280,"height":2300}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      theme: this.props.theme ?? 'light', showFR: this.props.showFR ?? true,
+      cstates: [
+        { ini: 'NH', cover: '/_blob/900419874f8e82179bb334d6167214f0', img: '/_blob/ef7f0c3134c25bad49120fe344f0bffc', color: '#7B341E', name: 'Nafisa Hasan', head: 'Lecturer · Optometry · NSU', score: '91%', shared: ['eye strain', 'HCI', 'surveys'] },
+        { ini: 'AI', cover: '/_blob/48de1a79f1c1d3bd4a8012e8fd05f042', img: '/_blob/43305c4d0a47042b5b31ac070663a249', color: '#2B6CB0', name: 'Ashikul Islam', head: 'Research assistant · Health informatics', score: '88%', shared: ['SHAP', 'XGBoost', 'explainable AI'] },
+        { ini: 'SU', cover: '/_blob/4b2ec761ea998656c3cae9eae32ad488', img: '/_blob/d06ee79103169babf3adc8c8ee6a76a5', color: '#553C9A', name: 'Shihab Uddin', head: 'PhD candidate · Wearable sensing', score: '86%', shared: ['digital phenotyping', 'Python'] }
+      ],
+      interests: ['Medical imaging', 'Explainable AI', 'Uncertainty estimation', 'Retinal analysis', 'Reproducibility'],
+      skills: ['PyTorch', 'Grad-CAM', 'SHAP', 'OpenCV', 'LaTeX', 'Python'],
+      pubs: [
+        { title: 'Uncertainty-aware saliency maps for diabetic retinopathy grading', venue: 'Medical Image Analysis', year: '2026', doi: 'doi:10.0000/sample-0001' },
+        { title: 'A dual-stream network for dermoscopic lesion classification', venue: 'IEEE Access', year: '2025', doi: 'doi:10.0000/sample-0002' },
+        { title: 'Auditing Grad-CAM on small clinical datasets', venue: 'MICCAI Workshop on iMIMIC', year: '2024', doi: 'doi:10.0000/sample-0003' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>
