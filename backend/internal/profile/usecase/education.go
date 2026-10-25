@@ -7,14 +7,16 @@ import (
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/profile/domain"
 )
 
-// Education limits (FR-4.4). Lengths count characters after trimming; migration 000005
-// holds them as database constraints. The year range depends on the clock, so only the
+// Education limits (FR-4.4). Lengths count characters after trimming; migrations 000005
+// and 000011 hold them as database constraints. The year range depends on the clock, so only the
 // usecase checks it.
 const (
 	MaxEducationEntries           = 20 // entries per user
 	MaxEducationInstitutionLength = 200
 	MaxDegreeLength               = 100
 	MaxFieldOfStudyLength         = 100
+	MaxGradeLength                = 50
+	MaxEducationDescriptionLength = 2000
 	MinEducationYear              = 1950
 	MaxYearsAhead                 = 10 // the latest year allowed is this many after the current one
 )
@@ -27,6 +29,8 @@ type EducationInput struct {
 	FieldOfStudy *string
 	StartYear    int
 	EndYear      *int
+	Grade        *string
+	Description  *string
 }
 
 // Field is one field of a partial update. Set is false when the field was left out, and
@@ -38,13 +42,16 @@ type Field[T any] struct {
 }
 
 // EducationPatch is a partial update of an education entry. Null clears Degree,
-// FieldOfStudy or EndYear; for Institution or StartYear it is refused like an empty value.
+// FieldOfStudy, EndYear, Grade or Description; for Institution or StartYear it is refused
+// like an empty value.
 type EducationPatch struct {
 	Institution  Field[string]
 	Degree       Field[string]
 	FieldOfStudy Field[string]
 	StartYear    Field[int]
 	EndYear      Field[int]
+	Grade        Field[string]
+	Description  Field[string]
 }
 
 // AddEducation validates in and adds it to the user's education (FR-4.4). It returns the
@@ -59,6 +66,8 @@ func (s *Service) AddEducation(ctx context.Context, userID string, in EducationI
 		FieldOfStudy: in.FieldOfStudy,
 		StartYear:    in.StartYear,
 		EndYear:      in.EndYear,
+		Grade:        in.Grade,
+		Description:  in.Description,
 	}
 	e, err := s.normalizeEducation(e)
 	if err != nil {
@@ -134,6 +143,12 @@ func apply(e domain.Education, p EducationPatch) domain.Education {
 	if p.EndYear.Set {
 		e.EndYear = nullable(p.EndYear)
 	}
+	if p.Grade.Set {
+		e.Grade = nullable(p.Grade)
+	}
+	if p.Description.Set {
+		e.Description = nullable(p.Description)
+	}
 	return e
 }
 
@@ -147,7 +162,7 @@ func nullable[T any](f Field[T]) *T {
 
 // normalizeEducation trims the text, turns blank optional text into nil and checks each
 // field in the contract's order: institution, degree, field of study, start year, end
-// year.
+// year, grade, description.
 func (s *Service) normalizeEducation(e domain.Education) (domain.Education, error) {
 	e.Institution = strings.TrimSpace(e.Institution)
 	if e.Institution == "" || !fits(e.Institution, MaxEducationInstitutionLength, true) {
@@ -166,6 +181,12 @@ func (s *Service) normalizeEducation(e domain.Education) (domain.Education, erro
 	}
 	if e.EndYear != nil && (*e.EndYear < e.StartYear || *e.EndYear > latest) {
 		return e, domain.ErrInvalidEndYear
+	}
+	if e.Grade, err = optional(e.Grade, MaxGradeLength, true, domain.ErrInvalidGrade); err != nil {
+		return e, err
+	}
+	if e.Description, err = optional(e.Description, MaxEducationDescriptionLength, false, domain.ErrInvalidDescription); err != nil {
+		return e, err
 	}
 	return e, nil
 }

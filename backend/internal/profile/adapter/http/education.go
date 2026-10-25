@@ -25,6 +25,8 @@ var educationErrors = []struct {
 	{domain.ErrInvalidFieldOfStudy, CodeInvalidFieldOfStudy, fmt.Sprintf("The field of study must be one line of at most %d characters.", usecase.MaxFieldOfStudyLength)},
 	{domain.ErrInvalidStartYear, CodeInvalidStartYear, fmt.Sprintf("Enter a start year from %d to %d years from now.", usecase.MinEducationYear, usecase.MaxYearsAhead)},
 	{domain.ErrInvalidEndYear, CodeInvalidEndYear, "The end year must not be before the start year or more than 10 years from now."},
+	{domain.ErrInvalidGrade, CodeInvalidGrade, fmt.Sprintf("The grade must be one line of at most %d characters.", usecase.MaxGradeLength)},
+	{domain.ErrInvalidDescription, CodeInvalidDescription, fmt.Sprintf("The description must be at most %d characters.", usecase.MaxEducationDescriptionLength)},
 }
 
 func educationError(err error) (gen.InvalidEducationJSONResponse, bool) {
@@ -57,6 +59,8 @@ func (h *Handler) AddMyEducation(ctx context.Context, req gen.AddMyEducationRequ
 		FieldOfStudy: req.Body.FieldOfStudy,
 		StartYear:    req.Body.StartYear,
 		EndYear:      req.Body.EndYear,
+		Grade:        req.Body.Grade,
+		Description:  req.Body.Description,
 	})
 	if body, ok := educationError(err); ok {
 		return gen.AddMyEducation400JSONResponse{InvalidEducationJSONResponse: body}, nil
@@ -93,6 +97,8 @@ func (h *Handler) UpdateMyEducation(ctx context.Context, req gen.UpdateMyEducati
 		FieldOfStudy: field(req.Body.FieldOfStudy),
 		StartYear:    field(req.Body.StartYear),
 		EndYear:      field(req.Body.EndYear),
+		Grade:        field(req.Body.Grade),
+		Description:  field(req.Body.Description),
 	})
 	if body, ok := educationError(err); ok {
 		return gen.UpdateMyEducation400JSONResponse{InvalidEducationJSONResponse: body}, nil
@@ -151,6 +157,8 @@ func educationBody(e domain.Education) (gen.Education, error) {
 		FieldOfStudy: e.FieldOfStudy,
 		StartYear:    e.StartYear,
 		EndYear:      e.EndYear,
+		Grade:        e.Grade,
+		Description:  e.Description,
 	}, nil
 }
 

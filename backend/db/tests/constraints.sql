@@ -152,6 +152,19 @@ SELECT pg_temp.expect_error('Profile: country must be capitals',
 SELECT pg_temp.expect_error('Profile: country must be two letters',
     $s$UPDATE profiles SET country = 'DEU' WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
 
+-- Profile city (FR-4.1, migration 000011): optional, at most 100 characters, one line,
+-- never blank.
+SELECT pg_temp.expect_ok('Profile: city may be NULL',
+    $s$UPDATE profiles SET city = NULL WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$);
+SELECT pg_temp.expect_ok('Profile: city of 100 characters is accepted',
+    $s$UPDATE profiles SET city = repeat('é', 100) WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$);
+SELECT pg_temp.expect_error('Profile: city is at most 100 characters',
+    $s$UPDATE profiles SET city = repeat('a', 101) WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_error('Profile: city is NULL, not blank',
+    $s$UPDATE profiles SET city = ' ' WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+SELECT pg_temp.expect_error('Profile: city has no line break',
+    $s$UPDATE profiles SET city = E'Dhaka\nBangladesh' WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+
 -- ---------------------------------------------------------------------------
 -- Interest, skill, education
 -- ---------------------------------------------------------------------------
@@ -190,38 +203,65 @@ SELECT pg_temp.expect_error('Skill: name has no double space',
 SELECT pg_temp.expect_error('Skill: name has no tab or line break',
     $s$INSERT INTO skills (name) VALUES (E'Data\nAnalysis')$s$, '23514');
 SELECT pg_temp.expect_error('Education: end year is not before start year',
-    $s$INSERT INTO education (user_id, institution, degree, start_year, end_year)
+    $s$INSERT INTO profile_education (user_id, institution, degree, start_year, end_year)
        VALUES ('00000000-0000-0000-0000-000000000001', 'MIT', 'BSc', 2020, 2019)$s$, '23514');
 
 -- Education fields (FR-4.4, migration 000005): the start year is required, the degree and
 -- field are optional, text is at most 200 (institution) or 100 characters and never blank.
 SELECT pg_temp.expect_ok('Education: degree, field and end year may be NULL',
-    $s$INSERT INTO education (user_id, institution, start_year)
+    $s$INSERT INTO profile_education (user_id, institution, start_year)
        VALUES ('00000000-0000-0000-0000-000000000001', 'MIT', 2020)$s$);
 SELECT pg_temp.expect_error('Education: start year is required',
-    $s$INSERT INTO education (user_id, institution, degree)
+    $s$INSERT INTO profile_education (user_id, institution, degree)
        VALUES ('00000000-0000-0000-0000-000000000001', 'MIT', 'BSc')$s$, '23502');
 SELECT pg_temp.expect_ok('Education: institution of 200 and degree and field of 100 characters are accepted',
-    $s$INSERT INTO education (user_id, institution, degree, field_of_study, start_year)
+    $s$INSERT INTO profile_education (user_id, institution, degree, field_of_study, start_year)
        VALUES ('00000000-0000-0000-0000-000000000001', repeat('é', 200), repeat('é', 100), repeat('é', 100), 2020)$s$);
 SELECT pg_temp.expect_error('Education: institution is at most 200 characters',
-    $s$INSERT INTO education (user_id, institution, start_year)
+    $s$INSERT INTO profile_education (user_id, institution, start_year)
        VALUES ('00000000-0000-0000-0000-000000000001', repeat('a', 201), 2020)$s$, '23514');
 SELECT pg_temp.expect_error('Education: degree is at most 100 characters',
-    $s$INSERT INTO education (user_id, institution, degree, start_year)
+    $s$INSERT INTO profile_education (user_id, institution, degree, start_year)
        VALUES ('00000000-0000-0000-0000-000000000001', 'MIT', repeat('a', 101), 2020)$s$, '23514');
 SELECT pg_temp.expect_error('Education: field of study is at most 100 characters',
-    $s$INSERT INTO education (user_id, institution, field_of_study, start_year)
+    $s$INSERT INTO profile_education (user_id, institution, field_of_study, start_year)
        VALUES ('00000000-0000-0000-0000-000000000001', 'MIT', repeat('a', 101), 2020)$s$, '23514');
 SELECT pg_temp.expect_error('Education: institution is not blank',
-    $s$INSERT INTO education (user_id, institution, start_year)
+    $s$INSERT INTO profile_education (user_id, institution, start_year)
        VALUES ('00000000-0000-0000-0000-000000000001', '  ', 2020)$s$, '23514');
 SELECT pg_temp.expect_error('Education: degree is NULL, not blank',
-    $s$INSERT INTO education (user_id, institution, degree, start_year)
+    $s$INSERT INTO profile_education (user_id, institution, degree, start_year)
        VALUES ('00000000-0000-0000-0000-000000000001', 'MIT', '', 2020)$s$, '23514');
 SELECT pg_temp.expect_error('Education: field of study is NULL, not blank',
-    $s$INSERT INTO education (user_id, institution, field_of_study, start_year)
+    $s$INSERT INTO profile_education (user_id, institution, field_of_study, start_year)
        VALUES ('00000000-0000-0000-0000-000000000001', 'MIT', ' ', 2020)$s$, '23514');
+
+-- Education grade and description (FR-4.4, migration 000011, which also renamed the table
+-- from education): both optional and never blank; the grade is at most 50 characters on
+-- one line, the description at most 2000 and may have line breaks.
+SELECT pg_temp.expect_true('Education: the table is profile_education, and education is gone',
+    $q$SELECT to_regclass('profile_education') IS NOT NULL AND to_regclass('education') IS NULL$q$);
+SELECT pg_temp.expect_ok('Education: grade and description may be NULL',
+    $s$INSERT INTO profile_education (user_id, institution, start_year, grade, description)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'MIT', 2020, NULL, NULL)$s$);
+SELECT pg_temp.expect_ok('Education: grade of 50 and description of 2000 characters with a line break are accepted',
+    $s$INSERT INTO profile_education (user_id, institution, start_year, grade, description)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'MIT', 2020, repeat('é', 50), repeat('é', 1999) || E'\n')$s$);
+SELECT pg_temp.expect_error('Education: grade is at most 50 characters',
+    $s$INSERT INTO profile_education (user_id, institution, start_year, grade)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'MIT', 2020, repeat('a', 51))$s$, '23514');
+SELECT pg_temp.expect_error('Education: grade is NULL, not blank',
+    $s$INSERT INTO profile_education (user_id, institution, start_year, grade)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'MIT', 2020, ' ')$s$, '23514');
+SELECT pg_temp.expect_error('Education: grade has no line break',
+    $s$INSERT INTO profile_education (user_id, institution, start_year, grade)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'MIT', 2020, E'First\nclass')$s$, '23514');
+SELECT pg_temp.expect_error('Education: description is at most 2000 characters',
+    $s$INSERT INTO profile_education (user_id, institution, start_year, description)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'MIT', 2020, repeat('a', 2001))$s$, '23514');
+SELECT pg_temp.expect_error('Education: description is NULL, not blank',
+    $s$INSERT INTO profile_education (user_id, institution, start_year, description)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'MIT', 2020, E' \n ')$s$, '23514');
 
 -- ---------------------------------------------------------------------------
 -- Contact info and links (FR-4.7, migration 000006)
@@ -744,7 +784,7 @@ INSERT INTO auth_tokens (user_id, purpose, token_hash, expires_at) VALUES
     ('00000000-0000-0000-0000-000000000003', 'password_reset', 'at-3', now() + interval '1 hour');
 INSERT INTO user_interests (user_id, interest_id) SELECT '00000000-0000-0000-0000-000000000003', id FROM research_interests;
 INSERT INTO user_skills (user_id, skill_id) SELECT '00000000-0000-0000-0000-000000000003', id FROM skills;
-INSERT INTO education (user_id, institution, degree, start_year) VALUES ('00000000-0000-0000-0000-000000000003', 'MIT', 'BSc', 2015);
+INSERT INTO profile_education (user_id, institution, degree, start_year) VALUES ('00000000-0000-0000-0000-000000000003', 'MIT', 'BSc', 2015);
 INSERT INTO profile_contact (user_id, phone) VALUES ('00000000-0000-0000-0000-000000000003', '+8801712345678');
 INSERT INTO profile_links (user_id, kind, url) VALUES ('00000000-0000-0000-0000-000000000003', 'github', 'https://github.com/cy');
 INSERT INTO profile_experience (user_id, title, organization, employment_type, start_year, start_month, is_current)
@@ -781,7 +821,7 @@ SELECT pg_temp.expect_true('Deletion: profile, interests, skills, education, exp
     SELECT NOT EXISTS (SELECT 1 FROM profiles        WHERE user_id = '00000000-0000-0000-0000-000000000003')
        AND NOT EXISTS (SELECT 1 FROM user_interests  WHERE user_id = '00000000-0000-0000-0000-000000000003')
        AND NOT EXISTS (SELECT 1 FROM user_skills     WHERE user_id = '00000000-0000-0000-0000-000000000003')
-       AND NOT EXISTS (SELECT 1 FROM education       WHERE user_id = '00000000-0000-0000-0000-000000000003')
+       AND NOT EXISTS (SELECT 1 FROM profile_education WHERE user_id = '00000000-0000-0000-0000-000000000003')
        AND NOT EXISTS (SELECT 1 FROM profile_contact WHERE user_id = '00000000-0000-0000-0000-000000000003')
        AND NOT EXISTS (SELECT 1 FROM profile_links   WHERE user_id = '00000000-0000-0000-0000-000000000003')
        AND NOT EXISTS (SELECT 1 FROM profile_experience WHERE user_id = '00000000-0000-0000-0000-000000000003')

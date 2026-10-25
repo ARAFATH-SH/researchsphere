@@ -548,7 +548,8 @@ export interface paths {
          * Change some fields of one of the logged-in user's education entries (FR-4.4)
          * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
          *     like, comment" (SRS 2.3). A field that is missing keeps its value; `null` clears
-         *     `degree`, `fieldOfStudy` or `endYear` (a null `endYear` makes the entry current).
+         *     `degree`, `fieldOfStudy`, `endYear`, `grade` or `description` (a null `endYear`
+         *     makes the entry current).
          *     The rules of EducationCreate apply to the entry after the change, so `endYear`
          *     must not be before `startYear` whichever of the two is changed. An entry that does
          *     not exist and one that belongs to someone else both get 404 `not_found`.
@@ -972,6 +973,8 @@ export interface components {
              * @example DE
              */
             country: string | null;
+            /** @example Cambridge */
+            city: string | null;
             /** @description The user's research interests (FR-4.2), sorted by name ignoring letter case. */
             interests: components["schemas"]["Tag"][];
             /** @description The user's skills (FR-4.2), sorted by name ignoring letter case. */
@@ -1065,6 +1068,11 @@ export interface components {
              * @example DE
              */
             country?: string | null;
+            /**
+             * @description At most 100 characters, one line.
+             * @example Cambridge
+             */
+            city?: string | null;
         };
         /**
          * @description Who may see a contact item (FR-4.7): only its owner, or every logged-in user.
@@ -1158,10 +1166,13 @@ export interface components {
              * @example 2023
              */
             endYear: number | null;
+            /** @example CGPA 3.57 / 4.00 */
+            grade: string | null;
+            description: string | null;
         };
         /**
-         * @description A new education entry (FR-4.4). Text is trimmed first and every text field must be
-         *     one line; lengths count characters after trimming. Years run from 1950 to ten years
+         * @description A new education entry (FR-4.4). Text is trimmed first and every text field except
+         *     `description` must be one line; lengths count characters after trimming. Years run from 1950 to ten years
          *     after the current year, and `endYear` is not before `startYear`.
          */
         EducationCreate: {
@@ -1174,12 +1185,16 @@ export interface components {
             startYear: number;
             /** @description Missing or null while the entry is current. */
             endYear?: number | null;
+            /** @description At most 50 characters of free text, such as "First class"; empty means not set. */
+            grade?: string | null;
+            /** @description At most 2000 characters; line breaks are kept; empty means not set. */
+            description?: string | null;
         };
         /**
          * @description The fields to change in an education entry (FR-4.4). A missing field keeps its
-         *     value. `null` clears `degree`, `fieldOfStudy` or `endYear`; `null` for
-         *     `institution` or `startYear` is refused, because both are required. The rules of
-         *     EducationCreate apply to the entry after the change.
+         *     value. `null` clears `degree`, `fieldOfStudy`, `endYear`, `grade` or
+         *     `description`; `null` for `institution` or `startYear` is refused, because both
+         *     are required. The rules of EducationCreate apply to the entry after the change.
          */
         EducationUpdate: {
             institution?: string | null;
@@ -1187,6 +1202,8 @@ export interface components {
             fieldOfStudy?: string | null;
             startYear?: number | null;
             endYear?: number | null;
+            grade?: string | null;
+            description?: string | null;
         };
         /** @description A month of a year, such as March 2021. */
         YearMonth: {
@@ -1330,7 +1347,8 @@ export interface components {
          * @description A field is not valid. The code names the first invalid field, in this order:
          *     `invalid_institution`, `invalid_degree`, `invalid_field_of_study`,
          *     `invalid_start_year`, `invalid_end_year` (also when `endYear` is before
-         *     `startYear`). A body that is not JSON gets `bad_request`.
+         *     `startYear`), `invalid_grade`, `invalid_description`. A body that is not JSON gets
+         *     `bad_request`.
          */
         InvalidEducation: {
             headers: {
@@ -2098,8 +2116,8 @@ export interface operations {
             /**
              * @description A field is not valid. The code names the first invalid field, in this order:
              *     `invalid_full_name`, `invalid_headline`, `invalid_bio`, `invalid_institution`,
-             *     `invalid_department`, `invalid_job_title`, `invalid_country`. A body that is not
-             *     JSON gets `bad_request`.
+             *     `invalid_department`, `invalid_job_title`, `invalid_country`, `invalid_city`. A
+             *     body that is not JSON gets `bad_request`.
              */
             400: {
                 headers: {

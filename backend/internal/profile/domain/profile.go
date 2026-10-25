@@ -19,6 +19,7 @@ type Profile struct {
 	Department  *string
 	JobTitle    *string
 	Country     *string // ISO 3166-1 alpha-2 code in capitals
+	City        *string
 	// PhotoFileID and CoverFileID are the stored files of the profile photo and cover
 	// image (FR-4.6), nil when not set. The media module sets them; UpsertProfile leaves
 	// them alone.
@@ -108,6 +109,8 @@ type Education struct {
 	FieldOfStudy *string
 	StartYear    int
 	EndYear      *int
+	Grade        *string // free text, such as "CGPA 3.57 / 4.00"
+	Description  *string
 }
 
 // YearMonth is a month of a year; Month runs from 1 to 12.
@@ -337,6 +340,7 @@ var (
 	ErrInvalidDepartment  = errors.New("department is too long or has a line break")
 	ErrInvalidJobTitle    = errors.New("job title is too long or has a line break")
 	ErrInvalidCountry     = errors.New("country is not an ISO 3166-1 alpha-2 code")
+	ErrInvalidCity        = errors.New("city is too long or has a line break")
 	ErrInvalidTagName     = errors.New("tag name is empty or too long")
 	ErrTagLimitReached    = errors.New("user has the most tags of this kind allowed")
 	ErrInvalidLimit       = errors.New("limit is less than 1")
@@ -346,6 +350,7 @@ var (
 	ErrInvalidFieldOfStudy         = errors.New("field of study is too long or has a line break")
 	ErrInvalidStartYear            = errors.New("start year is missing or out of range")
 	ErrInvalidEndYear              = errors.New("end year is out of range or before the start year")
+	ErrInvalidGrade                = errors.New("grade is too long or has a line break")
 	ErrEducationLimitReached       = errors.New("user has the most education entries allowed")
 
 	ErrInvalidTitle           = errors.New("title is empty, too long or has a line break")

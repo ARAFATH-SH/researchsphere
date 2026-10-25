@@ -7,8 +7,8 @@ import (
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/profile/domain"
 )
 
-// Input limits (FR-4.1). Lengths count characters after trimming. Migration 000003
-// holds the same limits as database constraints.
+// Input limits (FR-4.1). Lengths count characters after trimming. Migrations 000003
+// and 000011 hold the same limits as database constraints.
 const (
 	MaxFullNameLength    = 200 // the same as at registration
 	MaxHeadlineLength    = 220
@@ -16,6 +16,7 @@ const (
 	MaxInstitutionLength = 200
 	MaxDepartmentLength  = 200
 	MaxJobTitleLength    = 200
+	MaxCityLength        = 100
 )
 
 // normalize trims every field, turns blank optional fields into nil, upper-cases the
@@ -45,6 +46,9 @@ func normalize(in UpdateInput) (domain.Profile, error) {
 		return p, err
 	}
 	if p.Country, err = country(in.Country); err != nil {
+		return p, err
+	}
+	if p.City, err = optional(in.City, MaxCityLength, true, domain.ErrInvalidCity); err != nil {
 		return p, err
 	}
 	return p, nil

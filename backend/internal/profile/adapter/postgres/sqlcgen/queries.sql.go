@@ -13,7 +13,7 @@ import (
 
 const countUserEducation = `-- name: CountUserEducation :one
 
-SELECT count(*) FROM education WHERE user_id = $1
+SELECT count(*) FROM profile_education WHERE user_id = $1
 `
 
 // Education entries (FR-4.4). Every query names the owner in its WHERE clause, so an entry
@@ -87,7 +87,7 @@ func (q *Queries) CountUserSkills(ctx context.Context, userID pgtype.UUID) (int6
 }
 
 const deleteUserEducation = `-- name: DeleteUserEducation :execrows
-DELETE FROM education WHERE id = $1 AND user_id = $2
+DELETE FROM profile_education WHERE id = $1 AND user_id = $2
 `
 
 type DeleteUserEducationParams struct {
@@ -157,7 +157,7 @@ func (q *Queries) DeleteUserLink(ctx context.Context, arg DeleteUserLinkParams) 
 const findAccount = `-- name: FindAccount :one
 SELECT u.id, u.email_verified_at, u.suspended_at,
        p.user_id AS profile_user_id, p.full_name, p.headline, p.bio, p.institution,
-       p.department, p.job_title, p.country, p.photo_file_id, p.cover_file_id
+       p.department, p.job_title, p.country, p.city, p.photo_file_id, p.cover_file_id
 FROM users u
 LEFT JOIN profiles p ON p.user_id = u.id
 WHERE u.id = $1
@@ -175,6 +175,7 @@ type FindAccountRow struct {
 	Department      pgtype.Text
 	JobTitle        pgtype.Text
 	Country         pgtype.Text
+	City            pgtype.Text
 	PhotoFileID     pgtype.UUID
 	CoverFileID     pgtype.UUID
 }
@@ -195,6 +196,7 @@ func (q *Queries) FindAccount(ctx context.Context, id pgtype.UUID) (FindAccountR
 		&i.Department,
 		&i.JobTitle,
 		&i.Country,
+		&i.City,
 		&i.PhotoFileID,
 		&i.CoverFileID,
 	)
@@ -264,8 +266,8 @@ func (q *Queries) FindSkillByName(ctx context.Context, name string) (Skill, erro
 }
 
 const findUserEducationForUpdate = `-- name: FindUserEducationForUpdate :one
-SELECT id, user_id, institution, degree, field_of_study, start_year, end_year
-FROM education
+SELECT id, user_id, institution, degree, field_of_study, start_year, end_year, grade, description
+FROM profile_education
 WHERE id = $1 AND user_id = $2
 FOR UPDATE
 `
@@ -283,6 +285,8 @@ type FindUserEducationForUpdateRow struct {
 	FieldOfStudy pgtype.Text
 	StartYear    int32
 	EndYear      pgtype.Int4
+	Grade        pgtype.Text
+	Description  pgtype.Text
 }
 
 // Locks the entry until the transaction ends, so two changes to it cannot both pass the
@@ -298,6 +302,8 @@ func (q *Queries) FindUserEducationForUpdate(ctx context.Context, arg FindUserEd
 		&i.FieldOfStudy,
 		&i.StartYear,
 		&i.EndYear,
+		&i.Grade,
+		&i.Description,
 	)
 	return i, err
 }
@@ -387,9 +393,9 @@ func (q *Queries) FindUserLanguageForUpdate(ctx context.Context, arg FindUserLan
 }
 
 const insertEducation = `-- name: InsertEducation :one
-INSERT INTO education (user_id, institution, degree, field_of_study, start_year, end_year)
-VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, user_id, institution, degree, field_of_study, start_year, end_year
+INSERT INTO profile_education (user_id, institution, degree, field_of_study, start_year, end_year, grade, description)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING id, user_id, institution, degree, field_of_study, start_year, end_year, grade, description
 `
 
 type InsertEducationParams struct {
@@ -399,6 +405,8 @@ type InsertEducationParams struct {
 	FieldOfStudy pgtype.Text
 	StartYear    int32
 	EndYear      pgtype.Int4
+	Grade        pgtype.Text
+	Description  pgtype.Text
 }
 
 type InsertEducationRow struct {
@@ -409,6 +417,8 @@ type InsertEducationRow struct {
 	FieldOfStudy pgtype.Text
 	StartYear    int32
 	EndYear      pgtype.Int4
+	Grade        pgtype.Text
+	Description  pgtype.Text
 }
 
 func (q *Queries) InsertEducation(ctx context.Context, arg InsertEducationParams) (InsertEducationRow, error) {
@@ -419,6 +429,8 @@ func (q *Queries) InsertEducation(ctx context.Context, arg InsertEducationParams
 		arg.FieldOfStudy,
 		arg.StartYear,
 		arg.EndYear,
+		arg.Grade,
+		arg.Description,
 	)
 	var i InsertEducationRow
 	err := row.Scan(
@@ -429,6 +441,8 @@ func (q *Queries) InsertEducation(ctx context.Context, arg InsertEducationParams
 		&i.FieldOfStudy,
 		&i.StartYear,
 		&i.EndYear,
+		&i.Grade,
+		&i.Description,
 	)
 	return i, err
 }
@@ -650,8 +664,8 @@ func (q *Queries) LinkUserSkill(ctx context.Context, arg LinkUserSkillParams) er
 }
 
 const listUserEducation = `-- name: ListUserEducation :many
-SELECT id, user_id, institution, degree, field_of_study, start_year, end_year
-FROM education
+SELECT id, user_id, institution, degree, field_of_study, start_year, end_year, grade, description
+FROM profile_education
 WHERE user_id = $1
 ORDER BY end_year DESC NULLS FIRST, start_year DESC, created_at DESC, id
 `
@@ -664,6 +678,8 @@ type ListUserEducationRow struct {
 	FieldOfStudy pgtype.Text
 	StartYear    int32
 	EndYear      pgtype.Int4
+	Grade        pgtype.Text
+	Description  pgtype.Text
 }
 
 // Current entries (no end year) first, then the latest end year, then the latest start
@@ -685,6 +701,8 @@ func (q *Queries) ListUserEducation(ctx context.Context, userID pgtype.UUID) ([]
 			&i.FieldOfStudy,
 			&i.StartYear,
 			&i.EndYear,
+			&i.Grade,
+			&i.Description,
 		); err != nil {
 			return nil, err
 		}
@@ -1013,14 +1031,16 @@ func (q *Queries) UnlinkUserSkill(ctx context.Context, arg UnlinkUserSkillParams
 }
 
 const updateUserEducation = `-- name: UpdateUserEducation :one
-UPDATE education SET
+UPDATE profile_education SET
     institution    = $1,
     degree         = $2,
     field_of_study = $3,
     start_year     = $4,
-    end_year       = $5
-WHERE id = $6 AND user_id = $7
-RETURNING id, user_id, institution, degree, field_of_study, start_year, end_year
+    end_year       = $5,
+    grade          = $6,
+    description    = $7
+WHERE id = $8 AND user_id = $9
+RETURNING id, user_id, institution, degree, field_of_study, start_year, end_year, grade, description
 `
 
 type UpdateUserEducationParams struct {
@@ -1029,6 +1049,8 @@ type UpdateUserEducationParams struct {
 	FieldOfStudy pgtype.Text
 	StartYear    int32
 	EndYear      pgtype.Int4
+	Grade        pgtype.Text
+	Description  pgtype.Text
 	ID           pgtype.UUID
 	UserID       pgtype.UUID
 }
@@ -1041,6 +1063,8 @@ type UpdateUserEducationRow struct {
 	FieldOfStudy pgtype.Text
 	StartYear    int32
 	EndYear      pgtype.Int4
+	Grade        pgtype.Text
+	Description  pgtype.Text
 }
 
 func (q *Queries) UpdateUserEducation(ctx context.Context, arg UpdateUserEducationParams) (UpdateUserEducationRow, error) {
@@ -1050,6 +1074,8 @@ func (q *Queries) UpdateUserEducation(ctx context.Context, arg UpdateUserEducati
 		arg.FieldOfStudy,
 		arg.StartYear,
 		arg.EndYear,
+		arg.Grade,
+		arg.Description,
 		arg.ID,
 		arg.UserID,
 	)
@@ -1062,6 +1088,8 @@ func (q *Queries) UpdateUserEducation(ctx context.Context, arg UpdateUserEducati
 		&i.FieldOfStudy,
 		&i.StartYear,
 		&i.EndYear,
+		&i.Grade,
+		&i.Description,
 	)
 	return i, err
 }
@@ -1226,8 +1254,8 @@ func (q *Queries) UpsertContact(ctx context.Context, arg UpsertContactParams) er
 }
 
 const upsertProfile = `-- name: UpsertProfile :one
-INSERT INTO profiles (user_id, full_name, headline, bio, institution, department, job_title, country)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+INSERT INTO profiles (user_id, full_name, headline, bio, institution, department, job_title, country, city)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 ON CONFLICT (user_id) DO UPDATE SET
     full_name   = EXCLUDED.full_name,
     headline    = EXCLUDED.headline,
@@ -1235,8 +1263,9 @@ ON CONFLICT (user_id) DO UPDATE SET
     institution = EXCLUDED.institution,
     department  = EXCLUDED.department,
     job_title   = EXCLUDED.job_title,
-    country     = EXCLUDED.country
-RETURNING user_id, full_name, headline, bio, institution, department, job_title, country,
+    country     = EXCLUDED.country,
+    city        = EXCLUDED.city
+RETURNING user_id, full_name, headline, bio, institution, department, job_title, country, city,
           photo_file_id, cover_file_id
 `
 
@@ -1249,6 +1278,7 @@ type UpsertProfileParams struct {
 	Department  pgtype.Text
 	JobTitle    pgtype.Text
 	Country     pgtype.Text
+	City        pgtype.Text
 }
 
 type UpsertProfileRow struct {
@@ -1260,6 +1290,7 @@ type UpsertProfileRow struct {
 	Department  pgtype.Text
 	JobTitle    pgtype.Text
 	Country     pgtype.Text
+	City        pgtype.Text
 	PhotoFileID pgtype.UUID
 	CoverFileID pgtype.UUID
 }
@@ -1275,6 +1306,7 @@ func (q *Queries) UpsertProfile(ctx context.Context, arg UpsertProfileParams) (U
 		arg.Department,
 		arg.JobTitle,
 		arg.Country,
+		arg.City,
 	)
 	var i UpsertProfileRow
 	err := row.Scan(
@@ -1286,6 +1318,7 @@ func (q *Queries) UpsertProfile(ctx context.Context, arg UpsertProfileParams) (U
 		&i.Department,
 		&i.JobTitle,
 		&i.Country,
+		&i.City,
 		&i.PhotoFileID,
 		&i.CoverFileID,
 	)

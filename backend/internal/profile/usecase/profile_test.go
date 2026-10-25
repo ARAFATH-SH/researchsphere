@@ -132,13 +132,14 @@ func TestUpdateOwnNormalizes(t *testing.T) {
 		Department:  nil,
 		JobTitle:    ptr(" Lecturer "),
 		Country:     ptr(" de "),
+		City:        ptr("  Dhaka \t"),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := withContact(domain.Profile{
 		UserID: eveID, FullName: "Eve Example", Bio: ptr("Line one\nline two"),
-		JobTitle: ptr("Lecturer"), Country: ptr("DE"),
+		JobTitle: ptr("Lecturer"), Country: ptr("DE"), City: ptr("Dhaka"),
 	})
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
@@ -183,10 +184,18 @@ func TestUpdateOwnValidation(t *testing.T) {
 		{"country one letter", func(in *UpdateInput) { in.Country = ptr("D") }, domain.ErrInvalidCountry},
 		{"country digits", func(in *UpdateInput) { in.Country = ptr("12") }, domain.ErrInvalidCountry},
 		{"country lower case is accepted", func(in *UpdateInput) { in.Country = ptr("de") }, nil},
+		// City: at most 100, one line, any text.
+		{"city 101 characters", func(in *UpdateInput) { in.City = ptr(strings.Repeat("é", 101)) }, domain.ErrInvalidCity},
+		{"city with a line break", func(in *UpdateInput) { in.City = ptr("Dhaka\nBangladesh") }, domain.ErrInvalidCity},
+		{"city with a carriage return", func(in *UpdateInput) { in.City = ptr("Dhaka\rx") }, domain.ErrInvalidCity},
+		{"city 100 characters", func(in *UpdateInput) { in.City = ptr(strings.Repeat("é", 100)) }, nil},
 		// The first invalid field, in contract order, is reported.
 		{"several invalid fields report the full name", func(in *UpdateInput) {
 			in.FullName, in.Country = "", ptr("XX")
 		}, domain.ErrInvalidFullName},
+		{"country before city", func(in *UpdateInput) {
+			in.Country, in.City = ptr("XX"), ptr(strings.Repeat("a", 101))
+		}, domain.ErrInvalidCountry},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -199,6 +208,39 @@ func TestUpdateOwnValidation(t *testing.T) {
 			}
 			if tt.wantErr != nil && store.upserts != 0 {
 				t.Error("an invalid profile was stored")
+			}
+		})
+	}
+}
+
+// A blank or missing city is stored as nil, and PUT replaces the stored city.
+func TestUpdateOwnCity(t *testing.T) {
+	tests := []struct {
+		name string
+		city *string
+		want *string
+	}{
+		{"set", ptr("Cambridge"), ptr("Cambridge")},
+		{"blank becomes nil", ptr(" \t "), nil},
+		{"empty becomes nil", ptr(""), nil},
+		{"missing is nil", nil, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newFakeStore(testAccounts()...)
+			svc := New(store)
+			if _, err := svc.UpdateOwn(t.Context(), adaID, UpdateInput{FullName: "Ada", City: ptr("Dhaka")}); err != nil {
+				t.Fatal(err)
+			}
+			got, err := svc.UpdateOwn(t.Context(), adaID, UpdateInput{FullName: "Ada", City: tt.city})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got.City, tt.want) {
+				t.Errorf("returned city %v, want %v", got.City, tt.want)
+			}
+			if stored := store.accounts[adaID].Profile.City; !reflect.DeepEqual(stored, tt.want) {
+				t.Errorf("stored city %v, want %v", stored, tt.want)
 			}
 		})
 	}

@@ -378,7 +378,8 @@ type DeleteAccountRequest struct {
 // Education One education entry (FR-4.4). The optional fields are always present and null when not set.
 type Education struct {
 	// Degree Example: PhD
-	Degree *string `json:"degree"`
+	Degree      *string `json:"degree"`
+	Description *string `json:"description"`
 
 	// EndYear Null while the entry is current.
 	//
@@ -386,8 +387,11 @@ type Education struct {
 	EndYear *int `json:"endYear"`
 
 	// FieldOfStudy Example: Computer Science
-	FieldOfStudy *string            `json:"fieldOfStudy"`
-	Id           openapi_types.UUID `json:"id"`
+	FieldOfStudy *string `json:"fieldOfStudy"`
+
+	// Grade Example: CGPA 3.57 / 4.00
+	Grade *string            `json:"grade"`
+	Id    openapi_types.UUID `json:"id"`
 
 	// Institution Example: University of Cambridge
 	Institution string `json:"institution"`
@@ -396,12 +400,15 @@ type Education struct {
 	StartYear int `json:"startYear"`
 }
 
-// EducationCreate A new education entry (FR-4.4). Text is trimmed first and every text field must be
-// one line; lengths count characters after trimming. Years run from 1950 to ten years
+// EducationCreate A new education entry (FR-4.4). Text is trimmed first and every text field except
+// `description` must be one line; lengths count characters after trimming. Years run from 1950 to ten years
 // after the current year, and `endYear` is not before `startYear`.
 type EducationCreate struct {
 	// Degree At most 100 characters; empty means not set.
 	Degree *string `json:"degree,omitempty"`
+
+	// Description At most 2000 characters; line breaks are kept; empty means not set.
+	Description *string `json:"description,omitempty"`
 
 	// EndYear Missing or null while the entry is current.
 	EndYear *int `json:"endYear,omitempty"`
@@ -409,19 +416,24 @@ type EducationCreate struct {
 	// FieldOfStudy At most 100 characters; empty means not set.
 	FieldOfStudy *string `json:"fieldOfStudy,omitempty"`
 
+	// Grade At most 50 characters of free text, such as "First class"; empty means not set.
+	Grade *string `json:"grade,omitempty"`
+
 	// Institution 1 to 200 characters.
 	Institution string `json:"institution"`
 	StartYear   int    `json:"startYear"`
 }
 
 // EducationUpdate The fields to change in an education entry (FR-4.4). A missing field keeps its
-// value. `null` clears `degree`, `fieldOfStudy` or `endYear`; `null` for
-// `institution` or `startYear` is refused, because both are required. The rules of
-// EducationCreate apply to the entry after the change.
+// value. `null` clears `degree`, `fieldOfStudy`, `endYear`, `grade` or
+// `description`; `null` for `institution` or `startYear` is refused, because both
+// are required. The rules of EducationCreate apply to the entry after the change.
 type EducationUpdate struct {
 	Degree       nullable.Nullable[string] `json:"degree,omitempty"`
+	Description  nullable.Nullable[string] `json:"description,omitempty"`
 	EndYear      nullable.Nullable[int]    `json:"endYear,omitempty"`
 	FieldOfStudy nullable.Nullable[string] `json:"fieldOfStudy,omitempty"`
+	Grade        nullable.Nullable[string] `json:"grade,omitempty"`
 	Institution  nullable.Nullable[string] `json:"institution,omitempty"`
 	StartYear    nullable.Nullable[int]    `json:"startYear,omitempty"`
 }
@@ -608,6 +620,9 @@ type PasswordResetRequest struct {
 type Profile struct {
 	Bio *string `json:"bio"`
 
+	// City Example: Cambridge
+	City *string `json:"city"`
+
 	// ConnectionStatus The connection between the caller and the profile's owner (FR-4.5).
 	// Placeholder: always `none` until connections are added (FR-7); more values come then.
 	ConnectionStatus ConnectionStatus `json:"connectionStatus"`
@@ -684,6 +699,11 @@ type ProfileLink struct {
 type ProfileUpdate struct {
 	// Bio At most 2000 characters; line breaks are kept.
 	Bio *string `json:"bio,omitempty"`
+
+	// City At most 100 characters, one line.
+	//
+	// Example: Cambridge
+	City *string `json:"city,omitempty"`
 
 	// Country An ISO 3166-1 alpha-2 code; letter case is ignored ("de" is stored as "DE").
 	//

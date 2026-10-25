@@ -439,7 +439,7 @@ describe("ProfileView, Top skills and Show all", () => {
     const p = fullProfile(adaID, "Ada Lovelace");
     p.education = [
       ...p.education,
-      { id: "e3", institution: "Cambridge", degree: null, fieldOfStudy: null, startYear: 2018, endYear: 2021 },
+      { id: "e3", institution: "Cambridge", degree: null, fieldOfStudy: null, startYear: 2018, endYear: 2021, grade: null, description: null },
     ];
     mockGetMyProfile.mockResolvedValue({ status: "ok", profile: p });
     render(<ProfileView />);

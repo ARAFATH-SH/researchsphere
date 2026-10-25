@@ -58,6 +58,7 @@ type UpdateInput struct {
 	Department  *string
 	JobTitle    *string
 	Country     *string
+	City        *string
 }
 
 // UpdateOwn validates in and creates or replaces the caller's profile fields (FR-4.1).

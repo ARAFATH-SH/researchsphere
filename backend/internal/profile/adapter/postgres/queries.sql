@@ -2,15 +2,15 @@
 -- The user and, through the left join, the profile row when there is one.
 SELECT u.id, u.email_verified_at, u.suspended_at,
        p.user_id AS profile_user_id, p.full_name, p.headline, p.bio, p.institution,
-       p.department, p.job_title, p.country, p.photo_file_id, p.cover_file_id
+       p.department, p.job_title, p.country, p.city, p.photo_file_id, p.cover_file_id
 FROM users u
 LEFT JOIN profiles p ON p.user_id = u.id
 WHERE u.id = @id;
 
 -- name: UpsertProfile :one
 -- Creates the profile row or replaces its edited fields (FR-4.1); other columns stay.
-INSERT INTO profiles (user_id, full_name, headline, bio, institution, department, job_title, country)
-VALUES (@user_id, @full_name, @headline, @bio, @institution, @department, @job_title, @country)
+INSERT INTO profiles (user_id, full_name, headline, bio, institution, department, job_title, country, city)
+VALUES (@user_id, @full_name, @headline, @bio, @institution, @department, @job_title, @country, @city)
 ON CONFLICT (user_id) DO UPDATE SET
     full_name   = EXCLUDED.full_name,
     headline    = EXCLUDED.headline,
@@ -18,8 +18,9 @@ ON CONFLICT (user_id) DO UPDATE SET
     institution = EXCLUDED.institution,
     department  = EXCLUDED.department,
     job_title   = EXCLUDED.job_title,
-    country     = EXCLUDED.country
-RETURNING user_id, full_name, headline, bio, institution, department, job_title, country,
+    country     = EXCLUDED.country,
+    city        = EXCLUDED.city
+RETURNING user_id, full_name, headline, bio, institution, department, job_title, country, city,
           photo_file_id, cover_file_id;
 
 -- name: LockUser :one
@@ -117,39 +118,41 @@ LIMIT @max_results;
 -- of another user is never read, changed or deleted: it is simply not found.
 
 -- name: CountUserEducation :one
-SELECT count(*) FROM education WHERE user_id = @user_id;
+SELECT count(*) FROM profile_education WHERE user_id = @user_id;
 
 -- name: InsertEducation :one
-INSERT INTO education (user_id, institution, degree, field_of_study, start_year, end_year)
-VALUES (@user_id, @institution, @degree, @field_of_study, @start_year, @end_year)
-RETURNING id, user_id, institution, degree, field_of_study, start_year, end_year;
+INSERT INTO profile_education (user_id, institution, degree, field_of_study, start_year, end_year, grade, description)
+VALUES (@user_id, @institution, @degree, @field_of_study, @start_year, @end_year, @grade, @description)
+RETURNING id, user_id, institution, degree, field_of_study, start_year, end_year, grade, description;
 
 -- name: FindUserEducationForUpdate :one
 -- Locks the entry until the transaction ends, so two changes to it cannot both pass the
 -- end-year check against an old start year.
-SELECT id, user_id, institution, degree, field_of_study, start_year, end_year
-FROM education
+SELECT id, user_id, institution, degree, field_of_study, start_year, end_year, grade, description
+FROM profile_education
 WHERE id = @id AND user_id = @user_id
 FOR UPDATE;
 
 -- name: UpdateUserEducation :one
-UPDATE education SET
+UPDATE profile_education SET
     institution    = @institution,
     degree         = @degree,
     field_of_study = @field_of_study,
     start_year     = @start_year,
-    end_year       = @end_year
+    end_year       = @end_year,
+    grade          = @grade,
+    description    = @description
 WHERE id = @id AND user_id = @user_id
-RETURNING id, user_id, institution, degree, field_of_study, start_year, end_year;
+RETURNING id, user_id, institution, degree, field_of_study, start_year, end_year, grade, description;
 
 -- name: DeleteUserEducation :execrows
-DELETE FROM education WHERE id = @id AND user_id = @user_id;
+DELETE FROM profile_education WHERE id = @id AND user_id = @user_id;
 
 -- name: ListUserEducation :many
 -- Current entries (no end year) first, then the latest end year, then the latest start
 -- year; creation time and id make the order stable.
-SELECT id, user_id, institution, degree, field_of_study, start_year, end_year
-FROM education
+SELECT id, user_id, institution, degree, field_of_study, start_year, end_year, grade, description
+FROM profile_education
 WHERE user_id = @user_id
 ORDER BY end_year DESC NULLS FIRST, start_year DESC, created_at DESC, id;
 

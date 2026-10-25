@@ -75,6 +75,43 @@ func TestInsertAndUpdateEducation(t *testing.T) {
 	}
 }
 
+// The grade and description are stored, replaced and cleared like the other optional
+// fields (FR-4.4).
+func TestEducationGradeAndDescription(t *testing.T) {
+	s, pool := newTestStore(t)
+	ada := newUser(t, pool)
+
+	saved := insertEducation(t, s, domain.Education{
+		UserID: ada, Institution: "BUET", StartYear: 2016, EndYear: iptr(2020),
+		Grade: ptr("CGPA 3.57 / 4.00"), Description: ptr("Thesis on routing.\nDean's list."),
+	})
+	want := domain.Education{
+		ID: saved.ID, UserID: ada, Institution: "BUET", StartYear: 2016, EndYear: iptr(2020),
+		Grade: ptr("CGPA 3.57 / 4.00"), Description: ptr("Thesis on routing.\nDean's list."),
+	}
+	if !reflect.DeepEqual(saved, want) {
+		t.Fatalf("inserted %+v, want %+v", saved, want)
+	}
+
+	got, err := updateEducation(t.Context(), s, ada, saved.ID, func(e *domain.Education) {
+		e.Grade, e.Description = ptr("First class"), nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want.Grade, want.Description = ptr("First class"), nil
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("updated %+v, want %+v", got, want)
+	}
+	list, err := s.ListEducation(t.Context(), ada)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(list, []domain.Education{want}) {
+		t.Errorf("listed %+v, want %+v", list, want)
+	}
+}
+
 func TestInsertEducationUnknownUser(t *testing.T) {
 	s, _ := newTestStore(t)
 	err := s.RunInTx(t.Context(), func(tx domain.Tx) error {

@@ -28,6 +28,7 @@ const (
 	CodeInvalidDepartment  = "invalid_department"
 	CodeInvalidJobTitle    = "invalid_job_title"
 	CodeInvalidCountry     = "invalid_country"
+	CodeInvalidCity        = "invalid_city"
 	CodeInvalidTagName     = "invalid_tag_name"
 	CodeTagLimitReached    = "tag_limit_reached"
 
@@ -35,6 +36,7 @@ const (
 	CodeInvalidFieldOfStudy   = "invalid_field_of_study"
 	CodeInvalidStartYear      = "invalid_start_year"
 	CodeInvalidEndYear        = "invalid_end_year"
+	CodeInvalidGrade          = "invalid_grade"
 	CodeEducationLimitReached = "education_limit_reached"
 
 	CodeInvalidTitle           = "invalid_title"
@@ -109,6 +111,7 @@ var inputErrors = []struct {
 	{domain.ErrInvalidDepartment, CodeInvalidDepartment, "The department must be one line of at most 200 characters."},
 	{domain.ErrInvalidJobTitle, CodeInvalidJobTitle, "The job title must be one line of at most 200 characters."},
 	{domain.ErrInvalidCountry, CodeInvalidCountry, "Choose a country from the list."},
+	{domain.ErrInvalidCity, CodeInvalidCity, fmt.Sprintf("The city must be one line of at most %d characters.", usecase.MaxCityLength)},
 }
 
 func inputError(err error) (gen.Error, bool) {
@@ -160,6 +163,7 @@ func (h *Handler) UpdateMyProfile(ctx context.Context, req gen.UpdateMyProfileRe
 		Department:  req.Body.Department,
 		JobTitle:    req.Body.JobTitle,
 		Country:     req.Body.Country,
+		City:        req.Body.City,
 	})
 	if e, ok := inputError(err); ok {
 		return gen.UpdateMyProfile400JSONResponse(e), nil
@@ -242,6 +246,7 @@ func profileBody(p domain.Profile) (gen.Profile, error) {
 		Department:       p.Department,
 		JobTitle:         p.JobTitle,
 		Country:          p.Country,
+		City:             p.City,
 		Interests:        interests,
 		Skills:           skills,
 		Education:        education,
