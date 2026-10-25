@@ -1,4 +1,11 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 
 import { addTag, removeTag, suggestTags, type Tag } from "./api";
 import { suggestDelay, TagEditor } from "./tag-input";
@@ -15,10 +22,15 @@ afterEach(() => {
 
 const tag = (n: number, name = `Tag ${n}`): Tag => ({ id: `t${n}`, name });
 
-function renderEditor(initial: Tag[], kind: "interests" | "skills" = "interests") {
+function renderEditor(
+  initial: Tag[],
+  kind: "interests" | "skills" = "interests",
+) {
   const onChange = jest.fn();
   render(<TagEditor kind={kind} initial={initial} onChange={onChange} />);
-  const input = screen.getByRole("combobox", { name: kind === "interests" ? "Add a research interest" : "Add a skill" });
+  const input = screen.getByRole("combobox", {
+    name: kind === "interests" ? "Add a research interest" : "Add a skill",
+  });
   return { onChange, input };
 }
 
@@ -30,7 +42,10 @@ function chips() {
 
 describe("TagEditor", () => {
   it("adds the typed tag on Enter", async () => {
-    mockAdd.mockResolvedValue({ ok: true, data: { id: "new", name: "Robotics" } });
+    mockAdd.mockResolvedValue({
+      ok: true,
+      data: { id: "new", name: "Robotics" },
+    });
     const { input, onChange } = renderEditor([tag(1, "NLP")]);
     fireEvent.change(input, { target: { value: "  Robotics " } });
     fireEvent.keyDown(input, { key: "Enter" });
@@ -66,11 +81,17 @@ describe("TagEditor", () => {
   });
 
   it("shows the server's message when the limit is reached anyway", async () => {
-    mockAdd.mockResolvedValue({ ok: false, code: "tag_limit_reached", message: "You already have 20 interests." });
+    mockAdd.mockResolvedValue({
+      ok: false,
+      code: "tag_limit_reached",
+      message: "You already have 20 interests.",
+    });
     const { input } = renderEditor([tag(1)]);
     fireEvent.change(input, { target: { value: "Robotics" } });
     fireEvent.keyDown(input, { key: "Enter" });
-    expect((await screen.findByRole("alert")).textContent).toBe("You already have 20 interests.");
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "You already have 20 interests.",
+    );
   });
 
   it("removes a tag with its x button", async () => {
@@ -86,7 +107,11 @@ describe("TagEditor", () => {
     jest.useFakeTimers();
     mockSuggest.mockResolvedValue({
       ok: true,
-      data: [tag(7, "Machine Learning"), tag(8, "Machine Vision"), tag(1, "machine translation")],
+      data: [
+        tag(7, "Machine Learning"),
+        tag(8, "Machine Vision"),
+        tag(1, "machine translation"),
+      ],
     });
     mockAdd.mockResolvedValue({ ok: true, data: tag(8, "Machine Vision") });
     const { input } = renderEditor([tag(1, "Machine Translation")]);
@@ -104,12 +129,18 @@ describe("TagEditor", () => {
     expect(mockSuggest).toHaveBeenCalledWith("interests", "machi");
 
     const list = screen.getByRole("listbox");
-    expect(within(list).getAllByRole("option").map((o) => o.textContent)).toEqual(["Machine Learning", "Machine Vision"]);
+    expect(
+      within(list)
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual(["Machine Learning", "Machine Vision"]);
     expect(input.getAttribute("aria-expanded")).toBe("true");
 
     fireEvent.keyDown(input, { key: "ArrowDown" });
     fireEvent.keyDown(input, { key: "ArrowDown" });
-    expect(input.getAttribute("aria-activedescendant")).toBe(within(list).getAllByRole("option")[1].id);
+    expect(input.getAttribute("aria-activedescendant")).toBe(
+      within(list).getAllByRole("option")[1].id,
+    );
     fireEvent.keyDown(input, { key: "ArrowUp" });
     fireEvent.keyDown(input, { key: "ArrowDown" });
     await act(async () => {

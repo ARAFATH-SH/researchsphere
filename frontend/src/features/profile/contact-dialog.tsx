@@ -1,13 +1,33 @@
 "use client";
 
-import { type FormEvent, type KeyboardEvent, useEffect, useMemo, useState } from "react";
+import {
+  type FormEvent,
+  type KeyboardEvent,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 import { buttonClass } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { Field, FormError, inputClass, SelectField } from "@/components/ui/field";
+import {
+  Field,
+  FormError,
+  inputClass,
+  SelectField,
+} from "@/components/ui/field";
 import { Spinner } from "@/components/ui/spinner";
 
-import { addLink, type Contact, getMyContact, type LinkKind, type ProfileLink, removeLink, updateMyContact, type Visibility } from "./api";
+import {
+  addLink,
+  type Contact,
+  getMyContact,
+  type LinkKind,
+  type ProfileLink,
+  removeLink,
+  updateMyContact,
+  type Visibility,
+} from "./api";
 import {
   type ContactErrors,
   type ContactValues,
@@ -37,8 +57,15 @@ type ContactDialogProps = {
 
 // ContactDialog edits the owner's contact info and who may see each item, and their
 // links (FR-4.7). The email address is the account's and is shown, not edited.
-export function ContactDialog({ onClose, onSaved, onLinksChanged, returnFocusId }: ContactDialogProps) {
-  const [loaded, setLoaded] = useState<{ contact: Contact } | { failed: true } | null>(null);
+export function ContactDialog({
+  onClose,
+  onSaved,
+  onLinksChanged,
+  returnFocusId,
+}: ContactDialogProps) {
+  const [loaded, setLoaded] = useState<
+    { contact: Contact } | { failed: true } | null
+  >(null);
   const [formDirty, setFormDirty] = useState(false);
   const [linkDraft, setLinkDraft] = useState(false);
 
@@ -53,17 +80,33 @@ export function ContactDialog({ onClose, onSaved, onLinksChanged, returnFocusId 
   }, []);
 
   return (
-    <Dialog title="Contact info" dirty={formDirty || linkDraft} onClose={onClose} returnFocusId={returnFocusId}>
+    <Dialog
+      title="Contact info"
+      dirty={formDirty || linkDraft}
+      onClose={onClose}
+      returnFocusId={returnFocusId}
+    >
       {loaded === null ? (
         <p role="status" className="text-sm text-text-muted">
           Loading contact info…
         </p>
       ) : "failed" in loaded ? (
-        <FormError>We couldn&apos;t load your contact info. Close this dialog and try again.</FormError>
+        <FormError>
+          We couldn&apos;t load your contact info. Close this dialog and try
+          again.
+        </FormError>
       ) : (
         <div className="space-y-8">
-          <ContactForm contact={loaded.contact} onDirtyChange={setFormDirty} onSaved={onSaved} />
-          <LinkEditor initial={loaded.contact.links} onChange={onLinksChanged} onDraftChange={setLinkDraft} />
+          <ContactForm
+            contact={loaded.contact}
+            onDirtyChange={setFormDirty}
+            onSaved={onSaved}
+          />
+          <LinkEditor
+            initial={loaded.contact.links}
+            onChange={onLinksChanged}
+            onDraftChange={setLinkDraft}
+          />
         </div>
       )}
     </Dialog>
@@ -83,9 +126,24 @@ function valuesOf(c: Contact): ContactValues {
 
 const visibilities = Object.keys(visibilityLabels) as Visibility[];
 
-function VisibilitySelect({ id, label, value, onChange }: { id: string; label: string; value: Visibility; onChange: (v: Visibility) => void }) {
+function VisibilitySelect({
+  id,
+  label,
+  value,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  value: Visibility;
+  onChange: (v: Visibility) => void;
+}) {
   return (
-    <SelectField id={id} label={label} value={value} onChange={(e) => onChange(e.target.value as Visibility)}>
+    <SelectField
+      id={id}
+      label={label}
+      value={value}
+      onChange={(e) => onChange(e.target.value as Visibility)}
+    >
       {visibilities.map((v) => (
         <option key={v} value={v}>
           {visibilityLabels[v]}
@@ -95,7 +153,11 @@ function VisibilitySelect({ id, label, value, onChange }: { id: string; label: s
   );
 }
 
-type ContactFormProps = { contact: Contact; onDirtyChange: (dirty: boolean) => void; onSaved: () => void };
+type ContactFormProps = {
+  contact: Contact;
+  onDirtyChange: (dirty: boolean) => void;
+  onSaved: () => void;
+};
 
 function ContactForm({ contact, onDirtyChange, onSaved }: ContactFormProps) {
   const initial = useMemo(() => valuesOf(contact), [contact]);
@@ -107,12 +169,21 @@ function ContactForm({ contact, onDirtyChange, onSaved }: ContactFormProps) {
 
   function update(next: ContactValues) {
     setValues(next);
-    onDirtyChange((Object.keys(initial) as (keyof ContactValues)[]).some((k) => next[k] !== initial[k]));
+    onDirtyChange(
+      (Object.keys(initial) as (keyof ContactValues)[]).some(
+        (k) => next[k] !== initial[k],
+      ),
+    );
   }
 
   function setMonth(month: string) {
     // A day the new month does not have, such as 30 for February, is cleared.
-    const day = values.day !== "" && month !== "" && Number(values.day) > daysIn(Number(month)) ? "" : values.day;
+    const day =
+      values.day !== "" &&
+      month !== "" &&
+      Number(values.day) > daysIn(Number(month))
+        ? ""
+        : values.day;
     update({ ...values, month, day });
   }
 
@@ -129,7 +200,10 @@ function ContactForm({ contact, onDirtyChange, onSaved }: ContactFormProps) {
       emailVisibility: values.emailVisibility,
       phone: phone === "" ? null : phone,
       phoneVisibility: values.phoneVisibility,
-      birthday: values.month === "" ? null : { month: Number(values.month), day: Number(values.day) },
+      birthday:
+        values.month === ""
+          ? null
+          : { month: Number(values.month), day: Number(values.day) },
       birthdayVisibility: values.birthdayVisibility,
     });
     setSaving(false);
@@ -146,7 +220,10 @@ function ContactForm({ contact, onDirtyChange, onSaved }: ContactFormProps) {
       <fieldset className="space-y-3">
         <legend className="text-base font-semibold">Email</legend>
         <p className="text-sm text-text break-all">{contact.email}</p>
-        <p className="text-sm text-text-muted">This is the address you sign in with. Change it in your account settings.</p>
+        <p className="text-sm text-text-muted">
+          This is the address you sign in with. Change it in your account
+          settings.
+        </p>
         <VisibilitySelect
           id="contact-email-visibility"
           label="Who can see your email"
@@ -178,7 +255,12 @@ function ContactForm({ contact, onDirtyChange, onSaved }: ContactFormProps) {
         />
       </fieldset>
 
-      <fieldset className="space-y-3" aria-describedby={birthdayError ? "contact-birthday-error" : "contact-birthday-hint"}>
+      <fieldset
+        className="space-y-3"
+        aria-describedby={
+          birthdayError ? "contact-birthday-error" : "contact-birthday-hint"
+        }
+      >
         <legend className="text-base font-semibold">Birthday</legend>
         <div className="flex gap-4">
           <SelectField
@@ -267,7 +349,12 @@ function LinkEditor({ initial, onChange, onDraftChange }: LinkEditorProps) {
       return;
     }
     if (res.code === "invalid_link_url") setUrlError(res.message);
-    else setError(res.code === "link_limit_reached" || res.code === "invalid_link_kind" ? res.message : genericError);
+    else
+      setError(
+        res.code === "link_limit_reached" || res.code === "invalid_link_kind"
+          ? res.message
+          : genericError,
+      );
   }
 
   async function remove(link: ProfileLink) {
@@ -288,7 +375,10 @@ function LinkEditor({ initial, onChange, onDraftChange }: LinkEditorProps) {
   }
 
   return (
-    <section aria-labelledby="contact-links-title" className="space-y-4 border-t border-border pt-6">
+    <section
+      aria-labelledby="contact-links-title"
+      className="space-y-4 border-t border-border pt-6"
+    >
       <div>
         <h3 id="contact-links-title" className="text-base font-semibold">
           Links
@@ -301,13 +391,20 @@ function LinkEditor({ initial, onChange, onDraftChange }: LinkEditorProps) {
       {links.length > 0 && (
         <ul aria-label="Your links" className="space-y-2">
           {links.map((l) => (
-            <li key={l.id} className="flex items-center gap-3 rounded-lg border border-border px-3 py-2">
+            <li
+              key={l.id}
+              className="flex items-center gap-3 rounded-lg border border-border px-3 py-2"
+            >
               <span className="text-text-muted">
                 <LinkIcon kind={l.kind} />
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block text-sm font-semibold text-text">{linkLabels[l.kind]}</span>
-                <span className="block truncate text-sm text-text-muted">{l.url}</span>
+                <span className="block text-sm font-semibold text-text">
+                  {linkLabels[l.kind]}
+                </span>
+                <span className="block truncate text-sm text-text-muted">
+                  {l.url}
+                </span>
               </span>
               <button
                 type="button"
@@ -315,7 +412,15 @@ function LinkEditor({ initial, onChange, onDraftChange }: LinkEditorProps) {
                 onClick={() => void remove(l)}
                 className="rounded-full p-1.5 text-text-muted hover:bg-background hover:text-text focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none"
               >
-                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" className="size-5">
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={1.75}
+                  strokeLinecap="round"
+                  className="size-5"
+                >
                   <path d="M6 6l12 12M18 6 6 18" />
                 </svg>
               </button>
@@ -324,11 +429,17 @@ function LinkEditor({ initial, onChange, onDraftChange }: LinkEditorProps) {
         </ul>
       )}
       {full ? (
-        <p className="text-sm text-text-muted">You have reached the limit of {MAX_LINKS} links. Remove one to add another.</p>
+        <p className="text-sm text-text-muted">
+          You have reached the limit of {MAX_LINKS} links. Remove one to add
+          another.
+        </p>
       ) : (
         <div className="space-y-3">
           <div>
-            <label htmlFor="contact-link-kind" className="block text-sm font-semibold">
+            <label
+              htmlFor="contact-link-kind"
+              className="block text-sm font-semibold"
+            >
               Kind
             </label>
             <select

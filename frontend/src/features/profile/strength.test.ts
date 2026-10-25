@@ -27,7 +27,10 @@ describe("profileStrength", () => {
     p.interests = p.interests.slice(0, 2);
     p.skills = p.skills.slice(0, 2);
     const { items, percent } = profileStrength(p);
-    expect(items.filter((i) => !i.done).map((i) => i.label)).toEqual(["3+ research interests", "3+ skills"]);
+    expect(items.filter((i) => !i.done).map((i) => i.label)).toEqual([
+      "3+ research interests",
+      "3+ skills",
+    ]);
     expect(percent).toBe(67);
   });
 });

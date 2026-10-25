@@ -51,8 +51,26 @@ export function fullProfile(userId: string, fullName: string): Profile {
       { id: "s3", name: "LaTeX" },
     ],
     education: [
-      { id: "e1", institution: "ETH Zürich", degree: "PhD", fieldOfStudy: "Computer Science", startYear: 2026, endYear: null, grade: null, description: null },
-      { id: "e2", institution: "MIT", degree: "BSc", fieldOfStudy: null, startYear: 2022, endYear: 2026, grade: null, description: null },
+      {
+        id: "e1",
+        institution: "ETH Zürich",
+        degree: "PhD",
+        fieldOfStudy: "Computer Science",
+        startYear: 2026,
+        endYear: null,
+        grade: null,
+        description: null,
+      },
+      {
+        id: "e2",
+        institution: "MIT",
+        degree: "BSc",
+        fieldOfStudy: null,
+        startYear: 2022,
+        endYear: 2026,
+        grade: null,
+        description: null,
+      },
     ],
     experience: [
       {

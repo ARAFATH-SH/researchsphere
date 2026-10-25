@@ -11,12 +11,26 @@ import { useSession } from "@/features/auth/session";
 import { AboutDialog } from "./about-dialog";
 import { ContactDialog } from "./contact-dialog";
 import { ContactViewDialog, hasVisibleContact } from "./contact-view-dialog";
-import { type Experience, getMyProfile, getProfile, type Profile, type ProfileResult } from "./api";
-import { editButtonId, type EditSection, experienceButtonId, isEditSection } from "./edit-button";
+import {
+  type Experience,
+  getMyProfile,
+  getProfile,
+  type Language,
+  type Profile,
+  type ProfileResult,
+} from "./api";
+import {
+  editButtonId,
+  type EditSection,
+  experienceButtonId,
+  isEditSection,
+  languageButtonId,
+} from "./edit-button";
 import { EducationDialog } from "./education-dialog";
 import { ExperienceDialog } from "./experience-dialog";
 import { ImageDialog } from "./image-dialog";
 import { IntroDialog } from "./intro-dialog";
+import { LanguageDialog } from "./language-dialog";
 import { reloadMyProfile } from "./my-profile";
 import { ProfileHeader } from "./profile-header";
 import { type EditControls, ProfileSections } from "./profile-sections";
@@ -29,12 +43,17 @@ import { Toast, toastDuration } from "./toast";
 // userId, or when userId is their own ID; anyone else's otherwise.
 export function ProfileView({ userId }: { userId?: string }) {
   const session = useSession();
-  const own = userId === undefined || (session.status === "signedIn" && session.user.id === userId);
+  const own =
+    userId === undefined ||
+    (session.status === "signedIn" && session.user.id === userId);
   const [attempt, setAttempt] = useState(0);
   // The result remembers which request it answers, so a new userId or a retry shows the
   // skeleton until its own answer arrives.
   const key = `${own ? "me" : userId}#${attempt}`;
-  const [result, setResult] = useState<{ key: string; value: ProfileResult } | null>(null);
+  const [result, setResult] = useState<{
+    key: string;
+    value: ProfileResult;
+  } | null>(null);
 
   useEffect(() => {
     let current = true;
@@ -60,7 +79,8 @@ export function ProfileView({ userId }: { userId?: string }) {
   if (!result || result.key !== key) return <ProfileSkeleton />;
   const r = result.value;
   if (r.status === "notFound") return <NotFound />;
-  if (r.status === "error") return <LoadFailed onRetry={() => setAttempt((n) => n + 1)} />;
+  if (r.status === "error")
+    return <LoadFailed onRetry={() => setAttempt((n) => n + 1)} />;
 
   if (!own) return <OtherProfile profile={r.profile} />;
   const ownId = r.profile.userId;
@@ -76,7 +96,10 @@ function OtherProfile({ profile }: { profile: Profile }) {
     <>
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="min-w-0 space-y-4">
-          <ProfileHeader profile={profile} onContact={showContact ? () => setContactOpen(true) : undefined} />
+          <ProfileHeader
+            profile={profile}
+            onContact={showContact ? () => setContactOpen(true) : undefined}
+          />
           <ProfileSections profile={profile} />
         </div>
         <aside aria-label="Profile sidebar" className="space-y-4">
@@ -95,16 +118,24 @@ function OtherProfile({ profile }: { profile: Profile }) {
   );
 }
 
-// OwnProfile is the owner's profile with its edit dialogs (FR-4.1 to FR-4.4, FR-4.6, FR-4.8). A pencil
+// OwnProfile is the owner's profile with its edit dialogs (FR-4.1 to FR-4.4, FR-4.6, FR-4.8, FR-4.9). A pencil
 // opens a section's dialog, and so does /profile?edit=<section>, which the profile
 // checklist and the empty-section prompts link to.
-function OwnProfile({ profile, reload }: { profile: Profile; reload: () => void }) {
+function OwnProfile({
+  profile,
+  reload,
+}: {
+  profile: Profile;
+  reload: () => void;
+}) {
   const router = useRouter();
   const params = useSearchParams();
   const requested = params.get("edit");
   const [editing, setEditing] = useState<EditSection | null>(null);
   // experience is the entry the experience dialog edits; null while it adds one.
   const [experience, setExperience] = useState<Experience | null>(null);
+  // language is the language the language dialog edits; null while it adds one.
+  const [language, setLanguage] = useState<Language | null>(null);
   // focusAfterClose is an element to focus once a dialog has gone, when the one that
   // opened it is about to disappear, such as a deleted entry's pencil.
   const focusAfterClose = useRef<string | null>(null);
@@ -121,11 +152,14 @@ function OwnProfile({ profile, reload }: { profile: Profile; reload: () => void 
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(toastTimer.current), []);
   if (requested === null && handled !== null) setHandled(null);
-  const open = editing ?? (isEditSection(requested) && handled !== requested ? requested : null);
+  const open =
+    editing ??
+    (isEditSection(requested) && handled !== requested ? requested : null);
 
   function close() {
     setEditing(null);
     setExperience(null);
+    setLanguage(null);
     if (requested !== null) {
       setHandled(requested);
       router.replace("/profile", { scroll: false });
@@ -146,13 +180,25 @@ function OwnProfile({ profile, reload }: { profile: Profile; reload: () => void 
       setExperience(entry);
       setEditing("experience");
     },
+    editLanguage: (entry) => {
+      setLanguage(entry);
+      setEditing("languages");
+    },
   };
-  const common = { profile, onClose: close, returnFocusId: open ? editButtonId(open) : undefined };
+  const common = {
+    profile,
+    onClose: close,
+    returnFocusId: open ? editButtonId(open) : undefined,
+  };
   return (
     <>
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="min-w-0 space-y-4">
-          <ProfileHeader profile={profile} edit={edit} onContact={() => setEditing("contact")} />
+          <ProfileHeader
+            profile={profile}
+            edit={edit}
+            onContact={() => setEditing("contact")}
+          />
           <ProfileSections profile={profile} edit={edit} />
         </div>
         <aside aria-label="Profile sidebar" className="space-y-4">
@@ -161,7 +207,9 @@ function OwnProfile({ profile, reload }: { profile: Profile; reload: () => void 
       </div>
       {open === "intro" && <IntroDialog {...common} onSaved={() => saved()} />}
       {open === "about" && <AboutDialog {...common} onSaved={() => saved()} />}
-      {(open === "interests" || open === "skills") && <TagsDialog key={open} kind={open} {...common} onChanged={reload} />}
+      {(open === "interests" || open === "skills") && (
+        <TagsDialog key={open} kind={open} {...common} onChanged={reload} />
+      )}
       {open === "experience" && (
         <ExperienceDialog
           entry={experience ?? undefined}
@@ -171,7 +219,25 @@ function OwnProfile({ profile, reload }: { profile: Profile; reload: () => void 
             focusAfterClose.current = editButtonId("experience");
             saved("Deleted");
           }}
-          returnFocusId={experience ? experienceButtonId(experience.id) : editButtonId("experience")}
+          returnFocusId={
+            experience
+              ? experienceButtonId(experience.id)
+              : editButtonId("experience")
+          }
+        />
+      )}
+      {open === "languages" && (
+        <LanguageDialog
+          entry={language ?? undefined}
+          onClose={close}
+          onSaved={() => saved()}
+          onDeleted={() => {
+            focusAfterClose.current = editButtonId("languages");
+            saved("Deleted");
+          }}
+          returnFocusId={
+            language ? languageButtonId(language.id) : editButtonId("languages")
+          }
         />
       )}
       {open === "education" && <EducationDialog {...common} onSaved={saved} />}
@@ -203,8 +269,13 @@ function NotFound() {
   return (
     <Card className="mx-auto w-full max-w-[400px] space-y-4 p-6 text-center">
       <h1 className="text-2xl font-semibold text-text">Profile not found</h1>
-      <p className="text-text-muted">This profile does not exist or is not available.</p>
-      <Link href="/home" className={buttonClass({ variant: "primary", full: true })}>
+      <p className="text-text-muted">
+        This profile does not exist or is not available.
+      </p>
+      <Link
+        href="/home"
+        className={buttonClass({ variant: "primary", full: true })}
+      >
         Go to Home
       </Link>
     </Card>
@@ -216,7 +287,11 @@ function LoadFailed({ onRetry }: { onRetry: () => void }) {
     <Card className="mx-auto w-full max-w-[400px] space-y-4 p-6 text-center">
       <h1 className="text-2xl font-semibold text-text">Something went wrong</h1>
       <p className="text-text-muted">We couldn&apos;t load this profile.</p>
-      <button type="button" onClick={onRetry} className={buttonClass({ variant: "primary", full: true })}>
+      <button
+        type="button"
+        onClick={onRetry}
+        className={buttonClass({ variant: "primary", full: true })}
+      >
         Try again
       </button>
     </Card>

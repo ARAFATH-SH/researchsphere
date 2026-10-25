@@ -22,16 +22,25 @@ describe("validateContact", () => {
     expect(validateContact(empty)).toEqual({});
   });
 
-  it.each(["+8801712345678", "+880 1712-345678", "+12"])("accepts the phone %j", (phone) => {
-    expect(validateContact({ ...empty, phone })).toEqual({});
-  });
-
-  it.each(["8801712345678", "+0123456", "+1", "+88017ABC", `+${"1".repeat(16)}`, "+1 (555) 1234567"])(
-    "refuses the phone %j",
+  it.each(["+8801712345678", "+880 1712-345678", "+12"])(
+    "accepts the phone %j",
     (phone) => {
-      expect(validateContact({ ...empty, phone })).toEqual({ phone: contactMessages.phoneInvalid });
+      expect(validateContact({ ...empty, phone })).toEqual({});
     },
   );
+
+  it.each([
+    "8801712345678",
+    "+0123456",
+    "+1",
+    "+88017ABC",
+    `+${"1".repeat(16)}`,
+    "+1 (555) 1234567",
+  ])("refuses the phone %j", (phone) => {
+    expect(validateContact({ ...empty, phone })).toEqual({
+      phone: contactMessages.phoneInvalid,
+    });
+  });
 
   it("accepts 29 February and 31 December", () => {
     expect(validateContact({ ...empty, month: "2", day: "29" })).toEqual({});
@@ -44,31 +53,49 @@ describe("validateContact", () => {
     ["13", "1"],
     ["1", "0"],
   ])("refuses month %s day %s", (month, day) => {
-    expect(validateContact({ ...empty, month, day })).toEqual({ birthday: contactMessages.birthdayInvalid });
+    expect(validateContact({ ...empty, month, day })).toEqual({
+      birthday: contactMessages.birthdayInvalid,
+    });
   });
 
   it("needs both month and day, or neither", () => {
-    expect(validateContact({ ...empty, month: "5" })).toEqual({ birthday: contactMessages.birthdayIncomplete });
-    expect(validateContact({ ...empty, day: "5" })).toEqual({ birthday: contactMessages.birthdayIncomplete });
+    expect(validateContact({ ...empty, month: "5" })).toEqual({
+      birthday: contactMessages.birthdayIncomplete,
+    });
+    expect(validateContact({ ...empty, day: "5" })).toEqual({
+      birthday: contactMessages.birthdayIncomplete,
+    });
   });
 });
 
 describe("validateLinkURL", () => {
-  it.each(["https://example.org", " https://scholar.example.org/ada ", "HTTPS://example.org/x"])("accepts %j", (url) => {
+  it.each([
+    "https://example.org",
+    " https://scholar.example.org/ada ",
+    "HTTPS://example.org/x",
+  ])("accepts %j", (url) => {
     expect(validateLinkURL(url)).toBeUndefined();
   });
 
   it("refuses http and links without a scheme", () => {
-    expect(validateLinkURL("http://example.org")).toBe(contactMessages.linkNotHttps);
+    expect(validateLinkURL("http://example.org")).toBe(
+      contactMessages.linkNotHttps,
+    );
     expect(validateLinkURL("example.org")).toBe(contactMessages.linkNotHttps);
-    expect(validateLinkURL("javascript:alert(1)")).toBe(contactMessages.linkNotHttps);
+    expect(validateLinkURL("javascript:alert(1)")).toBe(
+      contactMessages.linkNotHttps,
+    );
   });
 
   it("refuses an empty, broken or too long link", () => {
     expect(validateLinkURL("  ")).toBe(contactMessages.linkRequired);
     expect(validateLinkURL("https://")).toBe(contactMessages.linkInvalid);
-    expect(validateLinkURL("https://example.org/a b")).toBe(contactMessages.linkInvalid);
-    expect(validateLinkURL(`https://${"a".repeat(293)}`)).toBe(contactMessages.linkTooLong);
+    expect(validateLinkURL("https://example.org/a b")).toBe(
+      contactMessages.linkInvalid,
+    );
+    expect(validateLinkURL(`https://${"a".repeat(293)}`)).toBe(
+      contactMessages.linkTooLong,
+    );
   });
 });
 

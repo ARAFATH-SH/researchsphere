@@ -18,7 +18,13 @@ type TagsDialogProps = {
 
 // TagsDialog edits research interests or skills (FR-4.2, FR-4.3). Changes apply at once,
 // so only text typed but not added counts as unsaved.
-export function TagsDialog({ kind, profile, onClose, onChanged, returnFocusId }: TagsDialogProps) {
+export function TagsDialog({
+  kind,
+  profile,
+  onClose,
+  onChanged,
+  returnFocusId,
+}: TagsDialogProps) {
   const [hasDraft, setHasDraft] = useState(false);
   return (
     <Dialog
@@ -27,7 +33,12 @@ export function TagsDialog({ kind, profile, onClose, onChanged, returnFocusId }:
       onClose={onClose}
       returnFocusId={returnFocusId}
     >
-      <TagEditor kind={kind} initial={profile[kind]} onChange={onChanged} onDraftChange={setHasDraft} />
+      <TagEditor
+        kind={kind}
+        initial={profile[kind]}
+        onChange={onChanged}
+        onDraftChange={setHasDraft}
+      />
     </Dialog>
   );
 }

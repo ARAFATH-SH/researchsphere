@@ -15,30 +15,47 @@ export function hasVisibleContact(c: PublicContact): boolean {
 
 // ContactViewDialog shows another user's contact info: only what the API returned, which
 // is what the owner lets logged-in users see (FR-4.7).
-export function ContactViewDialog({ name, contact, onClose, returnFocusId }: {
+export function ContactViewDialog({
+  name,
+  contact,
+  onClose,
+  returnFocusId,
+}: {
   name: string;
   contact: PublicContact;
   onClose: () => void;
   returnFocusId?: string;
 }) {
   return (
-    <Dialog title={`Contact info for ${name}`} onClose={onClose} returnFocusId={returnFocusId}>
+    <Dialog
+      title={`Contact info for ${name}`}
+      onClose={onClose}
+      returnFocusId={returnFocusId}
+    >
       <dl className="space-y-4">
         {contact.email && (
           <Item label="Email">
-            <a href={`mailto:${contact.email}`} className="break-all text-secondary hover:underline">
+            <a
+              href={`mailto:${contact.email}`}
+              className="break-all text-secondary hover:underline"
+            >
               {contact.email}
             </a>
           </Item>
         )}
         {contact.phone && (
           <Item label="Phone">
-            <a href={`tel:${contact.phone}`} className="text-secondary hover:underline">
+            <a
+              href={`tel:${contact.phone}`}
+              className="text-secondary hover:underline"
+            >
               {contact.phone}
             </a>
           </Item>
         )}
-        {contact.birthday && <Item label="Birthday">{birthdayText(contact.birthday)}</Item>}
+        {contact.birthday && (
+          <Item label="Birthday">{birthdayText(contact.birthday)}</Item>
+        )}
         {contact.links.length > 0 && (
           <Item label="Links">
             <ul aria-label="Links" className="mt-1 space-y-2">
@@ -52,7 +69,9 @@ export function ContactViewDialog({ name, contact, onClose, returnFocusId }: {
                   >
                     <LinkIcon kind={l.kind} />
                     <span className="min-w-0">
-                      <span className="block font-semibold">{linkLabels[l.kind]}</span>
+                      <span className="block font-semibold">
+                        {linkLabels[l.kind]}
+                      </span>
                       <span className="block truncate text-sm">{l.url}</span>
                     </span>
                   </a>

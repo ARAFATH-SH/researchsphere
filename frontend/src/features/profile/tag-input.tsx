@@ -5,18 +5,39 @@ import { type KeyboardEvent, useEffect, useId, useState } from "react";
 import { FormError, inputClass } from "@/components/ui/field";
 
 import { addTag, removeTag, suggestTags, type Tag, type TagKind } from "./api";
-import { genericError, MAX_INTERESTS, MAX_SKILLS, normalizeTagName, sameTag, validateTagName } from "./validation";
+import {
+  genericError,
+  MAX_INTERESTS,
+  MAX_SKILLS,
+  normalizeTagName,
+  sameTag,
+  validateTagName,
+} from "./validation";
 
 // suggestDelay is how long typing must pause before suggestions are fetched, in milliseconds.
 export const suggestDelay = 250;
 
 // The chips look as they do on the profile page (profile-sections.tsx).
-const words: Record<TagKind, { label: string; one: string; limit: number; chip: string }> = {
-  interests: { label: "Research interests", one: "research interest", limit: MAX_INTERESTS, chip: "bg-primary-soft text-primary" },
-  skills: { label: "Skills", one: "skill", limit: MAX_SKILLS, chip: "border border-border bg-background text-text" },
+const words: Record<
+  TagKind,
+  { label: string; one: string; limit: number; chip: string }
+> = {
+  interests: {
+    label: "Research interests",
+    one: "research interest",
+    limit: MAX_INTERESTS,
+    chip: "bg-primary-soft text-primary",
+  },
+  skills: {
+    label: "Skills",
+    one: "skill",
+    limit: MAX_SKILLS,
+    chip: "border border-border bg-background text-text",
+  },
 };
 
-const byName = (a: Tag, b: Tag) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+const byName = (a: Tag, b: Tag) =>
+  a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
 
 type TagEditorProps = {
   kind: TagKind;
@@ -30,14 +51,22 @@ type TagEditorProps = {
 // TagEditor edits the user's research interests or skills (FR-4.2): the chips, each with
 // a remove button, and a combobox that suggests existing tags while the user types
 // (FR-4.3). Every change is sent at once; there is nothing to save.
-export function TagEditor({ kind, initial, onChange, onDraftChange }: TagEditorProps) {
+export function TagEditor({
+  kind,
+  initial,
+  onChange,
+  onDraftChange,
+}: TagEditorProps) {
   const { label, one, limit, chip } = words[kind];
   const id = useId();
   const listId = `${id}-list`;
   const [tags, setTags] = useState(initial);
   const [query, setQuery] = useState("");
   // found remembers which text the suggestions answer, so a stale reply is never shown.
-  const [found, setFound] = useState<{ q: string; items: Tag[] }>({ q: "", items: [] });
+  const [found, setFound] = useState<{ q: string; items: Tag[] }>({
+    q: "",
+    items: [],
+  });
   const [listOpen, setListOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const [error, setError] = useState<string>();
@@ -46,7 +75,9 @@ export function TagEditor({ kind, initial, onChange, onDraftChange }: TagEditorP
   const q = normalizeTagName(query);
   const full = tags.length >= limit;
   const suggestions =
-    found.q === q && q !== "" ? found.items.filter((s) => !tags.some((t) => sameTag(t.name, s.name))) : [];
+    found.q === q && q !== ""
+      ? found.items.filter((s) => !tags.some((t) => sameTag(t.name, s.name)))
+      : [];
   const showList = listOpen && suggestions.length > 0;
 
   useEffect(() => {
@@ -92,12 +123,18 @@ export function TagEditor({ kind, initial, onChange, onDraftChange }: TagEditorP
     setBusy(false);
     if (res.ok) {
       const tag = res.data;
-      setTags((ts) => (ts.some((t) => t.id === tag.id) ? ts : [...ts, tag].sort(byName)));
+      setTags((ts) =>
+        ts.some((t) => t.id === tag.id) ? ts : [...ts, tag].sort(byName),
+      );
       clear();
       onChange();
       return;
     }
-    setError(res.code === "tag_limit_reached" || res.code === "invalid_tag_name" ? res.message : genericError);
+    setError(
+      res.code === "tag_limit_reached" || res.code === "invalid_tag_name"
+        ? res.message
+        : genericError,
+    );
   }
 
   async function remove(tag: Tag) {
@@ -183,7 +220,9 @@ export function TagEditor({ kind, initial, onChange, onDraftChange }: TagEditorP
           aria-autocomplete="list"
           aria-expanded={showList}
           aria-controls={listId}
-          aria-activedescendant={showList && active >= 0 ? `${listId}-${active}` : undefined}
+          aria-activedescendant={
+            showList && active >= 0 ? `${listId}-${active}` : undefined
+          }
           aria-describedby={hintId}
           autoComplete="off"
           disabled={full}

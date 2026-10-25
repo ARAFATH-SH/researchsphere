@@ -8,12 +8,28 @@ import { FormError, TextAreaField } from "@/components/ui/field";
 import { type Profile, updateMyProfile } from "./api";
 import { orNull, profileUpdate } from "./profile-update";
 import { SaveButton } from "./save-button";
-import { fieldForProfileCode, genericError, length, MAX_BIO_LENGTH, validateBio } from "./validation";
+import {
+  fieldForProfileCode,
+  genericError,
+  length,
+  MAX_BIO_LENGTH,
+  validateBio,
+} from "./validation";
 
-type DialogProps = { profile: Profile; onClose: () => void; onSaved: () => void; returnFocusId?: string };
+type DialogProps = {
+  profile: Profile;
+  onClose: () => void;
+  onSaved: () => void;
+  returnFocusId?: string;
+};
 
 // AboutDialog edits the bio, with a live count of the characters left (FR-4.1).
-export function AboutDialog({ profile, onClose, onSaved, returnFocusId }: DialogProps) {
+export function AboutDialog({
+  profile,
+  onClose,
+  onSaved,
+  returnFocusId,
+}: DialogProps) {
   const initial = profile.bio ?? "";
   const [bio, setBio] = useState(initial);
   const [error, setError] = useState<string>();
@@ -29,7 +45,9 @@ export function AboutDialog({ profile, onClose, onSaved, returnFocusId }: Dialog
     if (found) return;
 
     setSaving(true);
-    const res = await updateMyProfile(profileUpdate(profile, { bio: orNull(bio) }));
+    const res = await updateMyProfile(
+      profileUpdate(profile, { bio: orNull(bio) }),
+    );
     setSaving(false);
     if (res.ok) return onSaved();
     if (fieldForProfileCode(res.code) === "bio") setError(res.message);
@@ -37,7 +55,12 @@ export function AboutDialog({ profile, onClose, onSaved, returnFocusId }: Dialog
   }
 
   return (
-    <Dialog title="Edit about" dirty={bio !== initial} onClose={onClose} returnFocusId={returnFocusId}>
+    <Dialog
+      title="Edit about"
+      dirty={bio !== initial}
+      onClose={onClose}
+      returnFocusId={returnFocusId}
+    >
       <form noValidate onSubmit={onSubmit} className="space-y-4">
         {formError ? <FormError>{formError}</FormError> : null}
         <TextAreaField
@@ -49,7 +72,10 @@ export function AboutDialog({ profile, onClose, onSaved, returnFocusId }: Dialog
           value={bio}
           onChange={(e) => setBio(e.target.value)}
           hint={
-            <span aria-live="polite" className={count > MAX_BIO_LENGTH ? "text-danger" : undefined}>
+            <span
+              aria-live="polite"
+              className={count > MAX_BIO_LENGTH ? "text-danger" : undefined}
+            >
               {count} / {MAX_BIO_LENGTH}
             </span>
           }

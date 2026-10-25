@@ -5,7 +5,7 @@ import { type ReactNode, useId, useState } from "react";
 
 import { Card } from "@/components/ui/card";
 
-import type { Education, Experience, Profile, Tag } from "./api";
+import type { Education, Experience, Language, Profile, Tag } from "./api";
 import {
   AddButton,
   BriefcaseIcon,
@@ -14,16 +14,29 @@ import {
   type EditSection,
   editHref,
   experienceButtonId,
+  languageButtonId,
 } from "./edit-button";
-import { employmentTypeLabels, experienceDates, locationTypeLabels, yearRange } from "./format";
+import {
+  employmentTypeLabels,
+  experienceDates,
+  locationTypeLabels,
+  proficiencyLabels,
+  yearRange,
+} from "./format";
 
 // EditControls are given only on the owner's profile: open shows a section's dialog
-// ("experience" adds an entry), and editExperience opens one experience entry.
-export type EditControls = { open: (section: EditSection) => void; editExperience: (entry: Experience) => void };
+// ("experience" and "languages" add an entry), editExperience opens one experience entry
+// and editLanguage one language.
+export type EditControls = {
+  open: (section: EditSection) => void;
+  editExperience: (entry: Experience) => void;
+  editLanguage: (entry: Language) => void;
+};
 
 // The first entries a section shows before its "Show all" row, and how many skills the
 // About card names.
 const shownExperience = 3;
+const shownLanguages = 3;
 const shownEducation = 2;
 const shownSkills = 6;
 const topSkills = 5;
@@ -34,10 +47,22 @@ const skillsSectionId = "skills";
 // The main column's sections, one card each. On the owner's profile each has a pencil
 // and an empty section shows a prompt to fill it in; on anyone else's an empty section is
 // hidden, except Publications.
-export function ProfileSections({ profile, edit }: { profile: Profile; edit?: EditControls }) {
+export function ProfileSections({
+  profile,
+  edit,
+}: {
+  profile: Profile;
+  edit?: EditControls;
+}) {
   return (
     <>
-      <Section title="About" section="about" empty={!profile.bio} edit={edit} prompt="Write a short bio">
+      <Section
+        title="About"
+        section="about"
+        empty={!profile.bio}
+        edit={edit}
+        prompt="Write a short bio"
+      >
         {profile.bio && (
           <>
             <Bio text={profile.bio} />
@@ -52,7 +77,11 @@ export function ProfileSections({ profile, edit }: { profile: Profile; edit?: Ed
         edit={edit}
         prompt="Add your research interests"
       >
-        <Chips label="Research interests" tags={profile.interests} chipClass="bg-primary-soft text-primary" />
+        <Chips
+          label="Research interests"
+          tags={profile.interests}
+          chipClass="bg-primary-soft text-primary"
+        />
       </Section>
       <Section
         id={skillsSectionId}
@@ -72,6 +101,7 @@ export function ProfileSections({ profile, edit }: { profile: Profile; edit?: Ed
           )}
         </ShowAll>
       </Section>
+      <LanguagesSection entries={profile.languages} edit={edit} />
       <ExperienceSection entries={profile.experience} edit={edit} />
       <Section
         title="Education"
@@ -81,7 +111,9 @@ export function ProfileSections({ profile, edit }: { profile: Profile; edit?: Ed
         prompt="Add your education"
       >
         <ShowAll total={profile.education.length} shown={shownEducation}>
-          {(limit) => <EducationList entries={profile.education.slice(0, limit)} />}
+          {(limit) => (
+            <EducationList entries={profile.education.slice(0, limit)} />
+          )}
         </ShowAll>
       </Section>
       {/* Confirmed publications arrive with slice 11 (FR-5.5). */}
@@ -102,15 +134,30 @@ type SectionProps = {
   children: ReactNode;
 };
 
-function Section({ id, title, section, empty, edit, prompt, children }: SectionProps) {
+function Section({
+  id,
+  title,
+  section,
+  empty,
+  edit,
+  prompt,
+  children,
+}: SectionProps) {
   if (empty && !edit) return null;
   const action = edit && (
-    <EditButton id={editButtonId(section)} label={`Edit ${title.toLowerCase()}`} onClick={() => edit.open(section)} />
+    <EditButton
+      id={editButtonId(section)}
+      label={`Edit ${title.toLowerCase()}`}
+      onClick={() => edit.open(section)}
+    />
   );
   return (
     <SectionCard id={id} title={title} action={action}>
       {empty ? (
-        <Link href={editHref(section)} className="text-sm text-secondary hover:underline">
+        <Link
+          href={editHref(section)}
+          className="text-sm text-secondary hover:underline"
+        >
           {prompt}
         </Link>
       ) : (
@@ -123,7 +170,12 @@ function Section({ id, title, section, empty, edit, prompt, children }: SectionP
 // SectionCard is a card with a titled section; action, such as a pencil, sits at the
 // end of the title row. id lets a link scroll to the card, clear of the fixed top bar and
 // the sticky profile bar.
-type SectionCardProps = { id?: string; title: string; action?: ReactNode; children: ReactNode };
+type SectionCardProps = {
+  id?: string;
+  title: string;
+  action?: ReactNode;
+  children: ReactNode;
+};
 
 export function SectionCard({ id, title, action, children }: SectionCardProps) {
   const headingId = useId();
@@ -150,7 +202,8 @@ const collapsedChars = 600;
 function Bio({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false);
   const textId = useId();
-  const long = text.split("\n").length > collapsedLines || text.length > collapsedChars;
+  const long =
+    text.split("\n").length > collapsedLines || text.length > collapsedChars;
   return (
     <>
       <p
@@ -183,7 +236,9 @@ function TopSkills({ skills }: { skills: Tag[] }) {
       className="mt-4 flex items-center gap-4 rounded-lg border border-border p-4 hover:bg-background focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none"
     >
       <span className="min-w-0 flex-1">
-        <span className="block text-sm font-semibold text-text">Top skills</span>
+        <span className="block text-sm font-semibold text-text">
+          Top skills
+        </span>
         <span className="block text-sm text-text">
           {skills
             .slice(0, topSkills)
@@ -201,7 +256,12 @@ function TopSkills({ skills }: { skills: Tag[] }) {
 // ShowAll renders the first `shown` entries of a list and, when there are more, a
 // full-width "Show all N" row at the bottom of the card that expands the list in place.
 // noun, when given, names the entries ("Show all 4 experiences").
-type ShowAllProps = { total: number; shown: number; noun?: string; children: (limit: number) => ReactNode };
+type ShowAllProps = {
+  total: number;
+  shown: number;
+  noun?: string;
+  children: (limit: number) => ReactNode;
+};
 
 function ShowAll({ total, shown, noun, children }: ShowAllProps) {
   const [expanded, setExpanded] = useState(false);
@@ -209,7 +269,9 @@ function ShowAll({ total, shown, noun, children }: ShowAllProps) {
   const collapsible = total > shown;
   return (
     <>
-      <div id={listId}>{children(collapsible && !expanded ? shown : total)}</div>
+      <div id={listId}>
+        {children(collapsible && !expanded ? shown : total)}
+      </div>
       {collapsible && !expanded && (
         <button
           type="button"
@@ -226,11 +288,22 @@ function ShowAll({ total, shown, noun, children }: ShowAllProps) {
   );
 }
 
-function Chips({ label, tags, chipClass }: { label: string; tags: Tag[]; chipClass: string }) {
+function Chips({
+  label,
+  tags,
+  chipClass,
+}: {
+  label: string;
+  tags: Tag[];
+  chipClass: string;
+}) {
   return (
     <ul aria-label={label} className="flex flex-wrap gap-2">
       {tags.map((t) => (
-        <li key={t.id} className={`rounded-full px-3 py-1 text-sm font-medium ${chipClass}`}>
+        <li
+          key={t.id}
+          className={`rounded-full px-3 py-1 text-sm font-medium ${chipClass}`}
+        >
           {t.name}
         </li>
       ))}
@@ -247,7 +320,11 @@ function EducationList({ entries }: { entries: Education[] }) {
           <li key={e.id} className="py-3 first:pt-0 last:pb-0">
             <p className="font-semibold text-text">{e.institution}</p>
             {study && <p className="text-sm text-text">{study}</p>}
-            <p className="text-sm text-text-muted">{yearRange(e.startYear, e.endYear)}</p>
+            <p className="text-sm text-text-muted">
+              {yearRange(e.startYear, e.endYear)}
+            </p>
+            {e.grade && <p className="text-sm text-text">Grade: {e.grade}</p>}
+            {e.description && <ClampedText text={e.description} />}
           </li>
         );
       })}
@@ -258,19 +335,36 @@ function EducationList({ entries }: { entries: Education[] }) {
 // ExperienceSection lists work experience in the order the API returns it (FR-4.8). On
 // the owner's profile a "+" adds an entry and each entry has a pencil; an empty section
 // then prompts for one. On anyone else's an empty section is hidden.
-function ExperienceSection({ entries, edit }: { entries: Experience[]; edit?: EditControls }) {
+function ExperienceSection({
+  entries,
+  edit,
+}: {
+  entries: Experience[];
+  edit?: EditControls;
+}) {
   if (entries.length === 0 && !edit) return null;
   const action = edit && (
-    <AddButton id={editButtonId("experience")} label="Add experience" onClick={() => edit.open("experience")} />
+    <AddButton
+      id={editButtonId("experience")}
+      label="Add experience"
+      onClick={() => edit.open("experience")}
+    />
   );
   return (
     <SectionCard title="Experience" action={action}>
       {entries.length === 0 ? (
-        <Link href={editHref("experience")} className="text-sm text-secondary hover:underline">
+        <Link
+          href={editHref("experience")}
+          className="text-sm text-secondary hover:underline"
+        >
           Add experience
         </Link>
       ) : (
-        <ShowAll total={entries.length} shown={shownExperience} noun="experiences">
+        <ShowAll
+          total={entries.length}
+          shown={shownExperience}
+          noun="experiences"
+        >
           {(limit) => (
             <ul aria-label="Experience" className="divide-y divide-border">
               {entries.slice(0, limit).map((e) => (
@@ -284,11 +378,25 @@ function ExperienceSection({ entries, edit }: { entries: Experience[]; edit?: Ed
   );
 }
 
-function ExperienceEntry({ entry: e, edit }: { entry: Experience; edit?: EditControls }) {
-  const place = [e.location, e.locationType && locationTypeLabels[e.locationType]].filter(Boolean).join(" · ");
+function ExperienceEntry({
+  entry: e,
+  edit,
+}: {
+  entry: Experience;
+  edit?: EditControls;
+}) {
+  const place = [
+    e.location,
+    e.locationType && locationTypeLabels[e.locationType],
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return (
     <li className="flex items-start gap-3 py-4 first:pt-0 last:pb-0">
-      <span aria-hidden="true" className="flex size-12 shrink-0 items-center justify-center rounded-md bg-primary-soft text-primary">
+      <span
+        aria-hidden="true"
+        className="flex size-12 shrink-0 items-center justify-center rounded-md bg-primary-soft text-primary"
+      >
         <BriefcaseIcon />
       </span>
       <div className="min-w-0 flex-1">
@@ -311,6 +419,65 @@ function ExperienceEntry({ entry: e, edit }: { entry: Experience; edit?: EditCon
   );
 }
 
+// LanguagesSection lists languages in the order the API returns them, highest proficiency
+// first (FR-4.9). On the owner's profile a "+" adds one and each has a pencil; an empty
+// section then prompts for one. On anyone else's an empty section is hidden.
+function LanguagesSection({
+  entries,
+  edit,
+}: {
+  entries: Language[];
+  edit?: EditControls;
+}) {
+  if (entries.length === 0 && !edit) return null;
+  const action = edit && (
+    <AddButton
+      id={editButtonId("languages")}
+      label="Add language"
+      onClick={() => edit.open("languages")}
+    />
+  );
+  return (
+    <SectionCard title="Languages" action={action}>
+      {entries.length === 0 ? (
+        <Link
+          href={editHref("languages")}
+          className="text-sm text-secondary hover:underline"
+        >
+          Add language
+        </Link>
+      ) : (
+        <ShowAll total={entries.length} shown={shownLanguages} noun="languages">
+          {(limit) => (
+            <ul aria-label="Languages" className="divide-y divide-border">
+              {entries.slice(0, limit).map((l) => (
+                <li
+                  key={l.id}
+                  className="flex items-start gap-3 py-3 first:pt-0 last:pb-0"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-text">{l.name}</p>
+                    <p className="text-sm text-text-muted">
+                      {proficiencyLabels[l.proficiency]}
+                    </p>
+                  </div>
+                  {edit && (
+                    <EditButton
+                      id={languageButtonId(l.id)}
+                      label={`Edit ${l.name}`}
+                      onClick={() => edit.editLanguage(l)}
+                    />
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </ShowAll>
+      )}
+    </SectionCard>
+  );
+}
+
 // A description longer than about three lines starts clamped, as the bio does with six;
 // the line and character counts stand in for its height.
 const clampedLines = 3;
@@ -319,10 +486,14 @@ const clampedChars = 250;
 function ClampedText({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false);
   const textId = useId();
-  const long = text.split("\n").length > clampedLines || text.length > clampedChars;
+  const long =
+    text.split("\n").length > clampedLines || text.length > clampedChars;
   return (
     <div className="mt-2">
-      <p id={textId} className={`text-sm whitespace-pre-line text-text ${long && !expanded ? "line-clamp-3" : ""}`}>
+      <p
+        id={textId}
+        className={`text-sm whitespace-pre-line text-text ${long && !expanded ? "line-clamp-3" : ""}`}
+      >
         {text}
       </p>
       {long && (

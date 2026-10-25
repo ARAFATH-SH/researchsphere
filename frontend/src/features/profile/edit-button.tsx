@@ -1,12 +1,13 @@
 // EditSection names a part of the own profile that has its own edit dialog. It is also
 // the value of /profile?edit=…, which opens that dialog.
-// "experience" opens the form for a new experience entry.
+// "experience" and "languages" open the form for a new entry.
 export type EditSection =
   | "intro"
   | "about"
   | "interests"
   | "skills"
   | "experience"
+  | "languages"
   | "education"
   | "contact"
   | "photo"
@@ -18,6 +19,7 @@ export const editSections: readonly EditSection[] = [
   "interests",
   "skills",
   "experience",
+  "languages",
   "education",
   "contact",
   "photo",
@@ -38,6 +40,11 @@ export function experienceButtonId(experienceId: string): string {
   return `edit-experience-${experienceId}-button`;
 }
 
+// languageButtonId is the id of a language's pencil.
+export function languageButtonId(languageId: string): string {
+  return `edit-language-${languageId}-button`;
+}
+
 // editHref links to the own profile with a section's dialog open.
 export function editHref(section: EditSection): string {
   return `/profile?edit=${section}`;
@@ -45,7 +52,15 @@ export function editHref(section: EditSection): string {
 
 // EditButton is the pencil on a card that opens its edit dialog. The icon is its only
 // content, so label names what it edits ("Edit skills").
-export function EditButton({ id, label, onClick }: { id?: string; label: string; onClick: () => void }) {
+export function EditButton({
+  id,
+  label,
+  onClick,
+}: {
+  id?: string;
+  label: string;
+  onClick: () => void;
+}) {
   return (
     <button
       id={id}
@@ -60,7 +75,15 @@ export function EditButton({ id, label, onClick }: { id?: string; label: string;
 }
 
 // AddButton is the "+" on a card that opens the form for a new entry.
-export function AddButton({ id, label, onClick }: { id?: string; label: string; onClick: () => void }) {
+export function AddButton({
+  id,
+  label,
+  onClick,
+}: {
+  id?: string;
+  label: string;
+  onClick: () => void;
+}) {
   return (
     <button
       id={id}

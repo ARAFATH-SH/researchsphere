@@ -4,7 +4,13 @@ import { type FormEvent, useMemo, useState } from "react";
 
 import { buttonClass } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { Field, FormError, inputClass, SelectField, TextAreaField } from "@/components/ui/field";
+import {
+  Field,
+  FormError,
+  inputClass,
+  SelectField,
+  TextAreaField,
+} from "@/components/ui/field";
 import { Spinner } from "@/components/ui/spinner";
 
 import {
@@ -16,7 +22,12 @@ import {
   removeExperience,
   updateExperience,
 } from "./api";
-import { currentMonth, employmentTypeLabels, locationTypeLabels, monthNames } from "./format";
+import {
+  currentMonth,
+  employmentTypeLabels,
+  locationTypeLabels,
+  monthNames,
+} from "./format";
 import { orNull } from "./profile-update";
 import { SaveButton } from "./save-button";
 import {
@@ -65,9 +76,12 @@ function bodyOf(v: ExperienceValues): ExperienceCreate {
     organization: v.organization.trim(),
     employmentType: v.employmentType as EmploymentType,
     location: orNull(v.location),
-    locationType: v.locationType === "" ? null : (v.locationType as LocationType),
+    locationType:
+      v.locationType === "" ? null : (v.locationType as LocationType),
     startDate: { year: Number(v.startYear), month: Number(v.startMonth) },
-    endDate: v.current ? null : { year: Number(v.endYear), month: Number(v.endMonth) },
+    endDate: v.current
+      ? null
+      : { year: Number(v.endYear), month: Number(v.endMonth) },
     isCurrent: v.current,
     description: orNull(v.description),
   };
@@ -75,7 +89,13 @@ function bodyOf(v: ExperienceValues): ExperienceCreate {
 
 // ExperienceDialog adds or edits one work experience entry, and deletes it after a
 // confirm step inside the dialog (FR-4.8).
-export function ExperienceDialog({ entry, onClose, onSaved, onDeleted, returnFocusId }: ExperienceDialogProps) {
+export function ExperienceDialog({
+  entry,
+  onClose,
+  onSaved,
+  onDeleted,
+  returnFocusId,
+}: ExperienceDialogProps) {
   const initial = useMemo(() => valuesOf(entry), [entry]);
   const [values, setValues] = useState(initial);
   const [errors, setErrors] = useState<ExperienceErrors>({});
@@ -83,10 +103,15 @@ export function ExperienceDialog({ entry, onClose, onSaved, onDeleted, returnFoc
   const [saving, setSaving] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const dirty = (Object.keys(initial) as (keyof ExperienceValues)[]).some((k) => values[k] !== initial[k]);
+  const dirty = (Object.keys(initial) as (keyof ExperienceValues)[]).some(
+    (k) => values[k] !== initial[k],
+  );
   const count = length(values.description.trim());
 
-  function set(field: Exclude<keyof ExperienceValues, "current">, value: string) {
+  function set(
+    field: Exclude<keyof ExperienceValues, "current">,
+    value: string,
+  ) {
     setValues({ ...values, [field]: value });
   }
 
@@ -99,12 +124,19 @@ export function ExperienceDialog({ entry, onClose, onSaved, onDeleted, returnFoc
 
     const body = bodyOf(values);
     setSaving(true);
-    const res = entry ? await updateExperience(entry.id, body) : await addExperience(body);
+    const res = entry
+      ? await updateExperience(entry.id, body)
+      : await addExperience(body);
     setSaving(false);
     if (res.ok) return onSaved();
     const field = fieldForExperienceCode(res.code);
     if (field) setErrors({ [field]: res.message });
-    else setFormError(res.code === "experience_limit_reached" ? experienceMessages.limitReached : genericError);
+    else
+      setFormError(
+        res.code === "experience_limit_reached"
+          ? experienceMessages.limitReached
+          : genericError,
+      );
   }
 
   async function onDelete() {
@@ -118,7 +150,11 @@ export function ExperienceDialog({ entry, onClose, onSaved, onDeleted, returnFoc
     setFormError(genericError);
   }
 
-  const text = (field: "title" | "organization" | "location", label: string, required = false) => (
+  const text = (
+    field: "title" | "organization" | "location",
+    label: string,
+    required = false,
+  ) => (
     <Field
       id={`experience-${field}`}
       name={field}
@@ -164,8 +200,14 @@ export function ExperienceDialog({ entry, onClose, onSaved, onDeleted, returnFoc
             checked={values.current}
             onChange={(e) => {
               // A current role has no end date, so ticking the box clears it.
-              setValues({ ...values, current: e.target.checked, endMonth: "", endYear: "" });
-              if (e.target.checked) setErrors({ ...errors, endDate: undefined });
+              setValues({
+                ...values,
+                current: e.target.checked,
+                endMonth: "",
+                endYear: "",
+              });
+              if (e.target.checked)
+                setErrors({ ...errors, endDate: undefined });
             }}
             className="size-4 accent-primary focus-visible:ring-2 focus-visible:ring-primary"
           />
@@ -216,7 +258,14 @@ export function ExperienceDialog({ entry, onClose, onSaved, onDeleted, returnFoc
           value={values.description}
           onChange={(e) => set("description", e.target.value)}
           hint={
-            <span aria-live="polite" className={count > MAX_EXPERIENCE_DESCRIPTION_LENGTH ? "text-danger" : undefined}>
+            <span
+              aria-live="polite"
+              className={
+                count > MAX_EXPERIENCE_DESCRIPTION_LENGTH
+                  ? "text-danger"
+                  : undefined
+              }
+            >
               {count} / {MAX_EXPERIENCE_DESCRIPTION_LENGTH}
             </span>
           }
@@ -224,8 +273,14 @@ export function ExperienceDialog({ entry, onClose, onSaved, onDeleted, returnFoc
         <SaveButton saving={saving} />
         {entry &&
           (confirmingDelete ? (
-            <div role="group" aria-label="Confirm delete" className="space-y-3 rounded-lg border border-danger p-4">
-              <p className="text-sm font-semibold text-text">Delete this experience? This cannot be undone.</p>
+            <div
+              role="group"
+              aria-label="Confirm delete"
+              className="space-y-3 rounded-lg border border-danger p-4"
+            >
+              <p className="text-sm font-semibold text-text">
+                Delete this experience? This cannot be undone.
+              </p>
               <div className="flex flex-wrap justify-end gap-2">
                 <button
                   type="button"
@@ -249,7 +304,11 @@ export function ExperienceDialog({ entry, onClose, onSaved, onDeleted, returnFoc
             <button
               type="button"
               onClick={() => setConfirmingDelete(true)}
-              className={buttonClass({ variant: "text", size: "md", full: true })}
+              className={buttonClass({
+                variant: "text",
+                size: "md",
+                full: true,
+              })}
             >
               Delete experience
             </button>
@@ -271,11 +330,25 @@ type MonthFieldProps = {
 
 // MonthField is a month and a year select under one legend ("Start date"). The years run
 // from this year back to 1950; the error, such as a future month, is shown once under both.
-function MonthField({ which, label, month, year, error, onMonth, onYear }: MonthFieldProps) {
+function MonthField({
+  which,
+  label,
+  month,
+  year,
+  error,
+  onMonth,
+  onYear,
+}: MonthFieldProps) {
   const errorId = `experience-${which}-error`;
   const latest = currentMonth().year;
-  const years = Array.from({ length: latest - MIN_EXPERIENCE_YEAR + 1 }, (_, i) => latest - i);
-  const control = { "aria-invalid": error ? true : undefined, "aria-describedby": error ? errorId : undefined };
+  const years = Array.from(
+    { length: latest - MIN_EXPERIENCE_YEAR + 1 },
+    (_, i) => latest - i,
+  );
+  const control = {
+    "aria-invalid": error ? true : undefined,
+    "aria-describedby": error ? errorId : undefined,
+  };
   return (
     <fieldset>
       <legend className="block text-sm font-semibold">{label}</legend>

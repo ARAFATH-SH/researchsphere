@@ -4,10 +4,16 @@ import { type FormEvent, useMemo, useState } from "react";
 
 import { buttonClass } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { Field, FormError } from "@/components/ui/field";
+import { Field, FormError, TextAreaField } from "@/components/ui/field";
 import { Spinner } from "@/components/ui/spinner";
 
-import { addEducation, type Education, type Profile, removeEducation, updateEducation } from "./api";
+import {
+  addEducation,
+  type Education,
+  type Profile,
+  removeEducation,
+  updateEducation,
+} from "./api";
 import { EditButton } from "./edit-button";
 import { yearRange } from "./format";
 import { orNull } from "./profile-update";
@@ -19,6 +25,8 @@ import {
   fieldForEducationCode,
   genericError,
   latestYear,
+  length,
+  MAX_EDUCATION_DESCRIPTION_LENGTH,
   MIN_EDUCATION_YEAR,
   validateEducation,
 } from "./validation";
@@ -39,7 +47,12 @@ type EducationDialogProps = {
 type View = { kind: "list" } | { kind: "form"; entry: Education | "new" };
 
 // EducationDialog adds, edits and removes education entries (FR-4.4).
-export function EducationDialog({ profile, onClose, onSaved, returnFocusId }: EducationDialogProps) {
+export function EducationDialog({
+  profile,
+  onClose,
+  onSaved,
+  returnFocusId,
+}: EducationDialogProps) {
   const [view, setView] = useState<View>({ kind: "list" });
   const [dirty, setDirty] = useState(false);
 
@@ -54,25 +67,41 @@ export function EducationDialog({ profile, onClose, onSaved, returnFocusId }: Ed
         onClose={onClose}
         returnFocusId={returnFocusId}
       >
-        <EducationForm entry={entry} onDirtyChange={setDirty} onSaved={onSaved} />
+        <EducationForm
+          entry={entry}
+          onDirtyChange={setDirty}
+          onSaved={onSaved}
+        />
       </Dialog>
     );
   }
 
   const full = profile.education.length >= MAX_EDUCATION_ENTRIES;
   return (
-    <Dialog key="list" title="Edit education" onClose={onClose} returnFocusId={returnFocusId}>
+    <Dialog
+      key="list"
+      title="Edit education"
+      onClose={onClose}
+      returnFocusId={returnFocusId}
+    >
       <div className="space-y-4">
         {profile.education.length > 0 ? (
           <ul aria-label="Education entries" className="divide-y divide-border">
             {profile.education.map((e) => (
-              <li key={e.id} className="flex items-start justify-between gap-4 py-3 first:pt-0">
+              <li
+                key={e.id}
+                className="flex items-start justify-between gap-4 py-3 first:pt-0"
+              >
                 <div>
                   <p className="font-semibold text-text">{e.institution}</p>
                   {(e.degree || e.fieldOfStudy) && (
-                    <p className="text-sm text-text">{[e.degree, e.fieldOfStudy].filter(Boolean).join(", ")}</p>
+                    <p className="text-sm text-text">
+                      {[e.degree, e.fieldOfStudy].filter(Boolean).join(", ")}
+                    </p>
                   )}
-                  <p className="text-sm text-text-muted">{yearRange(e.startYear, e.endYear)}</p>
+                  <p className="text-sm text-text-muted">
+                    {yearRange(e.startYear, e.endYear)}
+                  </p>
                 </div>
                 <EditButton
                   label={`Edit ${e.institution}`}
@@ -94,7 +123,8 @@ export function EducationDialog({ profile, onClose, onSaved, returnFocusId }: Ed
         </button>
         {full && (
           <p className="text-sm text-text-muted">
-            You have reached the limit of {MAX_EDUCATION_ENTRIES} entries. Remove one to add another.
+            You have reached the limit of {MAX_EDUCATION_ENTRIES} entries.
+            Remove one to add another.
           </p>
         )}
       </div>
@@ -110,6 +140,8 @@ function valuesOf(e?: Education): EducationValues {
     startYear: e ? String(e.startYear) : "",
     endYear: e?.endYear != null ? String(e.endYear) : "",
     current: e ? e.endYear === null : false,
+    grade: e?.grade ?? "",
+    description: e?.description ?? "",
   };
 }
 
@@ -128,10 +160,15 @@ function EducationForm({ entry, onDirtyChange, onSaved }: EducationFormProps) {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const latest = latestYear();
+  const count = length(values.description.trim());
 
   function update(next: EducationValues) {
     setValues(next);
-    onDirtyChange((Object.keys(initial) as (keyof EducationValues)[]).some((k) => next[k] !== initial[k]));
+    onDirtyChange(
+      (Object.keys(initial) as (keyof EducationValues)[]).some(
+        (k) => next[k] !== initial[k],
+      ),
+    );
   }
 
   function set(field: EducationField, value: string) {
@@ -152,14 +189,22 @@ function EducationForm({ entry, onDirtyChange, onSaved }: EducationFormProps) {
       startYear: Number(values.startYear.trim()),
       // A current entry has no end year (FR-4.4).
       endYear: values.current ? null : Number(values.endYear.trim()),
+      // A cleared field is sent as null, which clears it on an existing entry.
+      grade: orNull(values.grade),
+      description: orNull(values.description),
     };
     setSaving(true);
-    const res = entry ? await updateEducation(entry.id, body) : await addEducation(body);
+    const res = entry
+      ? await updateEducation(entry.id, body)
+      : await addEducation(body);
     setSaving(false);
     if (res.ok) return onSaved();
     const field = fieldForEducationCode(res.code);
     if (field) setErrors({ [field]: res.message });
-    else setFormError(res.code === "education_limit_reached" ? res.message : genericError);
+    else
+      setFormError(
+        res.code === "education_limit_reached" ? res.message : genericError,
+      );
   }
 
   async function onDelete() {
@@ -174,7 +219,11 @@ function EducationForm({ entry, onDirtyChange, onSaved }: EducationFormProps) {
   }
 
   const years = `From ${MIN_EDUCATION_YEAR} to ${latest}.`;
-  const text = (field: "institution" | "degree" | "fieldOfStudy", label: string, required = false) => (
+  const text = (
+    field: "institution" | "degree" | "fieldOfStudy" | "grade",
+    label: string,
+    required = false,
+  ) => (
     <Field
       id={`education-${field}`}
       name={field}
@@ -185,7 +234,11 @@ function EducationForm({ entry, onDirtyChange, onSaved }: EducationFormProps) {
       onChange={(e) => set(field, e.target.value)}
     />
   );
-  const yearField = (field: "startYear" | "endYear", label: string, disabled = false) => (
+  const yearField = (
+    field: "startYear" | "endYear",
+    label: string,
+    disabled = false,
+  ) => (
     <Field
       id={`education-${field}`}
       name={field}
@@ -225,11 +278,39 @@ function EducationForm({ entry, onDirtyChange, onSaved }: EducationFormProps) {
         />
         I currently study here
       </label>
+      {text("grade", "Grade (optional)")}
+      <TextAreaField
+        id="education-description"
+        name="description"
+        label="Description (optional)"
+        rows={6}
+        error={errors.description}
+        value={values.description}
+        onChange={(e) => set("description", e.target.value)}
+        hint={
+          <span
+            aria-live="polite"
+            className={
+              count > MAX_EDUCATION_DESCRIPTION_LENGTH
+                ? "text-danger"
+                : undefined
+            }
+          >
+            {count} / {MAX_EDUCATION_DESCRIPTION_LENGTH}
+          </span>
+        }
+      />
       <SaveButton saving={saving} />
       {entry &&
         (confirmingDelete ? (
-          <div role="group" aria-label="Confirm delete" className="space-y-3 rounded-lg border border-danger p-4">
-            <p className="text-sm font-semibold text-text">Delete this entry? This cannot be undone.</p>
+          <div
+            role="group"
+            aria-label="Confirm delete"
+            className="space-y-3 rounded-lg border border-danger p-4"
+          >
+            <p className="text-sm font-semibold text-text">
+              Delete this entry? This cannot be undone.
+            </p>
             <div className="flex flex-wrap justify-end gap-2">
               <button
                 type="button"

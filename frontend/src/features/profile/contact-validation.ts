@@ -18,7 +18,10 @@ export function daysIn(month: number): number {
   return [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1] ?? 31;
 }
 
-const monthNames = new Intl.DateTimeFormat("en", { month: "long", timeZone: "UTC" });
+const monthNames = new Intl.DateTimeFormat("en", {
+  month: "long",
+  timeZone: "UTC",
+});
 
 // monthName names a month, 1 to 12 ("February").
 export function monthName(month: number): string {
@@ -31,7 +34,8 @@ export function birthdayText(b: { month: number; day: number }): string {
 }
 
 export const contactMessages = {
-  phoneInvalid: "Enter the phone number in international format, such as +8801712345678.",
+  phoneInvalid:
+    "Enter the phone number in international format, such as +8801712345678.",
   birthdayIncomplete: "Choose both a month and a day, or neither.",
   birthdayInvalid: "Choose a day that exists in the chosen month.",
   linkRequired: "Enter the link.",
@@ -63,12 +67,15 @@ export type ContactErrors = Partial<Record<ContactField, string>>;
 export function validateContact(v: ContactValues): ContactErrors {
   const errors: ContactErrors = {};
   const phone = normalizePhone(v.phone);
-  if (phone !== "" && !e164.test(phone)) errors.phone = contactMessages.phoneInvalid;
-  if ((v.month === "") !== (v.day === "")) errors.birthday = contactMessages.birthdayIncomplete;
+  if (phone !== "" && !e164.test(phone))
+    errors.phone = contactMessages.phoneInvalid;
+  if ((v.month === "") !== (v.day === ""))
+    errors.birthday = contactMessages.birthdayIncomplete;
   else if (v.month !== "") {
     const month = Number(v.month);
     const day = Number(v.day);
-    if (!(month >= 1 && month <= 12 && day >= 1 && day <= daysIn(month))) errors.birthday = contactMessages.birthdayInvalid;
+    if (!(month >= 1 && month <= 12 && day >= 1 && day <= daysIn(month)))
+      errors.birthday = contactMessages.birthdayInvalid;
   }
   return errors;
 }
@@ -95,7 +102,14 @@ export function validateLinkURL(url: string): string | undefined {
   return undefined;
 }
 
-export const linkKinds: readonly LinkKind[] = ["website", "google_scholar", "researchgate", "linkedin", "github", "other"];
+export const linkKinds: readonly LinkKind[] = [
+  "website",
+  "google_scholar",
+  "researchgate",
+  "linkedin",
+  "github",
+  "other",
+];
 
 // linkLabels name the site a link points to. The names are text only; the icons are our
 // own, never the sites' logos (docs/ui-guidelines.md).
