@@ -2,7 +2,7 @@ import type { ElementType, ReactNode } from "react";
 
 // Container is the only place that sets page width (docs/ui-guidelines.md, Layout widths).
 // Sections never set their own max-width: a full-bleed background goes on the section and
-// its content goes in a Container.
+// its content goes in a Container. The side padding is px-gutter: 16px, 12px under 640px.
 
 export type ContainerSize = "marketing" | "app" | "full";
 

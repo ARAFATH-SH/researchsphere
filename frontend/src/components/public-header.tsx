@@ -5,14 +5,15 @@ import { Container } from "@/components/Container";
 import { Logo } from "@/components/logo";
 
 const pill =
-  "flex h-9 items-center rounded-rs-pill px-[18px] text-rs-body font-medium whitespace-nowrap focus-visible:shadow-focus focus-visible:outline-none";
+  "flex h-9 items-center rounded-rs-pill px-[18px] text-rs-body max-[640px]:px-4 font-medium whitespace-nowrap focus-visible:shadow-focus focus-visible:outline-none";
 
 // PublicHeader is the signed-out top bar (docs/ui-guidelines.md, Signed-out pages): the
-// logo and name, then Events (hidden under 640px), "Sign in" and "Join now".
+// logo and name, then Events (hidden under 640px), "Sign in" and "Join now". The pills
+// are 16px narrower each side under 640px so they stay on one line at 390px.
 export function PublicHeader() {
   return (
     <header className="sticky top-0 z-50 h-[52px] border-b border-rs-nav-border bg-rs-surface font-rs-ui text-rs-nav-text">
-      <Container className="flex h-[52px] items-center gap-2 max-[640px]:px-3">
+      <Container className="flex h-[52px] items-center gap-2">
         <Logo />
         <nav aria-label="Visitor" className="ml-auto flex items-center gap-2">
           <Link

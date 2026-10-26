@@ -110,6 +110,13 @@
   --rs-menu: 264px;
 }
 
+/* Page side padding is 12px under 640px, as the design's main{padding:16px 12px 32px}. */
+@media (width < 640px) {
+  :root {
+    --rs-gutter: 12px;
+  }
+}
+
 @theme inline {
   --color-rs-surface: var(--rs-surface);
   --color-rs-text: var(--rs-text);

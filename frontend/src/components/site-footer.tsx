@@ -82,7 +82,8 @@ export function CurrentSiteFooter() {
 // SiteFooter is the site footer (docs/ui-guidelines.md, Site footer). "full" spans the page:
 // the brand, three link columns, help links and the language; six columns, three at 960px
 // and narrower, two at 560px and narrower. "compact" is the bordered card at the bottom of
-// the home page's right column: centred links and the copyright.
+// the home page's right column: centred links and the copyright. The full footer keeps 16px
+// side padding under 640px, as the design's footer does (the page gutter is 12px there).
 export function SiteFooter({ variant = "full" }: { variant?: Exclude<FooterVariant, "none"> }) {
   if (variant === "compact") {
     return (
@@ -109,7 +110,7 @@ export function SiteFooter({ variant = "full" }: { variant?: Exclude<FooterVaria
       aria-label="Site footer"
       className="mt-auto border-t border-rs-nav-border bg-rs-footer-bg font-rs-ui text-rs-caption leading-rs-relaxed text-rs-text"
     >
-      <Container className="grid grid-cols-[minmax(150px,1.1fr)_repeat(3,minmax(110px,1fr))_minmax(190px,1.4fr)_minmax(150px,1fr)] gap-y-4 py-6 max-[960px]:grid-cols-3 max-[960px]:gap-4 max-[560px]:grid-cols-2">
+      <Container className="grid grid-cols-[minmax(150px,1.1fr)_repeat(3,minmax(110px,1fr))_minmax(190px,1.4fr)_minmax(150px,1fr)] gap-y-4 py-6 max-[640px]:px-4 max-[960px]:grid-cols-3 max-[960px]:gap-4 max-[560px]:grid-cols-2">
         <div className="pr-4 max-[960px]:col-span-full max-[960px]:p-0">
           <Link href="/" className={`inline-flex items-center gap-1.5 text-rs-body font-bold text-rs-accent ${linkFocus}`}>
             <LogoSquare size="sm" />

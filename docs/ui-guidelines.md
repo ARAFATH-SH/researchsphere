@@ -124,7 +124,7 @@ Weights are 400, 500 and 700: Tailwind's `font-normal`, `font-medium`, `font-bol
 | `--rs-shadow-bar` | `0 1px 3px rgba(16,24,40,.06)` (phone top bar) | `shadow-rs-bar` |
 | `--rs-shadow-bar-up` | `0 -1px 3px rgba(16,24,40,.06)` (phone bottom bar) | `shadow-rs-bar-up` |
 | `--rs-content` | 1128px, page content width | `max-w-content` |
-| `--rs-gutter` | 16px, page side padding | `px-gutter` |
+| `--rs-gutter` | 16px (12px under 640px), page side padding | `px-gutter` |
 | `--rs-menu` | 264px, Me menu width | `w-rs-menu` |
 
 Spacing uses Tailwind's default 4px scale, which covers the design's values (`1.5` = 6px,
@@ -153,7 +153,7 @@ Design images (`/_blob/…`) are placeholders and always differ.
 The app shell moved to the design. These are gone; do not bring them back:
 
 - `max-w-marketing` and `max-w-page` (1280px); use `max-w-content` through Container.
-- The responsive Container padding (16, 24, 32px); it is `px-gutter` at every width.
+- The responsive Container padding (16, 24, 32px); it is `px-gutter` (16px, 12px under 640px).
 - The system-font `--font-sans` body; the body uses `--rs-font-sans`.
 - The fixed 56px signed-in top bar, its `md:` bottom bar and the Events and Admin tabs
   (Events and the admin console are in the Me menu).
@@ -217,8 +217,9 @@ The tokens below style pages that are not restyled yet. Do not use them in a res
   | Home (`/home`) | left 240px, center flexible, right 320px: `lg:grid-cols-[240px_minmax(0,1fr)_320px]` | left 240px and center; the right column moves under the center | one column |
 
   The gap is 24px (`gap-6`).
-- **Side padding:** 16px at every width (`px-gutter`), as in the design. Container adds it;
-  sections add none. The signed-in `main` and the top bars use 12px under 640px.
+- **Side padding:** 16px, 12px under 640px (`px-gutter`; the token drops to 12px, as the
+  design's `main{padding:16px 12px 32px}`). Container adds it; sections add none. The full site
+  footer keeps 16px under 640px, as in the design.
 - **Full-bleed backgrounds:** the hero, CTA band and footer backgrounds span the whole screen.
   Put the background on the `<section>` (or `<footer>`) and its content inside a Container.
 - **Fill the width:** grids and cards fill the full Container width.
@@ -255,7 +256,8 @@ Landing, register, check-email, verify-email, sign-in and reset-password.
   (18px bold `rs-accent`, to `/`). Right, 8px apart, in `<nav aria-label="Visitor">`: an
   Events tab (icon and label, to `/events`, hidden under 640px), "Sign in" as a 36px outline
   pill (`rs-accent`, to `/login`) and "Join now" as a 36px filled pill (to `/register`).
-  Button text never wraps.
+  Button text never wraps, and the pills stay on one line at 390px (18px side padding, 16px
+  under 640px); the design wraps them there, which is not copied.
 - **Landing (`/`):** first the design's top (`design/screens/Landing.html`, UI.3), in one
   Container with 56px above, 64px below and 56px between (16, 32 and 16px under 640px):
   1. **Hero:** the 52px bold `rs-heading` headline "Find collaborators, write together, and
@@ -266,7 +268,7 @@ Landing, register, check-email, verify-email, sign-in and reset-password.
      1584:396, a 65px initials avatar, a fictional name and headline, three interest chips
      and "87% research match with you" with a Connect pill that is a picture, not a button.
      It carries a "Sample data" badge. The columns wrap when there is no room for 420px and
-     380px.
+     380px; under 640px the card sits 60px below the pills, as on `Landing_m.html`.
   2. **Feature cards:** three cards ("What you can do"): a 28px icon, a 16px/500 title and
      14px text, `repeat(auto-fit, minmax(240px, 1fr))` with a 16px gap, one column under 640px.
 

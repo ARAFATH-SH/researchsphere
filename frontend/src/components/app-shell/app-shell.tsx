@@ -17,7 +17,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="flex flex-1 flex-col max-[640px]:pb-14 max-[480px]:pt-14 max-[480px]:pb-16">
       <header className="sticky top-0 z-50 h-[52px] border-b border-rs-nav-border bg-rs-surface font-rs-ui text-rs-nav-text max-[480px]:hidden">
-        <Container className="flex h-[52px] items-center gap-2 max-[640px]:px-3">
+        <Container className="flex h-[52px] items-center gap-2">
           <Logo href="/home" markOnly />
           <SearchBox id="site-search" variant="top" />
           <nav aria-label="Main" className="ml-auto flex h-full">
@@ -38,7 +38,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </Link>
       </header>
 
-      <Container as="main" className="flex-1 pt-6 pb-12 max-[640px]:px-3 max-[640px]:pt-4 max-[640px]:pb-8">
+      <Container as="main" className="flex-1 pt-6 pb-12 max-[640px]:pt-4 max-[640px]:pb-8">
         {children}
       </Container>
       <Suspense fallback={null}>

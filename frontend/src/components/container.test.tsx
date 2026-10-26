@@ -24,7 +24,7 @@ describe("Container", () => {
     expect(screen.getByText("content").className).toContain("max-w-content");
   });
 
-  it("sets the 16px side padding at every width", () => {
+  it("sets the gutter side padding (16px, 12px under 640px through the token)", () => {
     render(<Container>content</Container>);
     const { className } = screen.getByText("content");
     expect(className).toContain("px-gutter");

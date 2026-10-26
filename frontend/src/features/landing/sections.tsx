@@ -50,10 +50,11 @@ export function Welcome() {
 }
 
 // Hero is the 52px headline, the intro, the two pills and the sample profile card. The two
-// columns wrap to one when there is no room for both (420px and 380px at least).
+// columns wrap to one when there is no room for both (420px and 380px at least); under 640px
+// the card sits 60px below the pills, as measured on Landing_m.html.
 function Hero() {
   return (
-    <section aria-labelledby="hero-heading" className="flex flex-wrap items-center gap-10">
+    <section aria-labelledby="hero-heading" className="flex flex-wrap items-center gap-10 max-[640px]:gap-y-15">
       <div className="flex min-w-0 flex-[1_1_420px] flex-col gap-5">
         <h1
           id="hero-heading"
