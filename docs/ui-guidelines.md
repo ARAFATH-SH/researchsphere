@@ -214,7 +214,7 @@ The tokens below style pages that are not restyled yet. Do not use them in a res
   | Page | From 1024px | 768–1023px | Below 768px |
   | --- | --- | --- | --- |
   | Profile (`/profile`, `/profile/[userId]`) | main column, then a 320px sidebar: `lg:grid-cols-[minmax(0,1fr)_320px]` | one column, the sidebar under the main column | one column |
-  | Home (`/home`) | left 240px, center flexible, right 320px: `lg:grid-cols-[240px_minmax(0,1fr)_320px]` | left 240px and center; the right column moves under the center | one column |
+  | Home (`/home`) | a wrapping flex row, `gap-6`: left `flex-[1_1_220px]` up to 260px, center `flex-[999_1_480px]`, right `flex-[1_1_280px]` up to 320px | left and center side by side; the right column wraps under them | one column at full width, `gap-4` (under 640px); the profile card is hidden at 480px and narrower |
 
   The gap is 24px (`gap-6`).
 - **Side padding:** 16px, 12px under 640px (`px-gutter`; the token drops to 12px, as the
@@ -355,13 +355,20 @@ its state.
     Network, Post (to `/home`), Alerts (`/notifications`) and Projects replace the top bar.
 - **Logo:** the "RS" square (`components/logo.tsx`), with the name beside it in the
   signed-out bar and the footer, alone in the signed-in bar.
-- **Home layout:** the three-column grid of [Page grids](#layout-widths): left the profile
-  card (240px), center the feed, right recommendations (320px). The feed and
-  recommendations are built by later slices.
-- **Home profile card:** the left column of `/home` loads `GET /profiles/me` and shows a
-  cover band (the cover image or a gradient), the photo or initials, name, headline, "job title, institution", country and
-  "Profile strength: N%" (the same value as the profile sidebar). The name, the avatar and
-  the strength line link to `/profile`. A skeleton shows while it loads.
+- **Home layout:** the wrapping flex row of [Page grids](#layout-widths), as in
+  `design/screens/Home.html`: left the profile card, center the "Share an update" composer
+  and the feed, right the recommendations and the compact footer. Cards use the 10px
+  `rounded-card` radius and `shadow-card`; empty states are the same card with a dashed
+  `rs-control` border (`features/home/cards.ts`). Until the feed slice exists the composer
+  is disabled with the note "Posting comes soon" and a dashed card says the feed is empty.
+  The right column asks for research interests (linking to `/profile?edit=interests`) when
+  the profile has none, and otherwise says recommendations are coming soon. Features not
+  built yet never show sample posts or people.
+- **Home profile card:** the left column of `/home` loads `GET /profiles/me` and shows the
+  cover (the cover image or a gradient, 1584:396), the photo or initials overlapping it, the
+  name and "headline · institution", then stat rows. Only "Profile strength N%" (the same
+  value as the profile sidebar) is shown; Connections and My projects rows come with those
+  features. The name and the strength row link to `/profile`. A skeleton shows while it loads.
 - **Profile header:** on 768px and wider, the right side lists the current institution and
   the latest education entry, each with a square initial badge (`primary-soft`, no logos).
   Beside the pencil or Connect is a "…" (More) button whose menu has "Copy profile link"
