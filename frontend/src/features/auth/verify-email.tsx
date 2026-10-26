@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { buttonClass } from "@/components/ui/button";
+import { rsButtonClass } from "@/components/ui/button";
 
 import { verifyEmail } from "./api";
 import { AuthCard } from "./auth-card";
+import { type NoticeTone, noticeClass } from "./notice";
 import { ResendForm } from "./resend-form";
 
 export type Outcome = "checking" | "verified" | "used" | "expired" | "invalid" | "missing" | "error";
@@ -17,11 +18,28 @@ export function tokenFromHash(hash: string): string {
   return new URLSearchParams(hash.replace(/^#/, "")).get("token") ?? "";
 }
 
+// VERIFY_TIMEOUT_MS is how long the page waits for the API before it gives up and shows
+// the error view, so a request that never answers does not leave the page checking.
+export const VERIFY_TIMEOUT_MS = 15_000;
+
 // checkLink verifies the token in hash and says how it went.
 export async function checkLink(hash: string): Promise<Outcome> {
   const token = tokenFromHash(hash);
   if (!token) return "missing";
-  const res = await verifyEmail(token);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), VERIFY_TIMEOUT_MS);
+  let res: Awaited<ReturnType<typeof verifyEmail>>;
+  try {
+    // The race ends the wait even if the request does not stop when aborted.
+    res = await Promise.race([
+      verifyEmail(token, controller.signal),
+      new Promise<never>((_, reject) => controller.signal.addEventListener("abort", () => reject(new Error("timeout")))),
+    ]);
+  } catch {
+    return "error";
+  } finally {
+    clearTimeout(timer);
+  }
   if (res.ok) return "verified";
   switch (res.code) {
     case "token_used":
@@ -34,8 +52,18 @@ export async function checkLink(hash: string): Promise<Outcome> {
   return "error";
 }
 
-const views: Record<Exclude<Outcome, "checking">, { title: string; text: string; resend: boolean; login: boolean }> = {
-  verified: { title: "Email verified", text: "Your email address is verified. You can now sign in.", resend: false, login: true },
+// tone is the message box the text sits in (design/screens/Auth.html); none is plain text.
+const views: Record<
+  Exclude<Outcome, "checking">,
+  { title: string; text: string; resend: boolean; login: boolean; tone?: NoticeTone }
+> = {
+  verified: {
+    title: "Email verified",
+    text: "Your email address is verified. You can now sign in.",
+    resend: false,
+    login: true,
+    tone: "success",
+  },
   used: {
     title: "Link already used",
     text: "This link has already been used. If you verified your address with it, you can sign in.",
@@ -47,12 +75,14 @@ const views: Record<Exclude<Outcome, "checking">, { title: string; text: string;
     text: "This link has expired: links work for 24 hours. Ask for a new one below.",
     resend: true,
     login: false,
+    tone: "error",
   },
   invalid: {
     title: "Link not valid",
     text: "This link is not valid. It may have been replaced by a newer one. Ask for a new link below.",
     resend: true,
     login: false,
+    tone: "error",
   },
   missing: {
     title: "No verification link",
@@ -65,6 +95,7 @@ const views: Record<Exclude<Outcome, "checking">, { title: string; text: string;
     text: "Something went wrong while checking the link. Reload the page to try again.",
     resend: false,
     login: false,
+    tone: "error",
   },
 };
 
@@ -120,9 +151,11 @@ export function VerifyEmail() {
   const view = views[outcome];
   return (
     <AuthCard title={view.title} signInLink={!view.login}>
-      <p role="status">{view.text}</p>
+      <p role="status" className={view.tone ? noticeClass(view.tone) : undefined}>
+        {view.text}
+      </p>
       {view.login ? (
-        <Link href="/login" className={buttonClass({ variant: "primary", full: true })}>
+        <Link href="/login" className={rsButtonClass({ full: true })}>
           Sign in
         </Link>
       ) : null}

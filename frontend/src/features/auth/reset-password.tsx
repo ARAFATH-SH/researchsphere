@@ -3,11 +3,12 @@
 import Link from "next/link";
 import { type FormEvent, useState, useSyncExternalStore } from "react";
 
-import { buttonClass } from "@/components/ui/button";
-import { Field, FormError } from "@/components/ui/field";
+import { rsButtonClass } from "@/components/ui/button";
+import { Field } from "@/components/ui/field";
 
 import { confirmPasswordReset } from "./api";
 import { AuthCard } from "./auth-card";
+import { AuthAlert, noticeClass } from "./notice";
 import { type NewPasswordErrors, type NewPasswordValues, validateNewPassword } from "./validation";
 import { tokenFromHash } from "./verify-email";
 
@@ -93,8 +94,10 @@ export function ResetPassword() {
   if (done) {
     return (
       <AuthCard title="Password changed">
-        <p role="status">Your password has been changed and you have been signed out on every device. Sign in with your new password.</p>
-        <Link href="/login" className={buttonClass({ variant: "primary", full: true })}>
+        <p role="status" className={noticeClass("success")}>
+          Your password has been changed and you have been signed out on every device. Sign in with your new password.
+        </p>
+        <Link href="/login" className={rsButtonClass({ full: true })}>
           Sign in
         </Link>
       </AuthCard>
@@ -106,8 +109,10 @@ export function ResetPassword() {
     const view = problems[shown];
     return (
       <AuthCard title={view.title} signInLink>
-        <p role="status">{view.text}</p>
-        <Link href="/forgot-password" className={buttonClass({ variant: "primary", full: true })}>
+        <p role="status" className={noticeClass("error")}>
+          {view.text}
+        </p>
+        <Link href="/forgot-password" className={rsButtonClass({ full: true })}>
           Ask for a new link
         </Link>
       </AuthCard>
@@ -115,15 +120,16 @@ export function ResetPassword() {
   }
 
   return (
-    <AuthCard title="Choose a new password" subtitle="Setting a new password signs you out on every device." signInLink>
-      <form noValidate onSubmit={onSubmit} className="space-y-4">
-        {formError ? <FormError>{formError}</FormError> : null}
+    <AuthCard title="Choose a new password" signInLink>
+      <form noValidate onSubmit={onSubmit} className="flex flex-col gap-3.5">
+        {formError ? <AuthAlert>{formError}</AuthAlert> : null}
         <Field
           id="password"
           name="password"
           label="New password"
           type="password"
           autoComplete="new-password"
+          look="rs"
           hint="At least 8 characters."
           error={errors.password}
           value={values.password}
@@ -135,15 +141,14 @@ export function ResetPassword() {
           label="Confirm new password"
           type="password"
           autoComplete="new-password"
+          look="rs"
           error={errors.confirmPassword}
           value={values.confirmPassword}
           onChange={(e) => setValues({ ...values, confirmPassword: e.target.value })}
         />
-        <button
-          type="submit"
-          disabled={submitting || token === undefined}
-          className={buttonClass({ variant: "primary", full: true })}
-        >
+        {/* The design's helper line above the button. */}
+        <p className="text-rs-caption text-rs-text-muted">Saving signs you out on every device.</p>
+        <button type="submit" disabled={submitting || token === undefined} className={rsButtonClass({ full: true })}>
           {submitting ? "Saving…" : "Set new password"}
         </button>
       </form>

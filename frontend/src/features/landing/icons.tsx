@@ -101,3 +101,44 @@ export const CheckIcon = () => (
     <path d="m5 12.5 4.5 4.5L19 7.5" />
   </svg>
 );
+
+// The design's 28px feature-card icons (design/screens/Landing.html): 1.8px stroke.
+function FeatureIcon({ children }: { children: ReactNode }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="28"
+      height="28"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {children}
+    </svg>
+  );
+}
+
+export const CollaboratorsIcon = () => (
+  <FeatureIcon>
+    <circle cx="9" cy="8" r="3.5" />
+    <path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6" />
+    <circle cx="17" cy="9" r="2.5" />
+    <path d="M17 14c2.6 0 4.5 1.8 4.5 4.5" />
+  </FeatureIcon>
+);
+
+export const CodeIcon = () => (
+  <FeatureIcon>
+    <path d="M8 6l-5 6 5 6M16 6l5 6-5 6" />
+  </FeatureIcon>
+);
+
+export const CalendarIcon = () => (
+  <FeatureIcon>
+    <rect x="3" y="5" width="18" height="16" rx="2" />
+    <path d="M3 10h18M8 3v4M16 3v4" />
+  </FeatureIcon>
+);

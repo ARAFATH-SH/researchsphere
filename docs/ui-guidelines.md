@@ -205,8 +205,8 @@ The tokens below style pages that are not restyled yet. Do not use them in a res
   | Signed-in app pages (home, profile, network, projects, events, messaging) | `app` | 1128px (`max-w-content`) |
   | Editor workspace (slice 22) | `full` | none |
 
-  Auth and not-found cards stay about 400px wide inside the `marketing` Container (see
-  Narrow cards). `app` and `marketing` are both 1128px, as in the design, but stay two
+  Auth cards are 363px wide and not-found cards about 400px, inside the `marketing`
+  Container (see Narrow cards). `app` and `marketing` are both 1128px, as in the design, but stay two
   names, so either can change alone.
 - **Page grids:** signed-in pages divide the Container with a grid; only the grid sets
   column widths, never a section.
@@ -229,8 +229,8 @@ The tokens below style pages that are not restyled yet. Do not use them in a res
   (`grid md:grid-cols-2`); they stack below 768px.
 - **Card grids:** 3 columns on desktop, 2 on tablet, 1 on phone, with a 24px gap
   (`grid gap-6 md:grid-cols-2 lg:grid-cols-3`).
-- **Narrow cards:** auth and not-found cards stay about 400px wide, centered inside the
-  Container.
+- **Narrow cards:** auth cards are 363px wide (the column of `design/screens/Auth.html`,
+  full width under 640px) and not-found cards about 400px, centered inside the Container.
 
 ## Buttons and links
 
@@ -256,23 +256,33 @@ Landing, register, check-email, verify-email, sign-in and reset-password.
   Events tab (icon and label, to `/events`, hidden under 640px), "Sign in" as a 36px outline
   pill (`rs-accent`, to `/login`) and "Join now" as a 36px filled pill (to `/register`).
   Button text never wraps.
-- **Landing (`/`):** sections in this order, alternating `surface` and `background` bands:
-  1. **Hero:** the headline "Find collaborators. Write papers together.", one line of
-     supporting text, "Join now" (primary pill) and "Sign in" (outlined pill). On the right is
-     `hero-team.jpg`, the only image that loads eagerly (`preload`). Below 768px the columns
-     stack, text first.
-  2. **The problem:** three cards (slow co-author search, email attachments, venue guesswork).
-  3. **How it works:** three numbered steps with icons.
-  4. **Feature rows:** matching, the LaTeX editor, venues and the research network, each with
+- **Landing (`/`):** first the design's top (`design/screens/Landing.html`, UI.3), in one
+  Container with 56px above, 64px below and 56px between (16, 32 and 16px under 640px):
+  1. **Hero:** the 52px bold `rs-heading` headline "Find collaborators, write together, and
+     pick the right venue." (32px under 640px), a 20px intro (16px under 640px), and
+     "Create your research profile" (filled pill, to `/register`) and "Sign in" (outline
+     pill, to `/login`). On the right the sample profile card
+     (`features/landing/sample-profile-card.tsx`): `sample-cover.svg` cover strip at
+     1584:396, a 65px initials avatar, a fictional name and headline, three interest chips
+     and "87% research match with you" with a Connect pill that is a picture, not a button.
+     It carries a "Sample data" badge. The columns wrap when there is no room for 420px and
+     380px.
+  2. **Feature cards:** three cards ("What you can do"): a 28px icon, a 16px/500 title and
+     14px text, `repeat(auto-fit, minmax(240px, 1fr))` with a 16px gap, one column under 640px.
+
+  Then the earlier sections, in full-bleed bands alternating `rs-subtle` and `rs-surface`,
+  restyled with the `rs-*` tokens:
+  3. **The problem:** three cards (slow co-author search, email attachments, venue guesswork).
+  4. **How it works:** three numbered steps with icons.
+  5. **Feature rows:** matching, the LaTeX editor, venues and the research network, each with
      a title, two lines of text and three bullets. The media column alternates left and right.
-  5. **Who it is for:** three cards (students, researchers, labs).
-  6. **Use-case story:** one fictional example, labelled "Example".
-  7. **FAQ:** native `<details>`/`<summary>`. Answers state only what `docs/SRS.md` requires.
-  8. **Call to action:** a `primary` band with "Join now" as an `inverse` pill (`surface`
-     background, `primary` text).
+  6. **Who it is for:** three cards (students, researchers, labs).
+  7. **Use-case story:** one fictional example, labelled "Example".
+  8. **FAQ:** native `<details>`/`<summary>`. Answers state only what `docs/SRS.md` requires.
+  9. **Call to action:** an `rs-accent-strong` band with "Join now" as an inverse pill.
 - **Images:** illustrations in `frontend/public/images/landing/`, shown with `next/image`
-  with width, height and alt text that describes them. They lazy-load, except the hero
-  image. Every image's source and licence is listed in `docs/image-credits.md`.
+  with width, height and alt text that describes them. They lazy-load. The sample card's
+  cover is decorative (empty alt). Every image's source and licence is listed in `docs/image-credits.md`.
 - **Product previews:** static React mock-ups in `frontend/src/features/landing/` (match
   card, editor, venue list), built from theme tokens. Their names and numbers are fictional
   and each carries a "Sample data" badge. Never show testimonials, user counts or statistics
@@ -289,14 +299,27 @@ Landing, register, check-email, verify-email, sign-in and reset-password.
 
 ## Forms
 
-- One centered card, about 400px wide, with a title and a short line of text.
-- Labels above inputs; inputs full width with a 1px border and 8px radius.
-- Hints in `text-muted` 14px under the input; errors in `danger` 14px under the field, linked
-  with `aria-describedby`, and the input gets `aria-invalid`.
-- Errors that belong to no field go in a banner at the top of the card (`role="alert"`).
-- A full-width primary pill submit button.
-- Under the button: "Already on ResearchSphere? Sign in" (on the register, check-email and
-  verify-email cards).
+Auth pages follow `design/screens/Auth.html` (UI.3); each route shows the board's card for
+its state.
+
+- One card (`features/auth/auth-card.tsx`): 363px, 12px radius, `rs-border` and `shadow-card`,
+  24px padding, 14px between items. Its title is the page's h1, styled as the board's card
+  heading (16px/500). A subtitle only when it says something the form needs.
+- Fields use `Field` with `look="rs"`: a 14px/500 label 4px above a 44px control with a 1px
+  `rs-control` border, 6px radius and the `shadow-focus` ring. Hints are 12px `rs-text-muted`
+  and errors 12px `rs-danger`, 6px under the control and linked with `aria-describedby`; an
+  invalid control gets `aria-invalid` and a 2px `rs-danger` border. No password show/hide (the
+  design has none).
+- Buttons are `rsButtonClass` pills: the submit is full width and 48px, secondary actions
+  44px outline.
+- Messages (`features/auth/notice.tsx`), 8px radius, 10px by 12px padding: errors that belong
+  to no field at the top of the form (`rs-danger-soft`, `rs-danger-line`, `rs-danger-strong`,
+  `role="alert"`); success (`rs-accent-soft`, `rs-heading`) in a `role="status"` region that
+  stays mounted; "verify your email first" as a warning (`rs-warning-*`) under the button.
+- Links in cards are 14px/500 `rs-accent-strong`, underlined. Under the button, centered and
+  muted: "Already on ResearchSphere? Sign in" (register, check-email, verify-email, forgot and
+  reset password) or "New here? Join now" (sign-in).
+- Other forms (settings, profile dialogs) keep the older `Field` look until they are restyled.
 
 ## Signed-in pages
 

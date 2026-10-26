@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1584 396" preserveAspectRatio="xMidYMid slice">
+  <!-- A neutral cover for the landing page's sample profile card: teal with soft network lines. Drawn for this project. -->
+  <rect width="1584" height="396" fill="#0F766E"/>
+  <g fill="none" stroke="#9FD3CC" stroke-opacity=".35" stroke-width="3">
+    <path d="M0 300 C 260 220, 420 340, 700 250 S 1180 120, 1584 210"/>
+    <path d="M0 200 C 300 120, 520 260, 820 170 S 1260 60, 1584 110"/>
+    <path d="M0 360 C 340 300, 640 390, 980 320 S 1400 260, 1584 300"/>
+  </g>
+  <g fill="#E6F4F2" fill-opacity=".45">
+    <circle cx="700" cy="250" r="9"/>
+    <circle cx="820" cy="170" r="7"/>
+    <circle cx="980" cy="320" r="8"/>
+    <circle cx="1180" cy="128" r="10"/>
+    <circle cx="420" cy="296" r="6"/>
+    <circle cx="1400" cy="262" r="7"/>
+  </g>
+</svg>

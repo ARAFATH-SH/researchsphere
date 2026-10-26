@@ -8,7 +8,7 @@ export const metadata: Metadata = { title: "Sign in · ResearchSphere" };
 // A public page: it makes no session check (no /auth/me, no refresh).
 export default function Page() {
   return (
-    <AuthCard title="Sign in" subtitle="Welcome back to ResearchSphere." joinLink>
+    <AuthCard title="Sign in" joinLink>
       <LoginForm />
     </AuthCard>
   );

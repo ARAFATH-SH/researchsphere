@@ -5,12 +5,40 @@ type FieldProps = Omit<ComponentProps<"input">, "id"> & {
   label: string;
   hint?: string;
   error?: string;
+  // look "rs" is the design's control (design/screens, UI.3); the default is the older style
+  // that pages not yet restyled still use.
+  look?: FieldLook;
 };
+
+export type FieldLook = "default" | "rs";
 
 export const inputClass =
   "mt-1 block w-full rounded-lg border border-border bg-surface px-3 py-2.5 text-base text-text " +
   "focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/25 " +
   "aria-invalid:border-danger aria-invalid:focus:ring-danger/25";
+
+// rsInputClass is the design's 44px control: a 1px rs-control border and 6px radius, the
+// accent focus ring, and a 2px rs-danger border when the value is invalid.
+export const rsInputClass =
+  "block h-11 w-full rounded-control border border-rs-control bg-rs-surface px-3 text-rs-body font-normal text-rs-text " +
+  "focus:shadow-focus focus:outline-none " +
+  "aria-invalid:border-2 aria-invalid:border-rs-danger aria-invalid:px-[11px]";
+
+const looks: Record<FieldLook, { box: string; label: string; hint: string; error: string }> = {
+  default: {
+    box: "",
+    label: "block text-sm font-semibold",
+    hint: "mt-1 text-sm text-text-muted",
+    error: "mt-1 text-sm text-danger",
+  },
+  // The label sits 4px above the control; hint and error are 12px, 6px under it.
+  rs: {
+    box: "flex flex-col gap-1",
+    label: "text-rs-body font-medium",
+    hint: "mt-0.5 text-rs-caption text-rs-text-muted",
+    error: "mt-0.5 text-rs-caption text-rs-danger",
+  },
+};
 
 type Described = { id: string; label: string; hint?: ReactNode; error?: string };
 
@@ -21,20 +49,29 @@ function describe({ id, hint, error }: Described) {
 }
 
 // Labelled is the label above a control and the hint and error under it.
-function Labelled({ id, label, hint, error, className, children }: Described & { className: string; children: ReactNode }) {
+function Labelled({
+  id,
+  label,
+  hint,
+  error,
+  className,
+  look = "default",
+  children,
+}: Described & { className: string; look?: FieldLook; children: ReactNode }) {
+  const styles = looks[look];
   return (
-    <div className={className}>
-      <label htmlFor={id} className="block text-sm font-semibold">
+    <div className={[styles.box, className].filter(Boolean).join(" ")}>
+      <label htmlFor={id} className={styles.label}>
         {label}
       </label>
       {children}
       {hint ? (
-        <p id={`${id}-hint`} className="mt-1 text-sm text-text-muted">
+        <p id={`${id}-hint`} className={styles.hint}>
           {hint}
         </p>
       ) : null}
       {error ? (
-        <p id={`${id}-error`} className="mt-1 text-sm text-danger">
+        <p id={`${id}-error`} className={styles.error}>
           {error}
         </p>
       ) : null}
@@ -44,10 +81,15 @@ function Labelled({ id, label, hint, error, className, children }: Described & {
 
 // Field is a label above an input, with an optional hint and an error in red under it.
 // The input points to both with aria-describedby (docs/ui-guidelines.md, Forms).
-export function Field({ id, label, hint, error, className = "", ...input }: FieldProps) {
+export function Field({ id, label, hint, error, className = "", look = "default", ...input }: FieldProps) {
   return (
-    <Labelled id={id} label={label} hint={hint} error={error} className={className}>
-      <input id={id} {...describe({ id, label, hint, error })} className={inputClass} {...input} />
+    <Labelled id={id} label={label} hint={hint} error={error} className={className} look={look}>
+      <input
+        id={id}
+        {...describe({ id, label, hint, error })}
+        className={look === "rs" ? rsInputClass : inputClass}
+        {...input}
+      />
     </Labelled>
   );
 }

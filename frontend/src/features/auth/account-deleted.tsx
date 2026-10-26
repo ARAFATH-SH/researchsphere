@@ -39,8 +39,8 @@ export function AccountDeletedNotice() {
 
   if (!show) return null;
   return (
-    <Container size="marketing" className="pt-6">
-      <p role="status" className="rounded-lg border border-primary/30 bg-primary-soft p-3 text-sm text-text">
+    <Container size="marketing" className="pt-6 max-[640px]:pt-4">
+      <p role="status" className="rounded-rs-md bg-rs-accent-soft px-3 py-2.5 text-rs-heading">
         Your account was deleted.
       </p>
     </Container>
