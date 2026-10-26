@@ -725,7 +725,7 @@ describe("ProfileView, experience", () => {
   afterEach(() => jest.useRealTimers());
 
   const extra = (n: number): Experience => ({
-    id: `x${n}`,
+    id: `extra-${n}`,
     title: `Role ${n}`,
     organization: `Org ${n}`,
     employmentType: "contract",
