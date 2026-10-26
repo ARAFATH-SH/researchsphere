@@ -76,9 +76,13 @@ describe("ProfileView, own profile", () => {
       "AL",
     );
     expect(screen.getByText("Analyst of engines")).toBeTruthy();
-    expect(screen.getByText("Researcher, University of London")).toBeTruthy();
-    expect(screen.getByText("Mathematics")).toBeTruthy();
-    expect(screen.getByText("United Kingdom")).toBeTruthy();
+    // The design's one meta line: job and department, institution, place, Contact info.
+    expect(
+      screen.getByText(
+        "Researcher, Mathematics · University of London · United Kingdom ·",
+        { exact: false },
+      ),
+    ).toBeTruthy();
 
     for (const name of [
       "Edit intro",
@@ -89,7 +93,13 @@ describe("ProfileView, own profile", () => {
     ]) {
       expect(screen.getByRole("button", { name })).toBeTruthy();
     }
+    for (const name of ["Edit cover image", "Change profile photo"]) {
+      expect(screen.getByRole("button", { name })).toBeTruthy();
+    }
+    // Connect and Message request wait for connections (slice 13).
     expect(screen.queryByRole("button", { name: /connect/i })).toBeNull();
+    expect(screen.queryByText(/message request/i)).toBeNull();
+    expect(screen.getByRole("button", { name: "More" })).toBeTruthy();
 
     expect(
       screen.getByRole("heading", { level: 2, name: "Profile strength" }),
@@ -100,23 +110,26 @@ describe("ProfileView, own profile", () => {
     expect(mockGetProfile).not.toHaveBeenCalled();
   });
 
-  it("shows sections as h2 and chips as lists", async () => {
-    mockGetMyProfile.mockResolvedValue({
-      status: "ok",
-      profile: fullProfile(adaID, "Ada Lovelace"),
-    });
+  it("shows the sections as h2 in the design's order, and chips as lists", async () => {
+    const p = fullProfile(adaID, "Ada Lovelace");
+    p.languages = [{ id: "g1", name: "French", proficiency: "native_or_bilingual" }];
+    mockGetMyProfile.mockResolvedValue({ status: "ok", profile: p });
     render(<ProfileView />);
     await screen.findByRole("heading", { level: 1 });
 
-    expect(headings(2)).toEqual(
-      expect.arrayContaining([
-        "About",
-        "Research interests",
-        "Skills",
-        "Education",
-        "Publications",
-      ]),
-    );
+    // Publications and Activity are not built yet, so they are not rendered.
+    expect(headings(2)).toEqual([
+      "About",
+      "Research interests & skills",
+      "Experience",
+      "Education",
+      "Languages",
+      "Contact info",
+      "Profile strength",
+    ]);
+    expect(headings(3)).toEqual(["Interests", "Skills"]);
+    expect(screen.queryByText(/publications/i)).toBeNull();
+    expect(screen.queryByText(/activity/i)).toBeNull();
     const interests = screen.getByRole("list", { name: "Research interests" });
     expect(
       within(interests)
@@ -154,20 +167,21 @@ describe("ProfileView, own profile", () => {
 
     for (const [section, prompt, href] of [
       ["About", "Write a short bio", "/profile?edit=about"],
-      [
-        "Research interests",
-        "Add your research interests",
-        "/profile?edit=interests",
-      ],
+      ["Interests", "Add your research interests", "/profile?edit=interests"],
       ["Skills", "Add your skills", "/profile?edit=skills"],
+      ["Experience", "Add experience", "/profile?edit=experience"],
       ["Education", "Add your education", "/profile?edit=education"],
+      ["Languages", "Add language", "/profile?edit=languages"],
     ]) {
       const region = within(screen.getByRole("region", { name: section }));
       expect(
         region.getByRole("link", { name: prompt }).getAttribute("href"),
       ).toBe(href);
     }
-    expect(screen.getByText("No publications yet.")).toBeTruthy();
+    // An empty section is the design's dashed empty-state card.
+    expect(
+      screen.getByRole("region", { name: "About" }).className,
+    ).toContain("border-dashed");
 
     expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe(
       "0",
@@ -199,30 +213,29 @@ describe("ProfileView, own profile", () => {
 });
 
 describe("ProfileView, another user's profile", () => {
-  it("shows a disabled Connect with a tooltip and no strength card", async () => {
+  it("shows More but no edit controls, Connect, Message request or strength card", async () => {
     mockGetProfile.mockResolvedValue({
       status: "ok",
       profile: fullProfile(bobID, "Bob Babbage"),
     });
     render(<ProfileView userId={bobID} />);
 
-    const connect = await screen.findByRole("button", { name: "Connect" });
-    expect(connect.getAttribute("aria-disabled")).toBe("true");
-    expect(screen.getByRole("tooltip", { hidden: true }).textContent).toBe(
-      "Available soon",
-    );
-    expect(connect.getAttribute("aria-describedby")).toBe(
-      screen.getByRole("tooltip", { hidden: true }).id,
-    );
+    expect(await screen.findByRole("button", { name: "More" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Edit / })).toBeNull();
-    expect(screen.queryByText("Profile strength")).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Add / })).toBeNull();
     expect(
-      screen.getByText("More researchers like this will appear here"),
-    ).toBeTruthy();
+      screen.queryByRole("button", { name: "Change profile photo" }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: /connect/i })).toBeNull();
+    expect(screen.queryByText(/message request/i)).toBeNull();
+    expect(screen.queryByText("Profile strength")).toBeNull();
+    // The design's AI cards wait for matching (slice 17): no sample people.
+    expect(screen.queryByText(/connect with researchers/i)).toBeNull();
+    expect(screen.queryByText(/people also viewed/i)).toBeNull();
     expect(mockGetProfile).toHaveBeenCalledWith(bobID);
   });
 
-  it("hides empty sections except Publications", async () => {
+  it("hides empty sections", async () => {
     mockGetProfile.mockResolvedValue({
       status: "ok",
       profile: emptyProfile(bobID, "Bob Babbage"),
@@ -231,14 +244,19 @@ describe("ProfileView, another user's profile", () => {
     await screen.findByRole("heading", { level: 1, name: "Bob Babbage" });
 
     expect(headings(2)).not.toEqual(expect.arrayContaining(["About"]));
-    for (const name of ["About", "Research interests", "Skills", "Education"]) {
-      expect(screen.queryByRole("heading", { level: 2, name })).toBeNull();
-    }
-    expect(
-      screen.getByRole("heading", { level: 2, name: "Publications" }),
-    ).toBeTruthy();
-    expect(screen.getByText("No publications yet.")).toBeTruthy();
-    expect(screen.queryByRole("link", { name: /add your/i })).toBeNull();
+    expect(headings(2)).toEqual(["Contact info"]);
+    expect(screen.queryAllByRole("heading", { level: 3 })).toHaveLength(0);
+    expect(screen.queryByRole("link", { name: /^(add|write)/i })).toBeNull();
+  });
+
+  it("leaves out an empty Skills group but keeps Interests", async () => {
+    const p = fullProfile(bobID, "Bob Babbage");
+    p.skills = [];
+    mockGetProfile.mockResolvedValue({ status: "ok", profile: p });
+    render(<ProfileView userId={bobID} />);
+    await screen.findByRole("heading", { level: 1 });
+    expect(headings(3)).toEqual(["Interests"]);
+    expect(screen.queryByRole("list", { name: "Skills" })).toBeNull();
   });
 });
 
@@ -511,30 +529,89 @@ describe("ProfileView, contact info", () => {
   });
 });
 
-describe("ProfileView, header", () => {
-  it("lists the current institution and the latest education entry", async () => {
-    mockGetProfile.mockResolvedValue({
-      status: "ok",
-      profile: fullProfile(bobID, "Bob Babbage"),
-    });
+describe("ProfileView, contact card", () => {
+  it("shows another user what the API returned and says the email is hidden", async () => {
+    const bob = fullProfile(bobID, "Bob Babbage");
+    bob.contact = {
+      birthday: { month: 3, day: 14 },
+      links: [
+        { id: "l1", kind: "google_scholar", url: "https://scholar.example.org/bob" },
+        { id: "l2", kind: "github", url: "https://github.example.org/bob" },
+      ],
+    };
+    mockGetProfile.mockResolvedValue({ status: "ok", profile: bob });
     render(<ProfileView userId={bobID} />);
-    const list = within(
-      await screen.findByRole("list", { name: "Affiliations" }),
+    const card = within(
+      await screen.findByRole("region", { name: "Contact info" }),
     );
-    expect(list.getAllByRole("listitem").map((li) => li.textContent)).toEqual([
-      "UUniversity of London",
-      "EETH Zürich",
+    expect(card.getByText("14 March")).toBeTruthy();
+    const websites = within(card.getByRole("list", { name: "Websites" }));
+    expect(
+      websites.getAllByRole("link").map((a) => [a.textContent, a.getAttribute("href")]),
+    ).toEqual([
+      ["Google Scholar", "https://scholar.example.org/bob"],
+      ["GitHub", "https://github.example.org/bob"],
     ]);
+    expect(card.getByText("Email is hidden by this user.")).toBeTruthy();
+    expect(card.queryByText("Phone")).toBeNull();
+    expect(card.queryByRole("button", { name: "Edit contact info" })).toBeNull();
   });
 
-  it("has no affiliations list when there is neither", async () => {
+  it("shows a visible email as a mail link and no hidden message", async () => {
+    const bob = fullProfile(bobID, "Bob Babbage");
+    bob.contact = { email: "bob@example.org", links: [] };
+    mockGetProfile.mockResolvedValue({ status: "ok", profile: bob });
+    render(<ProfileView userId={bobID} />);
+    const card = within(
+      await screen.findByRole("region", { name: "Contact info" }),
+    );
+    expect(
+      card.getByRole("link", { name: "bob@example.org" }).getAttribute("href"),
+    ).toBe("mailto:bob@example.org");
+    expect(card.queryByText(/is hidden by this user/)).toBeNull();
+  });
+
+  it("gives the owner a pencil that opens the contact dialog and gets the focus back", async () => {
+    const ada = fullProfile(adaID, "Ada Lovelace");
+    ada.contact = { email: "ada@example.org", phone: "+441234567890", links: [] };
+    mockGetMyProfile.mockResolvedValue({ status: "ok", profile: ada });
+    jest.mocked(getMyContact).mockResolvedValue({
+      ok: true,
+      data: {
+        email: "ada@example.org",
+        emailVisibility: "only_me",
+        phone: "+441234567890",
+        phoneVisibility: "only_me",
+        birthday: null,
+        birthdayVisibility: "only_me",
+        links: [],
+      },
+    });
+    render(<ProfileView />);
+    const card = within(
+      await screen.findByRole("region", { name: "Contact info" }),
+    );
+    expect(card.getByRole("link", { name: "+441234567890" })).toBeTruthy();
+    expect(card.queryByText(/is hidden by this user/)).toBeNull();
+
+    const pencil = card.getByRole("button", { name: "Edit contact info" });
+    fireEvent.click(pencil);
+    const dialog = screen.getByRole("dialog", { name: "Contact info" });
+    await screen.findByDisplayValue("+441234567890");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    expect(document.activeElement).toBe(pencil);
+  });
+});
+
+describe("ProfileView, header", () => {
+  it("leaves the meta line out when nothing in it is set", async () => {
     mockGetProfile.mockResolvedValue({
       status: "ok",
       profile: emptyProfile(bobID, "Bob Babbage"),
     });
     render(<ProfileView userId={bobID} />);
     await screen.findByRole("heading", { level: 1 });
-    expect(screen.queryByRole("list", { name: "Affiliations" })).toBeNull();
+    expect(screen.queryByText(/ · /)).toBeNull();
   });
 
   it("copies the own profile link as /profile/<own id> from More", async () => {
@@ -601,7 +678,7 @@ describe("ProfileView, header", () => {
       );
       expect(bar.getByText("Bob Babbage")).toBeTruthy();
       expect(bar.getByText("Analyst of engines")).toBeTruthy();
-      expect(bar.getByRole("button", { name: "Connect" })).toBeTruthy();
+      expect(bar.queryByRole("button", { name: "Connect" })).toBeNull();
       expect(bar.getByRole("button", { name: "More" })).toBeTruthy();
 
       act(() =>
@@ -635,25 +712,11 @@ describe("ProfileView, header", () => {
   });
 });
 
-describe("ProfileView, Top skills and Show all", () => {
+describe("ProfileView, Show all", () => {
   const skills = ["A", "B", "C", "D", "E", "F", "G"].map((name, i) => ({
     id: `s${i}`,
     name,
   }));
-
-  it("names the first five skills under the bio and links to the Skills card", async () => {
-    const p = { ...fullProfile(bobID, "Bob Babbage"), skills };
-    mockGetProfile.mockResolvedValue({ status: "ok", profile: p });
-    render(<ProfileView userId={bobID} />);
-    const about = within(await screen.findByRole("region", { name: "About" }));
-    const top = about.getByRole("link", { name: /Top skills/ });
-    expect(top.textContent).toContain("A • B • C • D • E");
-    expect(top.textContent).not.toContain("F");
-    expect(top.getAttribute("href")).toBe("#skills");
-    expect(
-      screen.getByRole("region", { name: "Skills" }).closest("#skills"),
-    ).toBeTruthy();
-  });
 
   it("shows six skills, then all of them after Show all", async () => {
     mockGetProfile.mockResolvedValue({
@@ -764,9 +827,11 @@ describe("ProfileView, experience", () => {
       within(full).getByText("University of Dhaka · Research assistant"),
     ).toBeTruthy();
     expect(
-      within(full).getByText("Mar 2025 - Present · 1 yr 8 mos"),
+      within(full).getByText(
+        "Mar 2025 - Present · 1 yr 8 mos · Dhaka, Bangladesh · On-site",
+      ),
     ).toBeTruthy();
-    expect(within(full).getByText("Dhaka, Bangladesh · On-site")).toBeTruthy();
+    expect(within(full).getByText("UD")).toBeTruthy();
     const keepBreaks = { normalizer: (t: string) => t };
     expect(
       within(full).getByText(
@@ -788,7 +853,9 @@ describe("ProfileView, experience", () => {
     const list = within(
       await screen.findByRole("list", { name: "Experience" }),
     );
-    expect(list.getByText("Remote")).toBeTruthy();
+    expect(
+      list.getByText("Jan 2023 - Dec 2024 · 2 yrs · Remote"),
+    ).toBeTruthy();
   });
 
   it("clamps a long description behind see more, keeping its line breaks", async () => {

@@ -50,6 +50,10 @@ export function editHref(section: EditSection): string {
   return `/profile?edit=${section}`;
 }
 
+// iconButton is the round 40px button around a pencil or "+".
+const iconButton =
+  "shrink-0 rounded-full p-2 text-rs-text-muted transition-colors hover:bg-rs-subtle hover:text-rs-text focus-visible:shadow-focus focus-visible:outline-none";
+
 // EditButton is the pencil on a card that opens its edit dialog. The icon is its only
 // content, so label names what it edits ("Edit skills").
 export function EditButton({
@@ -67,7 +71,7 @@ export function EditButton({
       type="button"
       aria-label={label}
       onClick={onClick}
-      className="shrink-0 rounded-full p-2 text-text-muted transition-colors hover:bg-background hover:text-text focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none"
+      className={iconButton}
     >
       <PencilIcon />
     </button>
@@ -90,7 +94,7 @@ export function AddButton({
       type="button"
       aria-label={label}
       onClick={onClick}
-      className="shrink-0 rounded-full p-2 text-text-muted transition-colors hover:bg-background hover:text-text focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none"
+      className={iconButton}
     >
       <svg
         aria-hidden="true"
@@ -104,26 +108,6 @@ export function AddButton({
         <path d="M12 5v14M5 12h14" />
       </svg>
     </button>
-  );
-}
-
-// BriefcaseIcon stands in for an organization's logo on an experience entry.
-export function BriefcaseIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="size-6"
-    >
-      <rect x="3" y="7" width="18" height="13" rx="2" />
-      <path d="M8 7V5.5A1.5 1.5 0 0 1 9.5 4h5A1.5 1.5 0 0 1 16 5.5V7" />
-      <path d="M3 12.5h18" />
-    </svg>
   );
 }
 

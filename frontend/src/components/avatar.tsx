@@ -13,7 +13,7 @@ const sizes = {
   menu: "size-12 text-base",
   post: "size-11 text-sm",
   md: "size-16 text-xl",
-  lg: "size-24 text-3xl md:size-32 md:text-4xl",
+  lg: "size-[104px] text-3xl min-[641px]:size-[152px] min-[641px]:text-5xl",
 };
 
 export type AvatarSize = keyof typeof sizes;

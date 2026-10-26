@@ -2,13 +2,20 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
-import { buttonClass } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { rsButtonClass } from "@/components/ui/button";
 import { useSession } from "@/features/auth/session";
+import { homeCard } from "@/features/home/cards";
 
 import { AboutDialog } from "./about-dialog";
+import { contactCardButtonId } from "./contact-card";
 import { ContactDialog } from "./contact-dialog";
 import { ContactViewDialog, hasVisibleContact } from "./contact-view-dialog";
 import {
@@ -33,6 +40,7 @@ import { IntroDialog } from "./intro-dialog";
 import { LanguageDialog } from "./language-dialog";
 import { reloadMyProfile } from "./my-profile";
 import { ProfileHeader } from "./profile-header";
+import { ProfileLayout } from "./profile-layout";
 import { type EditControls, ProfileSections } from "./profile-sections";
 import { ProfileSidebar } from "./profile-sidebar";
 import { ProfileSkeleton } from "./profile-skeleton";
@@ -94,18 +102,18 @@ function OtherProfile({ profile }: { profile: Profile }) {
   const showContact = hasVisibleContact(profile.contact);
   return (
     <>
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="min-w-0 space-y-4">
-          <ProfileHeader
-            profile={profile}
-            onContact={showContact ? () => setContactOpen(true) : undefined}
-          />
-          <ProfileSections profile={profile} />
-        </div>
-        <aside aria-label="Profile sidebar" className="space-y-4">
-          <ProfileSidebar profile={profile} own={false} />
-        </aside>
-      </div>
+      <ProfileLayout
+        main={
+          <>
+            <ProfileHeader
+              profile={profile}
+              onContact={showContact ? () => setContactOpen(true) : undefined}
+            />
+            <ProfileSections profile={profile} />
+          </>
+        }
+        aside={<ProfileSidebar profile={profile} />}
+      />
       {contactOpen && (
         <ContactViewDialog
           name={profile.fullName}
@@ -174,6 +182,14 @@ function OwnProfile({
     toastTimer.current = setTimeout(() => setToast(null), toastDuration);
   }
 
+  // contactReturnId is the "Contact info" link or the contact card's pencil, whichever
+  // opened the contact dialog; the focus goes back to it.
+  const [contactReturnId, setContactReturnId] = useState(editButtonId("contact"));
+  function editContact(returnId: string) {
+    setContactReturnId(returnId);
+    setEditing("contact");
+  }
+
   const edit: EditControls = {
     open: setEditing,
     editExperience: (entry) => {
@@ -192,19 +208,24 @@ function OwnProfile({
   };
   return (
     <>
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="min-w-0 space-y-4">
-          <ProfileHeader
+      <ProfileLayout
+        main={
+          <>
+            <ProfileHeader
+              profile={profile}
+              edit={edit}
+              onContact={() => editContact(editButtonId("contact"))}
+            />
+            <ProfileSections profile={profile} edit={edit} />
+          </>
+        }
+        aside={
+          <ProfileSidebar
             profile={profile}
-            edit={edit}
-            onContact={() => setEditing("contact")}
+            onEditContact={() => editContact(contactCardButtonId)}
           />
-          <ProfileSections profile={profile} edit={edit} />
-        </div>
-        <aside aria-label="Profile sidebar" className="space-y-4">
-          <ProfileSidebar profile={profile} own />
-        </aside>
-      </div>
+        }
+      />
       {open === "intro" && <IntroDialog {...common} onSaved={() => saved()} />}
       {open === "about" && <AboutDialog {...common} onSaved={() => saved()} />}
       {(open === "interests" || open === "skills") && (
@@ -246,7 +267,7 @@ function OwnProfile({
           onClose={close}
           onSaved={() => saved()}
           onLinksChanged={reload}
-          returnFocusId={editButtonId("contact")}
+          returnFocusId={contactReturnId}
         />
       )}
       {(open === "photo" || open === "cover") && (
@@ -267,33 +288,52 @@ function OwnProfile({
 
 function NotFound() {
   return (
-    <Card className="mx-auto w-full max-w-[400px] space-y-4 p-6 text-center">
-      <h1 className="text-2xl font-semibold text-text">Profile not found</h1>
-      <p className="text-text-muted">
-        This profile does not exist or is not available.
-      </p>
-      <Link
-        href="/home"
-        className={buttonClass({ variant: "primary", full: true })}
-      >
+    <StateCard
+      title="Profile not found"
+      text="This profile does not exist or is not available."
+    >
+      <Link href="/home" className={rsButtonClass({ full: true })}>
         Go to Home
       </Link>
-    </Card>
+    </StateCard>
   );
 }
 
 function LoadFailed({ onRetry }: { onRetry: () => void }) {
   return (
-    <Card className="mx-auto w-full max-w-[400px] space-y-4 p-6 text-center">
-      <h1 className="text-2xl font-semibold text-text">Something went wrong</h1>
-      <p className="text-text-muted">We couldn&apos;t load this profile.</p>
+    <StateCard
+      title="Something went wrong"
+      text="We couldn't load this profile."
+    >
       <button
         type="button"
         onClick={onRetry}
-        className={buttonClass({ variant: "primary", full: true })}
+        className={rsButtonClass({ full: true })}
       >
         Try again
       </button>
-    </Card>
+    </StateCard>
+  );
+}
+
+function StateCard({
+  title,
+  text,
+  children,
+}: {
+  title: string;
+  text: string;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className={`${homeCard} mx-auto flex w-full max-w-[400px] flex-col gap-4 p-6 text-center`}
+    >
+      <h1 className="text-rs-h3 leading-rs-tight font-bold text-rs-text">
+        {title}
+      </h1>
+      <p className="text-rs-body text-rs-text-muted">{text}</p>
+      {children}
+    </div>
   );
 }
