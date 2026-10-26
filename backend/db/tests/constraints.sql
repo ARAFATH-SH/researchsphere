@@ -1,6 +1,7 @@
 -- Database rules from SRS section 7, tested against the migrated schema.
 -- Run with `make test-db` (needs `make up` and `make migrate`). Everything runs inside one
--- transaction that is rolled back at the end, so the database is left unchanged.
+-- transaction that is rolled back at the end, so the database is left unchanged, and unique
+-- values carry a per-run prefix (pg_temp.t below), so existing rows cannot get in the way.
 -- Each check prints "ok: ..." and the first failure stops the run with "FAIL ...".
 
 \set ON_ERROR_STOP 1
@@ -71,14 +72,46 @@ BEGIN
 END;
 $$;
 
+-- Every value that must be unique across the table (emails, tag names, object keys, DOIs,
+-- token hashes, source ids) starts with a prefix that is new on each run, so rows already in
+-- the database cannot clash with the fixtures or change a check's result. The fixed uuids
+-- below are safe as they are: their version digit is 0, and gen_random_uuid() makes only
+-- version 4.
+SELECT set_config('test.prefix', 'zz-test-' || substr(md5(random()::text), 1, 8), true);
+
+-- t adds the run's prefix to a value.
+CREATE FUNCTION pg_temp.t(value text) RETURNS text
+LANGUAGE sql AS $$ SELECT current_setting('test.prefix') || '-' || value $$;
+
+-- random_orcid returns a random ORCID iD with a correct ISO 7064 11,2 check digit.
+CREATE FUNCTION pg_temp.random_orcid() RETURNS text
+LANGUAGE plpgsql AS $$
+DECLARE
+    digits text := '';
+    total  integer := 0;
+    d      integer;
+    check_value integer;
+BEGIN
+    FOR i IN 1..15 LOOP
+        d := floor(random() * 10)::integer;
+        digits := digits || d;
+        total := (total + d) * 2;
+    END LOOP;
+    check_value := (12 - total % 11) % 11;
+    digits := digits || CASE WHEN check_value = 10 THEN 'X' ELSE check_value::text END;
+    RETURN substr(digits, 1, 4) || '-' || substr(digits, 5, 4) || '-' || substr(digits, 9, 4) || '-' || substr(digits, 13, 4);
+END;
+$$;
+SELECT set_config('test.orcid', pg_temp.random_orcid(), true);
+
 -- ---------------------------------------------------------------------------
 -- Fixtures: three users with profiles, one project owned by user 1.
 -- ---------------------------------------------------------------------------
 
 INSERT INTO users (id, email, password_hash) VALUES
-    ('00000000-0000-0000-0000-000000000001', 'ada@example.org', 'hash'),
-    ('00000000-0000-0000-0000-000000000002', 'bob@example.org', 'hash'),
-    ('00000000-0000-0000-0000-000000000003', 'cy@example.org',  'hash');
+    ('00000000-0000-0000-0000-000000000001', pg_temp.t('ada@example.org'), 'hash'),
+    ('00000000-0000-0000-0000-000000000002', pg_temp.t('bob@example.org'), 'hash'),
+    ('00000000-0000-0000-0000-000000000003', pg_temp.t('cy@example.org'),  'hash');
 INSERT INTO profiles (user_id, full_name) VALUES
     ('00000000-0000-0000-0000-000000000001', 'Ada'),
     ('00000000-0000-0000-0000-000000000002', 'Bob'),
@@ -93,7 +126,7 @@ INSERT INTO project_members (project_id, user_id, role) VALUES
 -- ---------------------------------------------------------------------------
 
 SELECT pg_temp.expect_error('User: email is unique ignoring letter case',
-    $s$INSERT INTO users (email, password_hash) VALUES ('ADA@Example.org', 'hash')$s$, '23505');
+    $s$INSERT INTO users (email, password_hash) VALUES (upper(pg_temp.t('ada@example.org')), 'hash')$s$, '23505');
 SELECT pg_temp.expect_ok('User: an account can be suspended (FR-3.4, FR-15.3)',
     $s$UPDATE users SET suspended_at = now() WHERE id = '00000000-0000-0000-0000-000000000002'$s$);
 SELECT pg_temp.expect_ok('User: a suspended account can be restored (FR-15.3)',
@@ -101,11 +134,11 @@ SELECT pg_temp.expect_ok('User: a suspended account can be restored (FR-15.3)',
 SELECT pg_temp.expect_error('Profile: one per user',
     $s$INSERT INTO profiles (user_id, full_name) VALUES ('00000000-0000-0000-0000-000000000001', 'Ada 2')$s$, '23505');
 SELECT pg_temp.expect_error('Profile: ORCID iD must be well formed',
-    $s$UPDATE profiles SET orcid_id = '0000-0002-1825-009' WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
+    $s$UPDATE profiles SET orcid_id = left(current_setting('test.orcid'), 18) WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
 SELECT pg_temp.expect_ok('Profile: a well-formed ORCID iD is accepted',
-    $s$UPDATE profiles SET orcid_id = '0000-0002-1825-0097' WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$);
+    $s$UPDATE profiles SET orcid_id = current_setting('test.orcid') WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$);
 SELECT pg_temp.expect_error('Profile: ORCID iD is unique',
-    $s$UPDATE profiles SET orcid_id = '0000-0002-1825-0097' WHERE user_id = '00000000-0000-0000-0000-000000000002'$s$, '23505');
+    $s$UPDATE profiles SET orcid_id = current_setting('test.orcid') WHERE user_id = '00000000-0000-0000-0000-000000000002'$s$, '23505');
 
 -- Profile field limits (FR-4.1, migration 000003). Lengths count characters, so the
 -- accepted values use a two-byte letter.
@@ -169,17 +202,17 @@ SELECT pg_temp.expect_error('Profile: city has no line break',
 -- Interest, skill, education
 -- ---------------------------------------------------------------------------
 
-INSERT INTO research_interests (name) VALUES ('NLP');
-INSERT INTO skills (name) VALUES ('PyTorch');
+INSERT INTO research_interests (name) VALUES (pg_temp.t('NLP'));
+INSERT INTO skills (name) VALUES (pg_temp.t('PyTorch'));
 SELECT pg_temp.expect_error('Interest: name is unique ignoring letter case (FR-4.2)',
-    $s$INSERT INTO research_interests (name) VALUES ('nlp')$s$, '23505');
+    $s$INSERT INTO research_interests (name) VALUES (lower(pg_temp.t('NLP')))$s$, '23505');
 SELECT pg_temp.expect_error('Skill: name is unique ignoring letter case (FR-4.2)',
-    $s$INSERT INTO skills (name) VALUES ('pytorch')$s$, '23505');
+    $s$INSERT INTO skills (name) VALUES (lower(pg_temp.t('PyTorch')))$s$, '23505');
 
 -- Tag name limits (FR-4.2, migration 000004): at most 60 characters, trimmed, single
 -- spaces only. The accepted values use a two-byte letter, since lengths count characters.
 SELECT pg_temp.expect_ok('Interest: name of 60 characters with single spaces is accepted',
-    $s$INSERT INTO research_interests (name) VALUES (repeat('é', 29) || ' ' || repeat('é', 30))$s$);
+    $s$INSERT INTO research_interests (name) VALUES (pg_temp.t(repeat('é', 21) || ' ' || repeat('é', 21)))$s$);
 SELECT pg_temp.expect_error('Interest: name is at most 60 characters',
     $s$INSERT INTO research_interests (name) VALUES (repeat('a', 61))$s$, '23514');
 SELECT pg_temp.expect_error('Interest: name has no leading space',
@@ -191,7 +224,7 @@ SELECT pg_temp.expect_error('Interest: name has no double space',
 SELECT pg_temp.expect_error('Interest: name has no tab or line break',
     $s$INSERT INTO research_interests (name) VALUES (E'Machine\tLearning')$s$, '23514');
 SELECT pg_temp.expect_ok('Skill: name of 60 characters with single spaces is accepted',
-    $s$INSERT INTO skills (name) VALUES (repeat('é', 29) || ' ' || repeat('é', 30))$s$);
+    $s$INSERT INTO skills (name) VALUES (pg_temp.t(repeat('é', 21) || ' ' || repeat('é', 21)))$s$);
 SELECT pg_temp.expect_error('Skill: name is at most 60 characters',
     $s$INSERT INTO skills (name) VALUES (repeat('a', 61))$s$, '23514');
 SELECT pg_temp.expect_error('Skill: name has no leading space',
@@ -505,37 +538,37 @@ SELECT pg_temp.expect_error('Language: proficiency is one of the five',
 
 SELECT pg_temp.expect_ok('Stored file: a photo of exactly 2 MB is accepted',
     $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes, width, height)
-       VALUES ('00000000-0000-0000-0000-000000000001', 'photo', 'photo/ok-1', 'image/jpeg', 2097152, 400, 400)$s$);
+       VALUES ('00000000-0000-0000-0000-000000000001', 'photo', pg_temp.t('photo/ok-1'), 'image/jpeg', 2097152, 400, 400)$s$);
 SELECT pg_temp.expect_true('Stored file: scan status starts as pending', $q$
-    SELECT scan_status = 'pending' FROM stored_files WHERE object_key = 'photo/ok-1'$q$);
+    SELECT scan_status = 'pending' FROM stored_files WHERE object_key = pg_temp.t('photo/ok-1')$q$);
 SELECT pg_temp.expect_ok('Stored file: every purpose is accepted, a 5 MB pdf too',
     $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes)
-       SELECT '00000000-0000-0000-0000-000000000001', p, 'any/' || p, 'application/pdf', 5242880
+       SELECT '00000000-0000-0000-0000-000000000001', p, pg_temp.t('any/') || p, 'application/pdf', 5242880
          FROM unnest(ARRAY['photo', 'cover', 'figure', 'pdf', 'attachment']) AS p WHERE p <> 'photo'$s$);
 SELECT pg_temp.expect_error('Stored file: unknown purpose',
     $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes)
-       VALUES ('00000000-0000-0000-0000-000000000001', 'avatar', 'x/1', 'image/png', 10)$s$, '23514');
+       VALUES ('00000000-0000-0000-0000-000000000001', 'avatar', pg_temp.t('x/1'), 'image/png', 10)$s$, '23514');
 SELECT pg_temp.expect_error('Stored file: unknown scan status',
     $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes, scan_status)
-       VALUES ('00000000-0000-0000-0000-000000000001', 'photo', 'x/2', 'image/png', 10, 'infected')$s$, '23514');
+       VALUES ('00000000-0000-0000-0000-000000000001', 'photo', pg_temp.t('x/2'), 'image/png', 10, 'infected')$s$, '23514');
 SELECT pg_temp.expect_error('Stored file: size must be more than 0',
     $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes)
-       VALUES ('00000000-0000-0000-0000-000000000001', 'pdf', 'x/3', 'application/pdf', 0)$s$, '23514');
+       VALUES ('00000000-0000-0000-0000-000000000001', 'pdf', pg_temp.t('x/3'), 'application/pdf', 0)$s$, '23514');
 SELECT pg_temp.expect_error('Stored file: a photo is at most 2 MB (FR-4.6)',
     $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes)
-       VALUES ('00000000-0000-0000-0000-000000000001', 'photo', 'x/4', 'image/png', 2097153)$s$, '23514');
+       VALUES ('00000000-0000-0000-0000-000000000001', 'photo', pg_temp.t('x/4'), 'image/png', 2097153)$s$, '23514');
 SELECT pg_temp.expect_error('Stored file: a figure is at most 5 MB (FR-12.2)',
     $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes)
-       VALUES ('00000000-0000-0000-0000-000000000001', 'figure', 'x/5', 'image/png', 5242881)$s$, '23514');
+       VALUES ('00000000-0000-0000-0000-000000000001', 'figure', pg_temp.t('x/5'), 'image/png', 5242881)$s$, '23514');
 SELECT pg_temp.expect_error('Stored file: width and height are both set or both empty',
     $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes, width)
-       VALUES ('00000000-0000-0000-0000-000000000001', 'photo', 'x/6', 'image/png', 10, 100)$s$, '23514');
+       VALUES ('00000000-0000-0000-0000-000000000001', 'photo', pg_temp.t('x/6'), 'image/png', 10, 100)$s$, '23514');
 SELECT pg_temp.expect_error('Stored file: width must be positive',
     $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes, width, height)
-       VALUES ('00000000-0000-0000-0000-000000000001', 'photo', 'x/7', 'image/png', 10, -1, 100)$s$, '23514');
+       VALUES ('00000000-0000-0000-0000-000000000001', 'photo', pg_temp.t('x/7'), 'image/png', 10, -1, 100)$s$, '23514');
 SELECT pg_temp.expect_error('Stored file: object key is unique',
     $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes)
-       VALUES ('00000000-0000-0000-0000-000000000001', 'photo', 'photo/ok-1', 'image/png', 10)$s$, '23505');
+       VALUES ('00000000-0000-0000-0000-000000000001', 'photo', pg_temp.t('photo/ok-1'), 'image/png', 10)$s$, '23505');
 SELECT pg_temp.expect_error('Stored file: object key has no leading slash',
     $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes)
        VALUES ('00000000-0000-0000-0000-000000000001', 'photo', '/photo/x', 'image/png', 10)$s$, '23514');
@@ -544,26 +577,26 @@ SELECT pg_temp.expect_error('Stored file: object key has no ..',
        VALUES ('00000000-0000-0000-0000-000000000001', 'photo', 'photo/../x', 'image/png', 10)$s$, '23514');
 SELECT pg_temp.expect_error('Stored file: content type looks like type/subtype',
     $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes)
-       VALUES ('00000000-0000-0000-0000-000000000001', 'photo', 'x/8', 'image', 10)$s$, '23514');
+       VALUES ('00000000-0000-0000-0000-000000000001', 'photo', pg_temp.t('x/8'), 'image', 10)$s$, '23514');
 SELECT pg_temp.expect_ok('Stored file: deleting a row queues its object for deletion',
-    $s$DELETE FROM stored_files WHERE object_key = 'any/pdf'$s$);
+    $s$DELETE FROM stored_files WHERE object_key = pg_temp.t('any/pdf')$s$);
 SELECT pg_temp.expect_true('Stored file: the deleted row''s key is in storage_deletions', $q$
-    SELECT EXISTS (SELECT 1 FROM storage_deletions WHERE object_key = 'any/pdf' AND attempts = 0)$q$);
+    SELECT EXISTS (SELECT 1 FROM storage_deletions WHERE object_key = pg_temp.t('any/pdf') AND attempts = 0)$q$);
 
 -- ---------------------------------------------------------------------------
 -- Profile photo and cover (FR-4.6, migration 000008)
 -- ---------------------------------------------------------------------------
 
 INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes, width, height) VALUES
-    ('00000000-0000-0000-0000-000000000001', 'cover', 'users/ada/cover/1.jpg', 'image/jpeg', 100, 1584, 396),
-    ('00000000-0000-0000-0000-000000000002', 'photo', 'users/bob/photo/1.jpg', 'image/jpeg', 100, 400, 400);
+    ('00000000-0000-0000-0000-000000000001', 'cover', pg_temp.t('users/ada/cover/1.jpg'), 'image/jpeg', 100, 1584, 396),
+    ('00000000-0000-0000-0000-000000000002', 'photo', pg_temp.t('users/bob/photo/1.jpg'), 'image/jpeg', 100, 400, 400);
 SELECT pg_temp.expect_ok('Profile media: a profile points at its own photo and cover',
     $s$UPDATE profiles
-       SET photo_file_id = (SELECT id FROM stored_files WHERE object_key = 'photo/ok-1'),
-           cover_file_id = (SELECT id FROM stored_files WHERE object_key = 'users/ada/cover/1.jpg')
+       SET photo_file_id = (SELECT id FROM stored_files WHERE object_key = pg_temp.t('photo/ok-1')),
+           cover_file_id = (SELECT id FROM stored_files WHERE object_key = pg_temp.t('users/ada/cover/1.jpg'))
        WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$);
 SELECT pg_temp.expect_error('Profile media: a profile cannot show another user''s file',
-    $s$UPDATE profiles SET photo_file_id = (SELECT id FROM stored_files WHERE object_key = 'users/bob/photo/1.jpg')
+    $s$UPDATE profiles SET photo_file_id = (SELECT id FROM stored_files WHERE object_key = pg_temp.t('users/bob/photo/1.jpg'))
        WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23503');
 SELECT pg_temp.expect_error('Profile media: a file that does not exist',
     $s$UPDATE profiles SET cover_file_id = gen_random_uuid()
@@ -572,10 +605,10 @@ SELECT pg_temp.expect_error('Profile media: one file is not both photo and cover
     $s$UPDATE profiles SET cover_file_id = photo_file_id
        WHERE user_id = '00000000-0000-0000-0000-000000000001'$s$, '23514');
 SELECT pg_temp.expect_ok('Profile media: deleting the photo row',
-    $s$DELETE FROM stored_files WHERE object_key = 'photo/ok-1'$s$);
+    $s$DELETE FROM stored_files WHERE object_key = pg_temp.t('photo/ok-1')$s$);
 SELECT pg_temp.expect_true('Profile media: deleting the photo row clears only the photo and queues the object', $q$
     SELECT photo_file_id IS NULL AND cover_file_id IS NOT NULL
-           AND EXISTS (SELECT 1 FROM storage_deletions WHERE object_key = 'photo/ok-1')
+           AND EXISTS (SELECT 1 FROM storage_deletions WHERE object_key = pg_temp.t('photo/ok-1'))
     FROM profiles WHERE user_id = '00000000-0000-0000-0000-000000000001'$q$);
 
 -- ---------------------------------------------------------------------------
@@ -583,11 +616,11 @@ SELECT pg_temp.expect_true('Profile media: deleting the photo row clears only th
 -- ---------------------------------------------------------------------------
 
 INSERT INTO publications (id, doi, title) VALUES
-    ('00000000-0000-0000-0000-0000000000c1', '10.1000/xyz123', 'A paper');
+    ('00000000-0000-0000-0000-0000000000c1', '10.1000/' || pg_temp.t('xyz123'), 'A paper');
 SELECT pg_temp.expect_error('Publication: DOI is unique ignoring letter case (FR-5.4)',
-    $s$INSERT INTO publications (doi, title) VALUES ('10.1000/XYZ123', 'Same paper')$s$, '23505');
+    $s$INSERT INTO publications (doi, title) VALUES ('10.1000/' || upper(pg_temp.t('xyz123')), 'Same paper')$s$, '23505');
 SELECT pg_temp.expect_error('Publication: DOI is stored in bare form, not as a link (FR-5.4)',
-    $s$INSERT INTO publications (doi, title) VALUES ('https://doi.org/10.1000/xyz123', 'Same paper')$s$, '23514');
+    $s$INSERT INTO publications (doi, title) VALUES ('https://doi.org/10.1000/' || pg_temp.t('xyz123'), 'Same paper')$s$, '23514');
 SELECT pg_temp.expect_ok('Publication: a manual entry needs no DOI (FR-5.1)',
     $s$INSERT INTO publications (title) VALUES ('Workshop talk')$s$);
 
@@ -747,9 +780,9 @@ SELECT pg_temp.expect_ok('Compile job: a new compile once the last one finished'
 -- ---------------------------------------------------------------------------
 
 INSERT INTO venues (id, name, type, scope, source, source_ref) VALUES
-    ('00000000-0000-0000-0000-000000000201', 'ACL', 'conference', 'NLP', 'listing', '123');
+    ('00000000-0000-0000-0000-000000000201', 'ACL', 'conference', 'NLP', 'listing', pg_temp.t('123'));
 SELECT pg_temp.expect_error('Venue: an imported venue is unique by source and source id',
-    $s$INSERT INTO venues (name, type, scope, source, source_ref) VALUES ('ACL again', 'conference', 'NLP', 'listing', '123')$s$, '23505');
+    $s$INSERT INTO venues (name, type, scope, source, source_ref) VALUES ('ACL again', 'conference', 'NLP', 'listing', pg_temp.t('123'))$s$, '23505');
 SELECT pg_temp.expect_error('Venue: an imported venue needs its source id',
     $s$INSERT INTO venues (name, type, scope, source) VALUES ('EMNLP', 'conference', 'NLP', 'listing')$s$, '23514');
 SELECT pg_temp.expect_ok('Venue: venues added by an administrator need no source id (FR-15.1)',
@@ -774,16 +807,16 @@ SELECT pg_temp.expect_error('Embedding: vector must have 768 dimensions',
 -- ---------------------------------------------------------------------------
 
 INSERT INTO sessions (id, user_id, refresh_token_hash, expires_at) VALUES
-    ('00000000-0000-0000-0000-0000000000f3', '00000000-0000-0000-0000-000000000003', 'rt-3', now() + interval '30 days');
+    ('00000000-0000-0000-0000-0000000000f3', '00000000-0000-0000-0000-000000000003', pg_temp.t('rt-3'), now() + interval '30 days');
 INSERT INTO session_retired_tokens (token_hash, session_id) VALUES
-    ('rt-3-old', '00000000-0000-0000-0000-0000000000f3');
+    (pg_temp.t('rt-3-old'), '00000000-0000-0000-0000-0000000000f3');
 SELECT pg_temp.expect_error('Session: a retired refresh token hash is unique (FR-2.2)',
     $s$INSERT INTO session_retired_tokens (token_hash, session_id)
-       VALUES ('rt-3-old', '00000000-0000-0000-0000-0000000000f3')$s$, '23505');
+       VALUES (pg_temp.t('rt-3-old'), '00000000-0000-0000-0000-0000000000f3')$s$, '23505');
 INSERT INTO auth_tokens (user_id, purpose, token_hash, expires_at) VALUES
-    ('00000000-0000-0000-0000-000000000003', 'password_reset', 'at-3', now() + interval '1 hour');
-INSERT INTO user_interests (user_id, interest_id) SELECT '00000000-0000-0000-0000-000000000003', id FROM research_interests;
-INSERT INTO user_skills (user_id, skill_id) SELECT '00000000-0000-0000-0000-000000000003', id FROM skills;
+    ('00000000-0000-0000-0000-000000000003', 'password_reset', pg_temp.t('at-3'), now() + interval '1 hour');
+INSERT INTO user_interests (user_id, interest_id) SELECT '00000000-0000-0000-0000-000000000003', id FROM research_interests WHERE name LIKE pg_temp.t('%');
+INSERT INTO user_skills (user_id, skill_id) SELECT '00000000-0000-0000-0000-000000000003', id FROM skills WHERE name LIKE pg_temp.t('%');
 INSERT INTO profile_education (user_id, institution, degree, start_year) VALUES ('00000000-0000-0000-0000-000000000003', 'MIT', 'BSc', 2015);
 INSERT INTO profile_contact (user_id, phone) VALUES ('00000000-0000-0000-0000-000000000003', '+8801712345678');
 INSERT INTO profile_links (user_id, kind, url) VALUES ('00000000-0000-0000-0000-000000000003', 'github', 'https://github.com/cy');
@@ -791,11 +824,11 @@ INSERT INTO profile_experience (user_id, title, organization, employment_type, s
     VALUES ('00000000-0000-0000-0000-000000000003', 'Engineer', 'ACME', 'full_time', 2019, 1, true);
 INSERT INTO profile_languages (user_id, name, proficiency) VALUES ('00000000-0000-0000-0000-000000000003', 'Welsh', 'elementary');
 INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes) VALUES
-    ('00000000-0000-0000-0000-000000000003', 'photo', 'photo/cy',  'image/png', 100),
-    ('00000000-0000-0000-0000-000000000003', 'cover', 'cover/cy',  'image/png', 100);
+    ('00000000-0000-0000-0000-000000000003', 'photo', pg_temp.t('photo/cy'),  'image/png', 100),
+    ('00000000-0000-0000-0000-000000000003', 'cover', pg_temp.t('cover/cy'),  'image/png', 100);
 UPDATE profiles
-SET photo_file_id = (SELECT id FROM stored_files WHERE object_key = 'photo/cy'),
-    cover_file_id = (SELECT id FROM stored_files WHERE object_key = 'cover/cy')
+SET photo_file_id = (SELECT id FROM stored_files WHERE object_key = pg_temp.t('photo/cy')),
+    cover_file_id = (SELECT id FROM stored_files WHERE object_key = pg_temp.t('cover/cy'))
 WHERE user_id = '00000000-0000-0000-0000-000000000003';
 INSERT INTO user_publications (user_id, publication_id, confirmed_at) VALUES
     ('00000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-0000000000c1', now()),
@@ -837,7 +870,7 @@ SELECT pg_temp.expect_true('Deletion: posts, comments on them, likes and own com
        AND NOT EXISTS (SELECT 1 FROM post_likes    WHERE user_id   = '00000000-0000-0000-0000-000000000003')$q$);
 SELECT pg_temp.expect_true('Deletion: stored files removed and their objects queued for deletion (FR-2.8, NFR-13)', $q$
     SELECT NOT EXISTS (SELECT 1 FROM stored_files WHERE owner_user_id = '00000000-0000-0000-0000-000000000003')
-       AND (SELECT count(*) FROM storage_deletions WHERE object_key IN ('photo/cy', 'cover/cy')) = 2$q$);
+       AND (SELECT count(*) FROM storage_deletions WHERE object_key IN (pg_temp.t('photo/cy'), pg_temp.t('cover/cy'))) = 2$q$);
 SELECT pg_temp.expect_true('Deletion: connections removed (FR-2.8)', $q$
     SELECT NOT EXISTS (SELECT 1 FROM connections
                        WHERE '00000000-0000-0000-0000-000000000003' IN (requester_id, receiver_id))$q$);
