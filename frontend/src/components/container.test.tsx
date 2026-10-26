@@ -4,8 +4,8 @@ import { Container, type ContainerSize } from "./Container";
 
 describe("Container", () => {
   it.each<[ContainerSize, string | null]>([
-    ["marketing", "max-w-marketing"],
-    ["app", "max-w-page"],
+    ["marketing", "max-w-content"],
+    ["app", "max-w-content"],
     ["full", null],
   ])("sets the %s width", (size, widthClass) => {
     render(<Container size={size}>content</Container>);
@@ -21,15 +21,14 @@ describe("Container", () => {
 
   it("uses the app width by default", () => {
     render(<Container>content</Container>);
-    expect(screen.getByText("content").className).toContain("max-w-page");
+    expect(screen.getByText("content").className).toContain("max-w-content");
   });
 
-  it("sets side padding of 16, 24 and 32px", () => {
+  it("sets the 16px side padding at every width", () => {
     render(<Container>content</Container>);
     const { className } = screen.getByText("content");
-    expect(className).toContain("px-4");
-    expect(className).toContain("md:px-6");
-    expect(className).toContain("lg:px-8");
+    expect(className).toContain("px-gutter");
+    expect(className).not.toMatch(/md:px-|lg:px-/);
   });
 
   it("renders as the given element and keeps extra classes", () => {

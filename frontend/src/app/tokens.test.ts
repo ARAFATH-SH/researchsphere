@@ -44,7 +44,15 @@ it("documents every token in docs/ui-guidelines.md", () => {
   expect([...defined.keys()].filter((t) => !guide.includes(`\`${t}\``))).toEqual([]);
 });
 
-it("keeps the old tokens until pages are restyled", () => {
+it("keeps the old colors until pages are restyled", () => {
   expect(css).toContain("--color-background: #f5f6f4;");
-  expect(css).toContain("font-family: var(--font-sans);");
+});
+
+it("sets the page text in Source Sans 3 at 14px, line height 1.45 (UI.2)", () => {
+  const body = css.slice(css.indexOf("\nbody {"));
+  expect(body).toContain("font-family: var(--rs-font-sans);");
+  expect(body).toContain("font-size: var(--rs-size-body);");
+  expect(body).toContain("line-height: var(--rs-leading-body);");
+  expect(body).toContain("color: var(--rs-text);");
+  expect(css).not.toMatch(/--container-(marketing|page)|--font-sans:/);
 });

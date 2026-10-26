@@ -2,7 +2,7 @@
 
 /* Design tokens from docs/ui-guidelines.md. Components use only these names (bg-background,
    bg-surface, border-border, text-text, text-text-muted, bg-primary, text-secondary,
-   text-danger, max-w-page …), never raw colors. */
+   text-danger …), never raw colors. */
 @theme {
   --color-background: #f5f6f4;
   --color-surface: #ffffff;
@@ -15,13 +15,9 @@
   --color-secondary: #1f4e8c; /* deep blue */
   --color-danger: #c62828;
 
-  /* Layout widths (docs/ui-guidelines.md): only Container sets page width. */
-  --container-marketing: 80rem; /* 1280px: landing and other signed-out pages */
-  --container-page: 80rem; /* 1280px: signed-in pages */
+  /* Text widths (docs/ui-guidelines.md); page width is max-w-content, set only by Container. */
   --container-intro: 45rem; /* 720px: section headings, intros, the FAQ list */
   --container-text: 70ch; /* running paragraphs */
-
-  --font-sans: -apple-system, system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
 /* Light theme only for now (docs/ui-guidelines.md): no dark-mode block. */
@@ -106,6 +102,8 @@
   --rs-shadow-menu: 0 8px 24px rgba(0, 0, 0, 0.14);
   --rs-shadow-popover: 0 6px 18px rgba(16, 24, 40, 0.12);
   --rs-shadow-focus: 0 0 0 2px var(--rs-accent);
+  --rs-shadow-bar: 0 1px 3px rgba(16, 24, 40, 0.06);
+  --rs-shadow-bar-up: 0 -1px 3px rgba(16, 24, 40, 0.06);
 
   --rs-content: 1128px;
   --rs-gutter: 16px;
@@ -184,14 +182,19 @@
   --shadow-menu: var(--rs-shadow-menu);
   --shadow-popover: var(--rs-shadow-popover);
   --shadow-focus: var(--rs-shadow-focus);
+  --shadow-rs-bar: var(--rs-shadow-bar);
+  --shadow-rs-bar-up: var(--rs-shadow-bar-up);
 
   --container-content: var(--rs-content);
   --spacing-gutter: var(--rs-gutter);
   --spacing-rs-menu: var(--rs-menu);
 }
 
+/* Page text is Source Sans 3 at 14px; the top bar and footer set font-rs-ui themselves. */
 body {
   background: var(--color-background);
-  color: var(--color-text);
-  font-family: var(--font-sans);
+  color: var(--rs-text);
+  font-family: var(--rs-font-sans);
+  font-size: var(--rs-size-body);
+  line-height: var(--rs-leading-body);
 }

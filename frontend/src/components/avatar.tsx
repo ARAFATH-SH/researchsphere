@@ -4,11 +4,12 @@ import { useState } from "react";
 
 import { initials } from "@/lib/initials";
 
-// The avatar sizes: sm in the top bar, bar in the sticky profile bar, md on the home
-// profile card and lg in the profile header.
+// The avatar sizes: sm in the top bar, bar in the sticky profile bar and the phone top bar,
+// menu in the Me menu, md on the home profile card and lg in the profile header.
 const sizes = {
   sm: "size-6 text-[10px]",
   bar: "size-9 text-sm",
+  menu: "size-12 text-base",
   md: "size-16 text-xl",
   lg: "size-24 text-3xl md:size-32 md:text-4xl",
 };

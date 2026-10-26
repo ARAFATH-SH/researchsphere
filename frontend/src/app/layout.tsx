@@ -3,8 +3,8 @@ import { Source_Sans_3 } from "next/font/google";
 
 import "./globals.css";
 
-// Source Sans 3, the design's font (design/screens/). It only sets --font-source-sans for the
-// rs-font-sans token; the body keeps the system font until pages are restyled.
+// Source Sans 3, the design's font (design/screens/). It sets --font-source-sans for the
+// rs-font-sans token, which the body uses (globals.css).
 const sourceSans = Source_Sans_3({
   subsets: ["latin"],
   weight: ["400", "500", "700"],
@@ -22,7 +22,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${sourceSans.variable} h-full antialiased`}>
-      <body className="flex min-h-full flex-col bg-background text-text">{children}</body>
+      <body className="flex min-h-full flex-col bg-background text-rs-text">{children}</body>
     </html>
   );
 }

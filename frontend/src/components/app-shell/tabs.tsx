@@ -1,31 +1,39 @@
 import type { ComponentType } from "react";
 
-import type { Role } from "@/features/auth/api";
+import { HomeIcon, MeIcon, MessagingIcon, NetworkIcon, NotificationsIcon, PostIcon, ProjectsIcon } from "./icons";
 
-import { AdminIcon, EventsIcon, HomeIcon, MeIcon, NetworkIcon, NotificationsIcon, ProjectsIcon } from "./icons";
+// action tabs start something rather than open a page, so they are never the current tab.
+export type Tab = { href: string; label: string; Icon: ComponentType; action?: boolean };
 
-// adminOnly tabs show only to an administrator. Hiding a tab is a convenience: the API
-// refuses everyone else (FR-3.2).
-export type Tab = { href: string; label: string; Icon: ComponentType; adminOnly?: boolean };
-
-// The signed-in tabs, in order (docs/ui-guidelines.md, Signed-in pages).
+// The signed-in top bar tabs, in order (docs/ui-guidelines.md, Signed-in pages). Pages
+// that later slices build (Messaging) may 404 until then. Events and the admin console are
+// in the Me menu.
 export const tabs: Tab[] = [
   { href: "/home", label: "Home", Icon: HomeIcon },
-  { href: "/connections", label: "Network", Icon: NetworkIcon },
+  { href: "/connections", label: "My Network", Icon: NetworkIcon },
   { href: "/projects", label: "Projects", Icon: ProjectsIcon },
-  { href: "/events", label: "Events", Icon: EventsIcon },
+  { href: "/messaging", label: "Messaging", Icon: MessagingIcon },
   { href: "/notifications", label: "Notifications", Icon: NotificationsIcon },
-  { href: "/admin", label: "Admin", Icon: AdminIcon, adminOnly: true },
   { href: "/profile", label: "Me", Icon: MeIcon },
 ];
 
-// tabsFor returns the tabs a user with role sees; with no role (signed out or still
-// loading), the admin tab stays hidden.
-export function tabsFor(role: Role | undefined): Tab[] {
-  return tabs.filter((tab) => !tab.adminOnly || role === "admin");
-}
+// The phone bottom bar (480px and narrower). Post goes to the home feed, where posts are
+// written.
+export const phoneTabs: Tab[] = [
+  { href: "/home", label: "Home", Icon: HomeIcon },
+  { href: "/connections", label: "Network", Icon: NetworkIcon },
+  { href: "/home", label: "Post", Icon: PostIcon, action: true },
+  { href: "/notifications", label: "Alerts", Icon: NotificationsIcon },
+  { href: "/projects", label: "Projects", Icon: ProjectsIcon },
+];
 
 // isActive reports whether pathname is the tab's page or one below it.
 export function isActive(tab: Tab, pathname: string): boolean {
+  if (tab.action) return false;
   return pathname === tab.href || pathname.startsWith(tab.href + "/");
 }
+
+// topLabel hides a top-bar tab's label under 760px (it stays for screen readers) and shows
+// it again, smaller, in the 481–640px bottom bar.
+export const topLabel =
+  "flex items-center gap-px max-[760px]:sr-only max-[640px]:not-sr-only max-[640px]:text-rs-micro";

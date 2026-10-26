@@ -1,38 +1,38 @@
 import Link from "next/link";
 
-// LogoMark is ResearchSphere's own mark: a sphere with an orbit and two linked nodes
-// (people working together). Drawn for this project; it copies no other logo.
-export function LogoMark({ className = "h-8 w-8" }: { className?: string }) {
+// LogoSquare is ResearchSphere's mark from the design: "RS" on a teal square. sm is the
+// footer size. It is decorative; the link around it carries the name.
+export function LogoSquare({ size = "md" }: { size?: "sm" | "md" }) {
+  const box = size === "sm" ? "size-[22px] rounded-rs-chip text-rs-micro" : "size-[34px] rounded-rs-xs text-rs-body";
   return (
-    <svg viewBox="0 0 32 32" className={className} aria-hidden="true">
-      <rect width="32" height="32" rx="8" className="fill-primary" />
-      <circle cx="16" cy="16" r="8.5" fill="none" className="stroke-surface" strokeWidth="2" />
-      <ellipse cx="16" cy="16" rx="12" ry="4.5" fill="none" className="stroke-surface" strokeWidth="1.5" transform="rotate(-25 16 16)" opacity="0.85" />
-      <circle cx="9.5" cy="11" r="2.2" className="fill-surface" />
-      <circle cx="22.5" cy="21" r="2.2" className="fill-surface" />
-    </svg>
+    <span
+      aria-hidden="true"
+      className={`flex flex-none items-center justify-center bg-rs-accent font-bold text-rs-surface ${box}`}
+    >
+      RS
+    </span>
   );
 }
 
-// Below each breakpoint only the mark shows; the name stays available to screen readers.
-const compactClass = {
-  none: "",
-  sm: "sr-only sm:not-sr-only",
-  lg: "sr-only lg:not-sr-only",
-};
+const focusRing = "rounded-rs-xs focus-visible:shadow-focus focus-visible:outline-none";
 
-// Logo is the mark and the wordmark, linking to href. compactBelow hides the wordmark on
-// screens narrower than that breakpoint, to leave room for other controls.
-export function Logo({ href = "/", compactBelow = "none" }: { href?: string; compactBelow?: keyof typeof compactClass }) {
+// Logo is the square and the name, linking to href. markOnly shows the square alone (the
+// signed-in top bar); the name stays available to screen readers.
+export function Logo({ href = "/", markOnly = false }: { href?: string; markOnly?: boolean }) {
+  if (markOnly) {
+    return (
+      <Link href={href} aria-label="ResearchSphere home" className={`flex-none ${focusRing}`}>
+        <LogoSquare />
+      </Link>
+    );
+  }
   return (
     <Link
       href={href}
-      className="flex items-center gap-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+      className={`flex flex-none items-center gap-2 text-rs-title-sm font-bold text-rs-accent ${focusRing}`}
     >
-      <LogoMark />
-      <span className={`text-xl font-bold tracking-tight text-secondary ${compactClass[compactBelow]}`}>
-        ResearchSphere
-      </span>
+      <LogoSquare />
+      ResearchSphere
     </Link>
   );
 }
