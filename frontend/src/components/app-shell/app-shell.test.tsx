@@ -21,9 +21,10 @@ const photoUrl = "/api/v1/media/3f1c2b9e-8a41-4d7e-9c55-2f6a1b0e7d10";
 beforeEach(() => clearMyProfile());
 afterEach(() => mockGetMyProfile.mockReset());
 
+const ownID = "0b8f4c1e-0000-4000-8000-000000000001";
 const signedInAs = (role: "researcher" | "admin"): Session => ({
   status: "signedIn",
-  user: { id: "0b8f4c1e-0000-4000-8000-000000000001", email: "ada@example.org", fullName: "Ada Lovelace", role },
+  user: { id: ownID, email: "ada@example.org", fullName: "Ada Lovelace", role },
 });
 
 // jsdom applies no CSS, so both "Main" navs are present: the top bar's tabs (a bottom bar
@@ -98,6 +99,21 @@ describe("AppShell", () => {
     render(<AppShell>x</AppShell>);
     expect(within(topBar()).getByRole("button", { name: "Me" }).className).toContain("after:bg-rs-accent");
     expect(within(topBar()).getByRole("link", { name: "Home" }).className).not.toContain("after:bg-rs-accent");
+  });
+
+  it.each([
+    ["/profile/edit", true],
+    [`/profile/${ownID}`, true],
+    ["/profile/7e9d7526-3053-4ade-bb3e-8db0b1a34689", false],
+  ])("on %s marks the Me tab: %s (another user's profile marks no tab)", (path, current) => {
+    mockPathname.mockReturnValue(path);
+    mockSession.mockReturnValue(signedInAs("researcher"));
+    mockGetMyProfile.mockResolvedValue({ status: "ok", profile: emptyProfile(adaID, "Ada Lovelace") });
+    render(<AppShell>x</AppShell>);
+    const me = within(topBar()).getByRole("button", { name: "Me" });
+    expect(me.className.includes("after:bg-rs-accent")).toBe(current);
+    const others = within(topBar()).getAllByRole("link").filter((l) => l.getAttribute("aria-current") === "page");
+    expect(others).toEqual([]);
   });
 
   it("has no Admin tab, even for an administrator (the Me menu links the console)", async () => {

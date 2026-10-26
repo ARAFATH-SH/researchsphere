@@ -27,10 +27,19 @@ export const phoneTabs: Tab[] = [
   { href: "/projects", label: "Projects", Icon: ProjectsIcon },
 ];
 
-// isActive reports whether pathname is the tab's page or one below it.
-export function isActive(tab: Tab, pathname: string): boolean {
+// isActive reports whether pathname is the tab's page or one below it. The Me tab is
+// current only on the signed-in user's own profile (userId) and its sub-pages, not on
+// another user's /profile/<id>.
+export function isActive(tab: Tab, pathname: string, userId?: string): boolean {
   if (tab.action) return false;
-  return pathname === tab.href || pathname.startsWith(tab.href + "/");
+  if (tab.href === "/profile") {
+    return pathname === "/profile" || isAt(pathname, "/profile/edit") || (!!userId && isAt(pathname, `/profile/${userId}`));
+  }
+  return isAt(pathname, tab.href);
+}
+
+function isAt(pathname: string, href: string): boolean {
+  return pathname === href || pathname.startsWith(href + "/");
 }
 
 // topLabel hides a top-bar tab's label under 760px (it stays for screen readers) and shows

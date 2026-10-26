@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { useSession } from "@/features/auth/session";
+
 import { MeMenu } from "./me-menu";
 import { isActive, phoneTabs, type Tab, tabs, topLabel } from "./tabs";
 
@@ -34,10 +36,12 @@ export function TabList({ pathname, variant, counts = {} }: TabListProps) {
 // From 641px the tabs sit in the 52px bar; under 760px only the icons show. From 481 to
 // 640px the same row is fixed to the bottom of the screen, 56px high, with labels again.
 function TopTabs({ pathname, counts }: { pathname: string; counts: TabCounts }) {
+  const session = useSession();
+  const userId = session.status === "signedIn" ? session.user.id : undefined;
   return (
     <ul className="flex h-[52px] max-[640px]:fixed max-[640px]:inset-x-0 max-[640px]:bottom-0 max-[640px]:z-50 max-[640px]:h-14 max-[640px]:justify-around max-[640px]:border-t max-[640px]:border-rs-nav-border max-[640px]:bg-rs-surface">
       {tabs.map((tab) => {
-        const active = isActive(tab, pathname);
+        const active = isActive(tab, pathname, userId);
         const tabClass = topTabClass(active);
         return (
           <li key={tab.href} className="relative flex w-20 max-[760px]:w-[52px] max-[640px]:w-auto max-[640px]:flex-1">

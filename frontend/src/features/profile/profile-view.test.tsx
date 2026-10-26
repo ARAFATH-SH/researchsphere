@@ -552,12 +552,16 @@ describe("ProfileView, contact card", () => {
       ["Google Scholar", "https://scholar.example.org/bob"],
       ["GitHub", "https://github.example.org/bob"],
     ]);
+    // One line of links separated by " · ", without icons.
+    const list = card.getByRole("list", { name: "Websites" });
+    expect(list.textContent).toBe("Google Scholar · GitHub");
+    expect(list.querySelector("svg")).toBeNull();
     expect(card.getByText("Email is hidden by this user.")).toBeTruthy();
     expect(card.queryByText("Phone")).toBeNull();
     expect(card.queryByRole("button", { name: "Edit contact info" })).toBeNull();
   });
 
-  it("shows a visible email as a mail link and no hidden message", async () => {
+  it("shows a visible email as plain text and no hidden message", async () => {
     const bob = fullProfile(bobID, "Bob Babbage");
     bob.contact = { email: "bob@example.org", links: [] };
     mockGetProfile.mockResolvedValue({ status: "ok", profile: bob });
@@ -565,9 +569,7 @@ describe("ProfileView, contact card", () => {
     const card = within(
       await screen.findByRole("region", { name: "Contact info" }),
     );
-    expect(
-      card.getByRole("link", { name: "bob@example.org" }).getAttribute("href"),
-    ).toBe("mailto:bob@example.org");
+    expect(card.getByText("bob@example.org").closest("a")).toBeNull();
     expect(card.queryByText(/is hidden by this user/)).toBeNull();
   });
 
@@ -591,7 +593,7 @@ describe("ProfileView, contact card", () => {
     const card = within(
       await screen.findByRole("region", { name: "Contact info" }),
     );
-    expect(card.getByRole("link", { name: "+441234567890" })).toBeTruthy();
+    expect(card.getByText("+441234567890").closest("a")).toBeNull();
     expect(card.queryByText(/is hidden by this user/)).toBeNull();
 
     const pencil = card.getByRole("button", { name: "Edit contact info" });
