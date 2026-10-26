@@ -190,9 +190,9 @@
   --spacing-rs-menu: var(--rs-menu);
 }
 
-/* Page text is Source Sans 3 at 14px; the top bar and footer set font-rs-ui themselves. */
+/* The page is white (design/screens). Page text is Source Sans 3 at 14px; the top bar and footer set font-rs-ui themselves. */
 body {
-  background: var(--color-background);
+  background: var(--rs-surface);
   color: var(--rs-text);
   font-family: var(--rs-font-sans);
   font-size: var(--rs-size-body);

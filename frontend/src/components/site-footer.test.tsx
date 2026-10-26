@@ -1,8 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
 
-import { CurrentSiteFooter, SiteFooter } from "./site-footer";
+import { CurrentSiteFooter, footerFor, SiteFooter } from "./site-footer";
 
-jest.mock("@/features/health/api-status", () => ({ ApiStatus: () => <span>API status</span> }));
 const mockPathname = jest.fn<string, []>();
 jest.mock("next/navigation", () => ({ usePathname: () => mockPathname() }));
 
@@ -12,11 +11,11 @@ const column = (name: string) =>
     .map((l) => [l.textContent, l.getAttribute("href")]);
 
 describe("SiteFooter", () => {
-  it("has the brand, the copyright and the API status", () => {
+  it("has the brand and the copyright, but no API status (not in the design)", () => {
     render(<SiteFooter />);
     expect(screen.getByRole("link", { name: "ResearchSphere" }).getAttribute("href")).toBe("/");
     expect(screen.getByText("ResearchSphere © 2026")).toBeTruthy();
-    expect(screen.getByText("API status")).toBeTruthy();
+    expect(screen.queryByText(/API:/)).toBeNull();
   });
 
   it("has the three link columns, linking unbuilt pages to #", () => {
@@ -65,12 +64,51 @@ describe("SiteFooter", () => {
   });
 });
 
+describe("SiteFooter compact", () => {
+  it("is a bordered card with the design's links and the copyright", () => {
+    render(<SiteFooter variant="compact" />);
+    const footer = screen.getByRole("contentinfo", { name: "Site footer" });
+    expect(footer.className).toContain("rounded-card");
+    expect(footer.className).toContain("border-rs-nav-border");
+    expect(
+      within(footer)
+        .getAllByRole("link")
+        .map((l) => [l.textContent, l.getAttribute("href")]),
+    ).toEqual([
+      ["About", "#"],
+      ["Accessibility", "#"],
+      ["Help Center", "#"],
+      ["Privacy & terms", "#"],
+      ["Settings", "/settings/account"],
+      ["Safety center", "#"],
+    ]);
+    expect(within(footer).getByText("ResearchSphere © 2026")).toBeTruthy();
+    expect(within(footer).queryByRole("combobox")).toBeNull();
+  });
+});
+
+describe("footerFor", () => {
+  it.each([
+    ["/home", "compact"],
+    ["/messaging", "none"],
+    ["/messaging/abc", "none"],
+    ["/projects/123/workspace", "none"],
+    ["/projects/123", "full"],
+    ["/profile", "full"],
+    ["/settings/account", "full"],
+    ["/homework", "full"],
+  ])("gives %s the %s footer", (path, variant) => {
+    expect(footerFor(path)).toBe(variant);
+  });
+});
+
 describe("CurrentSiteFooter", () => {
   it.each([
-    ["/home", true],
+    ["/home", false],
+    ["/messaging", false],
     ["/profile", true],
     ["/projects/123/workspace", false],
-  ])("on %s shows the footer: %s", (path, shown) => {
+  ])("on %s shows the full footer: %s", (path, shown) => {
     mockPathname.mockReturnValue(path);
     render(<CurrentSiteFooter />);
     expect(screen.queryByRole("contentinfo") !== null).toBe(shown);

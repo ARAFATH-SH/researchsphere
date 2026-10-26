@@ -54,5 +54,7 @@ it("sets the page text in Source Sans 3 at 14px, line height 1.45 (UI.2)", () =>
   expect(body).toContain("font-size: var(--rs-size-body);");
   expect(body).toContain("line-height: var(--rs-leading-body);");
   expect(body).toContain("color: var(--rs-text);");
+  // The page is white, as in every design/screens artboard.
+  expect(body).toContain("background: var(--rs-surface);");
   expect(css).not.toMatch(/--container-(marketing|page)|--font-sans:/);
 });

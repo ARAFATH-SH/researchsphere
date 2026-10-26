@@ -168,7 +168,7 @@ The tokens below style pages that are not restyled yet. Do not use them in a res
 
 | Token | Value | Use |
 | --- | --- | --- |
-| `background` | `#F5F6F4` | Page background |
+| `background` | `#F5F6F4` | Hover tints and landing bands (the page itself is `--rs-surface` white since UI.2) |
 | `surface` | `#FFFFFF` | Cards, top bar, bottom bar, inputs; text on primary buttons |
 | `border` | `#E1E4E8` | 1px borders and dividers |
 | `text` | `#1F2933` | Main text |
@@ -187,8 +187,8 @@ The tokens below style pages that are not restyled yet. Do not use them in a res
   them until they are restyled.
 - **Hierarchy:** one `h1` per page; page titles 24–32px semibold, card titles 16–20px
   semibold.
-- **Cards:** `surface`, `rounded-lg` (8px), 1px `border`, no heavy shadows (at most
-  `shadow-sm`).
+- **Cards:** the `Card` component: `rs-surface`, `rounded-lg` (8px), 1px `rs-border` and
+  `shadow-card`, which sets it apart from the white page (design/screens).
 - **Width:** set only by the `Container` component; see [Layout widths](#layout-widths).
 - **Theme:** light only (`color-scheme: light`, no `prefers-color-scheme: dark` styles). A
   dark palette is future work and needs its own tokens.
@@ -360,9 +360,10 @@ Landing, register, check-email, verify-email, sign-in and reset-password.
   Education 2, Skills 6) and then a full-width "Show all N →" row at the bottom of the card
   that expands the list in place (Experience says "Show all N experiences →"). The About card ends with a "Top skills" box: the first 5 skills joined by
   " • ", linking to the Skills card.
-- **Footer:** every signed-in page except the editor workspace ends with the
-  [site footer](#site-footer), full width after `main`. The home page will move to the
-  design's compact footer card in its sidebar when it is restyled.
+- **Footer:** `footerFor` in `components/site-footer.tsx` is the one table of which footer a
+  signed-in page has: the home page shows the compact footer card at the bottom of its right
+  column, messaging and the editor workspace have none, and every other page ends with the
+  full [site footer](#site-footer) after `main`.
 - **Unbuilt pages** show a "Coming soon" card that names the requirements the page will
   cover.
 - The project workspace (slice 22) is the only page allowed to need more than 768px (SRS 5.1).
@@ -373,8 +374,7 @@ Landing, register, check-email, verify-email, sign-in and reset-password.
 `rs-footer-bg`, a `rs-nav-border` top line, `font-rs-ui` 12px, line height 1.5, content in the
 Container. Six columns, divided by `rs-nav-border` lines:
 
-1. Brand: the 22px "RS" square and "ResearchSphere" (to `/`), "ResearchSphere © 2026" and
-   the API status (kept from slice 1; not in the design).
+1. Brand: the 22px "RS" square and "ResearchSphere" (to `/`) and "ResearchSphere © 2026".
 2. About: About ResearchSphere, Community guidelines, Privacy & terms, Accessibility.
 3. For researchers: Find collaborators (`/connections`), Research projects (`/projects`),
    Events & venues (`/events`), LaTeX workspace.
@@ -385,6 +385,14 @@ Container. Six columns, divided by `rs-nav-border` lines:
 
 Links without a page go to `#`. At 960px and narrower the grid has three columns, the brand
 takes a full row and the dividers go; at 560px and narrower, two columns.
+
+`<SiteFooter variant="compact" />` is the home page's footer card (`.rs-footer-compact`):
+`rs-footer-bg`, 1px `rs-nav-border`, `rounded-card` (10px), 12px padding, centred rows of
+About, Accessibility, Help Center, Privacy & terms, Settings (`/settings/account`) and Safety
+center, then the "RS" square and "ResearchSphere © 2026".
+
+The API status is not in the design. `features/health/dev-api-status.tsx` shows it in the
+bottom left corner only when `NODE_ENV` is `development`, and not at 640px and narrower.
 
 ## Icons and images
 

@@ -5,7 +5,6 @@ import { usePathname } from "next/navigation";
 
 import { Container } from "@/components/Container";
 import { LogoSquare } from "@/components/logo";
-import { ApiStatus } from "@/features/health/api-status";
 
 // Most pages behind these links do not exist yet; they link to "#" until they do.
 const columns = [
@@ -45,21 +44,66 @@ const help = [
   { href: "#", label: "Report a problem", sub: "Content, safety and bug reports." },
 ];
 
+// The compact footer's links (design/screens/Home.html, .rs-footer-compact).
+const compactLinks = [
+  { href: "#", label: "About" },
+  { href: "#", label: "Accessibility" },
+  { href: "#", label: "Help Center" },
+  { href: "#", label: "Privacy & terms" },
+  { href: "/settings/account", label: "Settings" },
+  { href: "#", label: "Safety center" },
+];
+
 const linkFocus = "hover:text-rs-accent hover:underline focus-visible:text-rs-accent focus-visible:underline focus-visible:outline-none";
 const linkClass = `text-rs-footer-link ${linkFocus}`;
 const columnClass = "flex flex-col gap-1.5 border-l border-rs-nav-border px-4 max-[960px]:border-l-0 max-[960px]:p-0";
 
-// CurrentSiteFooter leaves the footer out of the editor workspace, which fills the screen.
+export type FooterVariant = "full" | "compact" | "none";
+
+// footerFor is the one place that says which footer a signed-in page has (design/screens):
+// the home feed puts the compact footer in its right column, messaging and the editor
+// workspace fill the screen and have none, and every other page ends with the full footer.
+export function footerFor(pathname: string): FooterVariant {
+  if (pathname === "/home") return "compact";
+  if (pathname === "/messaging" || pathname.startsWith("/messaging/") || pathname.endsWith("/workspace")) {
+    return "none";
+  }
+  return "full";
+}
+
+// CurrentSiteFooter is the footer AppShell puts after main: the full footer where footerFor
+// says "full", nothing otherwise (the home page places its compact footer itself).
 // usePathname is only known at request time, so AppShell renders this inside <Suspense>.
 export function CurrentSiteFooter() {
   const pathname = usePathname() ?? "";
-  return pathname.endsWith("/workspace") ? null : <SiteFooter />;
+  return footerFor(pathname) === "full" ? <SiteFooter /> : null;
 }
 
-// SiteFooter is the footer of every page but the workspace, signed in or not
-// (docs/ui-guidelines.md, Footer): the brand, three link columns, help links and the
-// language. Six columns, three at 960px and narrower, two at 560px and narrower.
-export function SiteFooter() {
+// SiteFooter is the site footer (docs/ui-guidelines.md, Site footer). "full" spans the page:
+// the brand, three link columns, help links and the language; six columns, three at 960px
+// and narrower, two at 560px and narrower. "compact" is the bordered card at the bottom of
+// the home page's right column: centred links and the copyright.
+export function SiteFooter({ variant = "full" }: { variant?: Exclude<FooterVariant, "none"> }) {
+  if (variant === "compact") {
+    return (
+      <footer
+        aria-label="Site footer"
+        className="rounded-card border border-rs-nav-border bg-rs-footer-bg font-rs-ui text-rs-caption leading-rs-relaxed text-rs-text"
+      >
+        <div className="flex flex-wrap justify-center gap-x-3 gap-y-1 p-3 text-center">
+          {compactLinks.map((link) => (
+            <Link key={link.label} href={link.href} className={linkClass}>
+              {link.label}
+            </Link>
+          ))}
+          <span className="mt-1 flex w-full items-center justify-center gap-1.5">
+            <LogoSquare size="sm" />
+            <span className="text-rs-footer-muted">ResearchSphere © 2026</span>
+          </span>
+        </div>
+      </footer>
+    );
+  }
   return (
     <footer
       aria-label="Site footer"
@@ -72,9 +116,6 @@ export function SiteFooter() {
             ResearchSphere
           </Link>
           <p className="mt-1.5 text-rs-footer-muted">ResearchSphere © 2026</p>
-          <div className="mt-1.5 text-rs-footer-muted">
-            <ApiStatus />
-          </div>
         </div>
 
         {columns.map((column) => (

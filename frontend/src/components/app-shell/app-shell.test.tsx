@@ -14,8 +14,6 @@ jest.mock("@/features/auth/session", () => ({ useSession: () => mockSession() })
 jest.mock("@/features/auth/api");
 // The Me menu fetches the signed-in user's own profile for its photo.
 jest.mock("@/features/profile/api");
-// The footer checks the API on mount; that has its own tests.
-jest.mock("@/features/health/api-status", () => ({ ApiStatus: () => null }));
 const mockGetMyProfile = jest.mocked(getMyProfile);
 const photoUrl = "/api/v1/media/3f1c2b9e-8a41-4d7e-9c55-2f6a1b0e7d10";
 
@@ -114,16 +112,16 @@ describe("AppShell", () => {
     mockSession.mockReturnValue({ status: "loading" });
   });
 
-  it("puts the site footer after the page, outside main", () => {
-    mockPathname.mockReturnValue("/home");
+  it("puts the full site footer after the page, outside main", () => {
+    mockPathname.mockReturnValue("/profile");
     render(<AppShell>content</AppShell>);
     const footer = screen.getByRole("contentinfo", { name: "Site footer" });
     expect(screen.getByRole("main").contains(footer)).toBe(false);
     expect(screen.getByRole("main").compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("leaves the footer out of the editor workspace", () => {
-    mockPathname.mockReturnValue("/projects/123/workspace");
+  it.each(["/home", "/messaging", "/projects/123/workspace"])("leaves its footer out of %s", (path) => {
+    mockPathname.mockReturnValue(path);
     render(<AppShell>x</AppShell>);
     expect(screen.queryByRole("contentinfo")).toBeNull();
   });

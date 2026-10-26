@@ -12,7 +12,7 @@ import { CurrentTabList, TabList, type TabListVariant } from "./tab-list";
 // AppShell is the signed-in frame (docs/ui-guidelines.md, Signed-in pages): a sticky 52px
 // top bar with the logo, search and icon tabs, whose tabs move to a 56px bottom bar from 481
 // to 640px. At 480px and narrower a phone top bar (avatar, search, messages) and a 64px
-// bottom bar replace it. The site footer follows the page.
+// bottom bar replace it. The full site footer follows the page where footerFor says so.
 export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="flex flex-1 flex-col max-[640px]:pb-14 max-[480px]:pt-14 max-[480px]:pb-16">
