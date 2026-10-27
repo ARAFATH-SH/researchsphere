@@ -2,7 +2,7 @@
 
 import { type ChangeEvent, useEffect, useRef, useState } from "react";
 
-import { buttonClass } from "@/components/ui/button";
+import { rsButtonClass } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { FormError } from "@/components/ui/field";
 import { Spinner } from "@/components/ui/spinner";
@@ -145,8 +145,9 @@ export function ImageDialog({
   }
 
   const disabled = busy !== null;
-  const outline = buttonClass({ variant: "outline", size: "md" });
-  const primary = buttonClass({ variant: "primary", size: "md" });
+  const secondary = rsButtonClass({ variant: "secondary", size: "form" });
+  const primary = rsButtonClass({ variant: "primary", size: "form" });
+  const danger = rsButtonClass({ variant: "danger", size: "form" });
 
   return (
     <Dialog
@@ -159,7 +160,7 @@ export function ImageDialog({
       returnFocusId={returnFocusId}
     >
       <div className="space-y-4">
-        {error && <FormError>{error}</FormError>}
+        {error && <FormError look="rs">{error}</FormError>}
         <Frame
           kind={kind}
           name={name}
@@ -172,10 +173,10 @@ export function ImageDialog({
             aria-labelledby="image-delete-question"
             className="space-y-3"
           >
-            <p id="image-delete-question" className="font-semibold text-text">
+            <p id="image-delete-question" className="font-medium text-rs-text">
               Delete your {w.what}?
             </p>
-            <p className="text-sm text-text-muted">{w.instead}</p>
+            <p className="text-rs-text-muted">{w.instead}</p>
             <div className="flex flex-wrap justify-end gap-2">
               <button
                 ref={keepRef}
@@ -185,7 +186,7 @@ export function ImageDialog({
                   setConfirming(false);
                   focusNext.current = "delete";
                 }}
-                className={outline}
+                className={secondary}
               >
                 Keep
               </button>
@@ -193,7 +194,7 @@ export function ImageDialog({
                 type="button"
                 disabled={disabled}
                 onClick={remove}
-                className={buttonClass({ variant: "danger", size: "md" })}
+                className={danger}
               >
                 {busy === "delete" && <Spinner />}
                 {busy === "delete" ? "Deleting…" : "Delete"}
@@ -210,7 +211,7 @@ export function ImageDialog({
                 showPreview(null);
                 focusNext.current = "upload";
               }}
-              className={outline}
+              className={secondary}
             >
               Cancel
             </button>
@@ -227,7 +228,7 @@ export function ImageDialog({
           </div>
         ) : (
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm text-text-muted">
+            <p className="text-rs-caption text-rs-text-muted">
               JPG, PNG or WebP, up to {kind === "photo" ? "5" : "8"} MB.
             </p>
             <div className="flex flex-wrap justify-end gap-2">
@@ -250,7 +251,7 @@ export function ImageDialog({
                     setConfirming(true);
                     focusNext.current = "keep";
                   }}
-                  className={buttonClass({ variant: "text", size: "md" })}
+                  className={danger}
                 >
                   Delete
                 </button>
@@ -259,7 +260,7 @@ export function ImageDialog({
                 type="button"
                 disabled={disabled}
                 onClick={onClose}
-                className={outline}
+                className={secondary}
               >
                 Cancel
               </button>
@@ -300,8 +301,8 @@ function Frame({
 }) {
   const box =
     kind === "photo"
-      ? "mx-auto flex size-40 items-center justify-center overflow-hidden rounded-full bg-primary text-5xl font-semibold text-surface"
-      : "aspect-[4/1] w-full overflow-hidden rounded-lg bg-linear-to-r from-primary to-secondary";
+      ? "mx-auto flex size-40 items-center justify-center overflow-hidden rounded-full bg-rs-accent-deep text-5xl font-bold text-rs-surface"
+      : "aspect-[4/1] w-full overflow-hidden rounded-card bg-linear-120 from-rs-accent to-rs-accent-deep";
   const alt = local
     ? `Preview of the new ${words[kind].what}`
     : kind === "photo"

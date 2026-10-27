@@ -2,7 +2,7 @@
 
 import { type KeyboardEvent, useEffect, useId, useState } from "react";
 
-import { FormError, inputClass } from "@/components/ui/field";
+import { FormError, rsInputClass } from "@/components/ui/field";
 
 import { addTag, removeTag, suggestTags, type Tag, type TagKind } from "./api";
 import {
@@ -26,13 +26,13 @@ const words: Record<
     label: "Research interests",
     one: "research interest",
     limit: MAX_INTERESTS,
-    chip: "bg-primary-soft text-primary",
+    chip: "bg-rs-accent-soft text-rs-heading",
   },
   skills: {
     label: "Skills",
     one: "skill",
     limit: MAX_SKILLS,
-    chip: "border border-border bg-background text-text",
+    chip: "border border-rs-control text-rs-text",
   },
 };
 
@@ -177,20 +177,20 @@ export function TagEditor({
   const hintId = `${id}-hint`;
   return (
     <div className="space-y-4">
-      {error ? <FormError>{error}</FormError> : null}
+      {error ? <FormError look="rs">{error}</FormError> : null}
       {tags.length > 0 ? (
-        <ul aria-label={label} className="flex flex-wrap gap-2">
+        <ul aria-label={label} className="flex flex-wrap gap-1.5">
           {tags.map((t) => (
             <li
               key={t.id}
-              className={`inline-flex items-center gap-1 rounded-full py-1 pr-1 pl-3 text-sm font-medium ${chip}`}
+              className={`inline-flex items-center gap-1.5 rounded-rs-pill py-1 pr-1.5 pl-3 text-rs-body ${chip}`}
             >
               {t.name}
               <button
                 type="button"
                 aria-label={`Remove ${t.name}`}
                 onClick={() => void remove(t)}
-                className="rounded-full p-0.5 hover:bg-surface focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none"
+                className="flex size-6 items-center justify-center rounded-rs-pill hover:bg-rs-surface focus-visible:shadow-focus focus-visible:outline-none"
               >
                 <svg
                   aria-hidden="true"
@@ -208,10 +208,13 @@ export function TagEditor({
           ))}
         </ul>
       ) : (
-        <p className="text-sm text-text-muted">No {label.toLowerCase()} yet.</p>
+        <p className="text-rs-text-muted">No {label.toLowerCase()} yet.</p>
       )}
       <div className="relative">
-        <label htmlFor={`${id}-input`} className="block text-sm font-semibold">
+        <label
+          htmlFor={`${id}-input`}
+          className={`mb-1 block text-rs-body font-medium ${full ? "text-rs-text-muted" : "text-rs-text"}`}
+        >
           Add a {one}
         </label>
         <input
@@ -230,14 +233,14 @@ export function TagEditor({
           onChange={(e) => type(e.target.value)}
           onKeyDown={onKeyDown}
           onBlur={() => setListOpen(false)}
-          className={`${inputClass} disabled:cursor-not-allowed disabled:bg-background`}
+          className={rsInputClass}
         />
         <ul
           id={listId}
           role="listbox"
           aria-label={`Suggested ${label.toLowerCase()}`}
           hidden={!showList}
-          className="absolute inset-x-0 top-full z-10 mt-1 max-h-60 overflow-y-auto rounded-lg border border-border bg-surface py-1 shadow-sm"
+          className="absolute inset-x-0 top-full z-10 mt-1 max-h-60 overflow-y-auto rounded-rs-md border border-rs-border bg-rs-surface shadow-popover"
         >
           {suggestions.map((s, i) => (
             <li
@@ -248,13 +251,13 @@ export function TagEditor({
               // Keep the focus in the input while the pointer picks a suggestion.
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => void add(s.name)}
-              className={`cursor-pointer px-3 py-2 text-sm text-text ${i === active ? "bg-primary-soft" : "hover:bg-background"}`}
+              className={`cursor-pointer px-3 py-2.5 text-rs-body text-rs-text ${i === active ? "bg-rs-accent-soft" : "hover:bg-rs-subtle"}`}
             >
               {s.name}
             </li>
           ))}
         </ul>
-        <p id={hintId} className="mt-1 text-sm text-text-muted">
+        <p id={hintId} className="mt-1.5 text-rs-caption text-rs-text-muted">
           <span>
             {tags.length} / {limit}
           </span>

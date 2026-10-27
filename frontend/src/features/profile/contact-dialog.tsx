@@ -8,12 +8,12 @@ import {
   useState,
 } from "react";
 
-import { buttonClass } from "@/components/ui/button";
+import { rsButtonClass } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import {
   Field,
+  FieldRow,
   FormError,
-  inputClass,
   SelectField,
 } from "@/components/ui/field";
 import { Spinner } from "@/components/ui/spinner";
@@ -43,7 +43,7 @@ import {
   visibilityLabels,
 } from "./contact-validation";
 import { LinkIcon } from "./link-icon";
-import { SaveButton } from "./save-button";
+import { FormActions } from "./save-button";
 import { genericError } from "./validation";
 
 type ContactDialogProps = {
@@ -87,11 +87,11 @@ export function ContactDialog({
       returnFocusId={returnFocusId}
     >
       {loaded === null ? (
-        <p role="status" className="text-sm text-text-muted">
+        <p role="status" className="text-rs-text-muted">
           Loading contact info…
         </p>
       ) : "failed" in loaded ? (
-        <FormError>
+        <FormError look="rs">
           We couldn&apos;t load your contact info. Close this dialog and try
           again.
         </FormError>
@@ -141,6 +141,7 @@ function VisibilitySelect({
     <SelectField
       id={id}
       label={label}
+      look="rs"
       value={value}
       onChange={(e) => onChange(e.target.value as Visibility)}
     >
@@ -216,11 +217,11 @@ function ContactForm({ contact, onDirtyChange, onSaved }: ContactFormProps) {
   const birthdayError = errors.birthday;
   return (
     <form noValidate onSubmit={onSubmit} className="space-y-6">
-      {formError ? <FormError>{formError}</FormError> : null}
+      {formError ? <FormError look="rs">{formError}</FormError> : null}
       <fieldset className="space-y-3">
-        <legend className="text-base font-semibold">Email</legend>
-        <p className="text-sm text-text break-all">{contact.email}</p>
-        <p className="text-sm text-text-muted">
+        <legend className="mb-3 text-rs-lead leading-rs-snug font-medium">Email</legend>
+        <p className="break-all text-rs-text">{contact.email}</p>
+        <p className="text-rs-caption text-rs-text-muted">
           This is the address you sign in with. Change it in your account
           settings.
         </p>
@@ -233,11 +234,12 @@ function ContactForm({ contact, onDirtyChange, onSaved }: ContactFormProps) {
       </fieldset>
 
       <fieldset className="space-y-3">
-        <legend className="text-base font-semibold">Phone</legend>
+        <legend className="mb-3 text-rs-lead leading-rs-snug font-medium">Phone</legend>
         <Field
           id="contact-phone"
           name="phone"
           label="Phone number"
+          look="rs"
           type="tel"
           autoComplete="tel"
           inputMode="tel"
@@ -261,12 +263,12 @@ function ContactForm({ contact, onDirtyChange, onSaved }: ContactFormProps) {
           birthdayError ? "contact-birthday-error" : "contact-birthday-hint"
         }
       >
-        <legend className="text-base font-semibold">Birthday</legend>
-        <div className="flex gap-4">
+        <legend className="mb-3 text-rs-lead leading-rs-snug font-medium">Birthday</legend>
+        <FieldRow>
           <SelectField
             id="contact-birth-month"
             label="Month"
-            className="flex-1"
+            look="rs"
             value={values.month}
             aria-invalid={birthdayError ? true : undefined}
             onChange={(e) => setMonth(e.target.value)}
@@ -281,7 +283,7 @@ function ContactForm({ contact, onDirtyChange, onSaved }: ContactFormProps) {
           <SelectField
             id="contact-birth-day"
             label="Day"
-            className="flex-1"
+            look="rs"
             value={values.day}
             aria-invalid={birthdayError ? true : undefined}
             onChange={(e) => update({ ...values, day: e.target.value })}
@@ -293,13 +295,19 @@ function ContactForm({ contact, onDirtyChange, onSaved }: ContactFormProps) {
               </option>
             ))}
           </SelectField>
-        </div>
+        </FieldRow>
         {birthdayError ? (
-          <p id="contact-birthday-error" className="text-sm text-danger">
+          <p
+            id="contact-birthday-error"
+            className="text-rs-caption text-rs-danger"
+          >
             {birthdayError}
           </p>
         ) : (
-          <p id="contact-birthday-hint" className="text-sm text-text-muted">
+          <p
+            id="contact-birthday-hint"
+            className="text-rs-caption text-rs-text-muted"
+          >
             Day and month only; the year is never asked for.
           </p>
         )}
@@ -310,7 +318,7 @@ function ContactForm({ contact, onDirtyChange, onSaved }: ContactFormProps) {
           onChange={(v) => update({ ...values, birthdayVisibility: v })}
         />
       </fieldset>
-      <SaveButton saving={saving} />
+      <FormActions saving={saving} />
     </form>
   );
 }
@@ -377,32 +385,35 @@ function LinkEditor({ initial, onChange, onDraftChange }: LinkEditorProps) {
   return (
     <section
       aria-labelledby="contact-links-title"
-      className="space-y-4 border-t border-border pt-6"
+      className="space-y-3 border-t border-rs-divider pt-6"
     >
       <div>
-        <h3 id="contact-links-title" className="text-base font-semibold">
+        <h3
+          id="contact-links-title"
+          className="text-rs-lead leading-rs-snug font-medium"
+        >
           Links
         </h3>
-        <p className="text-sm text-text-muted">
+        <p className="text-rs-caption text-rs-text-muted">
           Visible to all logged-in users. {links.length} / {MAX_LINKS}
         </p>
       </div>
-      {error ? <FormError>{error}</FormError> : null}
+      {error ? <FormError look="rs">{error}</FormError> : null}
       {links.length > 0 && (
         <ul aria-label="Your links" className="space-y-2">
           {links.map((l) => (
             <li
               key={l.id}
-              className="flex items-center gap-3 rounded-lg border border-border px-3 py-2"
+              className="flex items-center gap-3 rounded-rs-md border border-rs-border px-3 py-2"
             >
-              <span className="text-text-muted">
+              <span className="text-rs-text-muted">
                 <LinkIcon kind={l.kind} />
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block text-sm font-semibold text-text">
+                <span className="block font-medium text-rs-text">
                   {linkLabels[l.kind]}
                 </span>
-                <span className="block truncate text-sm text-text-muted">
+                <span className="block truncate text-rs-text-muted">
                   {l.url}
                 </span>
               </span>
@@ -410,7 +421,7 @@ function LinkEditor({ initial, onChange, onDraftChange }: LinkEditorProps) {
                 type="button"
                 aria-label={`Remove ${linkLabels[l.kind]} link ${l.url}`}
                 onClick={() => void remove(l)}
-                className="rounded-full p-1.5 text-text-muted hover:bg-background hover:text-text focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none"
+                className="rounded-rs-pill p-1.5 text-rs-text-muted hover:bg-rs-subtle hover:text-rs-text focus-visible:shadow-focus focus-visible:outline-none"
               >
                 <svg
                   aria-hidden="true"
@@ -429,52 +440,52 @@ function LinkEditor({ initial, onChange, onDraftChange }: LinkEditorProps) {
         </ul>
       )}
       {full ? (
-        <p className="text-sm text-text-muted">
+        <p className="text-rs-text-muted">
           You have reached the limit of {MAX_LINKS} links. Remove one to add
           another.
         </p>
       ) : (
         <div className="space-y-3">
-          <div>
-            <label
-              htmlFor="contact-link-kind"
-              className="block text-sm font-semibold"
-            >
-              Kind
-            </label>
-            <select
+          <FieldRow>
+            <SelectField
               id="contact-link-kind"
+              label="Kind"
+              look="rs"
               value={kind}
               onChange={(e) => setKind(e.target.value as LinkKind)}
-              className={inputClass}
             >
               {linkKinds.map((k) => (
                 <option key={k} value={k}>
                   {linkLabels[k]}
                 </option>
               ))}
-            </select>
-          </div>
-          <Field
-            id="contact-link-url"
-            label="URL"
-            type="url"
-            inputMode="url"
-            placeholder="https://"
-            error={urlError}
-            value={url}
-            onChange={(e) => {
-              setUrl(e.target.value);
-              setUrlError(undefined);
-              onDraftChange(e.target.value.trim() !== "");
-            }}
-            onKeyDown={onKeyDown}
-          />
+            </SelectField>
+            <Field
+              id="contact-link-url"
+              label="URL"
+              look="rs"
+              type="url"
+              inputMode="url"
+              placeholder="https://"
+              error={urlError}
+              value={url}
+              onChange={(e) => {
+                setUrl(e.target.value);
+                setUrlError(undefined);
+                onDraftChange(e.target.value.trim() !== "");
+              }}
+              onKeyDown={onKeyDown}
+            />
+          </FieldRow>
           <button
             type="button"
             disabled={adding}
             onClick={() => void add()}
-            className={buttonClass({ variant: "outline", full: true })}
+            className={rsButtonClass({
+              variant: "outline",
+              size: "form",
+              full: true,
+            })}
           >
             {adding && <Spinner />}
             {adding ? "Adding…" : "Add link"}

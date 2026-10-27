@@ -51,6 +51,7 @@ Tailwind: `bg-`, `text-`, `border-`, `ring-` … plus the name after `--`, for e
 | `--rs-border` | `#DDE3E1` | Card borders |
 | `--rs-divider` | `#EEF2F1` | Dividers between rows inside a card |
 | `--rs-control` | `#8A979E` | Input and dashed borders |
+| `--rs-control-disabled` | `#C4CDD1` | Border of a disabled input (UI.6) |
 | `--rs-subtle` | `#F5F8F7` | Subtle panels inside a card |
 | `--rs-neutral` | `#E3E8E7` | Neutral fills, skeletons |
 | `--rs-search` | `#EDF3F3` | Top-bar search field |
@@ -76,7 +77,7 @@ Tailwind: `bg-`, `text-`, `border-`, `ring-` … plus the name after `--`, for e
 
 One-offs in the design that are not tokens (avatar and chip shades used once or twice):
 `#7B341E`, `#9A3412`, `#09615D`, `#7C3AED`, `#16A34A`, `#F1F4F3`, `#0D3B38`, `#553C9A`,
-`#C4CDD1`, `#C2410C`, `#F5F3FF`, `#C4B5FD`, `#4C1D95`, `rgba(11,122,117,.10)`. If a page
+`#C2410C`, `#F5F3FF`, `#C4B5FD`, `#4C1D95`, `rgba(11,122,117,.10)`. If a page
 needs one, add a token first.
 
 ### Type
@@ -321,7 +322,26 @@ its state.
 - Links in cards are 14px/500 `rs-accent-strong`, underlined. Under the button, centered and
   muted: "Already on ResearchSphere? Sign in" (register, check-email, verify-email, forgot and
   reset password) or "New here? Join now" (sign-in).
-- Other forms (settings, profile dialogs) keep the older `Field` look until they are restyled.
+- **Profile edit dialogs** (UI.6) take their fields from `design/screens/ProfileEdit.html`:
+  - Every control is the shared `look="rs"` set in `components/ui/field.tsx` (`Field`,
+    `SelectField`, `TextAreaField`, `CheckboxField`, `FormError`). Selects have 8px side
+    padding. Text areas have 10px by 12px padding and, where the text has a limit, a
+    right-aligned live `counter` ("n / max", `rs-danger` when over).
+  - A required field shows "*" after its label as a CSS mark, so it is not part of the
+    accessible name; the control's `required` says it.
+  - A disabled control has the `rs-subtle` fill, the `rs-control-disabled` border and a
+    muted label.
+  - Fields the design puts side by side sit in a `FieldRow` (`flex: 1 1 200px` each,
+    12px gap), which wraps on a phone.
+  - Checkbox rows are at least 36px high with a 10px gap and an 18px box.
+  - The button row (`FormActions`) is right-aligned at the bottom: a danger outline
+    "Delete …" when the entry exists, then the 44px `rs` primary Save
+    (`rsButtonClass` size `form`). Delete asks first, in a box with an `rs-danger-line`
+    border above the row, with Cancel (`secondary`) and Delete (`danger`).
+  - The dialog frame is the design card: up to 576px wide, 12px radius, `rs-border`,
+    `shadow-card`, a 16px/500 title over an `rs-divider` line, and 20px padding. The
+    body scrolls under the fixed header when the dialog is taller than the screen.
+- Other forms (settings) keep the older `Field` look until they are restyled.
 
 ## Signed-in pages
 

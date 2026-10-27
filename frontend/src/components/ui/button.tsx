@@ -33,7 +33,7 @@ export function buttonClass({
 
 // rsButtonClass is the design's pill (design/screens, UI.3): rs-accent-strong, 500 weight,
 // a 1px border on every variant so filled and outline pills are the same size.
-export type RsButtonVariant = "primary" | "outline" | "inverse";
+export type RsButtonVariant = "primary" | "outline" | "inverse" | "secondary" | "danger";
 
 const rsBase =
   "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-rs-pill border font-medium " +
@@ -45,6 +45,10 @@ const rsVariants: Record<RsButtonVariant, string> = {
   outline: "border-rs-accent-strong bg-rs-surface text-rs-accent-strong hover:bg-rs-accent-soft",
   // inverse is the primary action on an rs-accent-strong band.
   inverse: "border-rs-surface bg-rs-surface text-rs-accent-strong hover:bg-rs-accent-soft",
+  // secondary is a neutral action beside a primary one, such as Cancel.
+  secondary: "border-rs-control bg-rs-surface text-rs-text hover:bg-rs-subtle",
+  // danger is the action that destroys data, such as Delete: rs-danger outline.
+  danger: "border-rs-danger bg-rs-surface text-rs-danger hover:bg-rs-danger-soft",
 };
 
 const rsSizes = {
@@ -54,6 +58,8 @@ const rsSizes = {
   block: "h-12 px-[17px] text-rs-lead",
   // Secondary form buttons: 44px high.
   md: "h-11 px-[17px] text-rs-body",
+  // Dialog and card form buttons (Save, Cancel, Delete): 44px high, 24px side padding.
+  form: "h-11 px-[23px] text-rs-body",
   // Small pills inside cards.
   sm: "px-[17px] py-[7px] text-rs-body",
 };

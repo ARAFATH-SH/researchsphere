@@ -42,6 +42,7 @@
   --rs-border: #dde3e1;
   --rs-divider: #eef2f1;
   --rs-control: #8a979e;
+  --rs-control-disabled: #c4cdd1;
   --rs-subtle: #f5f8f7;
   --rs-neutral: #e3e8e7;
   --rs-search: #edf3f3;
@@ -131,6 +132,7 @@
   --color-rs-border: var(--rs-border);
   --color-rs-divider: var(--rs-divider);
   --color-rs-control: var(--rs-control);
+  --color-rs-control-disabled: var(--rs-control-disabled);
   --color-rs-subtle: var(--rs-subtle);
   --color-rs-neutral: var(--rs-neutral);
   --color-rs-search: var(--rs-search);

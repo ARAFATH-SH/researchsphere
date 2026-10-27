@@ -3,12 +3,17 @@
 import { type FormEvent, useMemo, useState } from "react";
 
 import { Dialog } from "@/components/ui/dialog";
-import { Field, FormError, SelectField } from "@/components/ui/field";
+import {
+  Field,
+  FieldRow,
+  FormError,
+  SelectField,
+} from "@/components/ui/field";
 
 import { type Profile, updateMyProfile } from "./api";
 import { countryOptions, isCountryCode } from "./countries";
 import { orNull, profileUpdate } from "./profile-update";
-import { SaveButton } from "./save-button";
+import { FormActions } from "./save-button";
 import {
   fieldForProfileCode,
   genericError,
@@ -91,13 +96,13 @@ export function IntroDialog({
     extra: {
       required?: boolean;
       autoComplete?: string;
-      className?: string;
     } = {},
   ) => (
     <Field
       id={`intro-${field}`}
       name={field}
       label={label}
+      look="rs"
       error={errors[field]}
       value={values[field]}
       onChange={(e) => set(field, e.target.value)}
@@ -112,8 +117,8 @@ export function IntroDialog({
       onClose={onClose}
       returnFocusId={returnFocusId}
     >
-      <form noValidate onSubmit={onSubmit} className="space-y-4">
-        {formError ? <FormError>{formError}</FormError> : null}
+      <form noValidate onSubmit={onSubmit} className="space-y-3">
+        {formError ? <FormError look="rs">{formError}</FormError> : null}
         {text("fullName", "Full name", {
           required: true,
           autoComplete: "name",
@@ -122,15 +127,15 @@ export function IntroDialog({
         {text("jobTitle", "Job title", { autoComplete: "organization-title" })}
         {text("institution", "Institution", { autoComplete: "organization" })}
         {text("department", "Department")}
-        <div className="flex flex-col gap-4 sm:flex-row">
+        <FieldRow>
           <SelectField
             id="intro-country"
             name="country"
             label="Country"
+            look="rs"
             error={errors.country}
             value={values.country}
             onChange={(e) => set("country", e.target.value)}
-            className="flex-1"
           >
             <option value="">Not set</option>
             {/* A stored value the list does not know stays selectable, so it can be seen and changed. */}
@@ -143,12 +148,9 @@ export function IntroDialog({
               </option>
             ))}
           </SelectField>
-          {text("city", "City", {
-            autoComplete: "address-level2",
-            className: "flex-1",
-          })}
-        </div>
-        <SaveButton saving={saving} />
+          {text("city", "City", { autoComplete: "address-level2" })}
+        </FieldRow>
+        <FormActions saving={saving} />
       </form>
     </Dialog>
   );
