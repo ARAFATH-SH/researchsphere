@@ -11,8 +11,15 @@ export function profileUrl(userId: string): string {
 
 // MoreMenu is the "…" button on the profile header and its menu: for now only "Copy
 // profile link", which copies /profile/<userId> and confirms with a toast. Escape or a
-// click outside closes it, and the focus goes back to the button.
-export function MoreMenu({ userId }: { userId: string }) {
+// click outside closes it, and the focus goes back to the button. The profile card shows it
+// as the design's outlined "More" pill; the sticky bar, short of room, as a "…" icon.
+export function MoreMenu({
+  userId,
+  variant = "pill",
+}: {
+  userId: string;
+  variant?: "pill" | "icon";
+}) {
   const [open, setOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const root = useRef<HTMLDivElement>(null);
@@ -75,9 +82,13 @@ export function MoreMenu({ userId }: { userId: string }) {
         aria-controls={menuId}
         onClick={() => setOpen(!open)}
         onKeyDown={onButtonKey}
-        className="shrink-0 rounded-full p-2 text-text-muted transition-colors hover:bg-background hover:text-text focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none"
+        className={
+          variant === "pill"
+            ? "h-10 shrink-0 rounded-rs-pill border border-rs-text-muted px-4 text-rs-body font-medium text-rs-text transition-colors hover:bg-rs-subtle focus-visible:shadow-focus focus-visible:outline-none"
+            : "shrink-0 rounded-full p-2 text-rs-text-muted transition-colors hover:bg-rs-subtle hover:text-rs-text focus-visible:shadow-focus focus-visible:outline-none"
+        }
       >
-        <DotsIcon />
+        {variant === "pill" ? "More" : <DotsIcon />}
       </button>
       <div
         id={menuId}
@@ -85,14 +96,15 @@ export function MoreMenu({ userId }: { userId: string }) {
         aria-label="More"
         hidden={!open}
         onKeyDown={onMenuKey}
-        className="absolute top-full right-0 z-30 mt-1 w-56 rounded-lg border border-border bg-surface py-1 shadow-sm"
+        className="absolute top-full left-0 z-30 mt-1 w-56 rounded-rs-md border border-rs-border bg-rs-surface py-1 shadow-menu data-[variant=icon]:right-0 data-[variant=icon]:left-auto"
+        data-variant={variant}
       >
         <button
           ref={firstItem}
           type="button"
           role="menuitem"
           onClick={copyLink}
-          className="flex w-full items-center gap-3 px-4 py-2 text-left text-sm text-text hover:bg-background focus-visible:bg-background focus-visible:outline-none"
+          className="flex w-full items-center gap-3 px-4 py-2 text-left text-rs-body text-rs-text hover:bg-rs-subtle focus-visible:bg-rs-subtle focus-visible:outline-none"
         >
           <LinkIcon />
           Copy profile link
@@ -128,7 +140,7 @@ function LinkIcon() {
       strokeWidth={1.75}
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="size-5 shrink-0 text-text-muted"
+      className="size-5 shrink-0 text-rs-text-muted"
     >
       <path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1" />
       <path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1" />

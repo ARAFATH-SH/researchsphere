@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Project workspace</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;500;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#fff}
+a{color:#0F766E}a:hover{color:#115E59}
+p+p{margin-top:8px!important}
+/* card elevation */
+[style*="solid #DDE3E1"][style*="radius:10px"],[style*="solid #DDE3E1"][style*="radius: 10px"],[style*="solid #DDE3E1"][style*="radius:12px"],[style*="solid #DDE3E1"][style*="radius: 12px"],[style*="solid #F4C7C3"][style*="radius:10px"],[style*="solid #F4C7C3"][style*="radius: 10px"],[style*="solid #F4C7C3"][style*="radius:12px"],[style*="solid #F4C7C3"][style*="radius: 12px"],[style*="dashed #8A979E"][style*="radius:10px"],[style*="dashed #8A979E"][style*="radius: 10px"],[style*="dashed #8A979E"][style*="radius:12px"],[style*="dashed #8A979E"][style*="radius: 12px"]{background-color:#FFFFFF;box-shadow:0 2px 6px rgba(16,24,40,.06),0 12px 32px rgba(16,24,40,.12)}
+.rs-post,.rs-profile{box-shadow:0 2px 6px rgba(16,24,40,.06),0 12px 32px rgba(16,24,40,.12)!important}
+body{background:#FFFFFF}
+/* mobile */
+@media (max-width:640px){
+body{padding-bottom:56px}
+main{padding:16px 12px 32px!important;gap:16px!important}
+[style*="max-width:240px"],[style*="max-width:250px"],[style*="max-width:260px"],[style*="max-width:320px"],[style*="max-width:340px"],[style*="max-width:400px"],[style*="max-width:420px"]{max-width:none!important}
+[style*="grid-template-columns:repeat(2,minmax(0,1fr))"],[style*="grid-template-columns:repeat(3,minmax(0,1fr))"]{grid-template-columns:1fr!important}
+[style*="grid-template-columns:repeat(4,minmax(0,1fr))"]{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+h1[style*="font-size:52px"]{font-size:32px!important}
+p[style*="font-size:20px"]{font-size:16px!important}
+.rs-nav-inner{padding:0 12px}
+.rs-search{flex:1 1 auto!important}
+.rs-search .rs-search-txt{display:inline!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rs-nav .rs-tabs{position:fixed;left:0;right:0;bottom:0;height:56px;margin:0;background:var(--n-bg);border-top:1px solid var(--n-border);justify-content:space-around;z-index:50}
+.rs-nav .rs-tabs .rs-tab,.rs-nav .rs-tabs>span{flex:1;width:auto;height:56px}
+.rs-nav .rs-tabs .rs-tab-lbl{display:flex!important;font-size:10px}
+.rs-nav .rs-tab[aria-current="page"]::after{top:0;bottom:auto}
+.rs-nav-inner>div>.rs-tab{display:none}
+.rs-menu{position:fixed!important;top:auto!important;bottom:64px;left:8px;right:8px;width:auto!important}
+.rs-post-actions .rs-act span{display:none}
+}
+input{box-sizing:border-box}
+</style>
+</helmet>
+<div style="font-family:'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:14px;line-height:1.45;color:#191919;background:#FFFFFF;min-height:100%;display:flex;flex-direction:column">
+  <!-- Workspace bar -->
+  <header style="background:#0F766E;color:#FFFFFF">
+    <div style="padding:6px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;min-height:56px">
+      <a href="ProjectDetail_m.dc.html" aria-label="Back to project" style="display:flex;align-items:center;gap:8px;color:#FFFFFF;text-decoration:none"><span style="width:34px;height:34px;border-radius:6px;background:#FFFFFF;color:#0F766E;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700">RS</span><span style="font-weight:500;font-size:16px">Explainable CVS detection</span></a>
+      <span style="background:#134E4A;border-radius:999px;padding:3px 10px;font-size:12px">Editor</span>
+      <span style="display:flex;align-items:center;gap:6px;font-size:12px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>All changes saved</span>
+      <sc-if value="{{showFR}}" hint-placeholder-val="{{true}}"></sc-if>
+      <div style="margin-left:auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <div aria-label="4 people editing" style="display:flex;align-items:center">
+          <img src="/_blob/dc59cd42095a50d1fde9b68f6a4f7c21" alt="" title="You" style="width:32px;height:32px;border-radius:50%;background:#134E4A;color:#FFFFFF;border:2px solid #FFFFFF;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;object-fit:cover;box-sizing:border-box">
+          <img src="/_blob/00bb13541434673f54d9fdb50aba2203" alt="" title="Farhan Tanvir" style="width:32px;height:32px;margin-left:-8px;border-radius:50%;background:#2B6CB0;color:#FFFFFF;border:2px solid #FFFFFF;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;object-fit:cover;box-sizing:border-box">
+          <img src="/_blob/ef7f0c3134c25bad49120fe344f0bffc" alt="" title="Nafisa Hasan" style="width:32px;height:32px;margin-left:-8px;border-radius:50%;background:#C2410C;color:#FFFFFF;border:2px solid #FFFFFF;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;object-fit:cover;box-sizing:border-box">
+          <img src="/_blob/0809f1dbbe89ec297f4f1abd209e79ea" alt="" title="Uthsob Chawakraborty" style="width:32px;height:32px;margin-left:-8px;border-radius:50%;background:#7C3AED;color:#FFFFFF;border:2px solid #FFFFFF;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;object-fit:cover;box-sizing:border-box">
+          <span style="font-size:12px;margin-left:8px">4 / 6 editing</span>
+        </div>
+        <button style="height:38px;border:0;border-radius:999px;background:#FFFFFF;color:#0F766E;font:500 14px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:0 16px;display:flex;align-items:center;gap:6px"><svg width="14" height="14" viewBox="0 0 24 24" fill="#0F766E" aria-hidden="true"><path d="M7 4l13 8-13 8z"></path></svg>Compile</button>
+        <button style="height:38px;border:1px solid #FFFFFF;border-radius:999px;background:transparent;color:#FFFFFF;font:500 14px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:0 14px">Download PDF</button>
+        <button style="height:38px;border:1px solid #FFFFFF;border-radius:999px;background:transparent;color:#FFFFFF;font:500 14px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:0 14px">Download ZIP</button>
+        <sc-if value="{{showFR}}" hint-placeholder-val="{{true}}"></sc-if>
+      </div>
+    </div>
+  </header>
+
+  <div style="display:flex;flex-wrap:wrap;flex:1;min-height:0;border-bottom:1px solid #DDE3E1">
+    <!-- File tree -->
+    <nav aria-label="Project files" style="flex:1 1 220px;max-width:250px;min-width:0;border-right:1px solid #DDE3E1;padding:12px;display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:6px"><strong style="font-size:14px">Files</strong><sc-if value="{{showFR}}" hint-placeholder-val="{{true}}"></sc-if></div>
+      <div style="display:flex;gap:4px;flex-wrap:wrap">
+        <button aria-label="New file" style="height:32px;border:1px solid #8A979E;border-radius:6px;background:#FFFFFF;color:#191919;font:500 12px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:0 8px">+ File</button>
+        <button aria-label="New folder" style="height:32px;border:1px solid #8A979E;border-radius:6px;background:#FFFFFF;color:#191919;font:500 12px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:0 8px">+ Folder</button>
+        <button aria-label="Upload figure" style="height:32px;border:1px solid #0F766E;border-radius:6px;background:#FFFFFF;color:#0F766E;font:500 12px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:0 8px">Upload</button>
+      </div>
+      <div style="display:flex;flex-direction:column;font-size:14px">
+        <span style="padding:6px 8px;border-radius:6px;background:#E6F4F2;color:#0B5F58;font-weight:500;display:flex;justify-content:space-between">main.tex<span style="font-weight:400;font-size:12px">Rename · Delete</span></span>
+        <span style="padding:6px 8px">references.bib</span>
+        <span style="padding:6px 8px">sections/</span>
+        <span style="padding:6px 8px 6px 24px">introduction.tex</span>
+        <span style="padding:6px 8px 6px 24px">method.tex</span>
+        <span style="padding:6px 8px">figures/</span>
+        <span style="padding:6px 8px 6px 24px">shap_summary.png</span>
+        <span style="padding:6px 8px 6px 24px">pipeline.pdf</span>
+      </div>
+      <div style="border:1px dashed #0F766E;border-radius:8px;padding:10px;font-size:12px;color:#191919;text-align:center">Drop PNG, JPG or PDF figures here · max 5 MB each</div>
+      <div style="background:#FEF3F2;border:1px solid #F4C7C3;border-radius:6px;padding:8px;font-size:12px;color:#912018">scan_raw.tiff wasn’t uploaded: only PNG, JPG and PDF.</div>
+    </nav>
+
+    <!-- Editor -->
+    <section aria-label="Editor" style="flex:3 1 480px;min-width:0;display:flex;flex-direction:column;border-right:1px solid #DDE3E1">
+      <div style="display:flex;gap:4px;align-items:center;padding:6px 10px;border-bottom:1px solid #DDE3E1;flex-wrap:wrap">
+        <button aria-label="Undo" style="width:36px;height:36px;border:0;border-radius:6px;background:#FFFFFF;color:#191919"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14L4 9l5-5"></path><path d="M4 9h11a5 5 0 0 1 0 10h-3"></path></svg></button>
+        <button aria-label="Redo" style="width:36px;height:36px;border:0;border-radius:6px;background:#FFFFFF;color:#191919"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14l5-5-5-5"></path><path d="M20 9H9a5 5 0 0 0 0 10h3"></path></svg></button>
+        <label style="display:flex;align-items:center;gap:6px;border:1px solid #8A979E;border-radius:6px;padding:0 8px;height:32px;margin-left:6px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#666666" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg><input aria-label="Find" value="SHAP" style="border:0;outline:0;width:110px;font:400 12px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif"><span style="font-size:12px;color:#666666">2 of 6</span></label>
+        <span style="font-size:12px;color:#666666;margin-left:6px">main.tex</span>
+        <sc-if value="{{showFR}}" hint-placeholder-val="{{true}}"></sc-if>
+      </div>
+      <div style="font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;line-height:22px;padding:8px 0;overflow-x:auto">
+        <sc-for list="{{lines}}" as="l" hint-placeholder-count="18">
+          <div style="display:flex;background:{{l.bg}};min-width:560px">
+            <span style="width:44px;flex:none;text-align:right;padding-right:12px;color:#666666;user-select:none">{{l.n}}</span>
+            <span style="white-space:pre;flex:1"><sc-for list="{{l.segs}}" as="s" hint-placeholder-count="2"><span style="color:{{s.c}};font-weight:{{s.w}}">{{s.t}}</span></sc-for><sc-if value="{{l.cur}}" hint-placeholder-val="{{false}}"><span style="display:inline-block;width:2px;height:18px;vertical-align:middle;background:{{l.curColor}};position:relative"><span style="position:absolute;bottom:18px;left:0;background:{{l.curColor}};color:#FFFFFF;font:500 11px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:1px 5px;border-radius:3px 3px 3px 0;white-space:nowrap">{{l.curName}}</span></span></sc-if></span>
+          </div>
+        </sc-for>
+      </div>
+    </section>
+
+    <!-- PDF -->
+    <section aria-label="PDF preview" style="flex:2 1 360px;min-width:0;background:#F5F8F7;padding:16px;display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;color:#191919"><span>PDF · page 1 of 6</span><span>Compiled 2 min ago · 7.8 s</span></div>
+      <div style="background:#FFFFFF;border:1px solid #DDE3E1;border-radius:4px;padding:28px 32px;display:flex;flex-direction:column;gap:10px;font-family:Georgia,serif">
+        <div style="text-align:center;font-size:16px;font-weight:700">Explainable Early Detection of Computer Vision Syndrome from Screen-Use Signals</div>
+        <div style="text-align:center;font-size:12px;color:#191919">Z. A. Elma · F. Farhan · N. Hasan · U. Chawakraborty</div>
+        <div style="font-size:11px;font-weight:700;text-align:center">Abstract</div>
+        <div style="font-size:11px;line-height:1.5;color:#191919;text-align:justify">We collect passive screen-use signals from 412 university students and train gradient-boosted classifiers to flag early CVS symptoms. SHAP explanations let optometrists check which behaviours drive each prediction.</div>
+        <div style="font-size:12px;font-weight:700">1 Introduction</div>
+        <div style="height:8px;background:#E3E8E7;border-radius:2px"></div>
+        <div style="height:8px;background:#E3E8E7;border-radius:2px;width:92%"></div>
+        <div style="height:8px;background:#E3E8E7;border-radius:2px;width:96%"></div>
+        <div style="height:90px;border:1px solid #DDE3E1;display:flex;align-items:center;justify-content:center;font-size:11px;color:#666666;font-family:'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif">Figure 1 · shap_summary.png</div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Bottom: compile log, AI, assistant -->
+  <div style="display:flex;flex-wrap:wrap;gap:0">
+    <section aria-labelledby="log-h" style="flex:1 1 380px;min-width:0;border-right:1px solid #DDE3E1;padding:12px 16px;display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <h2 id="log-h" style="margin:0;font-size:16px;font-weight:500;line-height:1.3">Compile errors (2)</h2>
+        <button style="height:28px;border:0;background:#FFFFFF;color:#0F766E;font:500 12px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif">View full log</button>
+        <sc-if value="{{showFR}}" hint-placeholder-val="{{true}}"></sc-if>
+      </div>
+      <a href="#" style="display:flex;gap:8px;align-items:flex-start;text-decoration:none;color:#191919;background:#FEF3F2;border:1px solid #F4C7C3;border-radius:6px;padding:8px 10px">
+        <span style="font:500 12px 'JetBrains Mono',monospace;color:#912018;flex:none">main.tex:14</span><span style="font-size:12px">Undefined control sequence <code>\shapplot</code></span></a>
+      <a href="#" style="display:flex;gap:8px;align-items:flex-start;text-decoration:none;color:#191919;border:1px solid #DDE3E1;border-radius:6px;padding:8px 10px">
+        <span style="font:500 12px 'JetBrains Mono',monospace;color:#7A4100;flex:none">method.tex:31</span><span style="font-size:12px">Citation ‘lundberg2017’ undefined</span></a>
+      <span style="font-size:12px;color:#666666">Select an error to jump to its file and line.</span>
+    </section>
+
+    <section aria-labelledby="ai7-h" style="flex:1 1 380px;min-width:0;border-right:1px solid #DDE3E1;padding:12px 16px;display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <h2 id="ai7-h" style="margin:0;font-size:16px;font-weight:500;line-height:1.3">Explain this error</h2>
+        <span style="background:#EDE9FE;color:#5B21B6;border-radius:999px;padding:1px 8px;font-size:11px;font-weight:700">AI-generated</span>
+        <sc-if value="{{showFR}}" hint-placeholder-val="{{true}}"></sc-if>
+      </div>
+      <p style="margin:0;font-size:14px;line-height:1.45"><code>\shapplot</code> isn’t a LaTeX command and no package defines it. You probably meant to include the figure file.</p>
+      <div style="font:400 12px/1.5 'JetBrains Mono',monospace;background:#F5F8F7;border-radius:6px;padding:8px 10px"><span style="color:#912018">- \shapplot{figures/shap_summary}</span><br><span style="color:#0B5F58">+ \includegraphics[width=\linewidth]{figures/shap_summary}</span></div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button style="height:36px;border:0;border-radius:999px;background:#0F766E;color:#FFFFFF;font:500 12px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:0 14px">Apply fix (undoable)</button><button style="height:36px;border:1px solid #8A979E;border-radius:999px;background:#FFFFFF;color:#191919;font:500 12px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:0 14px">Dismiss</button><span style="font-size:12px;color:#666666">Only the error and 20 nearby lines were sent.</span></div>
+    </section>
+
+    <section aria-labelledby="ai8-h" style="flex:1 1 380px;min-width:0;padding:12px 16px;display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <h2 id="ai8-h" style="margin:0;font-size:16px;font-weight:500;line-height:1.3">Assistant · draft</h2>
+        <span style="background:#EDE9FE;color:#5B21B6;border-radius:999px;padding:1px 8px;font-size:11px;font-weight:700">AI-generated</span>
+        <span style="font-size:12px;color:#666666">7 / 30 today</span>
+        <sc-if value="{{showFR}}" hint-placeholder-val="{{true}}"></sc-if>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button style="height:32px;border:1px solid #8A979E;border-radius:999px;background:#FFFFFF;color:#191919;font:500 12px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:0 12px">Draft title</button>
+        <button style="height:32px;border:0;border-radius:999px;background:#0F766E;color:#FFFFFF;font:500 12px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:0 12px">Draft abstract</button>
+        <button style="height:32px;border:1px solid #8A979E;border-radius:999px;background:#FFFFFF;color:#191919;font:500 12px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:0 12px">Draft keywords</button>
+      </div>
+      <div style="border:1px dashed #8A979E;border-radius:6px;padding:8px 10px;font-size:12px;line-height:1.45">Suggested abstract: Computer Vision Syndrome affects most heavy screen users, yet it is usually detected late. We propose…</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button style="height:34px;border:0;border-radius:999px;background:#0F766E;color:#FFFFFF;font:500 12px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:0 14px">Accept</button><button style="height:34px;border:1px solid #0F766E;border-radius:999px;background:#FFFFFF;color:#0F766E;font:500 12px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:0 14px">Edit first</button><button style="height:34px;border:1px solid #8A979E;border-radius:999px;background:#FFFFFF;color:#191919;font:500 12px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:0 14px">Reject</button></div>
+    </section>
+  </div>
+
+  <!-- States strip -->
+  <section aria-labelledby="st-h" style="border-top:1px solid #DDE3E1;padding:14px 16px 20px;display:flex;flex-direction:column;gap:10px">
+    <h2 id="st-h" style="margin:0;font-size:16px;color:#666666;font-weight:500;line-height:1.3">Workspace states</h2>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px">
+      <div style="background:#FFF8E6;border:1px solid #F0C27B;border-radius:8px;padding:10px 12px;font-size:12px;color:#7A4100"><strong>A compile is already running</strong> — started by Farhan. You’ll see the new PDF when it finishes.<sc-if value="{{showFR}}" hint-placeholder-val="{{true}}"> </sc-if></div>
+      <div style="background:#FEF3F2;border:1px solid #F4C7C3;border-radius:8px;padding:10px 12px;font-size:12px;color:#912018"><strong>Compile timed out</strong> after 60 seconds and was stopped. Check for loops or very large figures.<sc-if value="{{showFR}}" hint-placeholder-val="{{true}}"> </sc-if></div>
+      <div style="background:#F5F8F7;border:1px solid #DDE3E1;border-radius:8px;padding:10px 12px;font-size:12px;color:#191919"><strong>View only</strong> — you’re a viewer in this project. You can read files and the PDF.<sc-if value="{{showFR}}" hint-placeholder-val="{{true}}"> </sc-if></div>
+      <div style="background:#F5F8F7;border:1px solid #DDE3E1;border-radius:8px;padding:10px 12px;font-size:12px;color:#191919"><strong>Opened read-only</strong> — 6 people are already editing this file. You can edit when someone leaves.<sc-if value="{{showFR}}" hint-placeholder-val="{{true}}"> </sc-if></div>
+      <div style="background:#E6F4F2;border:1px solid #9FD3CC;border-radius:8px;padding:10px 12px;font-size:12px;color:#0B5F58"><strong>Back online</strong> — your offline edits were merged with your co-authors’ changes.<sc-if value="{{showFR}}" hint-placeholder-val="{{true}}"> </sc-if></div>
+      <div style="background:#F5F3FF;border:1px solid #C4B5FD;border-radius:8px;padding:10px 12px;font-size:12px;color:#4C1D95;display:flex;flex-direction:column;gap:6px"><strong>Compile failed · 2 errors</strong><span>Want a plain-language explanation of the first error? Usually ready in under 15 seconds.</span><span style="display:flex;gap:6px;align-items:center"><button style="height:32px;border:0;border-radius:999px;background:#0F766E;color:#FFFFFF;font:500 12px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:0 12px">Explain error</button><span style="font-size:12px">Explaining… 6 s</span></span><sc-if value="{{showFR}}" hint-placeholder-val="{{true}}"></sc-if></div>
+      <div style="background:#FFF8E6;border:1px solid #F0C27B;border-radius:8px;padding:10px 12px;font-size:12px;color:#7A4100"><strong>Daily assistant limit reached</strong> — you’ve used 30 of 30 requests today. Resets at midnight. Editing and compiling still work.<sc-if value="{{showFR}}" hint-placeholder-val="{{true}}"> </sc-if></div>
+      <div style="background:#FEF3F2;border:1px solid #F4C7C3;border-radius:8px;padding:10px 12px;font-size:12px;color:#912018"><strong>Assistant unavailable</strong> — the language model isn’t responding. Your document, editing and compiling are not affected.<sc-if value="{{showFR}}" hint-placeholder-val="{{true}}"> </sc-if></div>
+      <div style="background:#FFFFFF;border:1px solid #0F766E;border-radius:8px;padding:10px 12px;font-size:12px;color:#191919;display:flex;flex-direction:column;gap:6px"><strong>Before you use the assistant</strong><span>Text you send goes to an outside language model. Nothing is sent unless you ask.</span><span style="display:flex;gap:6px"><button style="height:32px;border:0;border-radius:999px;background:#0F766E;color:#FFFFFF;font:500 12px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:0 12px">I agree</button><button style="height:32px;border:1px solid #8A979E;border-radius:999px;background:#FFFFFF;color:#191919;font:500 12px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:0 12px">Not now</button></span><sc-if value="{{showFR}}" hint-placeholder-val="{{true}}"></sc-if></div>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"showFR":{"editor":"boolean","default":true},"$preview":{"width":390,"height":2600}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var CMD = '#0B5F58', TXT = '#191919', CMT = '#666666', ARG = '#9A3412';
+    function seg(t, c, w) { return { t: t, c: c || TXT, w: w || 400 }; }
+    function L(n, segs, extra) {
+      var o = { n: n, segs: segs, bg: '#FFFFFF', cur: false, curColor: '#2B6CB0', curName: '' };
+      return Object.assign(o, extra || {});
+    }
+    var lines = [
+      L(1, [seg('\\documentclass', CMD, 600), seg('[conference]{IEEEtran}', ARG)]),
+      L(2, [seg('\\usepackage', CMD, 600), seg('{graphicx,amsmath,cite}', ARG)]),
+      L(3, [seg('% Shared draft — do not rename this file', CMT)]),
+      L(4, [seg('\\title', CMD, 600), seg('{Explainable Early Detection of Computer Vision Syndrome}', ARG)]),
+      L(5, [seg('\\author', CMD, 600), seg('{Z. A. Elma, F. Farhan, N. Hasan, U. Chawakraborty}', ARG)]),
+      L(6, [seg('\\begin', CMD, 600), seg('{document}', ARG)]),
+      L(7, [seg('\\maketitle', CMD, 600)]),
+      L(8, [seg('\\begin', CMD, 600), seg('{abstract}', ARG)]),
+      L(9, [seg('We collect passive screen-use signals from 412 university students')], { cur: true, curColor: '#2B6CB0', curName: 'Farhan' }),
+      L(10, [seg('and train gradient-boosted classifiers to flag early CVS symptoms.')]),
+      L(11, [seg('\\end', CMD, 600), seg('{abstract}', ARG)]),
+      L(12, [seg('\\input', CMD, 600), seg('{sections/introduction}', ARG)], { cur: true, curColor: '#C2410C', curName: 'Nafisa' }),
+      L(13, [seg('\\begin', CMD, 600), seg('{figure}[t]', ARG)]),
+      L(14, [seg('  \\shapplot', CMD, 600), seg('{figures/shap_summary}', ARG)], { bg: '#FEF3F2' }),
+      L(15, [seg('  \\caption', CMD, 600), seg('{Mean |SHAP| value per feature.}', ARG)], { cur: true, curColor: '#7C3AED', curName: 'Uthsob' }),
+      L(16, [seg('\\end', CMD, 600), seg('{figure}', ARG)]),
+      L(17, [seg('\\bibliography', CMD, 600), seg('{references}', ARG)]),
+      L(18, [seg('\\end', CMD, 600), seg('{document}', ARG)])
+    ];
+    return { showFR: this.props.showFR ?? true, lines: lines };
+  }
+}
+</script>
+</body>
+</html>

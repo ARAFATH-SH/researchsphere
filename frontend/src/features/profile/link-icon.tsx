@@ -38,7 +38,13 @@ const paths: Record<LinkKind, ReactNode> = {
   ),
 };
 
-export function LinkIcon({ kind }: { kind: LinkKind }) {
+export function LinkIcon({
+  kind,
+  className = "size-6",
+}: {
+  kind: LinkKind;
+  className?: string;
+}) {
   return (
     <svg
       aria-hidden="true"
@@ -48,7 +54,7 @@ export function LinkIcon({ kind }: { kind: LinkKind }) {
       strokeWidth={1.75}
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="size-6 shrink-0"
+      className={`shrink-0 ${className}`}
     >
       {paths[kind]}
     </svg>

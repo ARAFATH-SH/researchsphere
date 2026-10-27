@@ -2,7 +2,7 @@
 
 /* Design tokens from docs/ui-guidelines.md. Components use only these names (bg-background,
    bg-surface, border-border, text-text, text-text-muted, bg-primary, text-secondary,
-   text-danger, max-w-page …), never raw colors. */
+   text-danger …), never raw colors. */
 @theme {
   --color-background: #f5f6f4;
   --color-surface: #ffffff;
@@ -15,13 +15,9 @@
   --color-secondary: #1f4e8c; /* deep blue */
   --color-danger: #c62828;
 
-  /* Layout widths (docs/ui-guidelines.md): only Container sets page width. */
-  --container-marketing: 80rem; /* 1280px: landing and other signed-out pages */
-  --container-page: 80rem; /* 1280px: signed-in pages */
+  /* Text widths (docs/ui-guidelines.md); page width is max-w-content, set only by Container. */
   --container-intro: 45rem; /* 720px: section headings, intros, the FAQ list */
   --container-text: 70ch; /* running paragraphs */
-
-  --font-sans: -apple-system, system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
 /* Light theme only for now (docs/ui-guidelines.md): no dark-mode block. */
@@ -29,8 +25,185 @@
   color-scheme: light;
 }
 
+/* Design tokens taken from design/screens/ (docs/ui-guidelines.md, Design tokens). They sit
+   beside the tokens above until every page is restyled; the @theme block below maps each one
+   to a Tailwind utility (bg-rs-surface, text-rs-heading, shadow-card, max-w-content …). */
+:root {
+  --rs-surface: #ffffff;
+  --rs-text: #191919;
+  --rs-text-muted: #666666;
+  --rs-heading: #0b5f58;
+  --rs-accent: #0b7a75;
+  --rs-accent-strong: #0f766e;
+  --rs-accent-hover: #115e59;
+  --rs-accent-deep: #134e4a;
+  --rs-accent-soft: #e6f4f2;
+  --rs-accent-line: #9fd3cc;
+  --rs-border: #dde3e1;
+  --rs-divider: #eef2f1;
+  --rs-control: #8a979e;
+  --rs-control-disabled: #c4cdd1;
+  --rs-subtle: #f5f8f7;
+  --rs-neutral: #e3e8e7;
+  --rs-search: #edf3f3;
+  --rs-nav-border: #e2e7e7;
+  --rs-nav-text: rgba(0, 0, 0, 0.9);
+  --rs-nav-muted: rgba(0, 0, 0, 0.6);
+  --rs-footer-bg: #f4f6f6;
+  --rs-footer-muted: #5c6868;
+  --rs-footer-link: #46625f;
+  --rs-danger: #b42318;
+  --rs-danger-strong: #912018;
+  --rs-danger-soft: #fef3f2;
+  --rs-danger-line: #f4c7c3;
+  --rs-warning: #7a4100;
+  --rs-warning-soft: #fff8e6;
+  --rs-warning-line: #f0c27b;
+  --rs-orange: #8a4b00;
+  --rs-orange-soft: #fff4e5;
+  --rs-violet: #5b21b6;
+  --rs-violet-soft: #ede9fe;
+  --rs-info: #2b6cb0;
+  --rs-success: #15803d;
+
+  /* --font-source-sans is set by next/font in app/layout.tsx. */
+  --rs-font-sans: var(--font-source-sans), "Source Sans 3", "Helvetica Neue", Arial, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --rs-font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --rs-font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --rs-size-micro: 10px;
+  --rs-size-tiny: 11px;
+  --rs-size-caption: 12px;
+  --rs-size-body: 14px;
+  --rs-size-lead: 16px;
+  --rs-size-title-sm: 18px;
+  --rs-size-title: 20px;
+  --rs-size-title-md: 22px;
+  --rs-size-h3: 24px;
+  --rs-size-h2: 28px;
+  --rs-size-h1: 32px;
+  --rs-size-display: 52px;
+
+  --rs-leading-tight: 1.2;
+  --rs-leading-snug: 1.3;
+  --rs-leading-body: 1.45;
+  --rs-leading-relaxed: 1.5;
+
+  --rs-radius-pill: 999px;
+  --rs-radius-card: 10px;
+  --rs-radius-card-lg: 12px;
+  --rs-radius-md: 8px;
+  --rs-radius-control: 6px;
+  --rs-radius-chip: 5px;
+  --rs-radius-xs: 4px;
+  --rs-radius-2xs: 3px;
+
+  --rs-shadow-card: 0 2px 6px rgba(16, 24, 40, 0.06), 0 12px 32px rgba(16, 24, 40, 0.12);
+  --rs-shadow-menu: 0 8px 24px rgba(0, 0, 0, 0.14);
+  --rs-shadow-popover: 0 6px 18px rgba(16, 24, 40, 0.12);
+  --rs-shadow-focus: 0 0 0 2px var(--rs-accent);
+  --rs-shadow-bar: 0 1px 3px rgba(16, 24, 40, 0.06);
+  --rs-shadow-bar-up: 0 -1px 3px rgba(16, 24, 40, 0.06);
+
+  --rs-content: 1128px;
+  --rs-gutter: 16px;
+  --rs-menu: 264px;
+}
+
+/* Page side padding is 12px under 640px, as the design's main{padding:16px 12px 32px}. */
+@media (width < 640px) {
+  :root {
+    --rs-gutter: 12px;
+  }
+}
+
+@theme inline {
+  --color-rs-surface: var(--rs-surface);
+  --color-rs-text: var(--rs-text);
+  --color-rs-text-muted: var(--rs-text-muted);
+  --color-rs-heading: var(--rs-heading);
+  --color-rs-accent: var(--rs-accent);
+  --color-rs-accent-strong: var(--rs-accent-strong);
+  --color-rs-accent-hover: var(--rs-accent-hover);
+  --color-rs-accent-deep: var(--rs-accent-deep);
+  --color-rs-accent-soft: var(--rs-accent-soft);
+  --color-rs-accent-line: var(--rs-accent-line);
+  --color-rs-border: var(--rs-border);
+  --color-rs-divider: var(--rs-divider);
+  --color-rs-control: var(--rs-control);
+  --color-rs-control-disabled: var(--rs-control-disabled);
+  --color-rs-subtle: var(--rs-subtle);
+  --color-rs-neutral: var(--rs-neutral);
+  --color-rs-search: var(--rs-search);
+  --color-rs-nav-border: var(--rs-nav-border);
+  --color-rs-nav-text: var(--rs-nav-text);
+  --color-rs-nav-muted: var(--rs-nav-muted);
+  --color-rs-footer-bg: var(--rs-footer-bg);
+  --color-rs-footer-muted: var(--rs-footer-muted);
+  --color-rs-footer-link: var(--rs-footer-link);
+  --color-rs-danger: var(--rs-danger);
+  --color-rs-danger-strong: var(--rs-danger-strong);
+  --color-rs-danger-soft: var(--rs-danger-soft);
+  --color-rs-danger-line: var(--rs-danger-line);
+  --color-rs-warning: var(--rs-warning);
+  --color-rs-warning-soft: var(--rs-warning-soft);
+  --color-rs-warning-line: var(--rs-warning-line);
+  --color-rs-orange: var(--rs-orange);
+  --color-rs-orange-soft: var(--rs-orange-soft);
+  --color-rs-violet: var(--rs-violet);
+  --color-rs-violet-soft: var(--rs-violet-soft);
+  --color-rs-info: var(--rs-info);
+  --color-rs-success: var(--rs-success);
+
+  --font-rs-sans: var(--rs-font-sans);
+  --font-rs-ui: var(--rs-font-ui);
+  --font-rs-mono: var(--rs-font-mono);
+
+  --text-rs-micro: var(--rs-size-micro);
+  --text-rs-tiny: var(--rs-size-tiny);
+  --text-rs-caption: var(--rs-size-caption);
+  --text-rs-body: var(--rs-size-body);
+  --text-rs-lead: var(--rs-size-lead);
+  --text-rs-title-sm: var(--rs-size-title-sm);
+  --text-rs-title: var(--rs-size-title);
+  --text-rs-title-md: var(--rs-size-title-md);
+  --text-rs-h3: var(--rs-size-h3);
+  --text-rs-h2: var(--rs-size-h2);
+  --text-rs-h1: var(--rs-size-h1);
+  --text-rs-display: var(--rs-size-display);
+
+  --leading-rs-tight: var(--rs-leading-tight);
+  --leading-rs-snug: var(--rs-leading-snug);
+  --leading-rs-body: var(--rs-leading-body);
+  --leading-rs-relaxed: var(--rs-leading-relaxed);
+
+  --radius-rs-pill: var(--rs-radius-pill);
+  --radius-card: var(--rs-radius-card);
+  --radius-card-lg: var(--rs-radius-card-lg);
+  --radius-rs-md: var(--rs-radius-md);
+  --radius-control: var(--rs-radius-control);
+  --radius-rs-chip: var(--rs-radius-chip);
+  --radius-rs-xs: var(--rs-radius-xs);
+  --radius-rs-2xs: var(--rs-radius-2xs);
+
+  --shadow-card: var(--rs-shadow-card);
+  --shadow-menu: var(--rs-shadow-menu);
+  --shadow-popover: var(--rs-shadow-popover);
+  --shadow-focus: var(--rs-shadow-focus);
+  --shadow-rs-bar: var(--rs-shadow-bar);
+  --shadow-rs-bar-up: var(--rs-shadow-bar-up);
+
+  --container-content: var(--rs-content);
+  --spacing-gutter: var(--rs-gutter);
+  --spacing-rs-menu: var(--rs-menu);
+}
+
+/* The page is white (design/screens). Page text is Source Sans 3 at 14px; the top bar and footer set font-rs-ui themselves. */
 body {
-  background: var(--color-background);
-  color: var(--color-text);
-  font-family: var(--font-sans);
+  background: var(--rs-surface);
+  color: var(--rs-text);
+  font-family: var(--rs-font-sans);
+  font-size: var(--rs-size-body);
+  line-height: var(--rs-leading-body);
 }

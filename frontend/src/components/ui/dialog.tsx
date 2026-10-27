@@ -2,7 +2,7 @@
 
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 
-import { buttonClass } from "./button";
+import { rsButtonClass } from "./button";
 
 type DialogProps = {
   title: string;
@@ -19,6 +19,8 @@ type DialogProps = {
 // parent shows it by rendering it and hides it by not rendering it. Escape, the close
 // button and a click on the backdrop all ask to close; with unsaved changes that first
 // asks "Discard changes?". Focus moves to the first field on open and to returnFocusId on close.
+// The frame is the design's card (design/screens/ProfileEdit.html, UI.6): the header stays put
+// and the body scrolls when the dialog is taller than the screen.
 export function Dialog({ title, dirty = false, onClose, returnFocusId, children }: DialogProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -58,17 +60,17 @@ export function Dialog({ title, dirty = false, onClose, returnFocusId, children 
       onClick={(e) => {
         if (e.target === ref.current) requestClose();
       }}
-      className="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-xl overflow-y-auto rounded-lg border border-border bg-surface p-0 text-text shadow-sm backdrop:bg-text/40"
+      className="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-xl flex-col overflow-hidden rounded-card-lg border border-rs-border bg-rs-surface p-0 text-rs-body text-rs-text shadow-card backdrop:bg-rs-text/40 open:flex"
     >
-      <div className="flex items-center justify-between gap-4 border-b border-border px-4 py-3 md:px-6">
-        <h2 id={titleId} className="text-lg font-semibold">
+      <div className="flex shrink-0 items-center justify-between gap-4 border-b border-rs-divider py-3 pr-3 pl-5">
+        <h2 id={titleId} className="text-rs-lead leading-rs-snug font-medium">
           {title}
         </h2>
         <button
           type="button"
           aria-label="Close"
           onClick={requestClose}
-          className="rounded-full p-1.5 text-text-muted hover:bg-background hover:text-text focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none"
+          className="rounded-rs-pill p-1.5 text-rs-text-muted hover:bg-rs-subtle hover:text-rs-text focus-visible:shadow-focus focus-visible:outline-none"
         >
           <svg
             aria-hidden="true"
@@ -84,27 +86,27 @@ export function Dialog({ title, dirty = false, onClose, returnFocusId, children 
         </button>
       </div>
       {confirming && (
-        <div role="alertdialog" aria-labelledby={`${titleId}-discard`} className="space-y-4 px-4 py-6 md:px-6">
-          <p id={`${titleId}-discard`} className="font-semibold">
+        <div role="alertdialog" aria-labelledby={`${titleId}-discard`} className="space-y-3 overflow-y-auto p-5">
+          <p id={`${titleId}-discard`} className="text-rs-lead font-medium">
             Discard changes?
           </p>
-          <p className="text-sm text-text-muted">The changes you made in this dialog will be lost.</p>
-          <div className="flex flex-wrap justify-end gap-2">
+          <p className="text-rs-text-muted">The changes you made in this dialog will be lost.</p>
+          <div className="flex flex-wrap justify-end gap-2 pt-1">
             <button
               ref={keepRef}
               type="button"
               onClick={() => setConfirming(false)}
-              className={buttonClass({ variant: "outline", size: "md" })}
+              className={rsButtonClass({ variant: "secondary", size: "form" })}
             >
               Keep editing
             </button>
-            <button type="button" onClick={onClose} className={buttonClass({ variant: "primary", size: "md" })}>
+            <button type="button" onClick={onClose} className={rsButtonClass({ variant: "danger", size: "form" })}>
               Discard
             </button>
           </div>
         </div>
       )}
-      <div ref={bodyRef} hidden={confirming} className="px-4 py-4 md:px-6 md:py-6">
+      <div ref={bodyRef} hidden={confirming} className="min-h-0 overflow-y-auto p-5">
         {children}
       </div>
     </dialog>

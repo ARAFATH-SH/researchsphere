@@ -7,7 +7,7 @@ import { FormError, TextAreaField } from "@/components/ui/field";
 
 import { type Profile, updateMyProfile } from "./api";
 import { orNull, profileUpdate } from "./profile-update";
-import { SaveButton } from "./save-button";
+import { FormActions } from "./save-button";
 import {
   fieldForProfileCode,
   genericError,
@@ -61,26 +61,20 @@ export function AboutDialog({
       onClose={onClose}
       returnFocusId={returnFocusId}
     >
-      <form noValidate onSubmit={onSubmit} className="space-y-4">
-        {formError ? <FormError>{formError}</FormError> : null}
+      <form noValidate onSubmit={onSubmit} className="space-y-3">
+        {formError ? <FormError look="rs">{formError}</FormError> : null}
         <TextAreaField
           id="about-bio"
           name="bio"
           label="Bio"
+          look="rs"
           rows={8}
           error={error}
           value={bio}
           onChange={(e) => setBio(e.target.value)}
-          hint={
-            <span
-              aria-live="polite"
-              className={count > MAX_BIO_LENGTH ? "text-danger" : undefined}
-            >
-              {count} / {MAX_BIO_LENGTH}
-            </span>
-          }
+          counter={{ count, max: MAX_BIO_LENGTH }}
         />
-        <SaveButton saving={saving} />
+        <FormActions saving={saving} />
       </form>
     </Dialog>
   );

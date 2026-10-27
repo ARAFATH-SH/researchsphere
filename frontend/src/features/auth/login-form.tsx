@@ -4,10 +4,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
 
-import { buttonClass } from "@/components/ui/button";
-import { Field, FormError } from "@/components/ui/field";
+import { rsButtonClass } from "@/components/ui/button";
+import { Field } from "@/components/ui/field";
 
 import { login, resendVerification } from "./api";
+import { authLinkClass } from "./auth-card";
+import { AuthAlert, noticeClass, noticeLinkClass } from "./notice";
 import { SENT_MESSAGE } from "./resend-form";
 import { setSignedIn } from "./session";
 import { type LoginErrors, type LoginValues, validateLogin } from "./validation";
@@ -54,39 +56,38 @@ export function LoginForm() {
   }
 
   return (
-    <form noValidate onSubmit={onSubmit} className="space-y-4">
-      {formError ? <FormError>{formError}</FormError> : null}
-      {unverified ? <UnverifiedNotice {...unverified} /> : null}
+    <form noValidate onSubmit={onSubmit} className="flex flex-col gap-3.5">
+      {formError ? <AuthAlert>{formError}</AuthAlert> : null}
       <Field
         id="email"
         name="email"
         label="Email"
         type="email"
         autoComplete="email"
+        look="rs"
         error={errors.email}
         value={values.email}
         onChange={(e) => setValues({ ...values, email: e.target.value })}
       />
-      <div>
-        <Field
-          id="password"
-          name="password"
-          label="Password"
-          type="password"
-          autoComplete="current-password"
-          error={errors.password}
-          value={values.password}
-          onChange={(e) => setValues({ ...values, password: e.target.value })}
-        />
-        <p className="mt-2 text-sm">
-          <Link href="/forgot-password" className="font-semibold text-secondary hover:underline">
-            Forgot password?
-          </Link>
-        </p>
-      </div>
-      <button type="submit" disabled={submitting} className={buttonClass({ variant: "primary", full: true })}>
+      <Field
+        id="password"
+        name="password"
+        label="Password"
+        type="password"
+        autoComplete="current-password"
+        look="rs"
+        error={errors.password}
+        value={values.password}
+        onChange={(e) => setValues({ ...values, password: e.target.value })}
+      />
+      <Link href="/forgot-password" className={`self-start ${authLinkClass}`}>
+        Forgot password?
+      </Link>
+      <button type="submit" disabled={submitting} className={rsButtonClass({ full: true })}>
         {submitting ? "Signing in…" : "Sign in"}
       </button>
+      {/* Under the button, as in the design. */}
+      {unverified ? <UnverifiedNotice {...unverified} /> : null}
     </form>
   );
 }
@@ -105,19 +106,14 @@ function UnverifiedNotice({ message, email }: { message: string; email: string }
   }
 
   return (
-    <div className="space-y-3 rounded-lg border border-danger/30 bg-danger/5 p-3">
-      <p role="alert" className="text-sm text-danger">
-        {message}
+    <div className={`flex flex-col gap-2 ${noticeClass("warning")}`}>
+      <p>
+        <span role="alert">{message}</span>{" "}
+        <button type="button" onClick={resend} disabled={sending} className={noticeLinkClass}>
+          {sending ? "Sending…" : "Resend verification"}
+        </button>
       </p>
-      <button
-        type="button"
-        onClick={resend}
-        disabled={sending}
-        className={buttonClass({ variant: "outline", size: "md" })}
-      >
-        {sending ? "Sending…" : "Resend verification"}
-      </button>
-      <p role="status" className="text-sm text-text-muted">
+      <p role="status" className={status ? undefined : "sr-only"}>
         {status ?? null}
       </p>
     </div>

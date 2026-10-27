@@ -21,6 +21,7 @@ recommendations. One developer builds it in 30 slices over 12 weeks.
 | `sync/` | Real-time editing server (slice 22) | Node.js, Hocuspocus, Yjs |
 | `compile/` | LaTeX compile service (slice 23) | TeX Live in a Docker sandbox |
 | `docs/` | SRS, API contract, decisions | Markdown, OpenAPI 3 |
+| `design/` | Reference design: one HTML artboard per screen, desktop and `_m` mobile (not served, not imported) | HTML, CSS |
 
 Data stores: PostgreSQL 16 with pgvector, Redis, and S3-compatible object storage (MinIO
 locally, console at http://localhost:9001). All run in Docker, with Mailpit for local email.
@@ -122,6 +123,9 @@ check, tests and a production build.
 - **Layout widths:** Use Container for page width; never set max-width on a section.
 - **UI:** follow `docs/ui-guidelines.md` (colors, cards, pill buttons, signed-out and signed-in
   layouts, forms). Use the design tokens from `globals.css`, never raw colors.
+  `design/screens/` is the source of truth for look and spacing; restyled pages use the `rs-*`
+  tokens. `cd frontend && npm run ui:compare -- <route> <design-file>` (dev only, needs
+  `make web`) screenshots a route beside its design and prints the pixel difference.
 - **API:** JSON under `/api/v1`. Errors have the shape `{"code": "...", "message": "..."}`.
   Lists are paginated and the server caps the page size at 50.
 - **SQL:** each module's queries are in `internal/<module>/adapter/postgres/queries.sql`; sqlc

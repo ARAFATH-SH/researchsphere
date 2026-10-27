@@ -18,9 +18,10 @@ export async function register(body: RegisterRequest): Promise<Result<undefined>
   return res.ok ? { ok: true, data: undefined } : res;
 }
 
-// verifyEmail spends the token from a verification link (FR-1.3).
-export async function verifyEmail(token: string): Promise<Result<undefined>> {
-  const res = await call(() => api.POST("/auth/verify-email", { body: { token } }));
+// verifyEmail spends the token from a verification link (FR-1.3). Aborting signal ends
+// the request with network_error.
+export async function verifyEmail(token: string, signal?: AbortSignal): Promise<Result<undefined>> {
+  const res = await call(() => api.POST("/auth/verify-email", { body: { token }, signal }));
   return res.ok ? { ok: true, data: undefined } : res;
 }
 

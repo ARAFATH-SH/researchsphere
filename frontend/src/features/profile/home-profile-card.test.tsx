@@ -35,23 +35,23 @@ describe("HomeProfileCard", () => {
     expect(screen.getByRole("status").textContent).toBe("Loading profile…");
   });
 
-  it("shows the name, headline, affiliation, country and strength from GET /profiles/me", async () => {
+  it("shows the name, headline, institution and strength from GET /profiles/me", async () => {
     mockGetMyProfile.mockResolvedValue({
       status: "ok",
       profile: fullProfile(adaID, "Ada Lovelace"),
     });
-    render(<HomeProfileCard />);
+    const { container } = render(<HomeProfileCard />);
 
     const name = await screen.findByRole("link", { name: "Ada Lovelace" });
     expect(name.getAttribute("href")).toBe("/profile");
-    expect(name.textContent).toContain("AL");
-    expect(screen.getByText("Analyst of engines")).toBeTruthy();
-    expect(screen.getByText("Researcher, University of London")).toBeTruthy();
-    expect(screen.getByText("United Kingdom")).toBeTruthy();
+    expect(container.textContent).toContain("AL");
+    expect(screen.getByText("Analyst of engines · University of London")).toBeTruthy();
     const strength = screen.getByRole("link", {
-      name: "Profile strength: 100%",
+      name: "Profile strength 100%",
     });
     expect(strength.getAttribute("href")).toBe("/profile");
+    // Connections and projects are not built yet, so they have no rows.
+    expect(screen.queryByText(/Connections|My projects/)).toBeNull();
     expect(screen.queryByRole("status")).toBeNull();
     expect(mockGetMyProfile).toHaveBeenCalledTimes(1);
   });
@@ -64,9 +64,8 @@ describe("HomeProfileCard", () => {
       profile: { ...fullProfile(adaID, "Ada Lovelace"), photoUrl, coverUrl },
     });
     const { container } = render(<HomeProfileCard />);
-    const name = await screen.findByRole("link", { name: "Ada Lovelace" });
-    expect(name.querySelector("img")?.getAttribute("src")).toBe(photoUrl);
-    expect(name.textContent).not.toContain("AL");
+    await screen.findByRole("link", { name: "Ada Lovelace" });
+    expect(container.textContent).not.toContain("AL");
     const srcs = Array.from(container.querySelectorAll("img")).map((img) =>
       img.getAttribute("src"),
     );
@@ -84,7 +83,7 @@ describe("HomeProfileCard", () => {
     ).toBeTruthy();
     expect(screen.queryByText("Analyst of engines")).toBeNull();
     expect(
-      screen.getByRole("link", { name: "Profile strength: 0%" }),
+      screen.getByRole("link", { name: "Profile strength 0%" }),
     ).toBeTruthy();
   });
 

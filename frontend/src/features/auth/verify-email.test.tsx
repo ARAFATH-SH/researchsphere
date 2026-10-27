@@ -2,7 +2,7 @@ import { act, render, screen } from "@testing-library/react";
 import { StrictMode } from "react";
 
 import { resendVerification, verifyEmail } from "./api";
-import { VerifyEmail } from "./verify-email";
+import { VERIFY_TIMEOUT_MS, VerifyEmail } from "./verify-email";
 
 jest.mock("./api");
 const mockVerify = jest.mocked(verifyEmail);
@@ -30,7 +30,7 @@ describe("VerifyEmail", () => {
     );
     expect(await screen.findByRole("heading", { name: "Email verified" })).toBeTruthy();
     expect(mockVerify).toHaveBeenCalledTimes(1);
-    expect(mockVerify).toHaveBeenCalledWith(token);
+    expect(mockVerify).toHaveBeenCalledWith(token, expect.any(AbortSignal));
     expect(window.location.hash).toBe("");
     expect(screen.getByRole("link", { name: "Sign in" }).getAttribute("href")).toBe("/login");
   });
@@ -56,11 +56,39 @@ describe("VerifyEmail", () => {
     expect(window.location.hash).toBe("");
   });
 
-  it("keeps the token after an error, so reloading tries again", async () => {
+  it("shows the error view after a network failure and keeps the token, so reloading tries again", async () => {
     mockVerify.mockResolvedValue({ ok: false, code: "network_error", message: "x" });
     render(<VerifyEmail />);
     expect(await screen.findByRole("heading", { name: "Could not verify" })).toBeTruthy();
+    expect(screen.getByText(/Reload the page to try again/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Send a new link" })).toBeNull();
     expect(window.location.hash).toBe("#token=" + token);
+  });
+
+  it("gives up on a request that never answers and shows the error view", async () => {
+    jest.useFakeTimers();
+    try {
+      let signal: AbortSignal | undefined;
+      mockVerify.mockImplementation((_token, s) => {
+        signal = s;
+        return new Promise(() => {});
+      });
+      render(
+        <StrictMode>
+          <VerifyEmail />
+        </StrictMode>,
+      );
+      expect(screen.getByRole("heading", { name: "Verifying your email" })).toBeTruthy();
+      await act(async () => {
+        jest.advanceTimersByTime(VERIFY_TIMEOUT_MS);
+      });
+      expect(screen.getByRole("heading", { name: "Could not verify" })).toBeTruthy();
+      expect(signal?.aborted).toBe(true);
+      expect(mockVerify).toHaveBeenCalledTimes(1);
+      expect(window.location.hash).toBe("#token=" + token);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it.each([

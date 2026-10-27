@@ -2,16 +2,17 @@
 
 import { type FormEvent, useMemo, useState } from "react";
 
-import { buttonClass } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import {
+  CheckboxField,
   Field,
+  FieldRow,
   FormError,
-  inputClass,
+  rsLegendClass,
+  rsSelectClass,
   SelectField,
   TextAreaField,
 } from "@/components/ui/field";
-import { Spinner } from "@/components/ui/spinner";
 
 import {
   addExperience,
@@ -29,7 +30,7 @@ import {
   monthNames,
 } from "./format";
 import { orNull } from "./profile-update";
-import { SaveButton } from "./save-button";
+import { FormActions } from "./save-button";
 import {
   type ExperienceErrors,
   type ExperienceValues,
@@ -159,6 +160,7 @@ export function ExperienceDialog({
       id={`experience-${field}`}
       name={field}
       label={label}
+      look="rs"
       required={required}
       error={errors[field]}
       value={values[field]}
@@ -173,13 +175,14 @@ export function ExperienceDialog({
       onClose={onClose}
       returnFocusId={returnFocusId}
     >
-      <form noValidate onSubmit={onSubmit} className="space-y-4">
-        {formError ? <FormError>{formError}</FormError> : null}
+      <form noValidate onSubmit={onSubmit} className="space-y-3">
+        {formError ? <FormError look="rs">{formError}</FormError> : null}
         {text("title", "Title", true)}
         <SelectField
           id="experience-employmentType"
           name="employmentType"
           label="Employment type"
+          look="rs"
           required
           error={errors.employmentType}
           value={values.employmentType}
@@ -193,26 +196,21 @@ export function ExperienceDialog({
           ))}
         </SelectField>
         {text("organization", "Organization", true)}
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            name="current"
-            checked={values.current}
-            onChange={(e) => {
-              // A current role has no end date, so ticking the box clears it.
-              setValues({
-                ...values,
-                current: e.target.checked,
-                endMonth: "",
-                endYear: "",
-              });
-              if (e.target.checked)
-                setErrors({ ...errors, endDate: undefined });
-            }}
-            className="size-4 accent-primary focus-visible:ring-2 focus-visible:ring-primary"
-          />
-          I am currently working in this role
-        </label>
+        <CheckboxField
+          name="current"
+          label="I am currently working in this role"
+          checked={values.current}
+          onChange={(e) => {
+            // A current role has no end date, so ticking the box clears it.
+            setValues({
+              ...values,
+              current: e.target.checked,
+              endMonth: "",
+              endYear: "",
+            });
+            if (e.target.checked) setErrors({ ...errors, endDate: undefined });
+          }}
+        />
         <MonthField
           which="start"
           label="Start date"
@@ -233,86 +231,50 @@ export function ExperienceDialog({
             onYear={(v) => set("endYear", v)}
           />
         )}
-        {text("location", "Location (optional)")}
-        <SelectField
-          id="experience-locationType"
-          name="locationType"
-          label="Location type (optional)"
-          error={errors.locationType}
-          value={values.locationType}
-          onChange={(e) => set("locationType", e.target.value)}
-        >
-          <option value="">Please select</option>
-          {Object.entries(locationTypeLabels).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </SelectField>
+        <FieldRow>
+          {text("location", "Location (optional)")}
+          <SelectField
+            id="experience-locationType"
+            name="locationType"
+            label="Location type (optional)"
+            look="rs"
+            error={errors.locationType}
+            value={values.locationType}
+            onChange={(e) => set("locationType", e.target.value)}
+          >
+            <option value="">Please select</option>
+            {Object.entries(locationTypeLabels).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </SelectField>
+        </FieldRow>
         <TextAreaField
           id="experience-description"
           name="description"
           label="Description (optional)"
+          look="rs"
           rows={6}
           error={errors.description}
           value={values.description}
           onChange={(e) => set("description", e.target.value)}
-          hint={
-            <span
-              aria-live="polite"
-              className={
-                count > MAX_EXPERIENCE_DESCRIPTION_LENGTH
-                  ? "text-danger"
-                  : undefined
-              }
-            >
-              {count} / {MAX_EXPERIENCE_DESCRIPTION_LENGTH}
-            </span>
+          counter={{ count, max: MAX_EXPERIENCE_DESCRIPTION_LENGTH }}
+        />
+        <FormActions
+          saving={saving}
+          remove={
+            entry && {
+              label: "Delete experience",
+              question: "Delete this experience? This cannot be undone.",
+              confirming: confirmingDelete,
+              deleting,
+              onAsk: () => setConfirmingDelete(true),
+              onCancel: () => setConfirmingDelete(false),
+              onConfirm: () => void onDelete(),
+            }
           }
         />
-        <SaveButton saving={saving} />
-        {entry &&
-          (confirmingDelete ? (
-            <div
-              role="group"
-              aria-label="Confirm delete"
-              className="space-y-3 rounded-lg border border-danger p-4"
-            >
-              <p className="text-sm font-semibold text-text">
-                Delete this experience? This cannot be undone.
-              </p>
-              <div className="flex flex-wrap justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setConfirmingDelete(false)}
-                  className={buttonClass({ variant: "outline", size: "md" })}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  disabled={deleting}
-                  onClick={() => void onDelete()}
-                  className={buttonClass({ variant: "danger", size: "md" })}
-                >
-                  {deleting && <Spinner />}
-                  {deleting ? "Deleting…" : "Delete"}
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setConfirmingDelete(true)}
-              className={buttonClass({
-                variant: "text",
-                size: "md",
-                full: true,
-              })}
-            >
-              Delete experience
-            </button>
-          ))}
       </form>
     </Dialog>
   );
@@ -351,14 +313,14 @@ function MonthField({
   };
   return (
     <fieldset>
-      <legend className="block text-sm font-semibold">{label}</legend>
-      <div className="flex gap-4">
+      <legend className={rsLegendClass}>{label}</legend>
+      <FieldRow>
         <select
           aria-label={`${label}: month`}
           name={`${which}Month`}
           value={month}
           onChange={(e) => onMonth(e.target.value)}
-          className={`${inputClass} flex-1`}
+          className={rsSelectClass}
           {...control}
         >
           <option value="">Month</option>
@@ -373,7 +335,7 @@ function MonthField({
           name={`${which}Year`}
           value={year}
           onChange={(e) => onYear(e.target.value)}
-          className={`${inputClass} flex-1`}
+          className={rsSelectClass}
           {...control}
         >
           <option value="">Year</option>
@@ -383,9 +345,9 @@ function MonthField({
             </option>
           ))}
         </select>
-      </div>
+      </FieldRow>
       {error ? (
-        <p id={errorId} className="mt-1 text-sm text-danger">
+        <p id={errorId} className="mt-1.5 text-rs-caption text-rs-danger">
           {error}
         </p>
       ) : null}

@@ -2,10 +2,13 @@
 
 import { type FormEvent, useMemo, useState } from "react";
 
-import { buttonClass } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { Field, FormError, SelectField } from "@/components/ui/field";
-import { Spinner } from "@/components/ui/spinner";
+import {
+  Field,
+  FieldRow,
+  FormError,
+  SelectField,
+} from "@/components/ui/field";
 
 import {
   addLanguage,
@@ -15,7 +18,7 @@ import {
   updateLanguage,
 } from "./api";
 import { proficiencyLabels } from "./format";
-import { SaveButton } from "./save-button";
+import { FormActions } from "./save-button";
 import {
   fieldForLanguageCode,
   genericError,
@@ -113,76 +116,51 @@ export function LanguageDialog({
       onClose={onClose}
       returnFocusId={returnFocusId}
     >
-      <form noValidate onSubmit={onSubmit} className="space-y-4">
-        {formError ? <FormError>{formError}</FormError> : null}
-        <Field
-          id="language-name"
-          name="name"
-          label="Language"
-          required
-          error={errors.name}
-          value={values.name}
-          onChange={(e) => set("name", e.target.value)}
+      <form noValidate onSubmit={onSubmit} className="space-y-3">
+        {formError ? <FormError look="rs">{formError}</FormError> : null}
+        <FieldRow>
+          <Field
+            id="language-name"
+            name="name"
+            label="Language"
+            look="rs"
+            required
+            error={errors.name}
+            value={values.name}
+            onChange={(e) => set("name", e.target.value)}
+          />
+          <SelectField
+            id="language-proficiency"
+            name="proficiency"
+            label="Proficiency"
+            look="rs"
+            required
+            error={errors.proficiency}
+            value={values.proficiency}
+            onChange={(e) => set("proficiency", e.target.value)}
+          >
+            <option value="">Please select</option>
+            {Object.entries(proficiencyLabels).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </SelectField>
+        </FieldRow>
+        <FormActions
+          saving={saving}
+          remove={
+            entry && {
+              label: "Delete language",
+              question: "Delete this language? This cannot be undone.",
+              confirming: confirmingDelete,
+              deleting,
+              onAsk: () => setConfirmingDelete(true),
+              onCancel: () => setConfirmingDelete(false),
+              onConfirm: () => void onDelete(),
+            }
+          }
         />
-        <SelectField
-          id="language-proficiency"
-          name="proficiency"
-          label="Proficiency"
-          required
-          error={errors.proficiency}
-          value={values.proficiency}
-          onChange={(e) => set("proficiency", e.target.value)}
-        >
-          <option value="">Please select</option>
-          {Object.entries(proficiencyLabels).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </SelectField>
-        <SaveButton saving={saving} />
-        {entry &&
-          (confirmingDelete ? (
-            <div
-              role="group"
-              aria-label="Confirm delete"
-              className="space-y-3 rounded-lg border border-danger p-4"
-            >
-              <p className="text-sm font-semibold text-text">
-                Delete this language? This cannot be undone.
-              </p>
-              <div className="flex flex-wrap justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setConfirmingDelete(false)}
-                  className={buttonClass({ variant: "outline", size: "md" })}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  disabled={deleting}
-                  onClick={() => void onDelete()}
-                  className={buttonClass({ variant: "danger", size: "md" })}
-                >
-                  {deleting && <Spinner />}
-                  {deleting ? "Deleting…" : "Delete"}
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setConfirmingDelete(true)}
-              className={buttonClass({
-                variant: "text",
-                size: "md",
-                full: true,
-              })}
-            >
-              Delete language
-            </button>
-          ))}
       </form>
     </Dialog>
   );

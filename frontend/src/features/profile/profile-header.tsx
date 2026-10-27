@@ -1,16 +1,15 @@
 "use client";
 
-import { type RefObject, useEffect, useId, useRef, useState } from "react";
+import { type RefObject, useEffect, useRef, useState } from "react";
 
 import { Avatar } from "@/components/avatar";
 import { Container } from "@/components/Container";
-import { buttonClass } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { homeCard } from "@/features/home/cards";
 
 import type { Profile } from "./api";
 import { Cover } from "./cover";
 import { CameraIcon, EditButton, editButtonId } from "./edit-button";
-import { affiliation, initials, locationLine } from "./format";
+import { locationLine } from "./format";
 import { MoreMenu } from "./more-menu";
 import type { EditControls } from "./profile-sections";
 
@@ -21,156 +20,122 @@ type ProfileHeaderProps = {
   onContact?: () => void;
 };
 
-// topBarHeight is the height of the fixed top bar (h-14), under which the sticky bar sits.
-const topBarHeight = 56;
+// topBarHeight is the height of the sticky top bar (52px), under which the sticky profile
+// bar sits. At 480px and narrower the phone top bar is 56px high.
+const topBarHeight = 52;
 
-// ProfileHeader is the top card: the cover image and photo (FR-4.6), the name, where the
-// researcher works and a "Contact info" link (FR-4.7). On wide screens the current
-// institution and the latest education entry sit on the right. The owner gets a camera
-// button on the cover, a clickable photo and a pencil that opens the intro dialog; anyone
-// else sees the same images and a Connect button that waits for connections (slice 13).
-// Once the card scrolls out of view, a slim bar under the top bar repeats the name and buttons.
+// ProfileHeader is the profile summary card of design/screens/Profile.html: the cover image
+// and photo (FR-4.6), the name, the headline, one line with the job, institution and place
+// and a "Contact info" link (FR-4.7), then the action row. The owner gets a camera button on
+// the cover, a clickable photo and a pencil that opens the intro dialog. Connect and Message
+// request wait for connections (slice 13) and are not shown. Once the card scrolls out of
+// view, a slim bar under the top bar repeats the name and buttons.
 export function ProfileHeader({
   profile,
   edit,
   onContact,
 }: ProfileHeaderProps) {
-  const works = affiliation(profile);
-  const location = locationLine(profile);
+  const meta = metaLine(profile);
   const card = useRef<HTMLDivElement>(null);
   const pinned = useScrolledPast(card);
+  const avatar = (
+    <Avatar
+      name={profile.fullName}
+      src={profile.photoUrl}
+      size="lg"
+      className="border-4 border-rs-surface ring-1 ring-rs-nav-border"
+    />
+  );
   return (
     <>
-      <Card ref={card} className="overflow-hidden">
-        <Cover src={profile.coverUrl} className="h-24 md:h-32">
+      <div ref={card} className={`${homeCard} overflow-hidden font-rs-ui`}>
+        <Cover
+          src={profile.coverUrl}
+          className="h-[200px] max-[640px]:h-[120px]"
+        >
           {edit && (
             <button
               id={editButtonId("cover")}
               type="button"
               aria-label="Edit cover image"
               onClick={() => edit.open("cover")}
-              className="absolute top-3 right-3 rounded-full bg-surface p-2 text-primary shadow-sm transition-colors hover:bg-primary-soft focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:outline-none"
+              className="absolute top-3 right-3 rounded-full bg-rs-surface p-2 text-rs-accent-strong shadow-popover transition-colors hover:bg-rs-accent-soft focus-visible:shadow-focus focus-visible:outline-none"
             >
               <CameraIcon />
             </button>
           )}
         </Cover>
-        <div className="px-4 pb-6 md:px-6">
-          <div className="flex items-end justify-between gap-4">
-            <div className="relative -mt-12 shrink-0 md:-mt-16">
-              {edit ? (
-                <button
-                  id={editButtonId("photo")}
-                  type="button"
-                  aria-label="Change profile photo"
-                  onClick={() => edit.open("photo")}
-                  className="block rounded-full focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:outline-none"
-                >
-                  <Avatar
-                    name={profile.fullName}
-                    src={profile.photoUrl}
-                    size="lg"
-                    className="border-4 border-surface"
-                  />
-                </button>
-              ) : (
-                <Avatar
-                  name={profile.fullName}
-                  src={profile.photoUrl}
-                  size="lg"
-                  className="border-4 border-surface"
-                />
-              )}
-            </div>
-            <div className="flex items-center gap-1 pt-4">
-              <HeaderActions profile={profile} edit={edit} withIds />
-            </div>
+        <div className="flex flex-col gap-1.5 px-6 pb-5">
+          <div className="relative -mt-[76px] self-start max-[640px]:-mt-[52px]">
+            {edit ? (
+              <button
+                id={editButtonId("photo")}
+                type="button"
+                aria-label="Change profile photo"
+                onClick={() => edit.open("photo")}
+                className="block rounded-full focus-visible:shadow-focus focus-visible:outline-none"
+              >
+                {avatar}
+              </button>
+            ) : (
+              avatar
+            )}
           </div>
-          <div className="flex gap-6">
-            <div className="min-w-0 flex-1">
-              <h1 className="mt-4 text-2xl font-semibold break-words text-text md:text-3xl">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <h1 className="text-rs-h3 leading-rs-tight font-bold break-words text-rs-text">
                 {profile.fullName}
               </h1>
               {profile.headline && (
-                <p className="mt-1 text-base text-text">{profile.headline}</p>
+                <p className="mt-1 text-rs-lead leading-[1.4] text-rs-text">
+                  {profile.headline}
+                </p>
               )}
-              <div className="mt-2 space-y-0.5 text-sm text-text-muted">
-                {works && <p>{works}</p>}
-                {profile.department && <p>{profile.department}</p>}
-                {location && <p>{location}</p>}
-              </div>
-              {onContact && (
-                <button
-                  id={editButtonId("contact")}
-                  type="button"
-                  onClick={onContact}
-                  className="mt-2 rounded-sm text-sm font-semibold text-secondary hover:underline focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none"
-                >
-                  Contact info
-                </button>
+              {(meta || onContact) && (
+                <p className="mt-1 text-rs-body text-rs-text-muted">
+                  {meta}
+                  {meta && onContact && " · "}
+                  {onContact && (
+                    <button
+                      id={editButtonId("contact")}
+                      type="button"
+                      onClick={onContact}
+                      className="rounded-rs-2xs font-medium text-rs-accent hover:text-rs-accent-hover hover:underline focus-visible:shadow-focus focus-visible:outline-none"
+                    >
+                      Contact info
+                    </button>
+                  )}
+                </p>
               )}
             </div>
-            <Affiliations profile={profile} />
+            {edit && (
+              <EditButton
+                id={editButtonId("intro")}
+                label="Edit intro"
+                onClick={() => edit.open("intro")}
+              />
+            )}
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <MoreMenu userId={profile.userId} />
           </div>
         </div>
-      </Card>
+      </div>
       {pinned && <StickyBar profile={profile} edit={edit} />}
     </>
   );
 }
 
-// HeaderActions are the header's buttons: the pencil or Connect, then More. Only the
-// header card's own pencil carries the id that edit dialogs give the focus back to.
-function HeaderActions({
-  profile,
-  edit,
-  withIds = false,
-}: Pick<ProfileHeaderProps, "profile" | "edit"> & { withIds?: boolean }) {
-  return (
-    <>
-      {edit ? (
-        <EditButton
-          id={withIds ? editButtonId("intro") : undefined}
-          label="Edit intro"
-          onClick={() => edit.open("intro")}
-        />
-      ) : (
-        <ConnectButton />
-      )}
-      <MoreMenu userId={profile.userId} />
-    </>
-  );
-}
-
-// Affiliations lists the current institution and the latest education entry, each with a
-// square initial badge. The API returns education newest first. Below 768px they are left
-// out: the institution is already in the text beside them.
-function Affiliations({ profile }: { profile: Profile }) {
-  const items = [profile.institution, profile.education[0]?.institution].filter(
-    (name): name is string => Boolean(name),
-  );
-  if (items.length === 0) return null;
-  return (
-    <ul
-      aria-label="Affiliations"
-      className="mt-4 hidden w-56 shrink-0 space-y-3 md:block"
-    >
-      {items.map((name, i) => (
-        <li
-          key={i}
-          className="flex items-center gap-2 text-sm font-semibold text-text"
-        >
-          <span
-            aria-hidden="true"
-            className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary-soft text-sm text-primary"
-          >
-            {initials(name).slice(0, 1)}
-          </span>
-          <span className="min-w-0 break-words">{name}</span>
-        </li>
-      ))}
-    </ul>
-  );
+// metaLine is the muted line under the headline, as in the design: "Research Assistant,
+// Dept. of CSE · BUET · Dhaka, Bangladesh". Parts that are not set are left out.
+function metaLine(profile: Profile): string {
+  return [
+    [profile.jobTitle, profile.department].filter(Boolean).join(", "),
+    profile.institution,
+    locationLine(profile),
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 // useScrolledPast is true once the element has scrolled up behind the top bar. Without
@@ -202,7 +167,7 @@ function StickyBar({
     <div
       role="region"
       aria-label="Profile summary"
-      className="fixed inset-x-0 top-14 z-10 border-b border-border bg-surface shadow-sm"
+      className="fixed inset-x-0 top-[52px] z-40 border-b border-rs-nav-border bg-rs-surface shadow-rs-bar max-[480px]:top-14"
     >
       <Container size="app" className="flex h-14 items-center gap-3">
         <Avatar
@@ -212,45 +177,22 @@ function StickyBar({
           decorative
         />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-text">
+          <p className="truncate text-rs-body font-bold text-rs-text">
             {profile.fullName}
           </p>
           {profile.headline && (
-            <p className="truncate text-xs text-text-muted">
+            <p className="truncate text-rs-caption text-rs-text-muted">
               {profile.headline}
             </p>
           )}
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          <HeaderActions profile={profile} edit={edit} />
+          {edit && (
+            <EditButton label="Edit intro" onClick={() => edit.open("intro")} />
+          )}
+          <MoreMenu userId={profile.userId} variant="icon" />
         </div>
       </Container>
     </div>
-  );
-}
-
-// ConnectButton is shown but does nothing until connections exist. It uses aria-disabled
-// rather than disabled, so keyboard users can still reach it and hear the tooltip.
-function ConnectButton() {
-  const tipId = useId();
-  return (
-    <span className="group relative inline-flex">
-      <button
-        type="button"
-        aria-disabled="true"
-        aria-describedby={tipId}
-        onClick={(e) => e.preventDefault()}
-        className={`${buttonClass({ variant: "primary", size: "md" })} cursor-not-allowed opacity-60 hover:bg-primary`}
-      >
-        Connect
-      </button>
-      <span
-        id={tipId}
-        role="tooltip"
-        className="pointer-events-none absolute top-full right-0 z-10 mt-2 hidden rounded-md bg-text px-2 py-1 text-xs whitespace-nowrap text-surface group-focus-within:block group-hover:block"
-      >
-        Available soon
-      </span>
-    </span>
   );
 }

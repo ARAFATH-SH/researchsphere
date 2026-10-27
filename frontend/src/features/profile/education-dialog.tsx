@@ -2,10 +2,15 @@
 
 import { type FormEvent, useMemo, useState } from "react";
 
-import { buttonClass } from "@/components/ui/button";
+import { rsButtonClass } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { Field, FormError, TextAreaField } from "@/components/ui/field";
-import { Spinner } from "@/components/ui/spinner";
+import {
+  CheckboxField,
+  Field,
+  FieldRow,
+  FormError,
+  TextAreaField,
+} from "@/components/ui/field";
 
 import {
   addEducation,
@@ -17,7 +22,7 @@ import {
 import { EditButton } from "./edit-button";
 import { yearRange } from "./format";
 import { orNull } from "./profile-update";
-import { SaveButton } from "./save-button";
+import { FormActions } from "./save-button";
 import {
   type EducationErrors,
   type EducationField,
@@ -86,20 +91,23 @@ export function EducationDialog({
     >
       <div className="space-y-4">
         {profile.education.length > 0 ? (
-          <ul aria-label="Education entries" className="divide-y divide-border">
+          <ul
+            aria-label="Education entries"
+            className="divide-y divide-rs-divider"
+          >
             {profile.education.map((e) => (
               <li
                 key={e.id}
                 className="flex items-start justify-between gap-4 py-3 first:pt-0"
               >
                 <div>
-                  <p className="font-semibold text-text">{e.institution}</p>
+                  <p className="font-medium text-rs-text">{e.institution}</p>
                   {(e.degree || e.fieldOfStudy) && (
-                    <p className="text-sm text-text">
+                    <p className="text-rs-text">
                       {[e.degree, e.fieldOfStudy].filter(Boolean).join(", ")}
                     </p>
                   )}
-                  <p className="text-sm text-text-muted">
+                  <p className="text-rs-text-muted">
                     {yearRange(e.startYear, e.endYear)}
                   </p>
                 </div>
@@ -111,18 +119,22 @@ export function EducationDialog({
             ))}
           </ul>
         ) : (
-          <p className="text-sm text-text-muted">No education entries yet.</p>
+          <p className="text-rs-text-muted">No education entries yet.</p>
         )}
         <button
           type="button"
           disabled={full}
           onClick={() => setView({ kind: "form", entry: "new" })}
-          className={buttonClass({ variant: "outline", full: true })}
+          className={rsButtonClass({
+            variant: "outline",
+            size: "form",
+            full: true,
+          })}
         >
           Add education
         </button>
         {full && (
-          <p className="text-sm text-text-muted">
+          <p className="text-rs-text-muted">
             You have reached the limit of {MAX_EDUCATION_ENTRIES} entries.
             Remove one to add another.
           </p>
@@ -228,6 +240,7 @@ function EducationForm({ entry, onDirtyChange, onSaved }: EducationFormProps) {
       id={`education-${field}`}
       name={field}
       label={label}
+      look="rs"
       required={required}
       error={errors[field]}
       value={values[field]}
@@ -243,6 +256,7 @@ function EducationForm({ entry, onDirtyChange, onSaved }: EducationFormProps) {
       id={`education-${field}`}
       name={field}
       label={label}
+      look="rs"
       inputMode="numeric"
       maxLength={4}
       hint={years}
@@ -250,95 +264,55 @@ function EducationForm({ entry, onDirtyChange, onSaved }: EducationFormProps) {
       error={errors[field]}
       value={values[field]}
       onChange={(e) => set(field, e.target.value)}
-      className="flex-1"
     />
   );
 
   return (
-    <form noValidate onSubmit={onSubmit} className="space-y-4">
-      {formError ? <FormError>{formError}</FormError> : null}
+    <form noValidate onSubmit={onSubmit} className="space-y-3">
+      {formError ? <FormError look="rs">{formError}</FormError> : null}
       {text("institution", "Institution", true)}
       {text("degree", "Degree (optional)")}
       {text("fieldOfStudy", "Field of study (optional)")}
-      <div className="flex flex-col gap-4 sm:flex-row">
+      <FieldRow>
         {yearField("startYear", "Start year")}
         {yearField("endYear", "End year", values.current)}
-      </div>
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          name="current"
-          checked={values.current}
-          onChange={(e) => {
-            // Studying here now means there is no end year yet.
-            update({ ...values, current: e.target.checked, endYear: "" });
-            if (e.target.checked) setErrors({ ...errors, endYear: undefined });
-          }}
-          className="size-4 accent-primary focus-visible:ring-2 focus-visible:ring-primary"
-        />
-        I currently study here
-      </label>
+      </FieldRow>
+      <CheckboxField
+        name="current"
+        label="I currently study here"
+        checked={values.current}
+        onChange={(e) => {
+          // Studying here now means there is no end year yet.
+          update({ ...values, current: e.target.checked, endYear: "" });
+          if (e.target.checked) setErrors({ ...errors, endYear: undefined });
+        }}
+      />
       {text("grade", "Grade (optional)")}
       <TextAreaField
         id="education-description"
         name="description"
         label="Description (optional)"
+        look="rs"
         rows={6}
         error={errors.description}
         value={values.description}
         onChange={(e) => set("description", e.target.value)}
-        hint={
-          <span
-            aria-live="polite"
-            className={
-              count > MAX_EDUCATION_DESCRIPTION_LENGTH
-                ? "text-danger"
-                : undefined
-            }
-          >
-            {count} / {MAX_EDUCATION_DESCRIPTION_LENGTH}
-          </span>
+        counter={{ count, max: MAX_EDUCATION_DESCRIPTION_LENGTH }}
+      />
+      <FormActions
+        saving={saving}
+        remove={
+          entry && {
+            label: "Delete entry",
+            question: "Delete this entry? This cannot be undone.",
+            confirming: confirmingDelete,
+            deleting,
+            onAsk: () => setConfirmingDelete(true),
+            onCancel: () => setConfirmingDelete(false),
+            onConfirm: () => void onDelete(),
+          }
         }
       />
-      <SaveButton saving={saving} />
-      {entry &&
-        (confirmingDelete ? (
-          <div
-            role="group"
-            aria-label="Confirm delete"
-            className="space-y-3 rounded-lg border border-danger p-4"
-          >
-            <p className="text-sm font-semibold text-text">
-              Delete this entry? This cannot be undone.
-            </p>
-            <div className="flex flex-wrap justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setConfirmingDelete(false)}
-                className={buttonClass({ variant: "outline", size: "md" })}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={deleting}
-                onClick={() => void onDelete()}
-                className={buttonClass({ variant: "danger", size: "md" })}
-              >
-                {deleting && <Spinner />}
-                {deleting ? "Deleting…" : "Delete"}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setConfirmingDelete(true)}
-            className={buttonClass({ variant: "text", size: "md", full: true })}
-          >
-            Delete entry
-          </button>
-        ))}
     </form>
   );
 }

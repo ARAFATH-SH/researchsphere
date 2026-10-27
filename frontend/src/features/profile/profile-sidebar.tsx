@@ -1,53 +1,61 @@
 import Link from "next/link";
 
 import type { Profile } from "./api";
+import { ContactCard } from "./contact-card";
 import { editHref } from "./edit-button";
 import { SectionCard } from "./profile-sections";
 import { profileStrength } from "./strength";
 
-// ProfileSidebar is the narrow column: the owner's profile strength, or a placeholder
-// for similar researchers on anyone else's profile (AI recommendations, slice 17).
+// ProfileSidebar is the aside of design/screens/Profile.html: the contact info card, then,
+// on the owner's profile, the profile strength. The design's "Connect with researchers" and
+// "People also viewed" wait for AI matching (slice 17) and are not shown. onEditContact,
+// given on the owner's profile, opens the contact dialog.
 export function ProfileSidebar({
   profile,
-  own,
+  onEditContact,
 }: {
   profile: Profile;
-  own: boolean;
+  onEditContact?: () => void;
 }) {
-  return own ? <StrengthCard profile={profile} /> : <SimilarResearchers />;
+  return (
+    <>
+      <ContactCard contact={profile.contact} onEdit={onEditContact} />
+      {onEditContact && <StrengthCard profile={profile} />}
+    </>
+  );
 }
 
 function StrengthCard({ profile }: { profile: Profile }) {
   const { items, percent } = profileStrength(profile);
   return (
-    <SectionCard title="Profile strength">
+    <SectionCard title="Profile strength" aside>
       <div
         role="progressbar"
         aria-label="Profile strength"
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={percent}
-        className="h-2 overflow-hidden rounded-full bg-primary-soft"
+        className="h-1.5 overflow-hidden rounded-full bg-rs-neutral"
       >
         <div
-          className="h-full rounded-full bg-primary"
+          className="h-full rounded-full bg-rs-accent-strong"
           style={{ width: `${percent}%` }}
         />
       </div>
-      <p className="mt-2 text-sm text-text-muted">{percent}% complete</p>
-      <ul aria-label="Profile checklist" className="mt-4 space-y-2 text-sm">
+      <p className="text-rs-caption text-rs-text-muted">{percent}% complete</p>
+      <ul aria-label="Profile checklist" className="space-y-2 text-rs-body">
         {items.map((item) => (
           <li key={item.label} className="flex items-start gap-2">
             <CheckMark done={item.done} />
             {item.done ? (
-              <span className="text-text">
+              <span className="text-rs-text">
                 {item.label}
                 <span className="sr-only"> (done)</span>
               </span>
             ) : (
               <Link
                 href={editHref(item.section)}
-                className="text-secondary hover:underline"
+                className="text-rs-accent-strong hover:text-rs-accent-hover hover:underline"
               >
                 {item.action}
               </Link>
@@ -69,20 +77,10 @@ function CheckMark({ done }: { done: boolean }) {
       strokeWidth={1.75}
       strokeLinecap="round"
       strokeLinejoin="round"
-      className={`mt-px size-4 shrink-0 ${done ? "text-primary" : "text-text-muted"}`}
+      className={`mt-px size-4 shrink-0 ${done ? "text-rs-accent-strong" : "text-rs-text-muted"}`}
     >
       <circle cx="12" cy="12" r="9" />
       {done && <path d="m8 12.5 2.5 2.5L16 9.5" />}
     </svg>
-  );
-}
-
-function SimilarResearchers() {
-  return (
-    <SectionCard title="Similar researchers">
-      <p className="text-sm text-text-muted">
-        More researchers like this will appear here
-      </p>
-    </SectionCard>
   );
 }

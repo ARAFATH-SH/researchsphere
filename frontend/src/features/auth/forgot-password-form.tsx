@@ -2,10 +2,11 @@
 
 import { type FormEvent, useState } from "react";
 
-import { buttonClass } from "@/components/ui/button";
+import { rsButtonClass } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 
 import { requestPasswordReset } from "./api";
+import { StatusNotice } from "./notice";
 import { messages, validateEmail } from "./validation";
 
 // The same text whether or not the address belongs to an account (FR-2.4).
@@ -33,23 +34,22 @@ export function ForgotPasswordForm() {
   }
 
   return (
-    <form noValidate onSubmit={onSubmit} className="space-y-4">
+    <form noValidate onSubmit={onSubmit} className="flex flex-col gap-3.5">
       <Field
         id="email"
         name="email"
         label="Email"
         type="email"
         autoComplete="email"
+        look="rs"
         value={email}
         error={error}
         onChange={(e) => setEmail(e.target.value)}
       />
-      <button type="submit" disabled={sending} className={buttonClass({ variant: "primary", full: true })}>
+      <button type="submit" disabled={sending} className={rsButtonClass({ full: true })}>
         {sending ? "Sending…" : "Send reset link"}
       </button>
-      <p role="status" className="text-sm text-text-muted">
-        {sent ? RESET_SENT_MESSAGE : null}
-      </p>
+      <StatusNotice>{sent ? RESET_SENT_MESSAGE : null}</StatusNotice>
     </form>
   );
 }

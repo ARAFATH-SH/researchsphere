@@ -64,6 +64,7 @@ describe("/admin", () => {
     expect(mockReplace).toHaveBeenCalledWith("/home");
     expect(mockListUsers).not.toHaveBeenCalled();
     expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.queryByRole("navigation", { name: "Admin sections" })).toBeNull();
   });
 
   it("loads the users for an administrator", async () => {

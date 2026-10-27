@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ResearchSphere FR coverage map</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#fff}
+a{color:#0F766E}a:hover{color:#115E59}
+p+p{margin-top:8px!important}
+/* card elevation */
+[style*="solid #DDE3E1"][style*="radius:10px"],[style*="solid #DDE3E1"][style*="radius: 10px"],[style*="solid #DDE3E1"][style*="radius:12px"],[style*="solid #DDE3E1"][style*="radius: 12px"],[style*="solid #F4C7C3"][style*="radius:10px"],[style*="solid #F4C7C3"][style*="radius: 10px"],[style*="solid #F4C7C3"][style*="radius:12px"],[style*="solid #F4C7C3"][style*="radius: 12px"],[style*="dashed #8A979E"][style*="radius:10px"],[style*="dashed #8A979E"][style*="radius: 10px"],[style*="dashed #8A979E"][style*="radius:12px"],[style*="dashed #8A979E"][style*="radius: 12px"]{background-color:#FFFFFF;box-shadow:0 2px 6px rgba(16,24,40,.06),0 12px 32px rgba(16,24,40,.12)}
+.rs-post,.rs-profile{box-shadow:0 2px 6px rgba(16,24,40,.06),0 12px 32px rgba(16,24,40,.12)!important}
+body{background:#FFFFFF}
+</style>
+</helmet>
+<div style="font-family:'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:14px;line-height:1.45;color:#191919;background:#FFFFFF;min-height:100%">
+  <header style="background:#0F766E;color:#FFFFFF">
+    <div style="max-width:1128px;margin:0 auto;padding:28px 16px;display:flex;flex-wrap:wrap;gap:16px;align-items:center;justify-content:space-between">
+      <div style="display:flex;align-items:center;gap:12px">
+        <span style="width:44px;height:44px;border-radius:8px;background:#FFFFFF;color:#0F766E;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:20px">RS</span>
+        <div>
+          <h1 style="margin:0;font-size:24px;font-weight:700;line-height:1.2">ResearchSphere — UI screens</h1>
+          <p style="margin:2px 0 0;font-size:14px">Every functional requirement in SRS v1.0 mapped to the screen that delivers it</p>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <span style="background:#FFFFFF;color:#0F766E;border-radius:999px;padding:6px 14px;font-weight:500;font-size:14px">16 FR groups · 104 statements</span>
+        <span style="background:#FFFFFF;color:#0F766E;border-radius:999px;padding:6px 14px;font-weight:500;font-size:14px">8 AI groups · 30 statements</span>
+        <span style="background:#134E4A;color:#FFFFFF;border-radius:999px;padding:6px 14px;font-weight:500;font-size:14px">15 screens</span>
+      </div>
+    </div>
+  </header>
+
+  <main style="max-width:1128px;margin:0 auto;padding:24px 16px 48px;display:flex;flex-direction:column;gap:24px">
+    <section aria-labelledby="screens-h" style="border:1px solid #DDE3E1;border-radius:10px;padding:20px">
+      <h2 id="screens-h" style="margin:0 0 12px;font-size:16px;font-weight:500;line-height:1.3">Screens</h2>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px">
+        <sc-for list="{{screens}}" as="s" hint-placeholder-count="15">
+          <a href="{{s.file}}" style="display:flex;flex-direction:column;gap:2px;padding:12px 14px;border:1px solid #DDE3E1;border-radius:8px;text-decoration:none;color:#191919;min-height:44px">
+            <span style="font-weight:500;font-size:14px;color:#0F766E">{{s.name}}</span>
+            <span style="font-size:12px;color:#666666">{{s.frs}}</span>
+          </a>
+        </sc-for>
+      </div>
+    </section>
+
+    <section aria-labelledby="fr-h" style="display:flex;flex-direction:column;gap:16px">
+      <div style="display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px">
+        <h2 id="fr-h" style="margin:0;font-size:16px;font-weight:500;line-height:1.3">Functional &amp; AI requirements → screen</h2>
+        <p style="margin:0;font-size:14px;color:#666666">Orange tags on each screen (toggle “Show FR tags” in Tweaks) point back to these IDs.</p>
+      </div>
+      <sc-for list="{{groups}}" as="g" hint-placeholder-count="16">
+        <div style="border:1px solid #DDE3E1;border-radius:10px;overflow:hidden">
+          <div style="background:#E6F4F2;padding:10px 16px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">
+            <h3 style="margin:0;font-size:16px;color:#0B5F58;font-weight:500;line-height:1.3">{{g.title}}</h3>
+            <span style="font-size:12px;color:#0B5F58">{{g.count}}</span>
+          </div>
+          <div style="overflow-x:auto">
+            <sc-for list="{{g.items}}" as="r" hint-placeholder-count="6">
+              <div style="display:grid;grid-template-columns:80px minmax(0,1fr) 64px 170px;gap:12px;padding:8px 16px;border-top:1px solid #EEF2F1;font-size:14px;align-items:center;min-width:640px">
+                <span style="font-family:ui-monospace,monospace;font-size:12px;font-weight:500">{{r.id}}</span>
+                <span>{{r.text}}</span>
+                <span style="font-size:12px;color:#666666">{{r.p}}</span>
+                <a href="{{r.file}}" style="font-size:12px;font-weight:500">{{r.screen}}</a>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-for>
+    </section>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":4000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var S = {
+      Landing: ['Landing', 'Landing.dc.html'],
+      Auth: ['Register · Login · Reset', 'Auth.dc.html'],
+      Settings: ['Account settings', 'Settings.dc.html'],
+      Home: ['Home feed', 'Home.dc.html'],
+      Profile: ['Profile (view)', 'Profile.dc.html'],
+      Edit: ['Edit profile', 'ProfileEdit.dc.html'],
+      Search: ['Search', 'Search.dc.html'],
+      Network: ['My network', 'Network.dc.html'],
+      Notif: ['Notifications', 'Notifications.dc.html'],
+      Projects: ['My projects', 'Projects.dc.html'],
+      Project: ['Project page', 'ProjectDetail.dc.html'],
+      Work: ['Workspace', 'Workspace.dc.html'],
+      Events: ['Events', 'Events.dc.html'],
+      Msg: ['Messaging', 'Messaging.dc.html'],
+      Admin: ['Admin console', 'Admin.dc.html'],
+      Recs: ['My network + AI', 'Network.dc.html']
+    };
+    function g(title, rows) {
+      return { title: title, count: rows.length + ' statements', items: rows.map(function (r) {
+        return { id: r[0], text: r[1], p: r[2], screen: S[r[3]][0], file: S[r[3]][1] };
+      }) };
+    }
+    var groups = [
+      g('FR-1 Registration', [
+        ['FR-1.1', 'Register with full name, email and password', 'Must', 'Auth'],
+        ['FR-1.2', 'Reject duplicate email / password under 8 chars, say which', 'Must', 'Auth'],
+        ['FR-1.3', 'Send one-time verification link, expires in 24 h', 'Must', 'Auth'],
+        ['FR-1.4', 'Refuse login until email is verified', 'Must', 'Auth'],
+        ['FR-1.5', 'Resend verification link on request', 'Should', 'Auth']
+      ]),
+      g('FR-2 Login, password and account deletion', [
+        ['FR-2.1', 'Log in with email and password (15 min / 30 day tokens)', 'Must', 'Auth'],
+        ['FR-2.2', 'Log out ends the session on that device', 'Must', 'Settings'],
+        ['FR-2.3', 'Password reset link, one-time, expires in 1 h', 'Must', 'Auth'],
+        ['FR-2.4', 'Same response whether or not email is registered', 'Should', 'Auth'],
+        ['FR-2.5', 'End all sessions on password reset or change', 'Must', 'Settings'],
+        ['FR-2.6', 'Change password after entering current one', 'Should', 'Settings'],
+        ['FR-2.7', 'Lock login 15 min after 5 failed attempts', 'Should', 'Auth'],
+        ['FR-2.8', 'Delete account and all its data after password confirm', 'Must', 'Settings'],
+        ['FR-2.9', 'Block deletion while owning a project with members', 'Must', 'Settings']
+      ]),
+      g('FR-3 Access control', [
+        ['FR-3.1', 'Valid access token on every protected request (session expiry state)', 'Must', 'Auth'],
+        ['FR-3.2', 'Role checked per action (project roles, admin-only nav)', 'Must', 'Project'],
+        ['FR-3.3', 'Denied action shows an error with no protected content', 'Must', 'Auth'],
+        ['FR-3.4', 'Refuse login to a suspended account', 'Should', 'Auth']
+      ]),
+      g('FR-4 Research profile', [
+        ['FR-4.1', 'Name, headline, bio, institution, department, title, city, country', 'Must', 'Edit'],
+        ['FR-4.2', 'Interests and skills as case-insensitive tags', 'Must', 'Edit'],
+        ['FR-4.3', 'Suggest existing tags while typing', 'Should', 'Edit'],
+        ['FR-4.4', 'Education entries', 'Must', 'Edit'],
+        ['FR-4.5', 'View any profile with connection status', 'Must', 'Profile'],
+        ['FR-4.6', 'Profile photo (5 MB) and cover image (8 MB)', 'Must', 'Edit'],
+        ['FR-4.7', 'Contact info with per-item visibility', 'Should', 'Edit'],
+        ['FR-4.8', 'Experience entries', 'Must', 'Edit'],
+        ['FR-4.9', 'Languages with proficiency', 'Should', 'Edit']
+      ]),
+      g('FR-5 Publications', [
+        ['FR-5.1', 'Add publication by hand', 'Must', 'Edit'],
+        ['FR-5.2', 'Fetch metadata for a DOI, confirm before saving', 'Must', 'Edit'],
+        ['FR-5.3', 'List ORCID works, import selected', 'Must', 'Edit'],
+        ['FR-5.4', 'One record per DOI, linked to co-authors', 'Must', 'Edit'],
+        ['FR-5.5', 'Profile shows only confirmed publications', 'Must', 'Profile'],
+        ['FR-5.6', 'Clear message + manual entry when lookup fails', 'Should', 'Edit'],
+        ['FR-5.7', 'Remove a publication', 'Must', 'Edit']
+      ]),
+      g('FR-6 Researcher search', [
+        ['FR-6.1', 'Match name, institution or interests, 20 per page', 'Must', 'Search'],
+        ['FR-6.2', 'Tolerate small spelling mistakes', 'Should', 'Search'],
+        ['FR-6.3', 'Filter by institution and interest', 'Should', 'Search']
+      ]),
+      g('FR-7 Connections', [
+        ['FR-7.1', 'Send a connection request', 'Must', 'Profile'],
+        ['FR-7.2', 'Refuse self / duplicate requests', 'Must', 'Profile'],
+        ['FR-7.3', 'Accept, reject, or cancel a pending request', 'Must', 'Network'],
+        ['FR-7.4', 'List connections, received and sent requests', 'Must', 'Network'],
+        ['FR-7.5', 'Remove a connection', 'Should', 'Network'],
+        ['FR-7.6', 'Allow a new request after a rejection', 'Should', 'Network']
+      ]),
+      g('FR-8 Feed', [
+        ['FR-8.1', 'Text post up to 5,000 chars, link own publication or project', 'Must', 'Home'],
+        ['FR-8.2', 'Feed of own and connections’ posts, newest first, 20 per page', 'Must', 'Home'],
+        ['FR-8.3', 'Like once, unlike, show like count', 'Must', 'Home'],
+        ['FR-8.4', 'Comment up to 2,000 chars, delete own comment', 'Must', 'Home'],
+        ['FR-8.5', 'Edit and delete own post', 'Must', 'Home'],
+        ['FR-8.6', 'Show a user’s posts on their profile', 'Should', 'Profile']
+      ]),
+      g('FR-9 Notifications', [
+        ['FR-9.1', 'Connection request received / accepted', 'Must', 'Notif'],
+        ['FR-9.2', 'Project join request / invitation and their outcome', 'Must', 'Notif'],
+        ['FR-9.3', 'Comment on your post', 'Must', 'Notif'],
+        ['FR-9.4', 'Unread count on every page, refreshed every 60 s', 'Should', 'Notif'],
+        ['FR-9.5', 'Newest first, each links to its item', 'Must', 'Notif'],
+        ['FR-9.6', 'Mark one or all as read', 'Must', 'Notif'],
+        ['FR-9.7', 'Like on your post', 'Could', 'Notif']
+      ]),
+      g('FR-10 Research projects', [
+        ['FR-10.1', 'Create project: title, description, skills, optional abstract', 'Must', 'Projects'],
+        ['FR-10.2', 'Owner edits details, sets open / closed / archived', 'Must', 'Project'],
+        ['FR-10.3', 'Search open projects, 20 per page', 'Must', 'Search'],
+        ['FR-10.4', 'Starting main.tex in every new project', 'Should', 'Projects'],
+        ['FR-10.5', 'Transfer ownership', 'Should', 'Project'],
+        ['FR-10.6', 'Delete project after confirming', 'Should', 'Project']
+      ]),
+      g('FR-11 Membership', [
+        ['FR-11.1', 'Request to join an open project with a message', 'Must', 'Project'],
+        ['FR-11.2', 'Owner accepts as editor / viewer, or rejects', 'Must', 'Project'],
+        ['FR-11.3', 'Owner invites; invitee accepts or rejects', 'Should', 'Project'],
+        ['FR-11.4', 'Change a member’s role, remove a member', 'Must', 'Project'],
+        ['FR-11.5', 'Non-owner member leaves the project', 'Must', 'Project'],
+        ['FR-11.6', 'List own projects with my role', 'Must', 'Projects']
+      ]),
+      g('FR-12 Collaborative LaTeX editor', [
+        ['FR-12.1', 'Create, rename, delete files and folders', 'Must', 'Work'],
+        ['FR-12.2', 'Upload figures (PNG, JPG, PDF ≤ 5 MB)', 'Must', 'Work'],
+        ['FR-12.3', 'Syntax highlighting, line numbers, undo, redo, find', 'Must', 'Work'],
+        ['FR-12.4', 'Up to 6 simultaneous editors, no text lost', 'Must', 'Work'],
+        ['FR-12.5', 'Each member’s cursor and name in a distinct colour', 'Must', 'Work'],
+        ['FR-12.6', 'Autosave', 'Must', 'Work'],
+        ['FR-12.7', 'Viewer opens read-only; viewer edits discarded', 'Must', 'Work'],
+        ['FR-12.8', 'Seventh member gets read-only with reason', 'Should', 'Work'],
+        ['FR-12.9', 'Merge offline edits on reconnect', 'Should', 'Work']
+      ]),
+      g('FR-13 Compile', [
+        ['FR-13.1', 'Compile with pdfLaTeX + BibTeX, PDF beside editor', 'Must', 'Work'],
+        ['FR-13.2', 'Compile log and error list with file and line', 'Must', 'Work'],
+        ['FR-13.3', 'Jump to an error’s file and line', 'Should', 'Work'],
+        ['FR-13.4', 'One compile at a time, tell others one is running', 'Must', 'Work'],
+        ['FR-13.5', 'Stop after 60 s and report timeout', 'Must', 'Work'],
+        ['FR-13.6', 'Download latest PDF', 'Must', 'Work'],
+        ['FR-13.7', 'Download project as ZIP', 'Could', 'Work']
+      ]),
+      g('FR-14 Events', [
+        ['FR-14.1', 'Venues with type, field, location, dates, deadline, link; nearest deadline first', 'Must', 'Events'],
+        ['FR-14.2', 'Hide past-deadline venues unless asked', 'Must', 'Events'],
+        ['FR-14.3', 'Filter by type, field and deadline range', 'Must', 'Events'],
+        ['FR-14.4', 'Venue page with full scope text', 'Must', 'Events'],
+        ['FR-14.5', 'Import from a call-for-papers listing without duplicates', 'Should', 'Admin']
+      ]),
+      g('FR-15 Administration', [
+        ['FR-15.1', 'Add, edit, remove venues', 'Must', 'Admin'],
+        ['FR-15.2', 'Remove a post or comment with a recorded reason', 'Must', 'Admin'],
+        ['FR-15.3', 'List users, suspend and restore', 'Should', 'Admin'],
+        ['FR-15.4', 'Compile and embedding job stats, last 24 h', 'Could', 'Admin']
+      ]),
+      g('FR-16 Messaging', [
+        ['FR-16.1', 'One-to-one chat between connections, real-time', 'Must', 'Msg'],
+        ['FR-16.2', 'Message request to non-connections; accept / decline', 'Must', 'Msg'],
+        ['FR-16.3', 'Unread counts and seen receipts', 'Must', 'Msg'],
+        ['FR-16.4', 'Typing indicator and online status', 'Should', 'Msg'],
+        ['FR-16.5', 'Edit or delete own message, “edited” label', 'Should', 'Msg'],
+        ['FR-16.6', 'Group conversation up to 50, creator manages members', 'Should', 'Msg'],
+        ['FR-16.7', 'Attachments ≤ 25 MB, type check + malware scan', 'Should', 'Msg'],
+        ['FR-16.8', 'Search own conversations', 'Should', 'Msg'],
+        ['FR-16.9', 'Block a user; report a conversation or message', 'Must', 'Msg'],
+        ['FR-16.10', 'Rate-limit messages and requests (limit notice)', 'Must', 'Msg'],
+        ['FR-16.11', 'Unread-message email digest, can be turned off', 'Could', 'Settings']
+      ]),
+      g('AI-1 Embeddings', [
+        ['AI-1.1', 'Profile embedding from interests, skills, headline, bio, confirmed publications', 'Must', 'Recs'],
+        ['AI-1.2', 'Project embedding from title, description, skills, abstract', 'Must', 'Recs'],
+        ['AI-1.3', 'Venue embedding (name + scope) and post embedding (text)', 'Must', 'Recs'],
+        ['AI-1.4', 'Update within 60 s of a change; skip if text unchanged', 'Must', 'Recs'],
+        ['AI-1.5', 'Embeddings built in the background; saving never waits', 'Must', 'Recs'],
+        ['AI-1.6', 'Record the model per embedding; re-create all on model change', 'Should', 'Admin']
+      ]),
+      g('AI-2 Collaborator recommendation', [
+        ['AI-2.1', 'Top 10 similar researchers, excluding self, connections, pending', 'Must', 'Recs'],
+        ['AI-2.2', 'Similarity % and up to 3 shared interests or skills', 'Must', 'Recs'],
+        ['AI-2.3', 'Owner sees top 10 researchers similar to the project', 'Must', 'Project'],
+        ['AI-2.4', 'No citation, publication or connection counts in ranking', 'Must', 'Recs']
+      ]),
+      g('AI-3 Project recommendation', [
+        ['AI-3.1', 'Top 10 open projects, excluding joined or requested', 'Must', 'Recs']
+      ]),
+      g('AI-4 Users without publications', [
+        ['AI-4.1', 'Recommendations with ≥1 interest or skill and no publications', 'Must', 'Recs'],
+        ['AI-4.2', 'Ask to add interests, skills or bio instead of an empty list', 'Must', 'Recs']
+      ]),
+      g('AI-5 Semantic search', [
+        ['AI-5.1', 'Plain-language query ≤ 300 chars, researchers and projects by meaning', 'Must', 'Search'],
+        ['AI-5.2', 'Results that match in meaning with none of the query words', 'Must', 'Search'],
+        ['AI-5.3', 'Posts for the same query', 'Should', 'Search'],
+        ['AI-5.4', 'Fall back to keyword search and say so', 'Should', 'Search']
+      ]),
+      g('AI-6 Venue recommendation', [
+        ['AI-6.1', 'Top 5 venues by scope match, deadline not passed', 'Must', 'Project'],
+        ['AI-6.2', 'Deadline and similarity score per venue', 'Must', 'Project'],
+        ['AI-6.3', 'Ask for an abstract when the project has none', 'Must', 'Project'],
+        ['AI-6.4', 'State that scope match says nothing about quality', 'Must', 'Project']
+      ]),
+      g('AI-7 Error explanation', [
+        ['AI-7.1', 'Offer to explain the first error; answer and fix within 15 s', 'Must', 'Work'],
+        ['AI-7.2', 'Send only error message, file name and 20 nearby lines', 'Must', 'Work'],
+        ['AI-7.3', 'Apply a fix only on request, as an undoable edit', 'Should', 'Work']
+      ]),
+      g('AI-8 Drafting and assistant rules', [
+        ['AI-8.1', 'Draft title, abstract or keywords on request', 'Must', 'Work'],
+        ['AI-8.2', 'Drafts are suggestions: accept, change or reject', 'Must', 'Work'],
+        ['AI-8.3', 'Consent before first use; agreement recorded', 'Must', 'Work'],
+        ['AI-8.4', 'Label assistant output as AI-generated', 'Must', 'Work'],
+        ['AI-8.5', '30 assistant requests per user per day (limit state)', 'Should', 'Work'],
+        ['AI-8.6', 'Log request kind and acceptance, never the suggestion text', 'Should', 'Admin']
+      ])
+    ];
+    var screens = [
+      ['Landing', 'FR-1, FR-2 entry'], ['Auth', 'FR-1, FR-2, FR-3'], ['Settings', 'FR-2.2, 2.5, 2.6, 2.8, 2.9, 16.11'],
+      ['Home', 'FR-8, AI-2, AI-3, AI-4'], ['Profile', 'FR-4.5, 5.5, 7.1, 7.2, 8.6'], ['Edit', 'FR-4, FR-5'],
+      ['Search', 'FR-6, FR-10.3, AI-5'], ['Network', 'FR-7, AI-1 – AI-4'], ['Notif', 'FR-9'],
+      ['Projects', 'FR-10.1, 10.4, 11.6'], ['Project', 'FR-10, FR-11, AI-2.3, AI-6'], ['Work', 'FR-12, FR-13, AI-7, AI-8'],
+      ['Events', 'FR-14'], ['Msg', 'FR-16'], ['Admin', 'FR-14.5, FR-15, AI-1.6, AI-8.6']
+    ].map(function (s) { return { name: S[s[0]][0], file: S[s[0]][1], frs: s[1] }; });
+    return { groups: groups, screens: screens };
+  }
+}
+</script>
+</body>
+</html>

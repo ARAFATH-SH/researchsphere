@@ -2,10 +2,11 @@
 
 import { type FormEvent, useState } from "react";
 
-import { buttonClass } from "@/components/ui/button";
+import { rsButtonClass } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 
 import { resendVerification } from "./api";
+import { StatusNotice } from "./notice";
 import { usePendingEmail } from "./pending-email";
 import { validateEmail } from "./validation";
 
@@ -38,22 +39,21 @@ export function ResendForm() {
   }
 
   return (
-    <form noValidate onSubmit={onSubmit} className="space-y-4">
+    <form noValidate onSubmit={onSubmit} className="flex flex-col gap-3.5">
       <Field
         id="resend-email"
         label="Email"
         type="email"
         autoComplete="email"
+        look="rs"
         value={email}
         error={error}
         onChange={(e) => setTyped(e.target.value)}
       />
-      <button type="submit" disabled={sending} className={buttonClass({ variant: "outline", full: true })}>
+      <button type="submit" disabled={sending} className={rsButtonClass({ variant: "outline", size: "md", full: true })}>
         {sending ? "Sending…" : "Send a new link"}
       </button>
-      <p role="status" className="text-sm text-text-muted">
-        {sent ? SENT_MESSAGE : null}
-      </p>
+      <StatusNotice>{sent ? SENT_MESSAGE : null}</StatusNotice>
     </form>
   );
 }

@@ -3,10 +3,11 @@
 import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
 
-import { buttonClass } from "@/components/ui/button";
-import { Field, FormError } from "@/components/ui/field";
+import { rsButtonClass } from "@/components/ui/button";
+import { Field } from "@/components/ui/field";
 
 import { register } from "./api";
+import { AuthAlert } from "./notice";
 import { savePendingEmail } from "./pending-email";
 import {
   type FieldErrors,
@@ -54,8 +55,8 @@ export function RegisterForm() {
   }
 
   return (
-    <form noValidate onSubmit={onSubmit} className="space-y-4">
-      {formError ? <FormError>{formError}</FormError> : null}
+    <form noValidate onSubmit={onSubmit} className="flex flex-col gap-3.5">
+      {formError ? <AuthAlert>{formError}</AuthAlert> : null}
       {fields.map((f) => (
         <Field
           key={f.name}
@@ -64,13 +65,14 @@ export function RegisterForm() {
           label={f.label}
           type={f.type}
           autoComplete={f.autoComplete}
+          look="rs"
           hint={f.hint}
           error={errors[f.name]}
           value={values[f.name]}
           onChange={(e) => setValues({ ...values, [f.name]: e.target.value })}
         />
       ))}
-      <button type="submit" disabled={submitting} className={buttonClass({ variant: "primary", full: true })}>
+      <button type="submit" disabled={submitting} className={rsButtonClass({ full: true })}>
         {submitting ? "Creating account…" : "Create account"}
       </button>
     </form>

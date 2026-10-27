@@ -6,9 +6,9 @@ import { DeleteAccountForm } from "./delete-account-form";
 jest.mock("./api");
 const mockDelete = jest.mocked(deleteAccount);
 
-const button = () => screen.getByRole("button", { name: "Delete account" }) as HTMLButtonElement;
+const button = () => screen.getByRole("button", { name: "Delete my account" }) as HTMLButtonElement;
 const typePassword = (value: string) =>
-  fireEvent.change(screen.getByLabelText("Password"), { target: { value } });
+  fireEvent.change(screen.getByLabelText("Enter your password to confirm"), { target: { value } });
 const confirm = () => fireEvent.click(screen.getByLabelText("I understand this cannot be undone"));
 
 describe("DeleteAccountForm", () => {
@@ -56,11 +56,11 @@ describe("DeleteAccountForm", () => {
     confirm();
     fireEvent.click(button());
     expect(await screen.findByText("The password is wrong.")).toBeTruthy();
-    expect(screen.getByLabelText("Password").getAttribute("aria-invalid")).toBe("true");
+    expect(screen.getByLabelText("Enter your password to confirm").getAttribute("aria-invalid")).toBe("true");
     expect(onDeleted).not.toHaveBeenCalled();
   });
 
-  it("lists the projects that block the deletion by title", async () => {
+  it("warns about the projects that block the deletion, with links to them", async () => {
     mockDelete.mockResolvedValue({
       ok: false,
       code: "owns_shared_project",
@@ -77,7 +77,9 @@ describe("DeleteAccountForm", () => {
     fireEvent.click(button());
     expect((await screen.findByRole("alert")).textContent).toMatch(/other members/);
     const items = screen.getAllByRole("listitem").map((li) => li.textContent);
-    expect(items).toEqual(["Alpha engine", "Beta survey"]);
+    expect(items).toEqual(["You own Alpha engine", "You own Beta survey"]);
+    expect(screen.getByRole("link", { name: "Alpha engine" }).getAttribute("href")).toBe("/projects/a");
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
     expect(onDeleted).not.toHaveBeenCalled();
     expect(sessionStorage.getItem("researchsphere.accountDeleted")).toBeNull();
   });

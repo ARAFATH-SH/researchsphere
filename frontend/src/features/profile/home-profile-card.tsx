@@ -3,92 +3,84 @@
 import Link from "next/link";
 
 import { Avatar } from "@/components/avatar";
-import { Card } from "@/components/ui/card";
 
 import { Cover } from "./cover";
-import { affiliation, locationLine } from "./format";
 import { useMyProfile } from "./my-profile";
 import { profileStrength } from "./strength";
 
+// The design's home card (design/screens/Home.html, left aside): 10px radius, rs-border
+// line and the card shadow.
+const card = "overflow-hidden rounded-card border border-rs-border bg-rs-surface shadow-card";
+
 // HomeProfileCard is the left column of /home: the signed-in user's own profile from
-// GET /profiles/me (FR-4.5) with their cover image and photo (FR-4.6), a link to the
-// profile and its strength.
+// GET /profiles/me (FR-4.5) with their cover image and photo (FR-4.6), the headline and
+// institution, and a stat row with the profile strength. Connections and projects get
+// their own rows once those features exist.
 export function HomeProfileCard() {
   const result = useMyProfile();
 
   if (!result) return <HomeProfileSkeleton />;
   if (result.status !== "ok") {
     return (
-      <Card className="space-y-2 p-4 text-sm">
-        <p className="text-text-muted">We couldn&apos;t load your profile.</p>
-        <Link
-          href="/profile"
-          className="font-semibold text-secondary hover:underline"
-        >
+      <div className={`${card} space-y-2 p-4 text-rs-body`}>
+        <p className="text-rs-text-muted">We couldn&apos;t load your profile.</p>
+        <Link href="/profile" className="font-medium text-rs-accent-strong hover:underline">
           Go to your profile
         </Link>
-      </Card>
+      </div>
     );
   }
 
   const profile = result.profile;
-  const works = affiliation(profile);
-  const location = locationLine(profile);
+  const line = [profile.headline, profile.institution].filter(Boolean).join(" · ");
   const { percent } = profileStrength(profile);
   return (
-    <Card className="overflow-hidden">
-      <Cover src={profile.coverUrl} className="h-14" />
-      <div className="px-4 pb-4">
+    <div className={card}>
+      <Cover src={profile.coverUrl} className="aspect-[1584/396] overflow-hidden" />
+      <div className="relative -mt-[30px] flex flex-col items-center gap-1.5 px-4 pb-4 text-center">
+        <Avatar
+          name={profile.fullName}
+          src={profile.photoUrl}
+          size="md"
+          decorative
+          className="border-[3px] border-rs-surface"
+        />
         <Link
           href="/profile"
-          className="group block rounded-lg focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none"
+          className="rounded-rs-xs text-rs-lead font-bold break-words text-rs-text hover:underline focus-visible:shadow-focus focus-visible:outline-none"
         >
-          <Avatar
-            name={profile.fullName}
-            src={profile.photoUrl}
-            size="md"
-            decorative
-            className="relative -mt-8 border-4 border-surface"
-          />
-          <span className="mt-2 block text-lg font-semibold break-words text-text group-hover:underline">
-            {profile.fullName}
-          </span>
+          {profile.fullName}
         </Link>
-        {profile.headline && (
-          <p className="mt-1 text-sm break-words text-text">
-            {profile.headline}
-          </p>
-        )}
-        {works && <p className="mt-1 text-sm text-text-muted">{works}</p>}
-        {location && <p className="text-sm text-text-muted">{location}</p>}
+        {line && <p className="text-rs-caption break-words text-rs-text-muted">{line}</p>}
       </div>
-      <Link
-        href="/profile"
-        className="block border-t border-border px-4 py-3 text-sm text-text-muted hover:bg-background hover:text-text focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none focus-visible:ring-inset"
-      >
-        Profile strength:{" "}
-        <span className="font-semibold text-primary">{percent}%</span>
-      </Link>
-    </Card>
+      <div className="flex flex-col gap-1.5 border-t border-rs-divider px-4 py-2.5 text-rs-caption">
+        <Link
+          href="/profile"
+          className="flex justify-between text-rs-text hover:underline focus-visible:shadow-focus focus-visible:outline-none"
+        >
+          Profile strength{" "}
+          <strong className="text-rs-accent-strong">{percent}%</strong>
+        </Link>
+      </div>
+    </div>
   );
 }
 
 function HomeProfileSkeleton() {
-  const bar = "animate-pulse rounded-full bg-border";
+  const bar = "animate-pulse rounded-full bg-rs-neutral";
   return (
     <>
       <p role="status" className="sr-only">
         Loading profile…
       </p>
-      <Card aria-hidden="true" className="overflow-hidden">
-        <div className="h-14 animate-pulse bg-primary-soft" />
-        <div className="space-y-2 px-4 pb-4">
-          <div className="-mt-8 size-16 animate-pulse rounded-full border-4 border-surface bg-border" />
+      <div aria-hidden="true" className={card}>
+        <div className="aspect-[1584/396] animate-pulse bg-rs-accent-soft" />
+        <div className="-mt-[30px] flex flex-col items-center gap-2 px-4 pb-4">
+          <div className="size-16 animate-pulse rounded-full border-[3px] border-rs-surface bg-rs-neutral" />
           <div className={`h-5 w-3/4 ${bar}`} />
-          <div className={`h-4 w-full ${bar}`} />
-          <div className={`h-4 w-1/2 ${bar}`} />
+          <div className={`h-3 w-full ${bar}`} />
         </div>
-      </Card>
+      </div>
     </>
   );
 }

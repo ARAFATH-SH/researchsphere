@@ -19,7 +19,7 @@ function fill(current: string, next: string, confirm = next) {
   });
 }
 
-const submit = () => fireEvent.click(screen.getByRole("button", { name: "Change password" }));
+const submit = () => fireEvent.click(screen.getByRole("button", { name: "Save password" }));
 
 // errorFor returns the message linked to a field through aria-describedby.
 function errorFor(label: string): string {

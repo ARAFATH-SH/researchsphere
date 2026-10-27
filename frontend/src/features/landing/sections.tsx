@@ -4,13 +4,16 @@ import type { ReactNode } from "react";
 
 import { Container } from "@/components/Container";
 import { Card } from "@/components/ui/card";
-import { buttonClass } from "@/components/ui/button";
+import { rsButtonClass } from "@/components/ui/button";
 
 import { EditorPreview } from "./editor-preview";
 import { faq } from "./faq";
 import {
+  CalendarIcon,
   CheckIcon,
   ClockIcon,
+  CodeIcon,
+  CollaboratorsIcon,
   DiceIcon,
   DocumentIcon,
   FlaskIcon,
@@ -21,44 +24,97 @@ import {
   StudentIcon,
 } from "./icons";
 import { MatchPreview } from "./match-preview";
+import { SampleProfileCard } from "./sample-profile-card";
 import { VenuePreview } from "./venue-preview";
 
 // The landing page sections, in page order (docs/ui-guidelines.md, Signed-out pages). Each
-// section spans the screen and puts its content in a Container (Layout widths).
+// section spans the screen and puts its content in a Container (Layout widths). Welcome is
+// the design's hero and cards; the sections after it came before the design (UI.3).
 
 // The illustrations are 1376 × 768.
 const imageSize = { width: 1376, height: 768 };
 
-export function Hero() {
+// Welcome is the top of the page as in design/screens/Landing.html: the hero and the three
+// feature cards, 56px apart, with 56px above and 64px below (16px apart, 16px and 32px under
+// 640px).
+export function Welcome() {
   return (
-    <section className="bg-surface">
-      <Container size="marketing" className="grid items-center gap-10 py-10 md:grid-cols-2 md:py-16">
-        <div className="space-y-6">
-          <h1 className="text-4xl leading-tight font-light text-secondary md:text-5xl">
-            Find collaborators. Write papers together.
-          </h1>
-          <p className="max-w-text text-lg text-text-muted">
-            Build your research profile, meet researchers whose work fits yours, write in one shared
-            LaTeX editor and find the right venue for your paper.
-          </p>
-          <div className="flex max-w-sm flex-col gap-3 sm:flex-row">
-            <Link href="/register" className={buttonClass({ variant: "primary", full: true })}>
-              Join now
-            </Link>
-            <Link href="/login" className={buttonClass({ variant: "outline", full: true })}>
-              Sign in
-            </Link>
-          </div>
+    <Container
+      size="marketing"
+      className="flex flex-col gap-14 pt-14 pb-16 max-[640px]:gap-4 max-[640px]:pt-4 max-[640px]:pb-8"
+    >
+      <Hero />
+      <Highlights />
+    </Container>
+  );
+}
+
+// Hero is the 52px headline, the intro, the two pills and the sample profile card. The two
+// columns wrap to one when there is no room for both (420px and 380px at least); under 640px
+// the card sits 60px below the pills, as measured on Landing_m.html.
+function Hero() {
+  return (
+    <section aria-labelledby="hero-heading" className="flex flex-wrap items-center gap-10 max-[640px]:gap-y-15">
+      <div className="flex min-w-0 flex-[1_1_420px] flex-col gap-5">
+        <h1
+          id="hero-heading"
+          className="text-rs-display leading-rs-tight font-bold text-rs-heading max-[640px]:text-rs-h1"
+        >
+          Find collaborators, write together, and pick the right venue.
+        </h1>
+        <p className="text-rs-title leading-rs-relaxed max-[640px]:text-rs-lead">
+          A professional network built only for researchers and students — research profiles, AI-matched
+          collaborators and projects, a shared LaTeX editor and a call-for-papers tracker in one place.
+        </p>
+        <div className="flex flex-wrap gap-3">
+          <Link href="/register" className={rsButtonClass({ size: "lg" })}>
+            Create your research profile
+          </Link>
+          <Link href="/login" className={rsButtonClass({ variant: "outline", size: "lg" })}>
+            Sign in
+          </Link>
         </div>
-        <Image
-          src="/images/landing/hero-team.jpg"
-          {...imageSize}
-          preload
-          sizes="(min-width: 768px) 50vw, 100vw"
-          alt="Illustration of four students working together at a table with a laptop, notebooks and books"
-          className="h-auto w-full rounded-lg"
-        />
-      </Container>
+      </div>
+      <SampleProfileCard className="flex-[1_1_380px]" />
+    </section>
+  );
+}
+
+const highlights = [
+  {
+    icon: <CollaboratorsIcon />,
+    title: "AI-matched collaborators",
+    text: "Matches by research meaning, not citation counts — so students without papers get matches too.",
+  },
+  {
+    icon: <CodeIcon />,
+    title: "Shared LaTeX workspace",
+    text: "Up to six co-authors edit live, compile to PDF, and get plain-language help with errors.",
+  },
+  {
+    icon: <CalendarIcon />,
+    title: "Venues that fit your paper",
+    text: "Conferences and journals ranked by scope match, with deadlines you can filter.",
+  },
+];
+
+// Highlights are the three feature cards under the hero, as many to a row as fit at 240px.
+function Highlights() {
+  return (
+    <section
+      aria-label="What you can do"
+      className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-4 max-[640px]:grid-cols-1"
+    >
+      {highlights.map((h) => (
+        <div
+          key={h.title}
+          className="flex flex-col gap-2 rounded-card border border-rs-border bg-rs-surface p-5 shadow-card"
+        >
+          <span className="text-rs-accent-strong">{h.icon}</span>
+          <h2 className="text-rs-lead leading-rs-snug font-medium">{h.title}</h2>
+          <p>{h.text}</p>
+        </div>
+      ))}
     </section>
   );
 }
@@ -67,10 +123,10 @@ export function Hero() {
 function SectionHeading({ id, title, intro }: { id: string; title: string; intro?: string }) {
   return (
     <div className="max-w-intro space-y-3">
-      <h2 id={id} className="text-2xl font-semibold md:text-3xl">
+      <h2 id={id} className="text-rs-h3 leading-rs-tight font-bold text-rs-heading md:text-rs-h2">
         {title}
       </h2>
-      {intro ? <p className="text-lg text-text-muted">{intro}</p> : null}
+      {intro ? <p className="text-lg text-rs-text-muted">{intro}</p> : null}
     </div>
   );
 }
@@ -82,7 +138,7 @@ function Band({ labelledBy, tone = "background", children }: {
   children: ReactNode;
 }) {
   return (
-    <section aria-labelledby={labelledBy} className={tone === "surface" ? "bg-surface" : "bg-background"}>
+    <section aria-labelledby={labelledBy} className={tone === "surface" ? "bg-rs-surface" : "bg-rs-subtle"}>
       <Container size="marketing" className="space-y-10 py-14 md:py-20">
         {children}
       </Container>
@@ -116,9 +172,9 @@ export function Problem() {
         {problems.map((p) => (
           <li key={p.title}>
             <Card className="h-full space-y-3 p-6">
-              <span className="inline-flex rounded-full bg-primary-soft p-2.5 text-primary">{p.icon}</span>
-              <h3 className="text-lg font-semibold">{p.title}</h3>
-              <p className="text-text-muted">{p.text}</p>
+              <span className="inline-flex rounded-full bg-rs-accent-soft p-2.5 text-rs-accent-strong">{p.icon}</span>
+              <h3 className="text-lg font-medium">{p.title}</h3>
+              <p className="text-rs-text-muted">{p.text}</p>
             </Card>
           </li>
         ))}
@@ -154,18 +210,18 @@ export function HowItWorks() {
           <li key={step.title} className="space-y-3">
             <div className="flex items-center gap-3">
               <span
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-lg font-semibold text-surface"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-rs-accent-strong text-lg font-medium text-rs-surface"
                 aria-hidden="true"
               >
                 {i + 1}
               </span>
-              <span className="text-primary">{step.icon}</span>
+              <span className="text-rs-accent-strong">{step.icon}</span>
             </div>
-            <h3 className="text-lg font-semibold">
+            <h3 className="text-lg font-medium">
               <span className="sr-only">Step {i + 1}: </span>
               {step.title}
             </h3>
-            <p className="text-text-muted">{step.text}</p>
+            <p className="text-rs-text-muted">{step.text}</p>
           </li>
         ))}
       </ol>
@@ -242,10 +298,10 @@ export function Features() {
         {features.map((f, i) => (
           <article key={f.id} aria-labelledby={f.id} className="grid items-center gap-8 md:grid-cols-2 md:gap-12">
             <div className={`space-y-4 ${i % 2 === 1 ? "md:order-last" : ""}`}>
-              <h3 id={f.id} className="text-xl font-semibold md:text-2xl">
+              <h3 id={f.id} className="text-xl font-medium md:text-2xl">
                 {f.title}
               </h3>
-              <p className="max-w-text text-text-muted">{f.text}</p>
+              <p className="max-w-text text-rs-text-muted">{f.text}</p>
               <ul className="space-y-2">
                 {f.points.map((point) => (
                   <li key={point} className="flex gap-2">
@@ -289,9 +345,9 @@ export function Audience() {
         {audiences.map((a) => (
           <li key={a.title}>
             <Card className="h-full space-y-3 p-6">
-              <span className="inline-flex rounded-full bg-primary-soft p-2.5 text-primary">{a.icon}</span>
-              <h3 className="text-lg font-semibold">{a.title}</h3>
-              <p className="text-text-muted">{a.text}</p>
+              <span className="inline-flex rounded-full bg-rs-accent-soft p-2.5 text-rs-accent-strong">{a.icon}</span>
+              <h3 className="text-lg font-medium">{a.title}</h3>
+              <p className="text-rs-text-muted">{a.text}</p>
             </Card>
           </li>
         ))}
@@ -312,7 +368,7 @@ export function Story() {
     <Band labelledBy="story-heading">
       <div className="grid items-center gap-8 md:grid-cols-2 md:gap-12">
         <div className="space-y-5">
-          <p className="inline-block rounded-full bg-primary-soft px-3 py-1 text-sm font-semibold text-primary">
+          <p className="inline-block rounded-full bg-rs-accent-soft px-3 py-1 text-sm font-medium text-rs-accent-strong">
             Example
           </p>
           <SectionHeading id="story-heading" title="From a profile to a paper" />
@@ -320,7 +376,7 @@ export function Story() {
             {storySteps.map((step, i) => (
               <li key={step} className="flex gap-3">
                 <span
-                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-primary text-sm font-semibold text-primary"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-rs-accent-strong text-sm font-medium text-rs-accent-strong"
                   aria-hidden="true"
                 >
                   {i + 1}
@@ -329,7 +385,7 @@ export function Story() {
               </li>
             ))}
           </ol>
-          <p className="text-sm text-text-muted">An illustration of how the features fit together. Lina is not a real user.</p>
+          <p className="text-sm text-rs-text-muted">An illustration of how the features fit together. Lina is not a real user.</p>
         </div>
         <Image
           src="/images/landing/conference.jpg"
@@ -348,16 +404,16 @@ export function Faq() {
     <Band labelledBy="faq-heading" tone="surface">
       <div className="mx-auto max-w-intro space-y-8">
         <SectionHeading id="faq-heading" title="Frequently asked questions" />
-        <div className="divide-y divide-border rounded-lg border border-border">
+        <div className="divide-y divide-rs-border rounded-lg border border-rs-border">
           {faq.map((entry) => (
             <details key={entry.question} className="group">
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-4 p-5 font-semibold focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none focus-visible:ring-inset [&::-webkit-details-marker]:hidden">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-4 p-5 font-medium focus-visible:shadow-[inset_0_0_0_2px_var(--rs-accent)] focus-visible:outline-none [&::-webkit-details-marker]:hidden">
                 <h3>{entry.question}</h3>
-                <span className="text-xl text-primary transition-transform group-open:rotate-45" aria-hidden="true">
+                <span className="text-xl text-rs-accent-strong transition-transform group-open:rotate-45" aria-hidden="true">
                   +
                 </span>
               </summary>
-              <p className="max-w-text px-5 pb-5 text-text-muted">{entry.answer}</p>
+              <p className="max-w-text px-5 pb-5 text-rs-text-muted">{entry.answer}</p>
             </details>
           ))}
         </div>
@@ -368,15 +424,15 @@ export function Faq() {
 
 export function CallToAction() {
   return (
-    <section aria-labelledby="cta-heading" className="bg-primary">
+    <section aria-labelledby="cta-heading" className="bg-rs-accent-strong">
       <Container size="marketing" className="flex flex-col items-start gap-6 py-14 md:flex-row md:items-center md:justify-between md:py-16">
         <div className="max-w-intro space-y-2">
-          <h2 id="cta-heading" className="text-2xl font-semibold text-surface md:text-3xl">
+          <h2 id="cta-heading" className="text-rs-h3 leading-rs-tight font-bold text-rs-surface md:text-rs-h2">
             Start your research network
           </h2>
-          <p className="text-lg text-surface">Build your profile and meet researchers whose work fits yours.</p>
+          <p className="text-lg text-rs-surface">Build your profile and meet researchers whose work fits yours.</p>
         </div>
-        <Link href="/register" className={buttonClass({ variant: "inverse" })}>
+        <Link href="/register" className={rsButtonClass({ variant: "inverse", size: "lg" })}>
           Join now
         </Link>
       </Container>

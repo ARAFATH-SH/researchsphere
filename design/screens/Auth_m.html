@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Register, log in, verify and reset</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#fff}
+a{color:#0F766E}a:hover{color:#115E59}
+p+p{margin-top:8px!important}
+/* card elevation */
+[style*="solid #DDE3E1"][style*="radius:10px"],[style*="solid #DDE3E1"][style*="radius: 10px"],[style*="solid #DDE3E1"][style*="radius:12px"],[style*="solid #DDE3E1"][style*="radius: 12px"],[style*="solid #F4C7C3"][style*="radius:10px"],[style*="solid #F4C7C3"][style*="radius: 10px"],[style*="solid #F4C7C3"][style*="radius:12px"],[style*="solid #F4C7C3"][style*="radius: 12px"],[style*="dashed #8A979E"][style*="radius:10px"],[style*="dashed #8A979E"][style*="radius: 10px"],[style*="dashed #8A979E"][style*="radius:12px"],[style*="dashed #8A979E"][style*="radius: 12px"]{background-color:#FFFFFF;box-shadow:0 2px 6px rgba(16,24,40,.06),0 12px 32px rgba(16,24,40,.12)}
+.rs-post,.rs-profile{box-shadow:0 2px 6px rgba(16,24,40,.06),0 12px 32px rgba(16,24,40,.12)!important}
+body{background:#FFFFFF}
+/* mobile */
+@media (max-width:640px){
+body{padding-bottom:56px}
+main{padding:16px 12px 32px!important;gap:16px!important}
+[style*="max-width:240px"],[style*="max-width:250px"],[style*="max-width:260px"],[style*="max-width:320px"],[style*="max-width:340px"],[style*="max-width:400px"],[style*="max-width:420px"]{max-width:none!important}
+[style*="grid-template-columns:repeat(2,minmax(0,1fr))"],[style*="grid-template-columns:repeat(3,minmax(0,1fr))"]{grid-template-columns:1fr!important}
+[style*="grid-template-columns:repeat(4,minmax(0,1fr))"]{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+h1[style*="font-size:52px"]{font-size:32px!important}
+p[style*="font-size:20px"]{font-size:16px!important}
+.rs-nav-inner{padding:0 12px}
+.rs-search{flex:1 1 auto!important}
+.rs-search .rs-search-txt{display:inline!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rs-nav .rs-tabs{position:fixed;left:0;right:0;bottom:0;height:56px;margin:0;background:var(--n-bg);border-top:1px solid var(--n-border);justify-content:space-around;z-index:50}
+.rs-nav .rs-tabs .rs-tab,.rs-nav .rs-tabs>span{flex:1;width:auto;height:56px}
+.rs-nav .rs-tabs .rs-tab-lbl{display:flex!important;font-size:10px}
+.rs-nav .rs-tab[aria-current="page"]::after{top:0;bottom:auto}
+.rs-nav-inner>div>.rs-tab{display:none}
+.rs-menu{position:fixed!important;top:auto!important;bottom:64px;left:8px;right:8px;width:auto!important}
+.rs-post-actions .rs-act span{display:none}
+}
+.rs-nav{--n-bg:#ffffff;--n-border:#e2e7e7;--n-text:rgba(0,0,0,.9);--n-muted:rgba(0,0,0,.6);--n-accent:#0B7A75;--n-search:#edf3f3;position:sticky;top:0;z-index:50;height:52px;background:var(--n-bg);border-bottom:1px solid var(--n-border);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:var(--n-text)}
+[data-theme="dark"] .rs-nav,.rs-nav[data-theme="dark"]{--n-bg:#0d1b1a;--n-border:#09615D;--n-text:#ffffff;--n-muted:rgba(255,255,255,.7);--n-accent:#a3e2de;--n-search:#09615D}
+.rs-nav-inner{max-width:1128px;height:52px;margin:0 auto;padding:0 16px;display:flex;align-items:center;gap:8px;box-sizing:border-box}
+.rs-logo{flex:none;width:34px;height:34px;border-radius:4px;background:var(--n-accent);color:var(--n-bg)!important;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;text-decoration:none!important}
+.rs-search{flex:0 1 280px;min-width:0;height:34px;display:flex;align-items:center;gap:8px;padding:0 10px;border-radius:4px;background:var(--n-search);color:var(--n-muted)!important;text-decoration:none!important;font-size:14px;box-sizing:border-box}
+.rs-search input{flex:1;min-width:0;border:0;outline:0;background:transparent;color:var(--n-text);font:inherit}
+.rs-search:focus-within{box-shadow:0 0 0 2px var(--n-accent)}
+.rs-tabs{margin-left:auto;display:flex;height:52px}
+.rs-tab{position:relative;width:80px;height:52px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;color:var(--n-muted)!important;text-decoration:none!important;font-size:11px;line-height:1.2;letter-spacing:.01em;box-sizing:border-box}
+.rs-tab svg{width:24px;height:24px}
+.rs-tab:hover,.rs-tab:focus-visible{color:var(--n-accent)!important}
+.rs-tab[aria-current="page"]{color:var(--n-text)!important}
+.rs-tab[aria-current="page"]::after{content:"";position:absolute;left:0;right:0;bottom:0;height:2px;background:var(--n-accent)}
+.rs-badge{position:absolute;top:4px;left:calc(50% + 4px);min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:#B42318;color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;box-sizing:border-box}
+.rs-me-img{width:24px;height:24px;border-radius:50%;object-fit:cover}
+.rs-tab-lbl{display:flex;align-items:center;gap:1px}
+.rs-menu{position:absolute;right:0;top:52px;width:264px;background:var(--n-bg);border:1px solid var(--n-border);border-radius:8px 0 8px 8px;box-shadow:0 8px 24px rgba(0,0,0,.14);padding:12px 0;z-index:60;font-size:14px;color:var(--n-text)}
+.rs-menu a{display:block;padding:6px 16px;color:var(--n-muted)!important;text-decoration:none!important}
+.rs-menu a:hover{color:var(--n-accent)!important;text-decoration:underline!important}
+.rs-menu-h{padding:8px 16px 4px;font-weight:500;font-size:14px;color:var(--n-text);border-top:1px solid var(--n-border);margin-top:8px}
+@media (max-width:760px){.rs-tab{width:52px}.rs-tab .rs-tab-lbl{display:none}.rs-search{flex:0 1 40px}.rs-search .rs-search-txt{display:none}}
+.rs-footer{--f-bg:#f4f6f6;--f-border:#e2e7e7;--f-text:#191919;--f-muted:#5c6868;--f-link:#46625f;--f-accent:#0B7A75;--f-control:#8A979E;background:var(--f-bg);color:var(--f-text);border-top:1px solid var(--f-border);font:12px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+.rs-footer[data-theme="dark"]{--f-bg:#09615D;--f-border:#0B7A75;--f-text:#F3F8F8;--f-muted:#C9E4E2;--f-link:#D6EEEC;--f-accent:#a3e2de;--f-control:#a3e2de}
+.rs-footer a{color:var(--f-link);text-decoration:none}
+.rs-footer a:hover,.rs-footer a:focus-visible,.rs-footer a[aria-current]{color:var(--f-accent);text-decoration:underline}
+.rs-f-inner{max-width:1128px;margin:0 auto;padding:24px 16px;display:grid;grid-template-columns:minmax(150px,1.1fr) repeat(3,minmax(110px,1fr)) minmax(190px,1.4fr) minmax(150px,1fr);gap:16px 0}
+.rs-f-brand{padding-right:16px}
+.rs-f-logo{display:inline-flex;align-items:center;gap:6px;font-weight:700;font-size:14px;color:var(--f-accent)!important;text-decoration:none!important}
+.rs-f-mark{width:22px;height:22px;border-radius:5px;background:var(--f-accent);color:var(--f-bg);display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700}
+.rs-f-copy{margin:6px 0 0!important;color:var(--f-muted)}
+.rs-f-col{display:flex;flex-direction:column;gap:6px;padding:0 16px;border-left:1px solid var(--f-border)}
+.rs-f-title{font-weight:500;color:var(--f-text);margin-bottom:2px}
+.rs-f-short{display:flex;flex-direction:column;gap:10px}
+.rs-f-short a{font-weight:500;color:var(--f-text)}
+.rs-f-sub{display:block;color:var(--f-muted)}
+.rs-f-lang label{display:block;color:var(--f-muted);margin-bottom:4px}
+.rs-f-lang select{width:100%;height:32px;border:1px solid var(--f-control);border-radius:4px;background:var(--f-bg);color:var(--f-text);font:inherit;padding:0 6px}
+.rs-f-lang select:focus-visible{outline:2px solid var(--f-accent);outline-offset:1px}
+@media (max-width:960px){.rs-f-inner{grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.rs-f-brand{grid-column:1/-1;padding:0}.rs-f-col{border-left:0;padding:0}}
+@media (max-width:560px){.rs-f-inner{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.rs-footer-compact{border:1px solid var(--f-border);border-radius:10px}
+.rs-f-compact{padding:12px;display:flex;flex-wrap:wrap;gap:4px 12px;justify-content:center;text-align:center}
+input{box-sizing:border-box}
+</style>
+</helmet>
+<div style="font-family:'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:14px;line-height:1.45;color:#191919;background:#FFFFFF;min-height:100%">
+  <header class="rs-nav" data-theme="{{theme}}">
+    <nav class="rs-nav-inner" aria-label="Visitor">
+      <a href="Landing_m.dc.html" style="display:flex;align-items:center;gap:8px;text-decoration:none;color:var(--n-accent);font-weight:700;font-size:18px"><span class="rs-logo" aria-hidden="true">RS</span>ResearchSphere</a>
+      <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+        <a href="Events_m.dc.html" class="rs-tab" style="width:auto;padding:0 12px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M3 10h18M8 3v4M16 3v4"></path></svg><span class="rs-tab-lbl">Events</span></a>
+        <a href="Auth_m.dc.html" style="height:36px;box-sizing:border-box;display:flex;align-items:center;padding:0 18px;border:1px solid var(--n-accent);border-radius:999px;color:var(--n-accent);text-decoration:none;font-weight:500;font-size:14px">Sign in</a>
+        <a href="Auth_m.dc.html" style="height:36px;box-sizing:border-box;display:flex;align-items:center;padding:0 18px;border-radius:999px;background:var(--n-accent);color:var(--n-bg);text-decoration:none;font-weight:500;font-size:14px">Join now</a>
+      </div>
+    </nav>
+  </header>
+
+  <main style="max-width:1128px;margin:0 auto;padding:32px 16px 56px;display:flex;flex-direction:column;gap:20px">
+    <div>
+      <h1 style="margin:0;font-size:24px;font-weight:700;line-height:1.2">Account access</h1>
+      <p style="margin:4px 0 0;font-size:14px;color:#666666">Registration, login, email verification, password reset and the access states a visitor can hit.</p>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:20px;align-items:start">
+
+      <!-- Register -->
+      <section aria-labelledby="reg-h" style="border:1px solid #DDE3E1;border-radius:12px;padding:24px;display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap">
+          <h2 id="reg-h" style="margin:0;font-size:16px;font-weight:500;line-height:1.3">Join ResearchSphere</h2>
+          <sc-if value="{{showFR}}" hint-placeholder-val="{{true}}"></sc-if>
+        </div>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:14px;font-weight:500">Full name
+          <input value="Zinain Afrin Elma" style="height:44px;border:1px solid #8A979E;border-radius:6px;padding:0 12px;font:400 14px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif"></label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:14px;font-weight:500">Email
+          <input value="zinain@diu.edu.bd" aria-invalid="true" style="height:44px;border:2px solid #B42318;border-radius:6px;padding:0 11px;font:400 14px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif"></label>
+        <span style="font-size:12px;color:#B42318;margin-top:-8px">This email is already registered. <a href="#login-h">Log in</a> instead.</span>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:14px;font-weight:500">Password
+          <input type="password" value="abc123" aria-invalid="true" style="height:44px;border:2px solid #B42318;border-radius:6px;padding:0 11px;font:400 14px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif"></label>
+        <span style="font-size:12px;color:#B42318;margin-top:-8px">Password must be at least 8 characters.</span>
+        <button style="height:48px;border:0;border-radius:999px;background:#0F766E;color:#FFFFFF;font:500 16px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif">Agree &amp; join</button>
+        <p style="margin:0;font-size:14px;color:#666666;text-align:center">Already on ResearchSphere? <a href="#login-h" style="font-weight:500">Sign in</a></p>
+      </section>
+
+      <!-- Verify -->
+      <section aria-labelledby="ver-h" style="border:1px solid #DDE3E1;border-radius:12px;padding:24px;display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap">
+          <h2 id="ver-h" style="margin:0;font-size:16px;font-weight:500;line-height:1.3">Check your email</h2>
+          <sc-if value="{{showFR}}" hint-placeholder-val="{{true}}"></sc-if>
+        </div>
+        <div style="width:56px;height:56px;border-radius:50%;background:#E6F4F2;display:flex;align-items:center;justify-content:center">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#0F766E" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M3 7l9 6 9-6"></path></svg>
+        </div>
+        <p style="margin:0;font-size:14px;line-height:1.5">We sent a verification link to <strong>zinain.elma@diu.edu.bd</strong>. The link works once and expires in 24 hours.</p>
+        <button style="height:44px;border:1px solid #0F766E;border-radius:999px;background:#FFFFFF;color:#0F766E;font:500 14px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif">Resend verification link</button>
+        <div style="background:#E6F4F2;border-radius:8px;padding:10px 12px;font-size:14px;color:#0B5F58">A new link is on its way. Earlier links no longer work.</div>
+        <div style="border-top:1px solid #EEF2F1;padding-top:12px;display:flex;flex-direction:column;gap:6px">
+          <span style="font-size:12px;font-weight:500;color:#666666">Link opened after it expired</span>
+          <div style="background:#FEF3F2;border:1px solid #F4C7C3;border-radius:8px;padding:10px 12px;font-size:14px;color:#912018">This verification link has expired or was already used. <a href="#ver-h" style="color:#912018;font-weight:500">Send a new link</a></div>
+        </div>
+      </section>
+
+      <!-- Login -->
+      <section aria-labelledby="login-h" style="border:1px solid #DDE3E1;border-radius:12px;padding:24px;display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap">
+          <h2 id="login-h" style="margin:0;font-size:16px;font-weight:500;line-height:1.3">Sign in</h2>
+          <sc-if value="{{showFR}}" hint-placeholder-val="{{true}}"></sc-if>
+        </div>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:14px;font-weight:500">Email
+          <input value="zinain.elma@diu.edu.bd" style="height:44px;border:1px solid #8A979E;border-radius:6px;padding:0 12px;font:400 14px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif"></label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:14px;font-weight:500">Password
+          <input type="password" value="••••••••••" style="height:44px;border:1px solid #8A979E;border-radius:6px;padding:0 12px;font:400 14px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif"></label>
+        <a href="#reset-h" style="font-size:14px;font-weight:500;align-self:flex-start">Forgot password?</a>
+        <a href="Home_m.dc.html" style="height:48px;border-radius:999px;background:#0F766E;color:#FFFFFF;font-weight:500;font-size:16px;display:flex;align-items:center;justify-content:center;text-decoration:none">Sign in</a>
+        <div style="background:#FFF8E6;border:1px solid #F0C27B;border-radius:8px;padding:10px 12px;font-size:14px;color:#7A4100">Verify your email before signing in. <a href="#ver-h" style="color:#7A4100;font-weight:500">Resend link</a></div>
+        <p style="margin:0;font-size:14px;color:#666666;text-align:center">New here? <a href="#reg-h" style="font-weight:500">Join now</a></p>
+      </section>
+
+      <!-- Lockout & suspended -->
+      <section aria-labelledby="lock-h" style="border:1px solid #DDE3E1;border-radius:12px;padding:24px;display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap">
+          <h2 id="lock-h" style="margin:0;font-size:16px;font-weight:500;line-height:1.3">Sign-in blocked states</h2>
+          <sc-if value="{{showFR}}" hint-placeholder-val="{{true}}"></sc-if>
+        </div>
+        <div style="background:#FEF3F2;border:1px solid #F4C7C3;border-radius:8px;padding:12px;display:flex;gap:10px">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#912018" stroke-width="2" stroke-linecap="round" aria-hidden="true" style="flex:none"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>
+          <div style="font-size:14px;color:#912018"><strong>Too many attempts.</strong> After 5 failed sign-ins this account is locked for 15 minutes. Try again at 7:24 PM or reset your password.</div>
+        </div>
+        <div style="background:#FEF3F2;border:1px solid #F4C7C3;border-radius:8px;padding:12px;display:flex;gap:10px">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#912018" stroke-width="2" stroke-linecap="round" aria-hidden="true" style="flex:none"><circle cx="12" cy="12" r="9"></circle><path d="M5.6 5.6l12.8 12.8"></path></svg>
+          <div style="font-size:14px;color:#912018"><strong>This account is suspended.</strong> Contact the ResearchSphere administrators if you think this is a mistake.</div>
+        </div>
+      </section>
+
+      <!-- Forgot password -->
+      <section aria-labelledby="reset-h" style="border:1px solid #DDE3E1;border-radius:12px;padding:24px;display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap">
+          <h2 id="reset-h" style="margin:0;font-size:16px;font-weight:500;line-height:1.3">Forgot password</h2>
+          <sc-if value="{{showFR}}" hint-placeholder-val="{{true}}"></sc-if>
+        </div>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:14px;font-weight:500">Email
+          <input value="zinain.elma@diu.edu.bd" style="height:44px;border:1px solid #8A979E;border-radius:6px;padding:0 12px;font:400 14px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif"></label>
+        <button style="height:48px;border:0;border-radius:999px;background:#0F766E;color:#FFFFFF;font:500 16px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif">Send reset link</button>
+        <div style="background:#E6F4F2;border-radius:8px;padding:10px 12px;font-size:14px;color:#0B5F58">If an account exists for this email, a reset link is on its way. It works once and expires in 1 hour.</div>
+      </section>
+
+      <!-- New password -->
+      <section aria-labelledby="newpw-h" style="border:1px solid #DDE3E1;border-radius:12px;padding:24px;display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap">
+          <h2 id="newpw-h" style="margin:0;font-size:16px;font-weight:500;line-height:1.3">Choose a new password</h2>
+          <sc-if value="{{showFR}}" hint-placeholder-val="{{true}}"></sc-if>
+        </div>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:14px;font-weight:500">New password
+          <input type="password" value="••••••••••" style="height:44px;border:1px solid #8A979E;border-radius:6px;padding:0 12px;font:400 14px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif"></label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:14px;font-weight:500">Confirm new password
+          <input type="password" value="••••••••••" style="height:44px;border:1px solid #8A979E;border-radius:6px;padding:0 12px;font:400 14px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif"></label>
+        <p style="margin:0;font-size:12px;color:#666666">At least 8 characters. Saving signs you out on every device.</p>
+        <button style="height:48px;border:0;border-radius:999px;background:#0F766E;color:#FFFFFF;font:500 16px 'Source Sans 3','Helvetica Neue',Arial,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif">Save password</button>
+      </section>
+
+      <!-- Access states -->
+      <section aria-labelledby="acc-h" style="border:1px solid #DDE3E1;border-radius:12px;padding:24px;display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap">
+          <h2 id="acc-h" style="margin:0;font-size:16px;font-weight:500;line-height:1.3">Access states</h2>
+          <sc-if value="{{showFR}}" hint-placeholder-val="{{true}}"></sc-if>
+        </div>
+        <div style="border:1px solid #DDE3E1;border-radius:8px;padding:14px;display:flex;flex-direction:column;gap:8px">
+          <strong style="font-size:14px">Your session has ended</strong>
+          <span style="font-size:14px;color:#666666">Sign in again to continue. Your unsaved draft is kept.</span>
+          <a href="#login-h" style="align-self:flex-start;background:#0F766E;color:#FFFFFF;text-decoration:none;border-radius:999px;padding:8px 18px;font-weight:500;font-size:14px">Sign in</a>
+        </div>
+        <div style="border:1px solid #DDE3E1;border-radius:8px;padding:14px;display:flex;flex-direction:column;gap:8px">
+          <strong style="font-size:14px">You don’t have access to this</strong>
+          <span style="font-size:14px;color:#666666">Ask the project owner for a role, or go back.</span>
+          <a href="Home_m.dc.html" style="align-self:flex-start;color:#0F766E;border:1px solid #0F766E;text-decoration:none;border-radius:999px;padding:7px 17px;font-weight:500;font-size:14px">Back to home</a>
+        </div>
+      </section>
+    </div>
+  </main>
+  <footer class="rs-footer" data-theme="{{theme}}" aria-label="Site footer">
+    <div class="rs-f-inner">
+      <div class="rs-f-brand">
+        <a href="Home_m.dc.html" class="rs-f-logo"><span class="rs-f-mark">RS</span>ResearchSphere</a>
+        <p class="rs-f-copy">ResearchSphere © 2026</p>
+      </div>
+      <nav class="rs-f-col" aria-label="About">
+        <span class="rs-f-title">About</span>
+        <a href="#">About ResearchSphere</a>
+        <a href="#">Community guidelines</a>
+        <a href="#">Privacy &amp; terms</a>
+        <a href="#">Accessibility</a>
+      </nav>
+      <nav class="rs-f-col" aria-label="For researchers">
+        <span class="rs-f-title">For researchers</span>
+        <a href="Network_m.dc.html">Find collaborators</a>
+        <a href="Projects_m.dc.html">Research projects</a>
+        <a href="Events_m.dc.html">Events &amp; venues</a>
+        <a href="Workspace_m.dc.html">LaTeX workspace</a>
+      </nav>
+      <nav class="rs-f-col" aria-label="Platform">
+        <span class="rs-f-title">Platform</span>
+        <a href="#">How AI matching works</a>
+        <a href="#">Publications &amp; ORCID</a>
+        <a href="#">Safety center</a>
+        <a href="#">Developers</a>
+      </nav>
+      <div class="rs-f-col rs-f-short">
+        <span><a href="#">Questions?</a><span class="rs-f-sub">Visit our Help Center.</span></span>
+        <span><a href="Settings_m.dc.html">Manage your account and privacy</a><span class="rs-f-sub">Go to your Settings.</span></span>
+        <span><a href="#">Report a problem</a><span class="rs-f-sub">Content, safety and bug reports.</span></span>
+      </div>
+      <div class="rs-f-col rs-f-lang">
+        <label for="rs-lang">Select language</label>
+        <select id="rs-lang"><option>English (English)</option><option>বাংলা (Bangla)</option></select>
+      </div>
+    </div>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"showFR":{"editor":"boolean","default":true},"$preview":{"width":390,"height":3840}}'>
+class Component extends DCLogic {
+  renderVals() { return { theme: this.props.theme ?? 'light', showFR: this.props.showFR ?? true }; }
+}
+</script>
+</body>
+</html>

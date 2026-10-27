@@ -2,8 +2,8 @@
 
 import { type FormEvent, useState } from "react";
 
-import { buttonClass } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { SectionCard } from "@/components/section-layout";
+import { rsButtonClass } from "@/components/ui/button";
 import { Field, FormError } from "@/components/ui/field";
 
 import { changePassword } from "./api";
@@ -74,24 +74,17 @@ export function ChangePasswordForm() {
   }
 
   return (
-    <section aria-labelledby="change-password-title">
-      <Card className="grid gap-6 p-6 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-        <div>
-          <h2 id="change-password-title" className="text-lg font-semibold">
-            Change password
-          </h2>
-          <p className="mt-1 text-sm text-text-muted">
-            Changing your password signs you out on your other devices. You stay signed in here.
+    <SectionCard id="change-password" title="Change password">
+      <form noValidate onSubmit={onSubmit} className="flex flex-col gap-3">
+        {formError ? <FormError look="rs">{formError}</FormError> : null}
+        {done ? (
+          <p role="status" className="rounded-rs-md bg-rs-accent-soft px-3 py-2.5 text-rs-body text-rs-heading">
+            Your password has been changed. You have been signed out on your other devices.
           </p>
-        </div>
-        <form noValidate onSubmit={onSubmit} className="space-y-4">
-          {formError ? <FormError>{formError}</FormError> : null}
-          {done ? (
-            <p role="status" className="rounded-lg border border-primary/30 bg-primary-soft p-3 text-sm text-text">
-              Your password has been changed. You have been signed out on your other devices.
-            </p>
-          ) : null}
+        ) : null}
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(200px,1fr))] items-start gap-3">
           <Field
+            look="rs"
             id="currentPassword"
             name="currentPassword"
             label="Current password"
@@ -102,6 +95,7 @@ export function ChangePasswordForm() {
             onChange={(e) => set("currentPassword", e.target.value)}
           />
           <Field
+            look="rs"
             id="newPassword"
             name="newPassword"
             label="New password"
@@ -113,6 +107,7 @@ export function ChangePasswordForm() {
             onChange={(e) => set("newPassword", e.target.value)}
           />
           <Field
+            look="rs"
             id="confirmPassword"
             name="confirmPassword"
             label="Confirm new password"
@@ -122,11 +117,16 @@ export function ChangePasswordForm() {
             value={values.confirmPassword}
             onChange={(e) => set("confirmPassword", e.target.value)}
           />
-          <button type="submit" disabled={submitting} className={buttonClass({ variant: "primary" })}>
-            {submitting ? "Saving…" : "Change password"}
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <button type="submit" disabled={submitting} className={rsButtonClass({ size: "form" })}>
+            {submitting ? "Saving…" : "Save password"}
           </button>
-        </form>
-      </Card>
-    </section>
+          <span className="text-rs-caption text-rs-text-muted">
+            Changing your password signs you out on your other devices. You stay signed in here.
+          </span>
+        </div>
+      </form>
+    </SectionCard>
   );
 }

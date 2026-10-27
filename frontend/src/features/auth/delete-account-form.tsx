@@ -1,10 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { type FormEvent, useState } from "react";
 
-import { buttonClass } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Field, FormError } from "@/components/ui/field";
+import { SectionCard } from "@/components/section-layout";
+import { rsButtonClass } from "@/components/ui/button";
+import { CheckboxField, Field, FormError } from "@/components/ui/field";
 
 import { markAccountDeleted } from "./account-deleted";
 import { deleteAccount, type ProjectRef } from "./api";
@@ -51,53 +52,58 @@ export function DeleteAccountForm({ onDeleted = leave }: { onDeleted?: () => voi
   }
 
   return (
-    <section aria-labelledby="delete-account-title">
-      <Card className="grid gap-6 border-danger/40 p-6 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-        <div>
-          <h2 id="delete-account-title" className="text-lg font-semibold text-danger">
-            Delete account
-          </h2>
-          <p className="mt-1 text-sm text-text-muted">
-            This deletes your profile, posts, comments, likes, connections and the projects where you are the only
-            member. Publications you share with a co-author stay for that co-author. It cannot be undone.
-          </p>
-        </div>
-        <form noValidate onSubmit={onSubmit} className="space-y-4">
-          {formError ? <FormError>{formError}</FormError> : null}
-          {blocking.length > 0 ? (
-            <div className="text-sm">
-              <p className="font-semibold">Transfer or delete these projects first:</p>
-              <ul className="mt-1 list-disc pl-5">
-                {blocking.map((p) => (
-                  <li key={p.id}>{p.title}</li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-          <Field
-            id="deletePassword"
-            name="password"
-            label="Password"
-            type="password"
-            autoComplete="current-password"
-            error={passwordError}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-          <label className="flex items-start gap-2 text-sm">
-            <input
-              type="checkbox"
-              className="mt-0.5 h-4 w-4 accent-danger"
-              checked={confirmed}
-              onChange={(e) => setConfirmed(e.target.checked)}
-            />
-            I understand this cannot be undone
-          </label>
-          <button type="submit" disabled={!ready} className={buttonClass({ variant: "danger" })}>
-            {submitting ? "Deleting…" : "Delete account"}
-          </button>
-        </form>
-      </Card>
-    </section>
+    <SectionCard id="delete-account" title="Delete account" tone="danger">
+      <p className="text-rs-body text-rs-text">
+        Deletes your profile, posts, comments, likes and connections right away, with the projects where you are the
+        only member. Publications you share with a co-author stay on their profile. It cannot be undone.
+      </p>
+      <form noValidate onSubmit={onSubmit} className="flex flex-col gap-3">
+        {blocking.length > 0 ? (
+          <div
+            role="alert"
+            className="rounded-rs-md border border-rs-warning-line bg-rs-warning-soft p-3 text-rs-body text-rs-warning"
+          >
+            <p>{formError}</p>
+            <ul className="mt-1 list-disc pl-5">
+              {blocking.map((p) => (
+                <li key={p.id}>
+                  You own{" "}
+                  <Link href={`/projects/${p.id}`} className="font-medium text-rs-warning underline">
+                    {p.title}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-1">Transfer ownership or delete each project before deleting your account.</p>
+          </div>
+        ) : formError ? (
+          <FormError look="rs">{formError}</FormError>
+        ) : null}
+        <Field
+          look="rs"
+          className="max-w-[360px]"
+          id="deletePassword"
+          name="password"
+          label="Enter your password to confirm"
+          type="password"
+          autoComplete="current-password"
+          error={passwordError}
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        />
+        <CheckboxField
+          label="I understand this cannot be undone"
+          checked={confirmed}
+          onChange={(e) => setConfirmed(e.target.checked)}
+        />
+        <button
+          type="submit"
+          disabled={!ready}
+          className={`self-start ${rsButtonClass({ variant: "destructive", size: "form" })}`}
+        >
+          {submitting ? "Deleting…" : "Delete my account"}
+        </button>
+      </form>
+    </SectionCard>
   );
 }
