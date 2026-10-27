@@ -33,7 +33,7 @@ export function buttonClass({
 
 // rsButtonClass is the design's pill (design/screens, UI.3): rs-accent-strong, 500 weight,
 // a 1px border on every variant so filled and outline pills are the same size.
-export type RsButtonVariant = "primary" | "outline" | "inverse" | "secondary" | "danger";
+export type RsButtonVariant = "primary" | "outline" | "inverse" | "secondary" | "danger" | "destructive";
 
 const rsBase =
   "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-rs-pill border font-medium " +
@@ -49,6 +49,8 @@ const rsVariants: Record<RsButtonVariant, string> = {
   secondary: "border-rs-control bg-rs-surface text-rs-text hover:bg-rs-subtle",
   // danger is the action that destroys data, such as Delete: rs-danger outline.
   danger: "border-rs-danger bg-rs-surface text-rs-danger hover:bg-rs-danger-soft",
+  // destructive is the filled rs-danger pill that confirms it, such as "Delete my account".
+  destructive: "border-rs-danger bg-rs-danger text-rs-surface hover:border-rs-danger-strong hover:bg-rs-danger-strong",
 };
 
 const rsSizes = {

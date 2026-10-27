@@ -37,14 +37,14 @@ describe("AdminUsers", () => {
       "Email",
       "Role",
       "Verified",
-      "Suspended",
+      "Status",
       "Joined",
     ]);
     const rows = within(table).getAllByRole("row").slice(1);
     const cells = rows.map((r) => within(r).getAllByRole("cell").map((c) => c.textContent));
     expect(cells).toEqual([
-      ["Ada Lovelace", "ada@example.org", "Admin", "Yes", "No", "1 Oct 2026"],
-      ["Bob Babbage", "bob@example.org", "Researcher", "No", "Yes", "15 Sept 2026"],
+      ["Ada Lovelace", "ada@example.org", "Admin", "Yes", "Active", "1 Oct 2026"],
+      ["Bob Babbage", "bob@example.org", "Researcher", "No", "Suspended", "15 Sept 2026"],
     ]);
     expect(screen.getByText("2 accounts")).toBeTruthy();
     // Read only until slice 27: no suspend action.
