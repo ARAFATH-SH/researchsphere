@@ -2,7 +2,8 @@
 // editing its basic fields (FR-4.1), research interests and skills as tags (FR-4.2) with
 // suggestions (FR-4.3), education entries (FR-4.4), contact info and links with who may
 // see them (FR-4.7), work experience entries (FR-4.8), languages (FR-4.9), and showing
-// any user's profile to a logged-in user (FR-4.5). It imports only the profile domain.
+// any user's profile to a logged-in user (FR-4.5), and publications added by hand, listed
+// and removed (FR-5.1, FR-5.4, FR-5.5, FR-5.7). It imports only the profile domain.
 package usecase
 
 import (
@@ -86,7 +87,7 @@ func profileOf(a domain.Account) domain.Profile {
 }
 
 // withDetails fills the profile's interests, skills, education and experience entries,
-// languages and the contact info viewerID may see.
+// languages, the contact info viewerID may see and the number of confirmed publications.
 func (s *Service) withDetails(ctx context.Context, p domain.Profile, viewerID string) (domain.Profile, error) {
 	var err error
 	if p.Interests, err = s.store.ListTags(ctx, p.UserID, domain.KindInterest); err != nil {
@@ -110,5 +111,8 @@ func (s *Service) withDetails(ctx context.Context, p domain.Profile, viewerID st
 		return domain.Profile{}, err
 	}
 	p.Contact = VisibleTo(viewerID, c)
+	if p.PublicationCount, err = s.store.CountConfirmedPublications(ctx, p.UserID); err != nil {
+		return domain.Profile{}, err
+	}
 	return p, nil
 }

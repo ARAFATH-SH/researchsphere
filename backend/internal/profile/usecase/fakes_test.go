@@ -9,6 +9,7 @@ import (
 	"math"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/profile/domain"
 )
@@ -45,6 +46,20 @@ type fakeStore struct {
 	contacts     map[string]domain.Contact // by user ID, without links
 	profileLinks map[string]domain.Link    // by ID
 	nextLink     int
+
+	publications map[string]domain.Publication     // by ID
+	pubLinks     map[string]map[string]fakePubLink // publication ID -> user ID -> link
+	nextPub      int
+	clock        time.Time // the time of the next link; each link moves it on a second
+	// hideDOIOnce makes the next FindPublicationByDOI miss an existing record, as if
+	// another user stored it just after the lookup.
+	hideDOIOnce bool
+}
+
+// fakePubLink is a user's link to a publication.
+type fakePubLink struct {
+	confirmed bool
+	at        time.Time
 }
 
 func newFakeStore(accounts ...domain.Account) *fakeStore {
@@ -60,6 +75,10 @@ func newFakeStore(accounts ...domain.Account) *fakeStore {
 		emails:       map[string]string{},
 		contacts:     map[string]domain.Contact{},
 		profileLinks: map[string]domain.Link{},
+
+		publications: map[string]domain.Publication{},
+		pubLinks:     map[string]map[string]fakePubLink{},
+		clock:        time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC),
 	}
 	for _, a := range accounts {
 		s.accounts[a.UserID] = a
@@ -103,7 +122,13 @@ func (s *fakeStore) RunInTx(_ context.Context, fn func(domain.Tx) error) error {
 	experience, nextExperience := maps.Clone(s.experience), s.nextExperience
 	languages, nextLanguage := maps.Clone(s.languages), s.nextLanguage
 	profileLinks, nextLink := maps.Clone(s.profileLinks), s.nextLink
+	publications, nextPub := maps.Clone(s.publications), s.nextPub
+	pubLinks := map[string]map[string]fakePubLink{}
+	for id, users := range s.pubLinks {
+		pubLinks[id] = maps.Clone(users)
+	}
 	if err := fn(s); err != nil {
+		s.publications, s.pubLinks, s.nextPub = publications, pubLinks, nextPub
 		s.tags, s.links, s.nextTag = tags, links, next
 		s.education, s.nextEducation = education, nextEducation
 		s.experience, s.nextExperience = experience, nextExperience
@@ -551,4 +576,151 @@ func testAccounts() []domain.Account {
 		{UserID: dianaID, Profile: &domain.Profile{UserID: dianaID, FullName: "Diana Unverified"}},
 		{UserID: eveID, Verified: true, Profile: &domain.Profile{UserID: eveID, FullName: "Eve"}},
 	}
+}
+
+func (s *fakeStore) CountPublicationLinks(_ context.Context, userID string) (int, error) {
+	n := 0
+	for _, users := range s.pubLinks {
+		if _, ok := users[userID]; ok {
+			n++
+		}
+	}
+	return n, nil
+}
+
+func (s *fakeStore) FindPublicationByDOI(_ context.Context, doi string) (domain.Publication, error) {
+	if s.hideDOIOnce {
+		s.hideDOIOnce = false
+		return domain.Publication{}, domain.ErrNotFound
+	}
+	for _, p := range s.publications {
+		if p.DOI != nil && *p.DOI == doi {
+			return p, nil
+		}
+	}
+	return domain.Publication{}, domain.ErrNotFound
+}
+
+// InsertPublication refuses a DOI another record has, as the unique index does.
+func (s *fakeStore) InsertPublication(_ context.Context, p domain.Publication) (domain.Publication, error) {
+	if p.DOI != nil {
+		for _, o := range s.publications {
+			if o.DOI != nil && *o.DOI == *p.DOI {
+				return domain.Publication{}, domain.ErrDuplicateDOI
+			}
+		}
+	}
+	s.nextPub++
+	p.ID = fmt.Sprintf("pub-%03d", s.nextPub)
+	p.CreatedAt, p.UpdatedAt = s.clock, s.clock
+	s.publications[p.ID] = p
+	return p, nil
+}
+
+func (s *fakeStore) PublicationLink(_ context.Context, userID, publicationID string) (domain.LinkState, error) {
+	l, ok := s.pubLinks[publicationID][userID]
+	switch {
+	case !ok:
+		return domain.NotLinked, nil
+	case l.confirmed:
+		return domain.Confirmed, nil
+	default:
+		return domain.Unconfirmed, nil
+	}
+}
+
+func (s *fakeStore) LinkPublication(_ context.Context, userID, publicationID string) error {
+	s.link(userID, publicationID, true)
+	return nil
+}
+
+func (s *fakeStore) ConfirmPublication(_ context.Context, userID, publicationID string) error {
+	l := s.pubLinks[publicationID][userID]
+	l.confirmed = true
+	s.pubLinks[publicationID][userID] = l
+	return nil
+}
+
+func (s *fakeStore) FindPublicationForUpdate(_ context.Context, userID, id string) (domain.Publication, error) {
+	if _, ok := s.pubLinks[id][userID]; !ok {
+		return domain.Publication{}, domain.ErrNotFound
+	}
+	return s.publications[id], nil
+}
+
+func (s *fakeStore) CountPublicationAuthors(_ context.Context, publicationID string) (int, error) {
+	return len(s.pubLinks[publicationID]), nil
+}
+
+func (s *fakeStore) UpdatePublication(_ context.Context, p domain.Publication) (domain.Publication, error) {
+	if p.DOI != nil {
+		for _, o := range s.publications {
+			if o.ID != p.ID && o.DOI != nil && *o.DOI == *p.DOI {
+				return domain.Publication{}, domain.ErrDuplicateDOI
+			}
+		}
+	}
+	p.UpdatedAt = s.clock
+	s.publications[p.ID] = p
+	return p, nil
+}
+
+func (s *fakeStore) UnlinkPublication(_ context.Context, userID, publicationID string) error {
+	if _, ok := s.pubLinks[publicationID][userID]; !ok {
+		return domain.ErrNotFound
+	}
+	delete(s.pubLinks[publicationID], userID)
+	return nil
+}
+
+func (s *fakeStore) DeletePublicationIfOrphaned(_ context.Context, publicationID string) error {
+	if len(s.pubLinks[publicationID]) == 0 {
+		delete(s.pubLinks, publicationID)
+		delete(s.publications, publicationID)
+	}
+	return nil
+}
+
+func (s *fakeStore) ListConfirmedPublications(_ context.Context, userID string) ([]domain.Publication, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	var out []domain.Publication
+	for id, users := range s.pubLinks {
+		if l, ok := users[userID]; ok && l.confirmed {
+			p := s.publications[id]
+			p.AddedAt = l.at
+			out = append(out, p)
+		}
+	}
+	return out, nil
+}
+
+func (s *fakeStore) CountConfirmedPublications(ctx context.Context, userID string) (int, error) {
+	ps, err := s.ListConfirmedPublications(ctx, userID)
+	return len(ps), err
+}
+
+// link links the user to the publication at the fake clock's time.
+func (s *fakeStore) link(userID, publicationID string, confirmed bool) {
+	if s.pubLinks[publicationID] == nil {
+		s.pubLinks[publicationID] = map[string]fakePubLink{}
+	}
+	s.pubLinks[publicationID][userID] = fakePubLink{confirmed: confirmed, at: s.clock}
+	s.clock = s.clock.Add(time.Second)
+}
+
+// givePublication stores p as a record already in the database, with the users linked
+// to it (confirmed when confirmed is true), and returns its ID.
+func (s *fakeStore) givePublication(p domain.Publication, confirmed bool, userIDs ...string) string {
+	s.nextPub++
+	p.ID = fmt.Sprintf("pub-%03d", s.nextPub)
+	if p.Source == "" {
+		p.Source = domain.SourceManual
+	}
+	s.publications[p.ID] = p
+	for _, u := range userIDs {
+		s.link(u, p.ID, confirmed)
+	}
+	return p.ID
 }

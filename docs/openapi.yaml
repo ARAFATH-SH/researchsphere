@@ -1305,6 +1305,203 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /profiles/me/publications:
+    get:
+      operationId: listMyPublications
+      summary: List the logged-in user's confirmed publications (FR-5.5)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed,
+        events and recommendations" (SRS 2.3). Only publications the user has confirmed
+        are listed, sorted by year, newest first (no year last), then by when the user
+        added them, newest first.
+      tags: [profile]
+      parameters:
+        - $ref: "#/components/parameters/PublicationListPage"
+        - $ref: "#/components/parameters/PublicationListPageSize"
+      responses:
+        "200":
+          description: One page of the caller's publications.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicationPage"
+        "400":
+          description: "`page` or `pageSize` is not a whole number of at least 1 (`bad_request`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      operationId: addMyPublication
+      summary: Add a publication to the logged-in user's profile by hand (FR-5.1, FR-5.4)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Text is trimmed; an optional field that is missing, null
+        or empty after trimming is stored as null. The DOI is stored in its bare,
+        lower-case form: a leading `https://doi.org/`, `http://doi.org/`,
+        `https://dx.doi.org/`, `http://dx.doi.org/` or `doi:` is removed. A publication
+        with a given DOI is stored once (FR-5.4): when one with the same DOI already
+        exists, the caller is linked to it, the other fields in the body are ignored, and
+        the answer is the existing record with `linked` true. The caller's link is
+        confirmed. A user has at most 300 publications.
+      tags: [profile]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublicationCreate"
+      responses:
+        "201":
+          description: The stored publication, or the existing one the caller is now linked to.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicationAdded"
+        "400":
+          $ref: "#/components/responses/InvalidPublication"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: |
+            The user already has 300 publications (`publication_limit_reached`), or already
+            has the publication with this DOI on their profile (`publication_already_added`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /profiles/me/publications/{publicationId}:
+    patch:
+      operationId: updateMyPublication
+      summary: Change some fields of one of the logged-in user's publications (FR-5.1)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). A field that is missing keeps its value; `null` clears
+        `venue`, `abstract`, `url` or `doi`. The rules of PublicationCreate apply to the
+        record after the change. Only a publication that was added by hand and that no
+        other user is linked to can be changed. A publication the caller is not linked to
+        gets 404 `not_found`, before the body is checked.
+      tags: [profile]
+      parameters:
+        - $ref: "#/components/parameters/PublicationID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublicationUpdate"
+      responses:
+        "200":
+          description: The publication after the change.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Publication"
+        "400":
+          $ref: "#/components/responses/InvalidPublication"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: The user has no publication with this ID (`not_found`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: |
+            Another user is linked to the publication or it was not added by hand
+            (`publication_shared_readonly`), or another publication already has the new DOI
+            (`duplicate_doi`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: removeMyPublication
+      summary: Remove a publication from the logged-in user's profile (FR-5.7)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Removes only the caller's link; the publication stays for
+        every other linked user and is deleted when no user is linked to it any more. A
+        publication the caller is not linked to gets 404 `not_found`.
+      tags: [profile]
+      parameters:
+        - $ref: "#/components/parameters/PublicationID"
+      responses:
+        "204":
+          description: The publication is removed from the caller's profile.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: The user has no publication with this ID (`not_found`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /profiles/{userId}/publications:
+    get:
+      operationId: listPublications
+      summary: List any user's confirmed publications to a logged-in user (FR-5.5)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed,
+        events and recommendations" (SRS 2.3). Only publications the user has confirmed
+        are listed, in the order of `listMyPublications`. An unknown, suspended or
+        unverified account gets the same 404 `not_found`, as for the profile.
+      tags: [profile]
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          description: |
+            The user's ID, a UUID. It is declared as a plain string so that the login check
+            runs before it is read (FR-3.1); a value that is not a UUID names no user and
+            gets 404 `not_found`.
+          schema:
+            type: string
+        - $ref: "#/components/parameters/PublicationListPage"
+        - $ref: "#/components/parameters/PublicationListPageSize"
+      responses:
+        "200":
+          description: One page of the user's publications.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicationPage"
+        "400":
+          description: "`page` or `pageSize` is not a whole number of at least 1 (`bad_request`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /profiles/me/photo:
     put:
       operationId: uploadMyPhoto
@@ -1491,6 +1688,36 @@ components:
         user and gets 404 `not_found`.
       schema:
         type: string
+    PublicationID:
+      name: publicationId
+      in: path
+      required: true
+      description: |
+        The publication's ID, a UUID. It is declared as a plain string so that the login
+        check runs before it is read (FR-3.1); a value that is not a UUID names no
+        publication of the user and gets 404 `not_found`.
+      schema:
+        type: string
+    PublicationListPage:
+      name: page
+      in: query
+      required: false
+      description: The page to return, from 1. Defaults to 1.
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PublicationListPageSize:
+      name: pageSize
+      in: query
+      required: false
+      description: |
+        Publications per page, from 1. Defaults to 10. A larger value than 50 is reduced
+        to 50, and the response says which size was used.
+      schema:
+        type: integer
+        minimum: 1
+        default: 10
     LinkID:
       name: linkId
       in: path
@@ -1774,9 +2001,9 @@ components:
     Profile:
       type: object
       description: |
-        A researcher's profile (FR-4.1, FR-4.2, FR-4.4, FR-4.5, FR-4.6, FR-4.7). The optional text fields are
-        always present and null when not set. `publications` and `connectionStatus` are
-        placeholders for now; later work fills them in.
+        A researcher's profile (FR-4.1, FR-4.2, FR-4.4, FR-4.5, FR-4.6, FR-4.7, FR-5.5). The optional text fields are
+        always present and null when not set. `connectionStatus` is a placeholder for now;
+        later work fills it in.
       required:
         - userId
         - fullName
@@ -1792,7 +2019,7 @@ components:
         - education
         - experience
         - languages
-        - publications
+        - publicationCount
         - connectionStatus
         - contact
         - photoUrl
@@ -1859,11 +2086,11 @@ components:
             (`native_or_bilingual` first), then oldest entry first.
           items:
             $ref: "#/components/schemas/Language"
-        publications:
-          type: array
-          description: "Placeholder: always empty until confirmed publications are shown (FR-5.5)."
-          items:
-            type: object
+        publicationCount:
+          type: integer
+          description: |
+            How many publications the user has confirmed (FR-5.5). The list itself comes
+            from `listPublications`.
         connectionStatus:
           $ref: "#/components/schemas/ConnectionStatus"
         contact:
@@ -2496,6 +2723,171 @@ components:
           x-go-type-skip-optional-pointer: true
           x-go-type-import:
             path: github.com/oapi-codegen/nullable
+    PublicationSource:
+      type: string
+      description: How the publication was added (FR-5.1, FR-5.2, FR-5.3).
+      enum: [manual, doi, orcid]
+
+    Publication:
+      type: object
+      description: One publication (FR-5.1). The optional fields are always present and null when not set.
+      required: [id, doi, title, year, venue, abstract, url, source, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        doi:
+          type: string
+          nullable: true
+          description: The bare, lower-case DOI.
+          example: 10.1145/3292500.3330701
+        title:
+          type: string
+        year:
+          type: integer
+          nullable: true
+          description: Always set for a publication added by hand; an imported one may have none.
+          example: 2024
+        venue:
+          type: string
+          nullable: true
+          example: KDD
+        abstract:
+          type: string
+          nullable: true
+        url:
+          type: string
+          nullable: true
+          example: https://example.org/paper
+        source:
+          $ref: "#/components/schemas/PublicationSource"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    PublicationAdded:
+      description: The publication, and whether the caller was linked to one that already existed (FR-5.4).
+      allOf:
+        - $ref: "#/components/schemas/Publication"
+        - type: object
+          required: [linked]
+          properties:
+            linked:
+              type: boolean
+              description: True when a publication with the same DOI already existed and the caller was linked to it.
+
+    PublicationPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Publication"
+        page:
+          type: integer
+        pageSize:
+          type: integer
+          description: The page size used, at most 50.
+        total:
+          type: integer
+          description: The number of publications on all pages.
+
+    PublicationCreate:
+      type: object
+      description: |
+        A publication added by hand (FR-5.1). Text is trimmed first and lengths count
+        characters after trimming; `title` and `venue` must be one line.
+      required: [title, year]
+      properties:
+        title:
+          type: string
+          description: 1 to 500 characters.
+          maxLength: 500
+        year:
+          type: integer
+          description: From 1900 to next year (UTC).
+        venue:
+          type: string
+          nullable: true
+          description: At most 300 characters; empty means not set.
+          maxLength: 300
+        abstract:
+          type: string
+          nullable: true
+          description: At most 5000 characters, line breaks allowed; empty means not set.
+          maxLength: 5000
+        url:
+          type: string
+          nullable: true
+          description: An http or https link of at most 500 characters; empty means not set.
+          maxLength: 500
+        doi:
+          type: string
+          nullable: true
+          description: |
+            A DOI such as `10.1145/3292500.3330701`, optionally as a `https://doi.org/` link
+            or with a `doi:` prefix; empty means not set.
+          example: 10.1145/3292500.3330701
+
+    PublicationUpdate:
+      type: object
+      description: |
+        The fields to change in a publication (FR-5.1). A missing field keeps its value.
+        `null` clears `venue`, `abstract`, `url` or `doi`; `null` for `title` or `year` is
+        refused, because they are required. The rules of PublicationCreate apply to the
+        publication after the change.
+      properties:
+        title:
+          type: string
+          nullable: true
+          maxLength: 500
+          x-go-type: nullable.Nullable[string]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        year:
+          type: integer
+          nullable: true
+          x-go-type: nullable.Nullable[int]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        venue:
+          type: string
+          nullable: true
+          maxLength: 300
+          x-go-type: nullable.Nullable[string]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        abstract:
+          type: string
+          nullable: true
+          maxLength: 5000
+          x-go-type: nullable.Nullable[string]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        url:
+          type: string
+          nullable: true
+          maxLength: 500
+          x-go-type: nullable.Nullable[string]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        doi:
+          type: string
+          nullable: true
+          x-go-type: nullable.Nullable[string]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+
 
   responses:
     Forbidden:
@@ -2540,6 +2932,17 @@ components:
         `endDate`), `end_date_not_allowed` (`isCurrent` true with `endDate`),
         `invalid_date_range` (`endDate` before `startDate`), `invalid_description`. A body
         that is not JSON gets `bad_request`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    InvalidPublication:
+      description: |
+        A field is not valid. The code names the first invalid field, in this order:
+        `invalid_title`, `invalid_year` (also before 1900 or after next year),
+        `invalid_venue`, `invalid_abstract`, `invalid_url` (also a link that is not http or
+        https), `invalid_doi` (also a value that is not of the form `10.NNNN/...` after the
+        prefix is removed). A body that is not JSON gets `bad_request`.
       content:
         application/json:
           schema:

@@ -42,6 +42,11 @@ func TestProfileRoutesThroughRouter(t *testing.T) {
 		{http.MethodPost, "/api/v1/profiles/me/languages", `{"name":"Bangla","proficiency":"native_or_bilingual"}`},
 		{http.MethodPatch, "/api/v1/profiles/me/languages/" + okLanguageID, `{"proficiency":"elementary"}`},
 		{http.MethodDelete, "/api/v1/profiles/me/languages/" + okLanguageID, ""},
+		{http.MethodGet, "/api/v1/profiles/me/publications", ""},
+		{http.MethodGet, "/api/v1/profiles/" + okUserID + "/publications?page=2&pageSize=5", ""},
+		{http.MethodPost, "/api/v1/profiles/me/publications", `{"title":"Notes","year":2024,"doi":"doi:10.1000/x"}`},
+		{http.MethodPatch, "/api/v1/profiles/me/publications/" + okPublicationID, `{"venue":null}`},
+		{http.MethodDelete, "/api/v1/profiles/me/publications/" + okPublicationID, ""},
 	}
 	send := func(t *testing.T, method, path, body, role string) *httptest.ResponseRecorder {
 		t.Helper()
@@ -107,6 +112,12 @@ func TestProfileRoutesAreGuarded(t *testing.T) {
 		"POST /api/v1/profiles/me/languages":                authz.ActAsMember,
 		"PATCH /api/v1/profiles/me/languages/{languageId}":  authz.ActAsMember,
 		"DELETE /api/v1/profiles/me/languages/{languageId}": authz.ActAsMember,
+
+		"GET /api/v1/profiles/me/publications":                    authz.ViewContent,
+		"POST /api/v1/profiles/me/publications":                   authz.ActAsMember,
+		"PATCH /api/v1/profiles/me/publications/{publicationId}":  authz.ActAsMember,
+		"DELETE /api/v1/profiles/me/publications/{publicationId}": authz.ActAsMember,
+		"GET /api/v1/profiles/{userId}/publications":              authz.ViewContent,
 
 		"GET /api/v1/profiles/me/contact":           authz.ViewContent,
 		"PUT /api/v1/profiles/me/contact":           authz.ActAsMember,

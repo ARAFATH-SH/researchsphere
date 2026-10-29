@@ -74,6 +74,14 @@ var platformGuards = map[string]authz.Action{
 	"PATCH /api/v1/profiles/me/languages/{languageId}":  authz.ActAsMember,
 	"DELETE /api/v1/profiles/me/languages/{languageId}": authz.ActAsMember,
 
+	// Publications (FR-5.1, FR-5.5, FR-5.7) are part of the user's own profile; reading
+	// anyone's list, the caller's own included, is viewing content, like the profile.
+	"GET /api/v1/profiles/me/publications":                    authz.ViewContent,
+	"POST /api/v1/profiles/me/publications":                   authz.ActAsMember,
+	"PATCH /api/v1/profiles/me/publications/{publicationId}":  authz.ActAsMember,
+	"DELETE /api/v1/profiles/me/publications/{publicationId}": authz.ActAsMember,
+	"GET /api/v1/profiles/{userId}/publications":              authz.ViewContent,
+
 	// Contact info and links (FR-4.7) are part of the user's own profile.
 	"GET /api/v1/profiles/me/contact":           authz.ViewContent,
 	"PUT /api/v1/profiles/me/contact":           authz.ActAsMember,

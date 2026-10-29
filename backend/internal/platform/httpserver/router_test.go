@@ -123,6 +123,26 @@ func (fakeAPI) RemoveMyExperience(context.Context, gen.RemoveMyExperienceRequest
 	return gen.RemoveMyExperience204Response{}, nil
 }
 
+func (fakeAPI) ListMyPublications(context.Context, gen.ListMyPublicationsRequestObject) (gen.ListMyPublicationsResponseObject, error) {
+	return gen.ListMyPublications200JSONResponse{}, nil
+}
+
+func (fakeAPI) ListPublications(context.Context, gen.ListPublicationsRequestObject) (gen.ListPublicationsResponseObject, error) {
+	return gen.ListPublications200JSONResponse{}, nil
+}
+
+func (fakeAPI) AddMyPublication(context.Context, gen.AddMyPublicationRequestObject) (gen.AddMyPublicationResponseObject, error) {
+	return gen.AddMyPublication201JSONResponse{}, nil
+}
+
+func (fakeAPI) UpdateMyPublication(context.Context, gen.UpdateMyPublicationRequestObject) (gen.UpdateMyPublicationResponseObject, error) {
+	return gen.UpdateMyPublication200JSONResponse{}, nil
+}
+
+func (fakeAPI) RemoveMyPublication(context.Context, gen.RemoveMyPublicationRequestObject) (gen.RemoveMyPublicationResponseObject, error) {
+	return gen.RemoveMyPublication204Response{}, nil
+}
+
 func (fakeAPI) AddMyLanguage(context.Context, gen.AddMyLanguageRequestObject) (gen.AddMyLanguageResponseObject, error) {
 	return gen.AddMyLanguage201JSONResponse{}, nil
 }
@@ -397,8 +417,8 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 
 func TestRoutes(t *testing.T) {
 	got := Routes()
-	if len(got) != 40 {
-		t.Errorf("Routes() returned %d routes, want the 40 operations in the contract: %v", len(got), got)
+	if len(got) != 45 {
+		t.Errorf("Routes() returned %d routes, want the 45 operations in the contract: %v", len(got), got)
 	}
 	seen := map[string]bool{}
 	for _, p := range got {

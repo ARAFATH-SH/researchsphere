@@ -738,6 +738,96 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/profiles/me/publications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the logged-in user's confirmed publications (FR-5.5)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed,
+         *     events and recommendations" (SRS 2.3). Only publications the user has confirmed
+         *     are listed, sorted by year, newest first (no year last), then by when the user
+         *     added them, newest first.
+         */
+        get: operations["listMyPublications"];
+        put?: never;
+        /**
+         * Add a publication to the logged-in user's profile by hand (FR-5.1, FR-5.4)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Text is trimmed; an optional field that is missing, null
+         *     or empty after trimming is stored as null. The DOI is stored in its bare,
+         *     lower-case form: a leading `https://doi.org/`, `http://doi.org/`,
+         *     `https://dx.doi.org/`, `http://dx.doi.org/` or `doi:` is removed. A publication
+         *     with a given DOI is stored once (FR-5.4): when one with the same DOI already
+         *     exists, the caller is linked to it, the other fields in the body are ignored, and
+         *     the answer is the existing record with `linked` true. The caller's link is
+         *     confirmed. A user has at most 300 publications.
+         */
+        post: operations["addMyPublication"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/profiles/me/publications/{publicationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a publication from the logged-in user's profile (FR-5.7)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Removes only the caller's link; the publication stays for
+         *     every other linked user and is deleted when no user is linked to it any more. A
+         *     publication the caller is not linked to gets 404 `not_found`.
+         */
+        delete: operations["removeMyPublication"];
+        options?: never;
+        head?: never;
+        /**
+         * Change some fields of one of the logged-in user's publications (FR-5.1)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). A field that is missing keeps its value; `null` clears
+         *     `venue`, `abstract`, `url` or `doi`. The rules of PublicationCreate apply to the
+         *     record after the change. Only a publication that was added by hand and that no
+         *     other user is linked to can be changed. A publication the caller is not linked to
+         *     gets 404 `not_found`, before the body is checked.
+         */
+        patch: operations["updateMyPublication"];
+        trace?: never;
+    };
+    "/profiles/{userId}/publications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List any user's confirmed publications to a logged-in user (FR-5.5)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed,
+         *     events and recommendations" (SRS 2.3). Only publications the user has confirmed
+         *     are listed, in the order of `listMyPublications`. An unknown, suspended or
+         *     unverified account gets the same 404 `not_found`, as for the profile.
+         */
+        get: operations["listPublications"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/profiles/me/photo": {
         parameters: {
             query?: never;
@@ -954,9 +1044,9 @@ export interface components {
             total: number;
         };
         /**
-         * @description A researcher's profile (FR-4.1, FR-4.2, FR-4.4, FR-4.5, FR-4.6, FR-4.7). The optional text fields are
-         *     always present and null when not set. `publications` and `connectionStatus` are
-         *     placeholders for now; later work fills them in.
+         * @description A researcher's profile (FR-4.1, FR-4.2, FR-4.4, FR-4.5, FR-4.6, FR-4.7, FR-5.5). The optional text fields are
+         *     always present and null when not set. `connectionStatus` is a placeholder for now;
+         *     later work fills it in.
          */
         Profile: {
             /** Format: uuid */
@@ -994,8 +1084,11 @@ export interface components {
              *     (`native_or_bilingual` first), then oldest entry first.
              */
             languages: components["schemas"]["Language"][];
-            /** @description Placeholder: always empty until confirmed publications are shown (FR-5.5). */
-            publications: Record<string, never>[];
+            /**
+             * @description How many publications the user has confirmed (FR-5.5). The list itself comes
+             *     from `listPublications`.
+             */
+            publicationCount: number;
             connectionStatus: components["schemas"]["ConnectionStatus"];
             contact: components["schemas"]["PublicContact"];
             /**
@@ -1310,6 +1403,86 @@ export interface components {
             /** @description One of the LanguageProficiency values. */
             proficiency?: string | null;
         };
+        /**
+         * @description How the publication was added (FR-5.1, FR-5.2, FR-5.3).
+         * @enum {string}
+         */
+        PublicationSource: "manual" | "doi" | "orcid";
+        /** @description One publication (FR-5.1). The optional fields are always present and null when not set. */
+        Publication: {
+            /** Format: uuid */
+            id: string;
+            /**
+             * @description The bare, lower-case DOI.
+             * @example 10.1145/3292500.3330701
+             */
+            doi: string | null;
+            title: string;
+            /**
+             * @description Always set for a publication added by hand; an imported one may have none.
+             * @example 2024
+             */
+            year: number | null;
+            /** @example KDD */
+            venue: string | null;
+            abstract: string | null;
+            /** @example https://example.org/paper */
+            url: string | null;
+            source: components["schemas"]["PublicationSource"];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        /** @description The publication, and whether the caller was linked to one that already existed (FR-5.4). */
+        PublicationAdded: components["schemas"]["Publication"] & {
+            /** @description True when a publication with the same DOI already existed and the caller was linked to it. */
+            linked: boolean;
+        };
+        PublicationPage: {
+            items: components["schemas"]["Publication"][];
+            page: number;
+            /** @description The page size used, at most 50. */
+            pageSize: number;
+            /** @description The number of publications on all pages. */
+            total: number;
+        };
+        /**
+         * @description A publication added by hand (FR-5.1). Text is trimmed first and lengths count
+         *     characters after trimming; `title` and `venue` must be one line.
+         */
+        PublicationCreate: {
+            /** @description 1 to 500 characters. */
+            title: string;
+            /** @description From 1900 to next year (UTC). */
+            year: number;
+            /** @description At most 300 characters; empty means not set. */
+            venue?: string | null;
+            /** @description At most 5000 characters, line breaks allowed; empty means not set. */
+            abstract?: string | null;
+            /** @description An http or https link of at most 500 characters; empty means not set. */
+            url?: string | null;
+            /**
+             * @description A DOI such as `10.1145/3292500.3330701`, optionally as a `https://doi.org/` link
+             *     or with a `doi:` prefix; empty means not set.
+             * @example 10.1145/3292500.3330701
+             */
+            doi?: string | null;
+        };
+        /**
+         * @description The fields to change in a publication (FR-5.1). A missing field keeps its value.
+         *     `null` clears `venue`, `abstract`, `url` or `doi`; `null` for `title` or `year` is
+         *     refused, because they are required. The rules of PublicationCreate apply to the
+         *     publication after the change.
+         */
+        PublicationUpdate: {
+            title?: string | null;
+            year?: number | null;
+            venue?: string | null;
+            abstract?: string | null;
+            url?: string | null;
+            doi?: string | null;
+        };
     };
     responses: {
         /**
@@ -1369,6 +1542,21 @@ export interface components {
          *     that is not JSON gets `bad_request`.
          */
         InvalidExperience: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /**
+         * @description A field is not valid. The code names the first invalid field, in this order:
+         *     `invalid_title`, `invalid_year` (also before 1900 or after next year),
+         *     `invalid_venue`, `invalid_abstract`, `invalid_url` (also a link that is not http or
+         *     https), `invalid_doi` (also a value that is not of the form `10.NNNN/...` after the
+         *     prefix is removed). A body that is not JSON gets `bad_request`.
+         */
+        InvalidPublication: {
             headers: {
                 [name: string]: unknown;
             };
@@ -1485,6 +1673,19 @@ export interface components {
          *     user and gets 404 `not_found`.
          */
         LanguageID: string;
+        /**
+         * @description The publication's ID, a UUID. It is declared as a plain string so that the login
+         *     check runs before it is read (FR-3.1); a value that is not a UUID names no
+         *     publication of the user and gets 404 `not_found`.
+         */
+        PublicationID: string;
+        /** @description The page to return, from 1. Defaults to 1. */
+        PublicationListPage: number;
+        /**
+         * @description Publications per page, from 1. Defaults to 10. A larger value than 50 is reduced
+         *     to 50, and the response says which size was used.
+         */
+        PublicationListPageSize: number;
         /**
          * @description The link's ID, a UUID. It is declared as a plain string so that the login check
          *     runs before it is read (FR-3.1); a value that is not a UUID names no link of the
@@ -2944,6 +3145,228 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listMyPublications: {
+        parameters: {
+            query?: {
+                /** @description The page to return, from 1. Defaults to 1. */
+                page?: components["parameters"]["PublicationListPage"];
+                /**
+                 * @description Publications per page, from 1. Defaults to 10. A larger value than 50 is reduced
+                 *     to 50, and the response says which size was used.
+                 */
+                pageSize?: components["parameters"]["PublicationListPageSize"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the caller's publications. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicationPage"];
+                };
+            };
+            /** @description `page` or `pageSize` is not a whole number of at least 1 (`bad_request`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    addMyPublication: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublicationCreate"];
+            };
+        };
+        responses: {
+            /** @description The stored publication, or the existing one the caller is now linked to. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicationAdded"];
+                };
+            };
+            400: components["responses"]["InvalidPublication"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /**
+             * @description The user already has 300 publications (`publication_limit_reached`), or already
+             *     has the publication with this DOI on their profile (`publication_already_added`).
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    removeMyPublication: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The publication's ID, a UUID. It is declared as a plain string so that the login
+                 *     check runs before it is read (FR-3.1); a value that is not a UUID names no
+                 *     publication of the user and gets 404 `not_found`.
+                 */
+                publicationId: components["parameters"]["PublicationID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The publication is removed from the caller's profile. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The user has no publication with this ID (`not_found`). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    updateMyPublication: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The publication's ID, a UUID. It is declared as a plain string so that the login
+                 *     check runs before it is read (FR-3.1); a value that is not a UUID names no
+                 *     publication of the user and gets 404 `not_found`.
+                 */
+                publicationId: components["parameters"]["PublicationID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublicationUpdate"];
+            };
+        };
+        responses: {
+            /** @description The publication after the change. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Publication"];
+                };
+            };
+            400: components["responses"]["InvalidPublication"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The user has no publication with this ID (`not_found`). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /**
+             * @description Another user is linked to the publication or it was not added by hand
+             *     (`publication_shared_readonly`), or another publication already has the new DOI
+             *     (`duplicate_doi`).
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listPublications: {
+        parameters: {
+            query?: {
+                /** @description The page to return, from 1. Defaults to 1. */
+                page?: components["parameters"]["PublicationListPage"];
+                /**
+                 * @description Publications per page, from 1. Defaults to 10. A larger value than 50 is reduced
+                 *     to 50, and the response says which size was used.
+                 */
+                pageSize?: components["parameters"]["PublicationListPageSize"];
+            };
+            header?: never;
+            path: {
+                /**
+                 * @description The user's ID, a UUID. It is declared as a plain string so that the login check
+                 *     runs before it is read (FR-3.1); a value that is not a UUID names no user and
+                 *     gets 404 `not_found`.
+                 */
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the user's publications. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicationPage"];
+                };
+            };
+            /** @description `page` or `pageSize` is not a whole number of at least 1 (`bad_request`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             500: components["responses"]["InternalError"];
         };
     };
