@@ -130,7 +130,9 @@ const testSecret = "test-jwt-secret-0123456789abcdefghij"
 func testRouter() http.Handler {
 	up := pingerFunc(func(context.Context) error { return nil })
 	return newRouter(slog.New(slog.DiscardHandler), up, up, up, authhttp.NewHandler(okAuth{}, authhttp.CookieConfig{}),
-		profilehttp.NewHandler(profileusecase.New(okProfiles{})),
+		profilehttp.NewHandler(profileusecase.New(okProfiles{}, profileusecase.WithDOILookup(profileusecase.DOILookup{
+			Source: okWorks{}, Cache: okWorks{}, Limiter: okWorks{},
+		}))),
 		mediahttp.NewHandler(okMedia{}),
 		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
 }
@@ -492,3 +494,20 @@ func TestDeleteAccountThroughRouter(t *testing.T) {
 type pingerFunc func(ctx context.Context) error
 
 func (f pingerFunc) Ping(ctx context.Context) error { return f(ctx) }
+
+// okWorks finds every DOI, caches nothing and never limits.
+type okWorks struct{}
+
+func (okWorks) FetchWork(_ context.Context, doi string) (profiledomain.WorkMetadata, error) {
+	return profiledomain.WorkMetadata{DOI: doi, Title: "Notes"}, nil
+}
+
+func (okWorks) GetWork(context.Context, string) (profiledomain.WorkMetadata, bool, error) {
+	return profiledomain.WorkMetadata{}, false, nil
+}
+
+func (okWorks) PutWork(context.Context, profiledomain.WorkMetadata, time.Duration) error { return nil }
+
+func (okWorks) Used(context.Context, string) (int, time.Duration, error) { return 0, 0, nil }
+
+func (okWorks) Record(context.Context, string, time.Duration) error { return nil }

@@ -2,7 +2,7 @@
 // profile and editing its basic fields (FR-4.1), research interests and skills (FR-4.2)
 // with suggestions (FR-4.3), education entries (FR-4.4), contact info and links (FR-4.7),
 // work experience entries (FR-4.8), languages (FR-4.9), any user's profile (FR-4.5) and
-// publications (FR-5.1, FR-5.4, FR-5.5, FR-5.7).
+// publications added by hand or from a DOI (FR-5.1, FR-5.2, FR-5.4 to FR-5.7).
 // It turns the usecase's errors into the error codes the web client shows next to each
 // field. cmd/api guards each route with its platform action (SRS 2.3) before it gets here.
 package http
@@ -75,6 +75,9 @@ const (
 	CodePublicationAlreadyAdded   = "publication_already_added"
 	CodePublicationSharedReadonly = "publication_shared_readonly"
 	CodeDuplicateDOI              = "duplicate_doi"
+	CodeDOINotFound               = "doi_not_found"
+	CodeMetadataUnavailable       = "metadata_unavailable"
+	CodeRateLimited               = "rate_limited"
 )
 
 // service is the part of usecase.Service this handler needs.
@@ -103,6 +106,8 @@ type service interface {
 	RemovePublication(ctx context.Context, userID, id string) error
 	ListOwnPublications(ctx context.Context, userID string, page, pageSize int) (domain.PublicationPage, error)
 	ListPublications(ctx context.Context, userID string, page, pageSize int) (domain.PublicationPage, error)
+	LookupDOI(ctx context.Context, userID, doi string) (usecase.DOIPreview, error)
+	AddPublicationFromDOI(ctx context.Context, userID, doi string) (usecase.AddedPublication, error)
 }
 
 // Handler implements the profile operations of gen.StrictServerInterface.

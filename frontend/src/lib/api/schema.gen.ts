@@ -773,6 +773,61 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/profiles/me/publications/from-doi": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add a publication to the logged-in user's profile from its DOI (FR-5.2, FR-5.4, FR-5.6)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). The user has seen the preview from
+         *     `lookupPublicationByDOI` and confirms it. When a publication with the DOI is
+         *     already stored, the caller is linked to it with no outside call (FR-5.4, `linked`
+         *     true). Otherwise the metadata comes from the cached lookup or is fetched again
+         *     from OpenAlex, and the record is stored with source `doi`; it cannot be changed
+         *     with `updateMyPublication`. The caller's link is confirmed. A user has at most 300
+         *     publications. Fetching from OpenAlex counts toward the lookup limit.
+         */
+        post: operations["addMyPublicationFromDOI"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/publications/lookup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Preview the metadata of a publication by its DOI (FR-5.2, FR-5.6)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). The DOI is normalized as in `addMyPublication`. When a
+         *     publication with the DOI is already stored, the stored record is returned with no
+         *     outside call. Otherwise title, year, venue, abstract and link come from OpenAlex:
+         *     text is trimmed, line breaks in the title and venue become spaces, a title over
+         *     500, a venue over 300 or an abstract over 5000 characters is cut at a word
+         *     boundary, a year outside 1900 to next year is left out, and a missing link becomes
+         *     `https://doi.org/<doi>`. Successful lookups are cached for 24 hours. A user may
+         *     make 30 lookups an hour that reach OpenAlex; cached and stored DOIs do not count.
+         */
+        get: operations["lookupPublicationByDOI"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/profiles/me/publications/{publicationId}": {
         parameters: {
             query?: never;
@@ -1447,6 +1502,38 @@ export interface components {
             /** @description The number of publications on all pages. */
             total: number;
         };
+        PublicationFromDOI: {
+            /**
+             * @description The DOI from the preview, in any form `lookupPublicationByDOI` accepts.
+             * @example 10.1145/3292500.3330701
+             */
+            doi: string;
+        };
+        /**
+         * @description A publication's metadata for a DOI (FR-5.2), shown for confirmation before it is
+         *     saved. The optional fields are always present and null when not known.
+         */
+        PublicationPreview: {
+            /**
+             * @description The bare, lower-case DOI.
+             * @example 10.1145/3292500.3330701
+             */
+            doi: string;
+            title: string;
+            year: number | null;
+            venue: string | null;
+            abstract: string | null;
+            url: string | null;
+            /** @description True when a publication with this DOI is already stored; the fields are the stored record's. */
+            existsAlready: boolean;
+            /**
+             * Format: uuid
+             * @description The stored publication's ID, present only when `existsAlready` is true.
+             */
+            publicationId?: string;
+            /** @description True when the stored publication is confirmed on the caller's profile. */
+            linkedToMe: boolean;
+        };
         /**
          * @description A publication added by hand (FR-5.1). Text is trimmed first and lengths count
          *     characters after trimming; `title` and `venue` must be one line.
@@ -1631,6 +1718,51 @@ export interface components {
         UploadRateLimited: {
             headers: {
                 /** @description Seconds until the hour ends and uploads are accepted again. */
+                "Retry-After": number;
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /**
+         * @description The DOI is missing or not of the form `10.NNNN/...` after the prefix is removed
+         *     (`invalid_doi`). A body that is not JSON gets `bad_request`.
+         */
+        InvalidDOI: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description OpenAlex has no work with this DOI, or none with a title (`doi_not_found`). */
+        DOINotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /**
+         * @description OpenAlex did not answer in time, failed or refused the request (FR-5.6). The body is
+         *     `{"code":"metadata_unavailable","message":"We couldn't reach the publication
+         *     database. You can add this publication by hand."}`.
+         */
+        MetadataUnavailable: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description The user has made 30 lookups that reached OpenAlex in the current hour (`rate_limited`). */
+        LookupRateLimited: {
+            headers: {
+                /** @description Seconds until the hour ends and lookups are accepted again. */
                 "Retry-After": number;
                 [name: string]: unknown;
             };
@@ -3226,6 +3358,83 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
+        };
+    };
+    addMyPublicationFromDOI: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublicationFromDOI"];
+            };
+        };
+        responses: {
+            /** @description The stored publication, or the existing one the caller is now linked to. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicationAdded"];
+                };
+            };
+            400: components["responses"]["InvalidDOI"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["DOINotFound"];
+            /**
+             * @description The user already has 300 publications (`publication_limit_reached`), or already
+             *     has the publication with this DOI on their profile (`publication_already_added`).
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            429: components["responses"]["LookupRateLimited"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["MetadataUnavailable"];
+        };
+    };
+    lookupPublicationByDOI: {
+        parameters: {
+            query?: {
+                /**
+                 * @description A DOI such as `10.1145/3292500.3330701`, optionally as a `https://doi.org/` link
+                 *     or with a `doi:` prefix. It is declared optional so that the login check runs
+                 *     before it is read (FR-3.1); a missing or empty value gets 400 `invalid_doi`.
+                 */
+                doi?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The metadata to show for confirmation. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicationPreview"];
+                };
+            };
+            400: components["responses"]["InvalidDOI"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["DOINotFound"];
+            429: components["responses"]["LookupRateLimited"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["MetadataUnavailable"];
         };
     };
     removeMyPublication: {

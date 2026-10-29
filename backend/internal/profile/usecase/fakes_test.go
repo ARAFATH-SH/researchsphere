@@ -724,3 +724,71 @@ func (s *fakeStore) givePublication(p domain.Publication, confirmed bool, userID
 	}
 	return p.ID
 }
+
+// fakeSource answers FetchWork with work or err and counts the calls.
+type fakeSource struct {
+	work  domain.WorkMetadata
+	err   error
+	calls int
+}
+
+func (f *fakeSource) FetchWork(_ context.Context, doi string) (domain.WorkMetadata, error) {
+	f.calls++
+	if f.err != nil {
+		return domain.WorkMetadata{}, f.err
+	}
+	w := f.work
+	w.DOI = doi
+	return w, nil
+}
+
+// fakeCache keeps works by DOI; err makes every call fail.
+type fakeCache struct {
+	works map[string]domain.WorkMetadata
+	ttl   time.Duration // given to the last PutWork
+	err   error
+}
+
+func (f *fakeCache) GetWork(_ context.Context, doi string) (domain.WorkMetadata, bool, error) {
+	if f.err != nil {
+		return domain.WorkMetadata{}, false, f.err
+	}
+	w, ok := f.works[doi]
+	return w, ok, nil
+}
+
+func (f *fakeCache) PutWork(_ context.Context, w domain.WorkMetadata, ttl time.Duration) error {
+	if f.err != nil {
+		return f.err
+	}
+	if f.works == nil {
+		f.works = map[string]domain.WorkMetadata{}
+	}
+	f.works[w.DOI], f.ttl = w, ttl
+	return nil
+}
+
+// fakeLimiter counts lookups per user; err makes every call fail.
+type fakeLimiter struct {
+	used map[string]int
+	left time.Duration // returned by Used
+	err  error
+}
+
+func (f *fakeLimiter) Used(_ context.Context, userID string) (int, time.Duration, error) {
+	if f.err != nil {
+		return 0, 0, f.err
+	}
+	return f.used[userID], f.left, nil
+}
+
+func (f *fakeLimiter) Record(_ context.Context, userID string, _ time.Duration) error {
+	if f.err != nil {
+		return f.err
+	}
+	if f.used == nil {
+		f.used = map[string]int{}
+	}
+	f.used[userID]++
+	return nil
+}

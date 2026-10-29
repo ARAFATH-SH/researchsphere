@@ -2,8 +2,9 @@
 // editing its basic fields (FR-4.1), research interests and skills as tags (FR-4.2) with
 // suggestions (FR-4.3), education entries (FR-4.4), contact info and links with who may
 // see them (FR-4.7), work experience entries (FR-4.8), languages (FR-4.9), and showing
-// any user's profile to a logged-in user (FR-4.5), and publications added by hand, listed
-// and removed (FR-5.1, FR-5.4, FR-5.5, FR-5.7). It imports only the profile domain.
+// any user's profile to a logged-in user (FR-4.5), and publications added by hand or from
+// a DOI, listed and removed (FR-5.1, FR-5.2, FR-5.4 to FR-5.7). It imports only the
+// profile domain.
 package usecase
 
 import (
@@ -15,13 +16,22 @@ import (
 
 // Service reads and edits profiles.
 type Service struct {
-	store domain.Store
-	now   func() time.Time // the clock for the education years and experience dates
+	store  domain.Store
+	now    func() time.Time // the clock for the education years and experience dates
+	lookup DOILookup
 }
 
-// New returns a Service.
-func New(store domain.Store) *Service {
-	return &Service{store: store, now: time.Now}
+// Option configures a Service.
+type Option func(*Service)
+
+// New returns a Service. Without WithDOILookup, DOI lookups fail with
+// domain.ErrMetadataUnavailable.
+func New(store domain.Store, opts ...Option) *Service {
+	s := &Service{store: store, now: time.Now}
+	for _, o := range opts {
+		o(s)
+	}
+	return s
 }
 
 // GetOwn returns the caller's profile. An account without a profile row gets an empty

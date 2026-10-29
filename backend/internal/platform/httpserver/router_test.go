@@ -143,6 +143,14 @@ func (fakeAPI) RemoveMyPublication(context.Context, gen.RemoveMyPublicationReque
 	return gen.RemoveMyPublication204Response{}, nil
 }
 
+func (fakeAPI) LookupPublicationByDOI(context.Context, gen.LookupPublicationByDOIRequestObject) (gen.LookupPublicationByDOIResponseObject, error) {
+	return gen.LookupPublicationByDOI200JSONResponse{}, nil
+}
+
+func (fakeAPI) AddMyPublicationFromDOI(context.Context, gen.AddMyPublicationFromDOIRequestObject) (gen.AddMyPublicationFromDOIResponseObject, error) {
+	return gen.AddMyPublicationFromDOI201JSONResponse{}, nil
+}
+
 func (fakeAPI) AddMyLanguage(context.Context, gen.AddMyLanguageRequestObject) (gen.AddMyLanguageResponseObject, error) {
 	return gen.AddMyLanguage201JSONResponse{}, nil
 }
@@ -417,8 +425,8 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 
 func TestRoutes(t *testing.T) {
 	got := Routes()
-	if len(got) != 45 {
-		t.Errorf("Routes() returned %d routes, want the 45 operations in the contract: %v", len(got), got)
+	if len(got) != 47 {
+		t.Errorf("Routes() returned %d routes, want the 47 operations in the contract: %v", len(got), got)
 	}
 	seen := map[string]bool{}
 	for _, p := range got {

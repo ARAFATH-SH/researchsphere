@@ -1381,6 +1381,103 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /profiles/me/publications/from-doi:
+    post:
+      operationId: addMyPublicationFromDOI
+      summary: Add a publication to the logged-in user's profile from its DOI (FR-5.2, FR-5.4, FR-5.6)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). The user has seen the preview from
+        `lookupPublicationByDOI` and confirms it. When a publication with the DOI is
+        already stored, the caller is linked to it with no outside call (FR-5.4, `linked`
+        true). Otherwise the metadata comes from the cached lookup or is fetched again
+        from OpenAlex, and the record is stored with source `doi`; it cannot be changed
+        with `updateMyPublication`. The caller's link is confirmed. A user has at most 300
+        publications. Fetching from OpenAlex counts toward the lookup limit.
+      tags: [profile]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublicationFromDOI"
+      responses:
+        "201":
+          description: The stored publication, or the existing one the caller is now linked to.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicationAdded"
+        "400":
+          $ref: "#/components/responses/InvalidDOI"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/DOINotFound"
+        "409":
+          description: |
+            The user already has 300 publications (`publication_limit_reached`), or already
+            has the publication with this DOI on their profile (`publication_already_added`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/LookupRateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/MetadataUnavailable"
+
+  /publications/lookup:
+    get:
+      operationId: lookupPublicationByDOI
+      summary: Preview the metadata of a publication by its DOI (FR-5.2, FR-5.6)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). The DOI is normalized as in `addMyPublication`. When a
+        publication with the DOI is already stored, the stored record is returned with no
+        outside call. Otherwise title, year, venue, abstract and link come from OpenAlex:
+        text is trimmed, line breaks in the title and venue become spaces, a title over
+        500, a venue over 300 or an abstract over 5000 characters is cut at a word
+        boundary, a year outside 1900 to next year is left out, and a missing link becomes
+        `https://doi.org/<doi>`. Successful lookups are cached for 24 hours. A user may
+        make 30 lookups an hour that reach OpenAlex; cached and stored DOIs do not count.
+      tags: [profile]
+      parameters:
+        - name: doi
+          in: query
+          required: false
+          description: |
+            A DOI such as `10.1145/3292500.3330701`, optionally as a `https://doi.org/` link
+            or with a `doi:` prefix. It is declared optional so that the login check runs
+            before it is read (FR-3.1); a missing or empty value gets 400 `invalid_doi`.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The metadata to show for confirmation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicationPreview"
+        "400":
+          $ref: "#/components/responses/InvalidDOI"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/DOINotFound"
+        "429":
+          $ref: "#/components/responses/LookupRateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/MetadataUnavailable"
+
   /profiles/me/publications/{publicationId}:
     patch:
       operationId: updateMyPublication
@@ -2796,6 +2893,51 @@ components:
           type: integer
           description: The number of publications on all pages.
 
+    PublicationFromDOI:
+      type: object
+      required: [doi]
+      properties:
+        doi:
+          type: string
+          description: The DOI from the preview, in any form `lookupPublicationByDOI` accepts.
+          example: 10.1145/3292500.3330701
+
+    PublicationPreview:
+      type: object
+      description: |
+        A publication's metadata for a DOI (FR-5.2), shown for confirmation before it is
+        saved. The optional fields are always present and null when not known.
+      required: [doi, title, year, venue, abstract, url, existsAlready, linkedToMe]
+      properties:
+        doi:
+          type: string
+          description: The bare, lower-case DOI.
+          example: 10.1145/3292500.3330701
+        title:
+          type: string
+        year:
+          type: integer
+          nullable: true
+        venue:
+          type: string
+          nullable: true
+        abstract:
+          type: string
+          nullable: true
+        url:
+          type: string
+          nullable: true
+        existsAlready:
+          type: boolean
+          description: True when a publication with this DOI is already stored; the fields are the stored record's.
+        publicationId:
+          type: string
+          format: uuid
+          description: The stored publication's ID, present only when `existsAlready` is true.
+        linkedToMe:
+          type: boolean
+          description: True when the stored publication is confirmed on the caller's profile.
+
     PublicationCreate:
       type: object
       description: |
@@ -2995,6 +3137,41 @@ components:
       headers:
         Retry-After:
           description: Seconds until the hour ends and uploads are accepted again.
+          required: true
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    InvalidDOI:
+      description: |
+        The DOI is missing or not of the form `10.NNNN/...` after the prefix is removed
+        (`invalid_doi`). A body that is not JSON gets `bad_request`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    DOINotFound:
+      description: OpenAlex has no work with this DOI, or none with a title (`doi_not_found`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    MetadataUnavailable:
+      description: |
+        OpenAlex did not answer in time, failed or refused the request (FR-5.6). The body is
+        `{"code":"metadata_unavailable","message":"We couldn't reach the publication
+        database. You can add this publication by hand."}`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    LookupRateLimited:
+      description: The user has made 30 lookups that reached OpenAlex in the current hour (`rate_limited`).
+      headers:
+        Retry-After:
+          description: Seconds until the hour ends and lookups are accepted again.
           required: true
           schema:
             type: integer

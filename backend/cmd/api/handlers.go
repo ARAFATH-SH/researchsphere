@@ -81,6 +81,10 @@ var platformGuards = map[string]authz.Action{
 	"PATCH /api/v1/profiles/me/publications/{publicationId}":  authz.ActAsMember,
 	"DELETE /api/v1/profiles/me/publications/{publicationId}": authz.ActAsMember,
 	"GET /api/v1/profiles/{userId}/publications":              authz.ViewContent,
+	// Adding from a DOI (FR-5.2) edits the own profile; the lookup is its first step and
+	// spends the user's lookups, so it needs the same action.
+	"POST /api/v1/profiles/me/publications/from-doi": authz.ActAsMember,
+	"GET /api/v1/publications/lookup":                authz.ActAsMember,
 
 	// Contact info and links (FR-4.7) are part of the user's own profile.
 	"GET /api/v1/profiles/me/contact":           authz.ViewContent,

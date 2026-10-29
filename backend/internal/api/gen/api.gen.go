@@ -852,6 +852,14 @@ type PublicationCreate struct {
 	Year int `json:"year"`
 }
 
+// PublicationFromDOI defines model for PublicationFromDOI.
+type PublicationFromDOI struct {
+	// Doi The DOI from the preview, in any form `lookupPublicationByDOI` accepts.
+	//
+	// Example: 10.1145/3292500.3330701
+	Doi string `json:"doi"`
+}
+
 // PublicationPage defines model for PublicationPage.
 type PublicationPage struct {
 	Items []Publication `json:"items"`
@@ -862,6 +870,30 @@ type PublicationPage struct {
 
 	// Total The number of publications on all pages.
 	Total int `json:"total"`
+}
+
+// PublicationPreview A publication's metadata for a DOI (FR-5.2), shown for confirmation before it is
+// saved. The optional fields are always present and null when not known.
+type PublicationPreview struct {
+	Abstract *string `json:"abstract"`
+
+	// Doi The bare, lower-case DOI.
+	//
+	// Example: 10.1145/3292500.3330701
+	Doi string `json:"doi"`
+
+	// ExistsAlready True when a publication with this DOI is already stored; the fields are the stored record's.
+	ExistsAlready bool `json:"existsAlready"`
+
+	// LinkedToMe True when the stored publication is confirmed on the caller's profile.
+	LinkedToMe bool `json:"linkedToMe"`
+
+	// PublicationId The stored publication's ID, present only when `existsAlready` is true.
+	PublicationId *openapi_types.UUID `json:"publicationId,omitempty"`
+	Title         string              `json:"title"`
+	Url           *string             `json:"url"`
+	Venue         *string             `json:"venue"`
+	Year          *int                `json:"year"`
 }
 
 // PublicationSource How the publication was added (FR-5.1, FR-5.2, FR-5.3).
@@ -993,6 +1025,9 @@ type TagLimit = int
 // TagQuery defines model for TagQuery.
 type TagQuery = string
 
+// DOINotFound The shape of every error response (SRS 5.3).
+type DOINotFound = Error
+
 // FileTooLarge The shape of every error response (SRS 5.3).
 type FileTooLarge = Error
 
@@ -1001,6 +1036,9 @@ type Forbidden = Error
 
 // InternalError The shape of every error response (SRS 5.3).
 type InternalError = Error
+
+// InvalidDOI The shape of every error response (SRS 5.3).
+type InvalidDOI = Error
 
 // InvalidEducation The shape of every error response (SRS 5.3).
 type InvalidEducation = Error
@@ -1016,6 +1054,12 @@ type InvalidLanguage = Error
 
 // InvalidPublication The shape of every error response (SRS 5.3).
 type InvalidPublication = Error
+
+// LookupRateLimited The shape of every error response (SRS 5.3).
+type LookupRateLimited = Error
+
+// MetadataUnavailable The shape of every error response (SRS 5.3).
+type MetadataUnavailable = Error
 
 // NoProfile The shape of every error response (SRS 5.3).
 type NoProfile = Error
@@ -1094,6 +1138,14 @@ type ListPublicationsParams struct {
 	// PageSize Publications per page, from 1. Defaults to 10. A larger value than 50 is reduced
 	// to 50, and the response says which size was used.
 	PageSize *PublicationListPageSize `form:"pageSize,omitempty" json:"pageSize,omitempty"`
+}
+
+// LookupPublicationByDOIParams defines parameters for LookupPublicationByDOI.
+type LookupPublicationByDOIParams struct {
+	// Doi A DOI such as `10.1145/3292500.3330701`, optionally as a `https://doi.org/` link
+	// or with a `doi:` prefix. It is declared optional so that the login check runs
+	// before it is read (FR-3.1); a missing or empty value gets 400 `invalid_doi`.
+	Doi *string `form:"doi,omitempty" json:"doi,omitempty"`
 }
 
 // SuggestInterestTagsParams defines parameters for SuggestInterestTags.
@@ -1178,6 +1230,9 @@ type UploadMyPhotoMultipartRequestBody UploadMyPhotoMultipartBody
 
 // AddMyPublicationJSONRequestBody defines body for AddMyPublication for application/json ContentType.
 type AddMyPublicationJSONRequestBody = PublicationCreate
+
+// AddMyPublicationFromDOIJSONRequestBody defines body for AddMyPublicationFromDOI for application/json ContentType.
+type AddMyPublicationFromDOIJSONRequestBody = PublicationFromDOI
 
 // UpdateMyPublicationJSONRequestBody defines body for UpdateMyPublication for application/json ContentType.
 type UpdateMyPublicationJSONRequestBody = PublicationUpdate
@@ -1298,6 +1353,9 @@ type ServerInterface interface {
 	// AddMyPublication Add a publication to the logged-in user's profile by hand (FR-5.1, FR-5.4)
 	// (POST /profiles/me/publications)
 	AddMyPublication(w http.ResponseWriter, r *http.Request)
+	// AddMyPublicationFromDOI Add a publication to the logged-in user's profile from its DOI (FR-5.2, FR-5.4, FR-5.6)
+	// (POST /profiles/me/publications/from-doi)
+	AddMyPublicationFromDOI(w http.ResponseWriter, r *http.Request)
 	// RemoveMyPublication Remove a publication from the logged-in user's profile (FR-5.7)
 	// (DELETE /profiles/me/publications/{publicationId})
 	RemoveMyPublication(w http.ResponseWriter, r *http.Request, publicationId PublicationID)
@@ -1316,6 +1374,9 @@ type ServerInterface interface {
 	// ListPublications List any user's confirmed publications to a logged-in user (FR-5.5)
 	// (GET /profiles/{userId}/publications)
 	ListPublications(w http.ResponseWriter, r *http.Request, userId string, params ListPublicationsParams)
+	// LookupPublicationByDOI Preview the metadata of a publication by its DOI (FR-5.2, FR-5.6)
+	// (GET /publications/lookup)
+	LookupPublicationByDOI(w http.ResponseWriter, r *http.Request, params LookupPublicationByDOIParams)
 	// SuggestInterestTags Suggest existing research interest tags while the user types (FR-4.3)
 	// (GET /tags/interests)
 	SuggestInterestTags(w http.ResponseWriter, r *http.Request, params SuggestInterestTagsParams)
@@ -2254,6 +2315,26 @@ func (siw *ServerInterfaceWrapper) AddMyPublication(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// AddMyPublicationFromDOI operation middleware
+func (siw *ServerInterfaceWrapper) AddMyPublicationFromDOI(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AddMyPublicationFromDOI(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // RemoveMyPublication operation middleware
 func (siw *ServerInterfaceWrapper) RemoveMyPublication(w http.ResponseWriter, r *http.Request) {
 
@@ -2454,6 +2535,45 @@ func (siw *ServerInterfaceWrapper) ListPublications(w http.ResponseWriter, r *ht
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListPublications(w, r, userId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// LookupPublicationByDOI operation middleware
+func (siw *ServerInterfaceWrapper) LookupPublicationByDOI(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params LookupPublicationByDOIParams
+
+	// ------------- Optional query parameter "doi" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "doi", r.URL.Query(), &params.Doi, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "doi"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "doi", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.LookupPublicationByDOI(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2724,6 +2844,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/profiles/me/links/{linkId}", wrapper.RemoveMyLink)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles/me/publications", wrapper.ListMyPublications)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/profiles/me/publications", wrapper.AddMyPublication)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/profiles/me/publications/from-doi", wrapper.AddMyPublicationFromDOI)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/publications/lookup", wrapper.LookupPublicationByDOI)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/profiles/me/publications/{publicationId}", wrapper.RemoveMyPublication)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/profiles/me/publications/{publicationId}", wrapper.UpdateMyPublication)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles/{userId}/publications", wrapper.ListPublications)
@@ -2736,11 +2858,15 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	return m
 }
 
+type DOINotFoundJSONResponse Error
+
 type FileTooLargeJSONResponse Error
 
 type ForbiddenJSONResponse Error
 
 type InternalErrorJSONResponse Error
+
+type InvalidDOIJSONResponse Error
 
 type InvalidEducationJSONResponse Error
 
@@ -2751,6 +2877,17 @@ type InvalidImageJSONResponse Error
 type InvalidLanguageJSONResponse Error
 
 type InvalidPublicationJSONResponse Error
+
+type LookupRateLimitedResponseHeaders struct {
+	RetryAfter int
+}
+type LookupRateLimitedJSONResponse struct {
+	Body Error
+
+	Headers LookupRateLimitedResponseHeaders
+}
+
+type MetadataUnavailableJSONResponse Error
 
 type NoProfileJSONResponse Error
 
@@ -5647,6 +5784,143 @@ func (response AddMyPublication500JSONResponse) VisitAddMyPublicationResponse(w 
 	return err
 }
 
+type AddMyPublicationFromDOIRequestObject struct {
+	Body *AddMyPublicationFromDOIJSONRequestBody
+}
+
+type AddMyPublicationFromDOIResponseObject interface {
+	VisitAddMyPublicationFromDOIResponse(w http.ResponseWriter) error
+}
+
+type AddMyPublicationFromDOI201JSONResponse PublicationAdded
+
+func (response AddMyPublicationFromDOI201JSONResponse) VisitAddMyPublicationFromDOIResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyPublicationFromDOI400JSONResponse struct{ InvalidDOIJSONResponse }
+
+func (response AddMyPublicationFromDOI400JSONResponse) VisitAddMyPublicationFromDOIResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyPublicationFromDOI401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response AddMyPublicationFromDOI401JSONResponse) VisitAddMyPublicationFromDOIResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyPublicationFromDOI403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response AddMyPublicationFromDOI403JSONResponse) VisitAddMyPublicationFromDOIResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyPublicationFromDOI404JSONResponse struct{ DOINotFoundJSONResponse }
+
+func (response AddMyPublicationFromDOI404JSONResponse) VisitAddMyPublicationFromDOIResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyPublicationFromDOI409JSONResponse Error
+
+func (response AddMyPublicationFromDOI409JSONResponse) VisitAddMyPublicationFromDOIResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyPublicationFromDOI429JSONResponse struct{ LookupRateLimitedJSONResponse }
+
+func (response AddMyPublicationFromDOI429JSONResponse) VisitAddMyPublicationFromDOIResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyPublicationFromDOI500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response AddMyPublicationFromDOI500JSONResponse) VisitAddMyPublicationFromDOIResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyPublicationFromDOI503JSONResponse struct {
+	MetadataUnavailableJSONResponse
+}
+
+func (response AddMyPublicationFromDOI503JSONResponse) VisitAddMyPublicationFromDOIResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type RemoveMyPublicationRequestObject struct {
 	PublicationId PublicationID `json:"publicationId"`
 }
@@ -6175,6 +6449,129 @@ func (response ListPublications500JSONResponse) VisitListPublicationsResponse(w 
 	return err
 }
 
+type LookupPublicationByDOIRequestObject struct {
+	Params LookupPublicationByDOIParams
+}
+
+type LookupPublicationByDOIResponseObject interface {
+	VisitLookupPublicationByDOIResponse(w http.ResponseWriter) error
+}
+
+type LookupPublicationByDOI200JSONResponse PublicationPreview
+
+func (response LookupPublicationByDOI200JSONResponse) VisitLookupPublicationByDOIResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LookupPublicationByDOI400JSONResponse struct{ InvalidDOIJSONResponse }
+
+func (response LookupPublicationByDOI400JSONResponse) VisitLookupPublicationByDOIResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LookupPublicationByDOI401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response LookupPublicationByDOI401JSONResponse) VisitLookupPublicationByDOIResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LookupPublicationByDOI403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response LookupPublicationByDOI403JSONResponse) VisitLookupPublicationByDOIResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LookupPublicationByDOI404JSONResponse struct{ DOINotFoundJSONResponse }
+
+func (response LookupPublicationByDOI404JSONResponse) VisitLookupPublicationByDOIResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LookupPublicationByDOI429JSONResponse struct{ LookupRateLimitedJSONResponse }
+
+func (response LookupPublicationByDOI429JSONResponse) VisitLookupPublicationByDOIResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LookupPublicationByDOI500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response LookupPublicationByDOI500JSONResponse) VisitLookupPublicationByDOIResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LookupPublicationByDOI503JSONResponse struct {
+	MetadataUnavailableJSONResponse
+}
+
+func (response LookupPublicationByDOI503JSONResponse) VisitLookupPublicationByDOIResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type SuggestInterestTagsRequestObject struct {
 	Params SuggestInterestTagsParams
 }
@@ -6444,6 +6841,9 @@ type StrictServerInterface interface {
 	// AddMyPublication Add a publication to the logged-in user's profile by hand (FR-5.1, FR-5.4)
 	// (POST /profiles/me/publications)
 	AddMyPublication(ctx context.Context, request AddMyPublicationRequestObject) (AddMyPublicationResponseObject, error)
+	// AddMyPublicationFromDOI Add a publication to the logged-in user's profile from its DOI (FR-5.2, FR-5.4, FR-5.6)
+	// (POST /profiles/me/publications/from-doi)
+	AddMyPublicationFromDOI(ctx context.Context, request AddMyPublicationFromDOIRequestObject) (AddMyPublicationFromDOIResponseObject, error)
 	// RemoveMyPublication Remove a publication from the logged-in user's profile (FR-5.7)
 	// (DELETE /profiles/me/publications/{publicationId})
 	RemoveMyPublication(ctx context.Context, request RemoveMyPublicationRequestObject) (RemoveMyPublicationResponseObject, error)
@@ -6462,6 +6862,9 @@ type StrictServerInterface interface {
 	// ListPublications List any user's confirmed publications to a logged-in user (FR-5.5)
 	// (GET /profiles/{userId}/publications)
 	ListPublications(ctx context.Context, request ListPublicationsRequestObject) (ListPublicationsResponseObject, error)
+	// LookupPublicationByDOI Preview the metadata of a publication by its DOI (FR-5.2, FR-5.6)
+	// (GET /publications/lookup)
+	LookupPublicationByDOI(ctx context.Context, request LookupPublicationByDOIRequestObject) (LookupPublicationByDOIResponseObject, error)
 	// SuggestInterestTags Suggest existing research interest tags while the user types (FR-4.3)
 	// (GET /tags/interests)
 	SuggestInterestTags(ctx context.Context, request SuggestInterestTagsRequestObject) (SuggestInterestTagsResponseObject, error)
@@ -7572,6 +7975,37 @@ func (sh *strictHandler) AddMyPublication(w http.ResponseWriter, r *http.Request
 	}
 }
 
+// AddMyPublicationFromDOI operation middleware
+func (sh *strictHandler) AddMyPublicationFromDOI(w http.ResponseWriter, r *http.Request) {
+	var request AddMyPublicationFromDOIRequestObject
+
+	var body AddMyPublicationFromDOIJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AddMyPublicationFromDOI(ctx, request.(AddMyPublicationFromDOIRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AddMyPublicationFromDOI")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AddMyPublicationFromDOIResponseObject); ok {
+		if err := validResponse.VisitAddMyPublicationFromDOIResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // RemoveMyPublication operation middleware
 func (sh *strictHandler) RemoveMyPublication(w http.ResponseWriter, r *http.Request, publicationId PublicationID) {
 	var request RemoveMyPublicationRequestObject
@@ -7734,6 +8168,32 @@ func (sh *strictHandler) ListPublications(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListPublicationsResponseObject); ok {
 		if err := validResponse.VisitListPublicationsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// LookupPublicationByDOI operation middleware
+func (sh *strictHandler) LookupPublicationByDOI(w http.ResponseWriter, r *http.Request, params LookupPublicationByDOIParams) {
+	var request LookupPublicationByDOIRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.LookupPublicationByDOI(ctx, request.(LookupPublicationByDOIRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "LookupPublicationByDOI")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(LookupPublicationByDOIResponseObject); ok {
+		if err := validResponse.VisitLookupPublicationByDOIResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

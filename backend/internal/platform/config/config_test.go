@@ -327,3 +327,45 @@ func TestLoadStorageSettings(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadOpenAlexSettings(t *testing.T) {
+	vars := func(extra map[string]string) map[string]string {
+		v := map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL}
+		for k, x := range extra {
+			v[k] = x
+		}
+		return v
+	}
+	tests := []struct {
+		name       string
+		extra      map[string]string
+		wantBase   string
+		wantMailto string
+		wantErr    string
+	}{
+		{"defaults", nil, DefaultOpenAlexBaseURL, "", ""},
+		{"set", map[string]string{"OPENALEX_BASE_URL": "http://127.0.0.1:4010/", "OPENALEX_MAILTO": " dev@example.org "},
+			"http://127.0.0.1:4010", "dev@example.org", ""},
+		{"base without a scheme", map[string]string{"OPENALEX_BASE_URL": "api.openalex.org"}, "", "", "OPENALEX_BASE_URL"},
+		{"base with a query", map[string]string{"OPENALEX_BASE_URL": "https://api.openalex.org?x=1"}, "", "", "OPENALEX_BASE_URL"},
+		{"mailto not an address", map[string]string{"OPENALEX_MAILTO": "nobody"}, "", "", "OPENALEX_MAILTO"},
+		{"mailto with a name", map[string]string{"OPENALEX_MAILTO": "Dev <dev@example.org>"}, "", "", "OPENALEX_MAILTO"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := Load(env(vars(tt.extra)))
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("Load() error = %v, want one naming %s", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.OpenAlexBaseURL != tt.wantBase || cfg.OpenAlexMailto != tt.wantMailto {
+				t.Errorf("OpenAlex = %q, %q; want %q, %q", cfg.OpenAlexBaseURL, cfg.OpenAlexMailto, tt.wantBase, tt.wantMailto)
+			}
+		})
+	}
+}

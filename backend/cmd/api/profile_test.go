@@ -13,7 +13,7 @@ import (
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpx"
 )
 
-// The profile, tag, contact, experience and language routes go through authz (FR-3.2, SRS 2.3): both platform roles may
+// The profile, tag, contact, experience, language and publication routes go through authz (FR-3.2, SRS 2.3): both platform roles may
 // view profiles and tags and edit their own, and any other role gets exactly the FR-3.3
 // refusal.
 func TestProfileRoutesThroughRouter(t *testing.T) {
@@ -47,6 +47,8 @@ func TestProfileRoutesThroughRouter(t *testing.T) {
 		{http.MethodPost, "/api/v1/profiles/me/publications", `{"title":"Notes","year":2024,"doi":"doi:10.1000/x"}`},
 		{http.MethodPatch, "/api/v1/profiles/me/publications/" + okPublicationID, `{"venue":null}`},
 		{http.MethodDelete, "/api/v1/profiles/me/publications/" + okPublicationID, ""},
+		{http.MethodGet, "/api/v1/publications/lookup?doi=10.1000/x", ""},
+		{http.MethodPost, "/api/v1/profiles/me/publications/from-doi", `{"doi":"10.1000/x"}`},
 	}
 	send := func(t *testing.T, method, path, body, role string) *httptest.ResponseRecorder {
 		t.Helper()
@@ -118,6 +120,8 @@ func TestProfileRoutesAreGuarded(t *testing.T) {
 		"PATCH /api/v1/profiles/me/publications/{publicationId}":  authz.ActAsMember,
 		"DELETE /api/v1/profiles/me/publications/{publicationId}": authz.ActAsMember,
 		"GET /api/v1/profiles/{userId}/publications":              authz.ViewContent,
+		"POST /api/v1/profiles/me/publications/from-doi":          authz.ActAsMember,
+		"GET /api/v1/publications/lookup":                         authz.ActAsMember,
 
 		"GET /api/v1/profiles/me/contact":           authz.ViewContent,
 		"PUT /api/v1/profiles/me/contact":           authz.ActAsMember,
@@ -136,7 +140,8 @@ func TestProfileRoutesAreGuarded(t *testing.T) {
 	}
 	for _, r := range httpserver.Routes() {
 		_, path, _ := strings.Cut(r, " ")
-		if !strings.HasPrefix(path, httpserver.BaseURL+"/profiles") && !strings.HasPrefix(path, httpserver.BaseURL+"/tags") {
+		if !strings.HasPrefix(path, httpserver.BaseURL+"/profiles") && !strings.HasPrefix(path, httpserver.BaseURL+"/tags") &&
+			!strings.HasPrefix(path, httpserver.BaseURL+"/publications") {
 			continue
 		}
 		if _, ok := want[r]; !ok {

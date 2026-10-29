@@ -86,8 +86,15 @@ func (s *Service) AddPublication(ctx context.Context, userID string, in Publicat
 	}
 	p.Source = domain.SourceManual
 	p.CreatedBy = &userID
+	return s.storePublication(ctx, userID, p)
+}
+
+// storePublication stores p, which is valid, with the user's link confirmed, or links the
+// user to the stored publication with p's DOI (FR-5.4), under the MaxPublications limit.
+// It returns the errors of AddPublication.
+func (s *Service) storePublication(ctx context.Context, userID string, p domain.Publication) (AddedPublication, error) {
 	var res AddedPublication
-	err = s.store.RunInTx(ctx, func(tx domain.Tx) error {
+	err := s.store.RunInTx(ctx, func(tx domain.Tx) error {
 		// Lock first, so the count below cannot change before the link is stored.
 		if err := tx.LockUser(ctx, userID); err != nil {
 			return err

@@ -68,6 +68,8 @@ type fakeService struct {
 	publicationPage  domain.PublicationPage   // returned by the list operations
 	page, pageSize   int                      // given to the list operations
 	listedOwn        bool                     // ListOwnPublications was called, not ListPublications
+	preview          usecase.DOIPreview       // returned by LookupDOI
+	doi              string                   // given to LookupDOI and AddPublicationFromDOI
 }
 
 func (f *fakeService) AddPublication(_ context.Context, userID string, in usecase.PublicationInput) (usecase.AddedPublication, error) {
@@ -93,6 +95,16 @@ func (f *fakeService) ListOwnPublications(_ context.Context, userID string, page
 func (f *fakeService) ListPublications(_ context.Context, userID string, page, pageSize int) (domain.PublicationPage, error) {
 	f.userID, f.page, f.pageSize = userID, page, pageSize
 	return f.publicationPage, f.err
+}
+
+func (f *fakeService) LookupDOI(_ context.Context, userID, doi string) (usecase.DOIPreview, error) {
+	f.userID, f.doi = userID, doi
+	return f.preview, f.err
+}
+
+func (f *fakeService) AddPublicationFromDOI(_ context.Context, userID, doi string) (usecase.AddedPublication, error) {
+	f.userID, f.doi = userID, doi
+	return usecase.AddedPublication{Publication: f.publication, Linked: f.linked}, f.err
 }
 
 func (f *fakeService) GetContact(_ context.Context, userID string) (domain.Contact, error) {
