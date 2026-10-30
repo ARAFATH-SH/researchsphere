@@ -95,9 +95,12 @@ func newMediaEnvWithSources(t *testing.T, openAlexURL, orcidURL string) mediaEnv
 	logger := slog.New(slog.DiscardHandler)
 	images := mediausecase.NewImages(mediapg.NewStore(pool), files, imaging.Codec{}, limiter, logger)
 	up := pingerFunc(func(context.Context) error { return nil })
-	var profileOpts []profileusecase.Option
 	lookups := profileredis.New(rdb)
 	t.Cleanup(func() { _ = lookups.Close() })
+	profileStore := profilepg.NewStore(pool)
+	profileOpts := []profileusecase.Option{profileusecase.WithPeopleSearch(profileusecase.PeopleSearch{
+		Searcher: profileStore, Limiter: lookups.SearchLimiter(), Logger: logger,
+	})}
 	if orcidURL != "" {
 		profileOpts = append(profileOpts, profileusecase.WithORCIDImport(profileusecase.ORCIDImport{
 			Source:  orcid.New(orcid.Config{BaseURL: orcidURL, Timeout: time.Second, RetryDelay: time.Millisecond}),
@@ -115,7 +118,7 @@ func newMediaEnvWithSources(t *testing.T, openAlexURL, orcidURL string) mediaEnv
 		}))
 	}
 	router := newRouter(logger, up, up, up, authhttp.NewHandler(okAuth{}, authhttp.CookieConfig{}),
-		profilehttp.NewHandler(profileusecase.New(profilepg.NewStore(pool), profileOpts...)),
+		profilehttp.NewHandler(profileusecase.New(profileStore, profileOpts...)),
 		mediahttp.NewHandler(images),
 		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
 	return mediaEnv{router: router, pool: pool, files: files, rdb: rdb}

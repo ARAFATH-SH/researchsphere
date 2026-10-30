@@ -240,6 +240,30 @@ func (e OrcidImportOutcome) Valid() bool {
 	}
 }
 
+// Defines values for PersonSearchResultMatchedOn.
+const (
+	Headline    PersonSearchResultMatchedOn = "headline"
+	Institution PersonSearchResultMatchedOn = "institution"
+	Interest    PersonSearchResultMatchedOn = "interest"
+	Name        PersonSearchResultMatchedOn = "name"
+)
+
+// Valid indicates whether the value is a known member of the PersonSearchResultMatchedOn enum.
+func (e PersonSearchResultMatchedOn) Valid() bool {
+	switch e {
+	case Headline:
+		return true
+	case Institution:
+		return true
+	case Interest:
+		return true
+	case Name:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PublicationSource.
 const (
 	Doi    PublicationSource = "doi"
@@ -731,6 +755,60 @@ type PasswordResetRequest struct {
 	Email string `json:"email"`
 }
 
+// PeopleSearchFacets defines model for PeopleSearchFacets.
+type PeopleSearchFacets struct {
+	// Institutions Up to 20 institutions of the results with `q` and the interest filters applied
+	// but not the institution filter, most results first, then by name.
+	Institutions []SearchFacet `json:"institutions"`
+
+	// Interests The research interests of the results with every filter applied: first every
+	// selected interest (in the order given; its count equals `total`, since every
+	// result has it), then up to 20 others, most results first, then by name. Each
+	// count is how many results would remain with that interest selected too.
+	Interests []SearchFacet `json:"interests"`
+}
+
+// PeopleSearchPage defines model for PeopleSearchPage.
+type PeopleSearchPage struct {
+	// CorrectedQuery When `fuzzy` is true, the result name most similar to `q`, for "Showing results
+	// for ..."; otherwise null.
+	CorrectedQuery *string            `json:"correctedQuery"`
+	Facets         PeopleSearchFacets `json:"facets"`
+
+	// Fuzzy True when no name contains `q` and the name results are names similar to it
+	// (FR-6.2).
+	Fuzzy bool                 `json:"fuzzy"`
+	Items []PersonSearchResult `json:"items"`
+	Page  int                  `json:"page"`
+
+	// PageSize Always 20 (FR-6.1).
+	PageSize int `json:"pageSize"`
+
+	// Total The number of results on all pages, with every filter applied.
+	Total int `json:"total"`
+}
+
+// PersonSearchResult defines model for PersonSearchResult.
+type PersonSearchResult struct {
+	FullName    string  `json:"fullName"`
+	Headline    *string `json:"headline"`
+	Institution *string `json:"institution"`
+
+	// Interests Up to 3 of the user's research interests: the ones that match `q` or a
+	// selected interest first, then by name.
+	Interests []string `json:"interests"`
+
+	// MatchedOn The field of the result's best match.
+	MatchedOn PersonSearchResultMatchedOn `json:"matchedOn"`
+
+	// PhotoUrl The profile photo as `/api/v1/media/{fileId}`; null when not set.
+	PhotoUrl *string            `json:"photoUrl"`
+	UserId   openapi_types.UUID `json:"userId"`
+}
+
+// PersonSearchResultMatchedOn The field of the result's best match.
+type PersonSearchResultMatchedOn string
+
 // Profile A researcher's profile (FR-4.1, FR-4.2, FR-4.4, FR-4.5, FR-4.6, FR-4.7, FR-5.5). The optional text fields are
 // always present and null when not set. `connectionStatus` is a placeholder for now;
 // later work fills it in.
@@ -1044,6 +1122,12 @@ type ResendVerificationRequest struct {
 // (`make admin`); no operation changes a role.
 type Role string
 
+// SearchFacet defines model for SearchFacet.
+type SearchFacet struct {
+	Count int    `json:"count"`
+	Name  string `json:"name"`
+}
+
 // Tag A research interest or skill (FR-4.2). Tags are shared by all users; names that
 // differ only in letter case are the same tag, and the name keeps the spelling it was
 // first created with.
@@ -1185,6 +1269,9 @@ type OrcidUnavailable = Error
 // ProfileImageStored A stored profile photo or cover image (FR-4.6).
 type ProfileImageStored = ProfileImage
 
+// SearchRateLimited The shape of every error response (SRS 5.3).
+type SearchRateLimited = Error
+
 // Unauthorized The shape of every error response (SRS 5.3).
 type Unauthorized = Error
 
@@ -1261,6 +1348,27 @@ type LookupPublicationByDOIParams struct {
 	// or with a `doi:` prefix. It is declared optional so that the login check runs
 	// before it is read (FR-3.1); a missing or empty value gets 400 `invalid_doi`.
 	Doi *string `form:"doi,omitempty" json:"doi,omitempty"`
+}
+
+// SearchPeopleParams defines parameters for SearchPeople.
+type SearchPeopleParams struct {
+	// Q The search text, 2 to 100 characters after trimming. It is required: it is
+	// declared optional only so that a missing `q` gets 400 `invalid_query`, like a
+	// too short one, instead of the generic `bad_request`.
+	Q *string `form:"q,omitempty" json:"q,omitempty"`
+
+	// Institution Keep only results whose institution equals this, ignoring letter case and
+	// spaces around it. Empty means no filter; more than 200 characters gets 400
+	// `bad_request`.
+	Institution *string `form:"institution,omitempty" json:"institution,omitempty"`
+
+	// Interest Keep only results that have every named research interest, ignoring letter
+	// case. Repeat the parameter for several (at most 10); each name is normalized
+	// like a tag (FR-4.2) and must then be 1 to 60 characters, else 400 `bad_request`.
+	Interest *[]string `form:"interest,omitempty" json:"interest,omitempty"`
+
+	// Page The page to return, 1 to 50, 20 results each (FR-6.1). Defaults to 1.
+	Page *int `form:"page,omitempty" json:"page,omitempty"`
 }
 
 // SuggestInterestTagsParams defines parameters for SuggestInterestTags.
@@ -1507,6 +1615,9 @@ type ServerInterface interface {
 	// LookupPublicationByDOI Preview the metadata of a publication by its DOI (FR-5.2, FR-5.6)
 	// (GET /publications/lookup)
 	LookupPublicationByDOI(w http.ResponseWriter, r *http.Request, params LookupPublicationByDOIParams)
+	// SearchPeople Search researchers by name, institution, research interest or headline (FR-6.1 to FR-6.3)
+	// (GET /search/people)
+	SearchPeople(w http.ResponseWriter, r *http.Request, params SearchPeopleParams)
 	// SuggestInterestTags Suggest existing research interest tags while the user types (FR-4.3)
 	// (GET /tags/interests)
 	SuggestInterestTags(w http.ResponseWriter, r *http.Request, params SuggestInterestTagsParams)
@@ -2773,6 +2884,84 @@ func (siw *ServerInterfaceWrapper) LookupPublicationByDOI(w http.ResponseWriter,
 	handler.ServeHTTP(w, r)
 }
 
+// SearchPeople operation middleware
+func (siw *ServerInterfaceWrapper) SearchPeople(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SearchPeopleParams
+
+	// ------------- Optional query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "institution" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "institution", r.URL.Query(), &params.Institution, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "institution"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "institution", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "interest" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "interest", r.URL.Query(), &params.Interest, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "interest"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "interest", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "page" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "page", r.URL.Query(), &params.Page, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "page"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SearchPeople(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // SuggestInterestTags operation middleware
 func (siw *ServerInterfaceWrapper) SuggestInterestTags(w http.ResponseWriter, r *http.Request) {
 
@@ -3047,6 +3236,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/profiles/me/cover", wrapper.RemoveMyCover)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/profiles/me/cover", wrapper.UploadMyCover)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/media/{fileId}", wrapper.GetMedia)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/search/people", wrapper.SearchPeople)
 
 	return m
 }
@@ -3102,6 +3292,15 @@ type OrcidRateLimitedJSONResponse struct {
 type OrcidUnavailableJSONResponse Error
 
 type ProfileImageStoredJSONResponse ProfileImage
+
+type SearchRateLimitedResponseHeaders struct {
+	RetryAfter int
+}
+type SearchRateLimitedJSONResponse struct {
+	Body Error
+
+	Headers SearchRateLimitedResponseHeaders
+}
 
 type UnauthorizedJSONResponse Error
 
@@ -7127,6 +7326,99 @@ func (response LookupPublicationByDOI503JSONResponse) VisitLookupPublicationByDO
 	return err
 }
 
+type SearchPeopleRequestObject struct {
+	Params SearchPeopleParams
+}
+
+type SearchPeopleResponseObject interface {
+	VisitSearchPeopleResponse(w http.ResponseWriter) error
+}
+
+type SearchPeople200JSONResponse PeopleSearchPage
+
+func (response SearchPeople200JSONResponse) VisitSearchPeopleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SearchPeople400JSONResponse Error
+
+func (response SearchPeople400JSONResponse) VisitSearchPeopleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SearchPeople401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response SearchPeople401JSONResponse) VisitSearchPeopleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SearchPeople403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response SearchPeople403JSONResponse) VisitSearchPeopleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SearchPeople429JSONResponse struct{ SearchRateLimitedJSONResponse }
+
+func (response SearchPeople429JSONResponse) VisitSearchPeopleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SearchPeople500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response SearchPeople500JSONResponse) VisitSearchPeopleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type SuggestInterestTagsRequestObject struct {
 	Params SuggestInterestTagsParams
 }
@@ -7429,6 +7721,9 @@ type StrictServerInterface interface {
 	// LookupPublicationByDOI Preview the metadata of a publication by its DOI (FR-5.2, FR-5.6)
 	// (GET /publications/lookup)
 	LookupPublicationByDOI(ctx context.Context, request LookupPublicationByDOIRequestObject) (LookupPublicationByDOIResponseObject, error)
+	// SearchPeople Search researchers by name, institution, research interest or headline (FR-6.1 to FR-6.3)
+	// (GET /search/people)
+	SearchPeople(ctx context.Context, request SearchPeopleRequestObject) (SearchPeopleResponseObject, error)
 	// SuggestInterestTags Suggest existing research interest tags while the user types (FR-4.3)
 	// (GET /tags/interests)
 	SuggestInterestTags(ctx context.Context, request SuggestInterestTagsRequestObject) (SuggestInterestTagsResponseObject, error)
@@ -8844,6 +9139,32 @@ func (sh *strictHandler) LookupPublicationByDOI(w http.ResponseWriter, r *http.R
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(LookupPublicationByDOIResponseObject); ok {
 		if err := validResponse.VisitLookupPublicationByDOIResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SearchPeople operation middleware
+func (sh *strictHandler) SearchPeople(w http.ResponseWriter, r *http.Request, params SearchPeopleParams) {
+	var request SearchPeopleRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SearchPeople(ctx, request.(SearchPeopleRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SearchPeople")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SearchPeopleResponseObject); ok {
+		if err := validResponse.VisitSearchPeopleResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

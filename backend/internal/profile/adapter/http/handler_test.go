@@ -76,6 +76,14 @@ type fakeService struct {
 	orcidList    usecase.ORCIDWorkList // returned by ListORCIDWorks
 	putCodes     []string              // given to ImportORCIDWorks
 	importResult usecase.ImportResult  // returned by ImportORCIDWorks
+
+	searchIn  usecase.SearchInput  // given to SearchPeople
+	searchRes domain.PeopleResults // returned by SearchPeople
+}
+
+func (f *fakeService) SearchPeople(_ context.Context, userID string, in usecase.SearchInput) (domain.PeopleResults, error) {
+	f.userID, f.searchIn = userID, in
+	return f.searchRes, f.err
 }
 
 func (f *fakeService) SetOrcidID(_ context.Context, userID string, orcidID *string) (*string, error) {

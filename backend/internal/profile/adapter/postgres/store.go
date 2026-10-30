@@ -25,6 +25,8 @@ const foreignKeyViolation = "23503"
 type Store struct {
 	pool *pgxpool.Pool
 	q    *sqlcgen.Queries
+	// searchTx runs a researcher search's queries in one read-only snapshot.
+	searchTx func(ctx context.Context, fn func(pgx.Tx) error) error
 }
 
 var (
@@ -34,7 +36,9 @@ var (
 
 // NewStore returns a Store that uses pool.
 func NewStore(pool *pgxpool.Pool) *Store {
-	return &Store{pool: pool, q: sqlcgen.New(pool)}
+	return &Store{pool: pool, q: sqlcgen.New(pool), searchTx: func(ctx context.Context, fn func(pgx.Tx) error) error {
+		return pgx.BeginTxFunc(ctx, pool, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly}, fn)
+	}}
 }
 
 // RunInTx runs fn in one transaction and commits when it returns nil.

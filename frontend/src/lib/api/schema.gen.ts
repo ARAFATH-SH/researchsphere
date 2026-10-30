@@ -1056,6 +1056,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/search/people": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search researchers by name, institution, research interest or headline (FR-6.1 to FR-6.3)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed,
+         *     events and recommendations" (SRS 2.3). Only verified accounts that are not
+         *     suspended are found, as with `GET /profiles/{userId}`. Only public profile fields
+         *     are searched: full name, institution, research interest names and headline; never
+         *     email, phone, birthday, links or bio.
+         *
+         *     A profile matches when its full name, institution, one of its research interests
+         *     or its headline contains `q`, ignoring letter case. Results are ranked by their
+         *     best match: a full name equal to `q`, then a full name that starts with `q`, then
+         *     one that contains it, then institution, then research interest, then headline;
+         *     within a rank by name similarity to `q`, then by name. When no visible profile's
+         *     name contains `q`, names with a word similar to `q` (trigram word similarity, so
+         *     a small spelling mistake in any one word of the name matches, FR-6.2) take the
+         *     place of the name matches; then `fuzzy` is true and `correctedQuery` is the full
+         *     name of the most similar one.
+         *
+         *     `institution` and `interest` narrow the results (FR-6.3). Each facet is counted
+         *     with every filter except its own group, so selecting one option keeps the others
+         *     listed. Each user may search 60 times a minute.
+         */
+        get: operations["searchPeople"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1596,6 +1634,62 @@ export interface components {
             /** @description The number of publications on all pages. */
             total: number;
         };
+        PeopleSearchPage: {
+            items: components["schemas"]["PersonSearchResult"][];
+            /** @description The number of results on all pages, with every filter applied. */
+            total: number;
+            page: number;
+            /** @description Always 20 (FR-6.1). */
+            pageSize: number;
+            /**
+             * @description True when no name contains `q` and the name results are names similar to it
+             *     (FR-6.2).
+             */
+            fuzzy: boolean;
+            /**
+             * @description When `fuzzy` is true, the result name most similar to `q`, for "Showing results
+             *     for ..."; otherwise null.
+             */
+            correctedQuery: string | null;
+            facets: components["schemas"]["PeopleSearchFacets"];
+        };
+        PersonSearchResult: {
+            /** Format: uuid */
+            userId: string;
+            fullName: string;
+            headline: string | null;
+            institution: string | null;
+            /** @description The profile photo as `/api/v1/media/{fileId}`; null when not set. */
+            photoUrl: string | null;
+            /**
+             * @description Up to 3 of the user's research interests: the ones that match `q` or a
+             *     selected interest first, then by name.
+             */
+            interests: string[];
+            /**
+             * @description The field of the result's best match.
+             * @enum {string}
+             */
+            matchedOn: "name" | "institution" | "interest" | "headline";
+        };
+        PeopleSearchFacets: {
+            /**
+             * @description Up to 20 institutions of the results with `q` and the interest filters applied
+             *     but not the institution filter, most results first, then by name.
+             */
+            institutions: components["schemas"]["SearchFacet"][];
+            /**
+             * @description The research interests of the results with every filter applied: first every
+             *     selected interest (in the order given; its count equals `total`, since every
+             *     result has it), then up to 20 others, most results first, then by name. Each
+             *     count is how many results would remain with that interest selected too.
+             */
+            interests: components["schemas"]["SearchFacet"][];
+        };
+        SearchFacet: {
+            name: string;
+            count: number;
+        };
         PublicationFromDOI: {
             /**
              * @description The DOI from the preview, in any form `lookupPublicationByDOI` accepts.
@@ -1960,6 +2054,17 @@ export interface components {
         OrcidRateLimited: {
             headers: {
                 /** @description Seconds until the hour ends and calls are accepted again. */
+                "Retry-After": number;
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description The user has searched 60 times in the current minute (`rate_limited`). */
+        SearchRateLimited: {
+            headers: {
+                /** @description Seconds until the minute ends and searches are accepted again. */
                 "Retry-After": number;
                 [name: string]: unknown;
             };
@@ -4018,6 +4123,64 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    searchPeople: {
+        parameters: {
+            query?: {
+                /**
+                 * @description The search text, 2 to 100 characters after trimming. It is required: it is
+                 *     declared optional only so that a missing `q` gets 400 `invalid_query`, like a
+                 *     too short one, instead of the generic `bad_request`.
+                 * @example Rahman
+                 */
+                q?: string;
+                /**
+                 * @description Keep only results whose institution equals this, ignoring letter case and
+                 *     spaces around it. Empty means no filter; more than 200 characters gets 400
+                 *     `bad_request`.
+                 */
+                institution?: string;
+                /**
+                 * @description Keep only results that have every named research interest, ignoring letter
+                 *     case. Repeat the parameter for several (at most 10); each name is normalized
+                 *     like a tag (FR-4.2) and must then be 1 to 60 characters, else 400 `bad_request`.
+                 */
+                interest?: string[];
+                /** @description The page to return, 1 to 50, 20 results each (FR-6.1). Defaults to 1. */
+                page?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of results with the facets of the filters. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PeopleSearchPage"];
+                };
+            };
+            /**
+             * @description `q` is missing or not 2 to 100 characters after trimming (`invalid_query`), or
+             *     `institution`, `interest` or `page` is not valid (`bad_request`).
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            429: components["responses"]["SearchRateLimited"];
             500: components["responses"]["InternalError"];
         };
     };

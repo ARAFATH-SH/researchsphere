@@ -13,7 +13,7 @@ import (
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpx"
 )
 
-// The profile, tag, contact, experience, language and publication routes go through authz (FR-3.2, SRS 2.3): both platform roles may
+// The profile, tag, contact, experience, language, publication and search routes go through authz (FR-3.2, SRS 2.3): both platform roles may
 // view profiles and tags and edit their own, and any other role gets exactly the FR-3.3
 // refusal.
 func TestProfileRoutesThroughRouter(t *testing.T) {
@@ -52,6 +52,7 @@ func TestProfileRoutesThroughRouter(t *testing.T) {
 		{http.MethodPut, "/api/v1/profiles/me/orcid", `{"orcidId":"0000-0002-1825-0097"}`},
 		{http.MethodGet, "/api/v1/profiles/me/publications/orcid-works", ""},
 		{http.MethodPost, "/api/v1/profiles/me/publications/from-orcid", `{"putCodes":["1"]}`},
+		{http.MethodGet, "/api/v1/search/people?q=ada&interest=NLP&page=2", ""},
 	}
 	send := func(t *testing.T, method, path, body, role string) *httptest.ResponseRecorder {
 		t.Helper()
@@ -138,6 +139,8 @@ func TestProfileRoutesAreGuarded(t *testing.T) {
 		"DELETE /api/v1/profiles/me/photo": authz.ActAsMember,
 		"PUT /api/v1/profiles/me/cover":    authz.ActAsMember,
 		"DELETE /api/v1/profiles/me/cover": authz.ActAsMember,
+
+		"GET /api/v1/search/people": authz.ViewContent,
 	}
 	for route, action := range want {
 		if got := platformGuards[route]; got != action {
@@ -147,7 +150,7 @@ func TestProfileRoutesAreGuarded(t *testing.T) {
 	for _, r := range httpserver.Routes() {
 		_, path, _ := strings.Cut(r, " ")
 		if !strings.HasPrefix(path, httpserver.BaseURL+"/profiles") && !strings.HasPrefix(path, httpserver.BaseURL+"/tags") &&
-			!strings.HasPrefix(path, httpserver.BaseURL+"/publications") {
+			!strings.HasPrefix(path, httpserver.BaseURL+"/publications") && !strings.HasPrefix(path, httpserver.BaseURL+"/search") {
 			continue
 		}
 		if _, ok := want[r]; !ok {

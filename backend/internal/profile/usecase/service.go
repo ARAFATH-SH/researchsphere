@@ -20,6 +20,7 @@ type Service struct {
 	now    func() time.Time // the clock for the education years and experience dates
 	lookup DOILookup
 	orcid  ORCIDImport
+	search PeopleSearch
 }
 
 // Option configures a Service.

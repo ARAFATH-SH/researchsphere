@@ -200,6 +200,8 @@ func (s *Service) logger() *slog.Logger {
 		return s.lookup.Logger
 	case s.orcid.Logger != nil:
 		return s.orcid.Logger
+	case s.search.Logger != nil:
+		return s.search.Logger
 	default:
 		return slog.New(slog.DiscardHandler)
 	}

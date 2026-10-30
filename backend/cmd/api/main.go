@@ -101,7 +101,8 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 
 	lookups := profileredis.New(rdb)
 	defer func() { _ = lookups.Close() }()
-	profiles := profileusecase.New(profilepg.NewStore(pool),
+	profileStore := profilepg.NewStore(pool)
+	profiles := profileusecase.New(profileStore,
 		profileusecase.WithDOILookup(profileusecase.DOILookup{
 			Source:  openalex.New(openalex.Config{BaseURL: cfg.OpenAlexBaseURL, Mailto: cfg.OpenAlexMailto}),
 			Cache:   lookups,
@@ -113,6 +114,11 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 			Cache:   lookups,
 			Limiter: lookups.ORCIDLimiter(),
 			Logger:  logger,
+		}),
+		profileusecase.WithPeopleSearch(profileusecase.PeopleSearch{
+			Searcher: profileStore,
+			Limiter:  lookups.SearchLimiter(),
+			Logger:   logger,
 		}),
 	)
 

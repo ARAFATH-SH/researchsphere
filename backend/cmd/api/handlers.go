@@ -105,6 +105,9 @@ var platformGuards = map[string]authz.Action{
 	"PUT /api/v1/profiles/me/cover":    authz.ActAsMember,
 	"DELETE /api/v1/profiles/me/cover": authz.ActAsMember,
 	"GET /api/v1/media/{fileId}":       authz.ViewContent,
+
+	// Researcher search (FR-6) is the row "View profiles, search, ...".
+	"GET /api/v1/search/people": authz.ViewContent,
 }
 
 // multipartOverhead is what a multipart body may hold besides the file: boundaries, part
