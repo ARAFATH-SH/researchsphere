@@ -1,39 +1,27 @@
 //go:build integration
 
-// Tests against the real Redis. Run with `make test-integration` (needs `make up`);
-// they read REDIS_URL.
+// Tests against the test Redis DB. Run with `make test-integration` (needs `make up`);
+// they read TEST_REDIS_URL, and each test starts with that DB empty.
 package redis
 
 import (
 	"crypto/rand"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
 	goredis "github.com/redis/go-redis/v9"
 
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/testenv"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/profile/domain"
 )
 
 func newTestLookups(t *testing.T) (*Lookups, *goredis.Client, string) {
 	t.Helper()
-	url := os.Getenv("REDIS_URL")
-	if url == "" {
-		t.Fatal("REDIS_URL is not set")
-	}
-	opts, err := goredis.ParseURL(url)
-	if err != nil {
-		t.Fatal("REDIS_URL is not accepted by the Redis client")
-	}
-	client := goredis.NewClient(opts)
+	client := testenv.Redis(t)
 	l := New(client)
 	id := "it-" + strings.ToLower(rand.Text())
-	t.Cleanup(func() {
-		client.Del(t.Context(), limitPrefix+id, orcidLimitPrefix+id, searchPrefix+id, workPrefix+"10.5555/"+id, orcidWorksPrefix+id)
-		_ = l.Close()
-		_ = client.Close()
-	})
+	t.Cleanup(func() { _ = l.Close() })
 	return l, client, id
 }
 

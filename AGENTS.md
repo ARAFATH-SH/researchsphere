@@ -44,10 +44,11 @@ Run these from the repository root. `make help` prints the current list.
 | `make web-clean` | Delete the web client build cache (`frontend/.next`). Stop `make web` first; run it after switching branches if styles look broken |
 | `make generate` | Regenerate Go code in `backend/internal/api` and TypeScript types in `frontend/src/lib/api` from `docs/openapi.yaml`, and the sqlc query code in `backend/internal/*/adapter/postgres/sqlcgen` |
 | `make check-generated` | Regenerate and fail if the generated code differs from what is committed |
-| `make test` | Run all tests: `test-db`, `test-go`, `test-integration` and `test-web` (needs `make up` and `make migrate`) |
-| `make test-db` | Run the database constraint tests (needs `make up` and `make migrate`) |
+| `make test` | Run all tests: `test-prepare`, `test-db`, `test-go`, `test-integration` and `test-web` (needs `make up`) |
+| `make test-prepare` | Create the test database `researchsphere_test` (`TEST_POSTGRES_DB`) in the same container if it is missing and apply all migrations to it. Refuses a name that does not end in `_test` |
+| `make test-db` | Run the database constraint tests on the test database (runs `test-prepare` first; needs `make up`) |
 | `make test-go` | Run the backend Go tests (`go test -race`); needs no database |
-| `make test-integration` | Run the Go repository tests and the end-to-end tests in `cmd/api` (build tag `integration`) against the database, Redis and MinIO (needs `make up` and `make migrate`) |
+| `make test-integration` | Run the Go repository tests and the end-to-end tests in `cmd/api` (build tag `integration`) against the test database (`TEST_DATABASE_URL`), Redis DB 15 (`TEST_REDIS_URL`) and MinIO, one package at a time (`-p 1`). Runs `test-prepare` first; needs `make up` |
 | `make test-web` | Run the frontend tests (Jest) |
 | `make lint` | Run all linters: `lint-go` and `lint-web` |
 | `make lint-go` | Run golangci-lint for the backend |
@@ -59,7 +60,7 @@ table in the same change.
 
 CI (`.github/workflows/ci.yml`) runs on every push and pull request: it starts the stack (MinIO included) and runs
 `make check`, applies all migrations, undoes them, checks that nothing is left, applies them
-again, and runs `make test-db` and the Go repository tests (`make test-integration`), then lints and tests each of `backend/`, `frontend/` and `ai/`
+again, then prepares the test database (`make test-prepare`) and runs `make test-db` and the Go repository tests (`make test-integration`) on it, then lints and tests each of `backend/`, `frontend/` and `ai/`
 once that folder has its manifest (`go.mod`, `package.json`, `pyproject.toml`). The backend job
 also fails when the code generated from `docs/openapi.yaml` is not up to date. The frontend
 job runs `npm ci`, checks that the generated API types are up to date, then runs lint, type
@@ -132,6 +133,15 @@ check, tests and a production build.
 - **SQL:** each module's queries are in `internal/<module>/adapter/postgres/queries.sql`; sqlc
   generates `sqlcgen/` beside it (`backend/sqlc.yaml`, run by `make generate`). Repository tests
   that need the database carry the build tag `integration`.
+- **Integration tests never touch development data.** They get their connections from
+  `internal/platform/testenv`: `testenv.DB(t)` connects to `TEST_DATABASE_URL` and empties every
+  table, `testenv.Redis(t)` connects to `TEST_REDIS_URL` (DB 15) and flushes that DB only. Both
+  refuse to run unless the database name ends in `_test` and the Redis DB is not 0 or the one
+  `REDIS_URL` uses. Call each once per test, before opening any transaction (the truncate waits
+  for open transactions and fails after 10 seconds). Do not use `t.Parallel()` in integration
+  tests, and do not add row or key cleanups: the next test starts empty. Only objects written
+  to MinIO need cleaning up. Use `testenv.Word`, `testenv.Email` and `testenv.ORCIDiD` for
+  names, addresses and ORCID iDs rather than fixed values.
 - **Database:** snake_case names, plural table names, uuid primary keys, `timestamptz` for
   times. Rules that must always hold are constraints in the database.
 - **Git:** one branch per slice, named `slice-NN-short-name`. Small commits with messages in

@@ -3,7 +3,6 @@
 package postgres
 
 import (
-	"context"
 	"testing"
 
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/profile/domain"
@@ -25,9 +24,6 @@ func TestProfileImagesAreReadAndKept(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), "DELETE FROM storage_deletions WHERE object_key LIKE $1", "users/"+id+"/%")
-	})
 	if _, err := pool.Exec(ctx, "UPDATE profiles SET photo_file_id = $2, cover_file_id = $3 WHERE user_id = $1", id, photo, cover); err != nil {
 		t.Fatal(err)
 	}

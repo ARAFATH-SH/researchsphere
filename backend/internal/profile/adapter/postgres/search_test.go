@@ -6,7 +6,6 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
-	"math/big"
 	"reflect"
 	"slices"
 	"strings"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/testenv"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/postgres/sqlcgen"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/profile/domain"
 )
@@ -38,22 +38,6 @@ func newSearchEnv(t *testing.T) *searchEnv {
 		return pgx.BeginFunc(ctx, tx, fn)
 	}}
 	return &searchEnv{t: t, tx: tx, s: s}
-}
-
-// word returns a random capitalized word of letters that no other row contains, so
-// searches for it find only this test's rows.
-func word(t *testing.T) string {
-	t.Helper()
-	b := make([]byte, 9)
-	b[0] = 'Q'
-	for i := 1; i < len(b); i++ {
-		n, err := rand.Int(rand.Reader, big.NewInt(26))
-		if err != nil {
-			t.Fatal(err)
-		}
-		b[i] = "abcdefghijklmnopqrstuvwxyz"[n.Int64()]
-	}
-	return string(b)
 }
 
 // person is a seeded user. Empty strings are unset fields.
@@ -135,14 +119,14 @@ func matched(res domain.PeopleResults) []domain.MatchField {
 // is ignored and a profile's best match decides (FR-6.1).
 func TestSearchPeopleMatchesAndRanks(t *testing.T) {
 	e := newSearchEnv(t)
-	w := word(t)
+	w := testenv.Word(t)
 	exact := e.add(person{name: w})
-	prefix := e.add(person{name: w + " " + word(t)})
-	contains := e.add(person{name: word(t) + " " + w, institution: "University of " + w}) // name beats institution
-	inst := e.add(person{name: word(t), institution: "University of " + w})
-	interest := e.add(person{name: word(t), interests: []string{w + " studies"}})
-	headline := e.add(person{name: word(t), headline: "Working on " + w})
-	e.add(person{name: word(t)}) // matches nothing
+	prefix := e.add(person{name: w + " " + testenv.Word(t)})
+	contains := e.add(person{name: testenv.Word(t) + " " + w, institution: "University of " + w}) // name beats institution
+	inst := e.add(person{name: testenv.Word(t), institution: "University of " + w})
+	interest := e.add(person{name: testenv.Word(t), interests: []string{w + " studies"}})
+	headline := e.add(person{name: testenv.Word(t), headline: "Working on " + w})
+	e.add(person{name: testenv.Word(t)}) // matches nothing
 
 	res := e.search(strings.ToLower(w))
 	want := []string{exact, prefix, contains, inst, interest, headline}
@@ -166,10 +150,10 @@ func TestSearchPeopleMatchesAndRanks(t *testing.T) {
 // which name it was taken for.
 func TestSearchPeopleTypo(t *testing.T) {
 	e := newSearchEnv(t)
-	first, last := word(t), word(t)
+	first, last := testenv.Word(t), testenv.Word(t)
 	name := first + " " + last
 	id := e.add(person{name: name})
-	e.add(person{name: word(t) + " " + word(t)}) // not similar
+	e.add(person{name: testenv.Word(t) + " " + testenv.Word(t)}) // not similar
 
 	typo := first + " " + last[:4] + "x" + last[5:]
 	res := e.search(typo)
@@ -185,7 +169,7 @@ func TestSearchPeopleTypo(t *testing.T) {
 // institution, interest and headline matches still come after them.
 func TestSearchPeopleFuzzyOnlyWithoutLiteralName(t *testing.T) {
 	e := newSearchEnv(t)
-	first, last := word(t), word(t)
+	first, last := testenv.Word(t), testenv.Word(t)
 	name := first + " " + last
 	exact := e.add(person{name: name})
 	e.add(person{name: first + " " + last[:4] + "x" + last[5:]}) // similar, not containing
@@ -194,14 +178,17 @@ func TestSearchPeopleFuzzyOnlyWithoutLiteralName(t *testing.T) {
 	if got := ids(res); !reflect.DeepEqual(got, []string{exact}) || res.Fuzzy {
 		t.Errorf("results = %v, fuzzy = %v; want only the literal match, not fuzzy", got, res.Fuzzy)
 	}
+}
 
-	// The only literal match is suspended: it does not count, so similar names are used.
-	e2 := newSearchEnv(t)
-	f2, l2 := word(t), word(t)
-	e2.add(person{name: f2 + " " + l2, suspended: true})
-	typo := e2.add(person{name: f2 + " " + l2[:4] + "x" + l2[5:]})
-	other := e2.add(person{name: word(t), headline: "About " + f2 + " " + l2})
-	res = e2.search(f2 + " " + l2)
+// The only literal match is suspended: it does not count, so similar names are used, and
+// literal headline matches still come after them.
+func TestSearchPeopleFuzzyWhenLiteralNameIsHidden(t *testing.T) {
+	e := newSearchEnv(t)
+	first, last := testenv.Word(t), testenv.Word(t)
+	e.add(person{name: first + " " + last, suspended: true})
+	typo := e.add(person{name: first + " " + last[:4] + "x" + last[5:]})
+	other := e.add(person{name: testenv.Word(t), headline: "About " + first + " " + last})
+	res := e.search(first + " " + last)
 	if got := ids(res); !reflect.DeepEqual(got, []string{typo, other}) || !res.Fuzzy {
 		t.Errorf("results = %v, fuzzy = %v; want [%s %s], fuzzy", got, res.Fuzzy, typo, other)
 	}
@@ -213,12 +200,12 @@ func TestSearchPeopleFuzzyOnlyWithoutLiteralName(t *testing.T) {
 // Unverified and suspended accounts are never found, as on the profile page.
 func TestSearchPeopleOnlyVisibleAccounts(t *testing.T) {
 	e := newSearchEnv(t)
-	w := word(t)
+	w := testenv.Word(t)
 	visible := e.add(person{name: w + " Visible"})
 	e.add(person{name: w + " Unverified", unverified: true})
 	e.add(person{name: w + " Suspended", suspended: true})
-	e.add(person{name: word(t), institution: w, suspended: true})
-	e.add(person{name: word(t), interests: []string{w}, unverified: true})
+	e.add(person{name: testenv.Word(t), institution: w, suspended: true})
+	e.add(person{name: testenv.Word(t), interests: []string{w}, unverified: true})
 
 	res := e.search(w)
 	if got := ids(res); !reflect.DeepEqual(got, []string{visible}) || res.Total != 1 {
@@ -232,9 +219,9 @@ func TestSearchPeopleOnlyVisibleAccounts(t *testing.T) {
 // Email, phone, links and bio are never searched.
 func TestSearchPeopleContactInfoNotSearchable(t *testing.T) {
 	e := newSearchEnv(t)
-	w := strings.ToLower(word(t))
+	w := strings.ToLower(testenv.Word(t))
 	e.add(person{
-		name:  word(t),
+		name:  testenv.Word(t),
 		email: w + "@example.org",
 		phone: "+4915550192837",
 		link:  "https://example.org/" + w,
@@ -251,7 +238,7 @@ func TestSearchPeopleContactInfoNotSearchable(t *testing.T) {
 // matches no name literally, so only a similar name can be found (fuzzy).
 func TestSearchPeopleEscapesWildcards(t *testing.T) {
 	e := newSearchEnv(t)
-	w := word(t)
+	w := testenv.Word(t)
 	e.add(person{name: w})
 	for _, q := range []string{w[:3] + "%" + w[5:], w[:3] + "_" + w[4:], w[:3] + `\` + w[4:]} {
 		if res := e.search(q); !res.Fuzzy {
@@ -268,8 +255,8 @@ func TestSearchPeopleEscapesWildcards(t *testing.T) {
 // filter needs every selected interest; both together narrow further (FR-6.3).
 func TestSearchPeopleFilters(t *testing.T) {
 	e := newSearchEnv(t)
-	w, instA, instB := word(t), "Institute "+word(t), "College "+word(t)
-	nlp, eye := "NLP "+word(t), "Eye "+word(t)
+	w, instA, instB := testenv.Word(t), "Institute "+testenv.Word(t), "College "+testenv.Word(t)
+	nlp, eye := "NLP "+testenv.Word(t), "Eye "+testenv.Word(t)
 	a1 := e.add(person{name: w + " A1", institution: instA, interests: []string{nlp, eye}})
 	a2 := e.add(person{name: w + " A2", institution: instA, interests: []string{nlp}})
 	b1 := e.add(person{name: w + " B1", institution: instB, interests: []string{nlp, eye}})
@@ -291,7 +278,7 @@ func TestSearchPeopleFilters(t *testing.T) {
 		{"one interest, other letter case", []func(*domain.PeopleQuery){interests(strings.ToLower(eye))}, []string{a1, b1}},
 		{"all interests", []func(*domain.PeopleQuery){interests(nlp, eye)}, []string{a1, b1}},
 		{"both filters", []func(*domain.PeopleQuery){inst(instA), interests(nlp, eye)}, []string{a1}},
-		{"unknown interest", []func(*domain.PeopleQuery){interests(nlp, "No "+word(t))}, []string{}},
+		{"unknown interest", []func(*domain.PeopleQuery){interests(nlp, "No "+testenv.Word(t))}, []string{}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -307,8 +294,8 @@ func TestSearchPeopleFilters(t *testing.T) {
 // (FR-6.3).
 func TestSearchPeopleFacets(t *testing.T) {
 	e := newSearchEnv(t)
-	w, instA, instB := word(t), "Institute "+word(t), "College "+word(t)
-	nlp, eye, hci := "NLP "+word(t), "Eye "+word(t), "HCI "+word(t)
+	w, instA, instB := testenv.Word(t), "Institute "+testenv.Word(t), "College "+testenv.Word(t)
+	nlp, eye, hci := "NLP "+testenv.Word(t), "Eye "+testenv.Word(t), "HCI "+testenv.Word(t)
 	e.add(person{name: w + " A1", institution: instA, interests: []string{nlp, eye, hci}})
 	e.add(person{name: w + " A2", institution: strings.ToLower(instA), interests: []string{nlp}})
 	e.add(person{name: w + " A3", institution: instA, interests: []string{eye, nlp}})
@@ -345,7 +332,7 @@ func TestSearchPeopleFacets(t *testing.T) {
 	}
 
 	// A selected interest no result has stays listed, with 0.
-	missing := "Missing " + word(t)
+	missing := "Missing " + testenv.Word(t)
 	res = e.search(w, func(q *domain.PeopleQuery) { q.Interests = []string{missing} })
 	if want := []domain.Facet{{Name: missing, Count: 0}}; res.Total != 0 || !reflect.DeepEqual(res.Interests, want) {
 		t.Errorf("total = %d, interests = %v; want 0, %v", res.Total, res.Interests, want)
@@ -355,7 +342,7 @@ func TestSearchPeopleFacets(t *testing.T) {
 // Facets list at most maxFacets options, most results first.
 func TestSearchPeopleFacetLimit(t *testing.T) {
 	e := newSearchEnv(t)
-	w := word(t)
+	w := testenv.Word(t)
 	for i := range 22 {
 		e.add(person{name: fmt.Sprintf("%s %02d", w, i), institution: fmt.Sprintf("Inst %s %02d", w, i)})
 	}
@@ -369,7 +356,7 @@ func TestSearchPeopleFacetLimit(t *testing.T) {
 // total (FR-6.1).
 func TestSearchPeoplePaging(t *testing.T) {
 	e := newSearchEnv(t)
-	w := word(t)
+	w := testenv.Word(t)
 	var want []string
 	for i := range 21 {
 		want = append(want, e.add(person{name: fmt.Sprintf("%s %02d", w, i)}))
@@ -393,9 +380,9 @@ func TestSearchPeoplePaging(t *testing.T) {
 // first, then by name.
 func TestSearchPeopleResultInterests(t *testing.T) {
 	e := newSearchEnv(t)
-	w := word(t)
-	sel := "Zeta " + word(t)
-	e.add(person{name: word(t), interests: []string{"Alpha " + word(t), "Beta " + word(t), "Gamma " + word(t), "Yak " + w, sel}})
+	w := testenv.Word(t)
+	sel := "Zeta " + testenv.Word(t)
+	e.add(person{name: testenv.Word(t), interests: []string{"Alpha " + testenv.Word(t), "Beta " + testenv.Word(t), "Gamma " + testenv.Word(t), "Yak " + w, sel}})
 
 	res := e.search(w, func(q *domain.PeopleQuery) { q.Interests = []string{strings.ToLower(sel)} })
 	if len(res.Hits) != 1 {
@@ -408,19 +395,22 @@ func TestSearchPeopleResultInterests(t *testing.T) {
 }
 
 // A typo in any one word of a two-word name matches (FR-6.2): the text is compared with
-// the best-matching part of the name, not the whole name. Other stored rows may have the
-// same name, so the test checks that the seeded user is found, not that it is the only
-// result.
+// the best-matching part of the name, not the whole name.
 func TestSearchPeopleTypoInOneWord(t *testing.T) {
 	e := newSearchEnv(t)
-	id := e.add(person{name: "Nafisa Hasan"})
-	e.add(person{name: word(t) + " " + word(t)}) // unrelated
+	first, last := testenv.Word(t), testenv.Word(t)
+	for first[2] == first[3] { // swapping two equal letters would not be a typo
+		first = testenv.Word(t)
+	}
+	name := first + " " + last
+	id := e.add(person{name: name})
+	e.add(person{name: testenv.Word(t) + " " + testenv.Word(t)}) // unrelated
 
 	tests := []struct{ name, q string }{
-		{"one letter wrong in the first name", "Nafiza"},
-		{"one letter wrong in the last name", "Hasen"},
-		{"two letters swapped", "Nafsia"},
-		{"other letter case", "nafiza"},
+		{"one letter wrong in the first name", first[:4] + "x" + first[5:]},
+		{"one letter wrong in the last name", last[:4] + "x" + last[5:]},
+		{"two letters swapped", first[:2] + first[3:4] + first[2:3] + first[4:]},
+		{"other letter case", strings.ToLower(first[:4] + "x" + first[5:])},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -428,11 +418,11 @@ func TestSearchPeopleTypoInOneWord(t *testing.T) {
 			if !slices.Contains(ids(res), id) {
 				t.Fatalf("search %q = %v, want it to include %s", tt.q, ids(res), id)
 			}
-			if !res.Fuzzy || res.CorrectedQuery == nil || *res.CorrectedQuery != "Nafisa Hasan" {
-				t.Errorf("fuzzy = %v, corrected = %v; want true, Nafisa Hasan", res.Fuzzy, res.CorrectedQuery)
+			if !res.Fuzzy || res.CorrectedQuery == nil || *res.CorrectedQuery != name {
+				t.Errorf("fuzzy = %v, corrected = %v; want true, %s", res.Fuzzy, res.CorrectedQuery, name)
 			}
-			if h := res.Hits[0]; h.FullName != "Nafisa Hasan" || h.MatchedOn != domain.MatchName {
-				t.Errorf("first result = %q matched on %s, want Nafisa Hasan on name", h.FullName, h.MatchedOn)
+			if h := res.Hits[0]; h.FullName != name || h.MatchedOn != domain.MatchName {
+				t.Errorf("first result = %q matched on %s, want %s on name", h.FullName, h.MatchedOn, name)
 			}
 		})
 	}
@@ -441,7 +431,7 @@ func TestSearchPeopleTypoInOneWord(t *testing.T) {
 // Text that is like no name finds nobody and is not fuzzy.
 func TestSearchPeopleTypoNoMatch(t *testing.T) {
 	e := newSearchEnv(t)
-	e.add(person{name: "Nafisa Hasan"})
+	e.add(person{name: testenv.Word(t) + " " + testenv.Word(t)})
 	if res := e.search("Zzzzz"); res.Total != 0 || res.Fuzzy || res.CorrectedQuery != nil {
 		t.Errorf("search Zzzzz = %v, fuzzy %v, corrected %v; want nothing", ids(res), res.Fuzzy, res.CorrectedQuery)
 	}
@@ -450,7 +440,7 @@ func TestSearchPeopleTypoNoMatch(t *testing.T) {
 // The most similar name comes first and is the corrected query.
 func TestSearchPeopleFuzzyOrder(t *testing.T) {
 	e := newSearchEnv(t)
-	first, last := word(t), word(t)
+	first, last := testenv.Word(t), testenv.Word(t)
 	closer := e.add(person{name: first + " " + last})                         // one letter off
 	further := e.add(person{name: first[:3] + "yy" + first[5:] + " " + last}) // two letters off
 	typo := first[:4] + "x" + first[5:]

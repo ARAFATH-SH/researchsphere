@@ -59,27 +59,11 @@ func (f *fakeOpenAlex) callsFor(doi string) int {
 	return f.calls[doi]
 }
 
-// cleanLookups removes the cached works and the users' lookup counters when the test ends.
-func (e mediaEnv) cleanLookups(t *testing.T, dois []string, users ...string) {
-	t.Helper()
-	t.Cleanup(func() {
-		var keys []string
-		for _, d := range dois {
-			keys = append(keys, "profile:openalex:work:"+d)
-		}
-		for _, u := range users {
-			keys = append(keys, "profile:doi-lookup:"+u)
-		}
-		e.rdb.Del(t.Context(), keys...)
-	})
-}
-
 func TestPublicationFromDOIEndToEnd(t *testing.T) {
 	fake, base := newFakeOpenAlex(t)
 	e := newMediaEnvWithOpenAlex(t, base)
 	ada, bob := e.newProfileUser(t), e.newProfileUser(t)
 	doi, missing, broken := e.newDOI(t), e.newDOI(t), e.newDOI(t)
-	e.cleanLookups(t, []string{doi, missing, broken}, ada, bob)
 	fake.works[doi] = `{"title":"Notes on the\nEngine","publication_year":2024,
 		"primary_location":{"landing_page_url":"https://example.org/engine","source":{"display_name":"Journal of Engines"}},
 		"abstract_inverted_index":{"We":[0],"describe":[1],"it.":[2]}}`
@@ -174,7 +158,6 @@ func TestPublicationLookupRateLimitEndToEnd(t *testing.T) {
 	e := newMediaEnvWithOpenAlex(t, base)
 	ada := e.newProfileUser(t)
 	doi := e.newDOI(t)
-	e.cleanLookups(t, []string{doi}, ada)
 	fake.works[doi] = `{"title":"Cached paper"}`
 
 	// The first lookup reaches OpenAlex and is cached; the counter is then set to the limit.

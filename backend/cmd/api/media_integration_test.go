@@ -2,13 +2,13 @@
 
 // End-to-end test of the profile images (FR-4.6, NFR-13) through the real router with
 // the real PostgreSQL, Redis and MinIO adapters. Run with `make test-integration` (needs
-// `make up` and `make migrate`); it reads DATABASE_URL, REDIS_URL and the S3_ settings.
+// `make up`); it reads TEST_DATABASE_URL, TEST_REDIS_URL and the S3_ settings, and each
+// test starts with the test database and Redis DB empty.
 package main
 
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"image/jpeg"
@@ -35,6 +35,7 @@ import (
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/accesstoken"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpx"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/storage"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/testenv"
 	profilehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/http"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/openalex"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/orcid"
@@ -68,23 +69,15 @@ func newMediaEnvWithOpenAlex(t *testing.T, openAlexURL string) mediaEnv {
 // the real one. Empty leaves imports unconfigured.
 func newMediaEnvWithSources(t *testing.T, openAlexURL, orcidURL string) mediaEnv {
 	t.Helper()
-	for _, k := range []string{"DATABASE_URL", "REDIS_URL", "S3_ENDPOINT", "S3_BUCKET"} {
+	for _, k := range []string{"S3_ENDPOINT", "S3_BUCKET"} {
 		if os.Getenv(k) == "" {
 			t.Fatalf("%s is not set", k)
 		}
 	}
-	pool, err := pgxpool.New(t.Context(), os.Getenv("DATABASE_URL"))
-	if err != nil {
-		t.Fatal("DATABASE_URL is not accepted by the PostgreSQL driver")
-	}
-	t.Cleanup(pool.Close)
-	opts, err := goredis.ParseURL(os.Getenv("REDIS_URL"))
-	if err != nil {
-		t.Fatal("REDIS_URL is not accepted by the Redis client")
-	}
-	rdb := goredis.NewClient(opts)
+	pool := testenv.DB(t)
+	rdb := testenv.Redis(t)
 	limiter := mediaredis.New(rdb)
-	t.Cleanup(func() { _ = limiter.Close(); _ = rdb.Close() })
+	t.Cleanup(func() { _ = limiter.Close() })
 	files, err := storage.NewS3(storage.Config{
 		Endpoint: os.Getenv("S3_ENDPOINT"), Region: os.Getenv("S3_REGION"), Bucket: os.Getenv("S3_BUCKET"),
 		AccessKey: os.Getenv("S3_ACCESS_KEY"), SecretKey: os.Getenv("S3_SECRET_KEY"), UseSSL: os.Getenv("S3_USE_SSL") == "true",
@@ -124,15 +117,15 @@ func newMediaEnvWithSources(t *testing.T, openAlexURL, orcidURL string) mediaEnv
 	return mediaEnv{router: router, pool: pool, files: files, rdb: rdb}
 }
 
-// newProfileUser stores a verified user with a profile and removes the user, its queued
-// objects, the objects themselves and its upload counter when the test ends.
+// newProfileUser stores a verified user with a profile. When the test ends it deletes the
+// user and then the stored objects its files left in the deletion queue: emptying the
+// database before the next test does not remove objects from the bucket.
 func (e mediaEnv) newProfileUser(t *testing.T) string {
 	t.Helper()
 	ctx := t.Context()
 	var id string
-	email := "it-" + strings.ToLower(rand.Text()) + "@example.org"
 	if err := e.pool.QueryRow(ctx, `INSERT INTO users (email, password_hash, email_verified_at)
-		VALUES ($1, 'hash', now()) RETURNING id::text`, email).Scan(&id); err != nil {
+		VALUES ($1, 'hash', now()) RETURNING id::text`, testenv.Email(t)).Scan(&id); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := e.pool.Exec(ctx, "INSERT INTO profiles (user_id, full_name) VALUES ($1, 'Ada')", id); err != nil {
@@ -156,10 +149,6 @@ func (e mediaEnv) newProfileUser(t *testing.T) string {
 				_ = e.files.Delete(bg, key)
 			}
 		}
-		opts, _ := goredis.ParseURL(os.Getenv("REDIS_URL"))
-		c := goredis.NewClient(opts)
-		c.Del(bg, "media:upload:"+id)
-		_ = c.Close()
 	})
 	return id
 }

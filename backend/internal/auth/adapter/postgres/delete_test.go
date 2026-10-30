@@ -12,12 +12,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/auth/domain"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/testenv"
 )
 
 // testUser registers a user with a profile and a verification token.
-func testUser(t *testing.T, s *Store, pool *pgxpool.Pool, name string) string {
+func testUser(t *testing.T, s *Store, name string) string {
 	t.Helper()
-	id, err := register(t.Context(), s, uniqueEmail(t, pool), name, rand.Text(), time.Now().Add(time.Hour))
+	id, err := register(t.Context(), s, testenv.Email(t), name, rand.Text(), time.Now().Add(time.Hour))
 	if err != nil {
 		t.Fatalf("register %s: %v", name, err)
 	}
@@ -42,9 +43,7 @@ func insertID(t *testing.T, pool *pgxpool.Pool, sql string, args ...any) string 
 	return id
 }
 
-// testProject stores a project owned by ownerID, with editors, and deletes it when the
-// test ends. Projects are deleted before their users, whose cascade would otherwise
-// remove the owner row of a project that still exists.
+// testProject stores a project owned by ownerID, with editors.
 func testProject(t *testing.T, pool *pgxpool.Pool, title, ownerID string, editors ...string) string {
 	t.Helper()
 	ctx := t.Context()
@@ -68,24 +67,13 @@ func testProject(t *testing.T, pool *pgxpool.Pool, title, ownerID string, editor
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		if _, err := pool.Exec(context.Background(), "DELETE FROM projects WHERE id = $1", id); err != nil {
-			t.Errorf("cleanup: %v", err)
-		}
-	})
 	return id
 }
 
-// testPublication stores a publication linked to each of userIDs and deletes it when the
-// test ends.
+// testPublication stores a publication linked to each of userIDs.
 func testPublication(t *testing.T, pool *pgxpool.Pool, title string, userIDs ...string) string {
 	t.Helper()
 	id := insertID(t, pool, "INSERT INTO publications (title) VALUES ($1) RETURNING id", title)
-	t.Cleanup(func() {
-		if _, err := pool.Exec(context.Background(), "DELETE FROM publications WHERE id = $1", id); err != nil {
-			t.Errorf("cleanup: %v", err)
-		}
-	})
 	for _, u := range userIDs {
 		exec(t, pool, "INSERT INTO user_publications (user_id, publication_id) VALUES ($1, $2)", u, id)
 	}
@@ -129,8 +117,8 @@ func count(t *testing.T, pool *pgxpool.Pool, sql string, args ...any) int {
 func TestDeleteAccountRemovesUserData(t *testing.T) {
 	ctx := t.Context()
 	s, pool := newTestStore(t)
-	ada := testUser(t, s, pool, "Ada Lovelace")
-	grace := testUser(t, s, pool, "Grace Hopper")
+	ada := testUser(t, s, "Ada Lovelace")
+	grace := testUser(t, s, "Grace Hopper")
 
 	exec(t, pool, "INSERT INTO sessions (user_id, refresh_token_hash, expires_at) VALUES ($1, $2, now() + interval '1 day')", ada, rand.Text())
 	exec(t, pool, `INSERT INTO profile_embeddings (user_id, model, content_hash, embedding)
@@ -204,8 +192,8 @@ func TestDeleteAccountRemovesUserData(t *testing.T) {
 func TestDeleteAccountRefusedForOwnerOfSharedProject(t *testing.T) {
 	ctx := t.Context()
 	s, pool := newTestStore(t)
-	ada := testUser(t, s, pool, "Ada Lovelace")
-	grace := testUser(t, s, pool, "Grace Hopper")
+	ada := testUser(t, s, "Ada Lovelace")
+	grace := testUser(t, s, "Grace Hopper")
 	solo := testProject(t, pool, "Ada's notes", ada)
 	shared := testProject(t, pool, "Joint survey", ada, grace)
 	soloPub := testPublication(t, pool, "Notes", ada)

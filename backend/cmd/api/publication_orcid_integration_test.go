@@ -6,15 +6,14 @@
 package main
 
 import (
-	"context"
-	"crypto/rand"
 	"fmt"
-	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/testenv"
 )
 
 // fakeORCIDAPI answers GET /v3.0/<orcid>/works from records (raw JSON), with 404 for an
@@ -61,27 +60,6 @@ func (f *fakeORCIDAPI) callsFor(id string) int {
 	return f.calls[id]
 }
 
-// newORCIDiD returns a random ORCID iD with a valid check digit.
-func newORCIDiD(t *testing.T) string {
-	t.Helper()
-	n, err := rand.Int(rand.Reader, big.NewInt(1e15))
-	if err != nil {
-		t.Fatal(err)
-	}
-	digits := fmt.Sprintf("%015d", n)
-	total := 0
-	for _, r := range digits {
-		total = (total + int(r-'0')) * 2
-	}
-	check := (12 - total%11) % 11
-	last := fmt.Sprint(check)
-	if check == 10 {
-		last = "X"
-	}
-	s := digits + last
-	return s[0:4] + "-" + s[4:8] + "-" + s[8:12] + "-" + s[12:16]
-}
-
 // orcidWork is one work group of an ORCID works list, with a DOI when doi is not empty.
 func orcidWork(putCode int, title, doi string) string {
 	ids := `[]`
@@ -93,35 +71,13 @@ func orcidWork(putCode int, title, doi string) string {
 		"publication-date":{"year":{"value":"2021"}},"journal-title":{"value":"ORCID Journal"}}]}`, putCode, title, ids)
 }
 
-// cleanORCID removes the cached lists, the users' ORCID and DOI counters and the records
-// the users created when the test ends. Register it after the users, so it runs before
-// they are deleted.
-func (e mediaEnv) cleanORCID(t *testing.T, orcidIDs []string, users ...string) {
-	t.Helper()
-	t.Cleanup(func() {
-		var keys []string
-		for _, id := range orcidIDs {
-			keys = append(keys, "profile:orcid:works:"+id)
-		}
-		for _, u := range users {
-			keys = append(keys, "profile:orcid-list:"+u, "profile:doi-lookup:"+u)
-		}
-		e.rdb.Del(context.Background(), keys...)
-		if _, err := e.pool.Exec(context.Background(), "DELETE FROM publications WHERE created_by = ANY($1::uuid[])", users); err != nil {
-			t.Errorf("cleanup: %v", err)
-		}
-	})
-}
-
 func TestPublicationFromORCIDEndToEnd(t *testing.T) {
 	orcidFake, orcidURL := newFakeORCID(t)
 	openAlex, openAlexURL := newFakeOpenAlex(t)
 	e := newMediaEnvWithSources(t, openAlexURL, orcidURL)
 	ada, bob, carl := e.newProfileUser(t), e.newProfileUser(t), e.newProfileUser(t)
-	adaORCID, carlORCID := newORCIDiD(t), newORCIDiD(t)
-	e.cleanORCID(t, []string{adaORCID, carlORCID}, ada, bob, carl)
+	adaORCID, carlORCID := testenv.ORCIDiD(t), testenv.ORCIDiD(t)
 	bobs, known, broken := e.newDOI(t), e.newDOI(t), e.newDOI(t)
-	e.cleanLookups(t, []string{bobs, known, broken})
 	openAlex.works[known] = `{"title":"Known to OpenAlex","publication_year":2022,"abstract_inverted_index":{"An":[0],"abstract.":[1]}}`
 	openAlex.failing[broken] = true
 	orcidFake.records[adaORCID] = `{"group":[` + strings.Join([]string{
@@ -259,7 +215,7 @@ func TestPublicationFromORCIDEndToEnd(t *testing.T) {
 	}
 
 	// 10. An iD ORCID does not know.
-	unknown := newORCIDiD(t)
+	unknown := testenv.ORCIDiD(t)
 	if code, _ := send(carl, http.MethodPut, "/api/v1/profiles/me/orcid", `{"orcidId":"`+unknown+`"}`); code != http.StatusOK {
 		t.Fatalf("Carl's second iD: %d", code)
 	}
@@ -272,8 +228,7 @@ func TestORCIDListRateLimitEndToEnd(t *testing.T) {
 	orcidFake, orcidURL := newFakeORCID(t)
 	e := newMediaEnvWithSources(t, "", orcidURL)
 	ada := e.newProfileUser(t)
-	id := newORCIDiD(t)
-	e.cleanORCID(t, []string{id}, ada)
+	id := testenv.ORCIDiD(t)
 	orcidFake.records[id] = `{"group":[]}`
 	if rec := e.send(t, ada, http.MethodPut, "/api/v1/profiles/me/orcid", strings.NewReader(`{"orcidId":"`+id+`"}`), "application/json"); rec.Code != http.StatusOK {
 		t.Fatalf("set iD: %d %s", rec.Code, rec.Body)

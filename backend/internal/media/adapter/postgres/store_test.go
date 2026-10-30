@@ -1,55 +1,36 @@
 //go:build integration
 
-// Repository tests against the real database. Run with `make test-integration`
-// (needs `make up` and `make migrate`); they read DATABASE_URL.
+// Repository tests against the test database. Run with `make test-integration` (needs
+// `make up`); they read TEST_DATABASE_URL, and each test starts with every table empty.
 package postgres
 
 import (
 	"context"
 	"crypto/rand"
 	"errors"
-	"os"
 	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/media/domain"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/testenv"
 )
 
 func newTestStore(t *testing.T) (*Store, *pgxpool.Pool) {
 	t.Helper()
-	url := os.Getenv("DATABASE_URL")
-	if url == "" {
-		t.Fatal("DATABASE_URL is not set")
-	}
-	pool, err := pgxpool.New(t.Context(), url)
-	if err != nil {
-		t.Fatal("DATABASE_URL is not accepted by the PostgreSQL driver")
-	}
-	t.Cleanup(pool.Close)
+	pool := testenv.DB(t)
 	return NewStore(pool), pool
 }
 
-// createUserWithFiles stores a user with one stored file per key, and removes the user
-// and any queue rows for the keys when the test ends.
+// createUserWithFiles stores a user with one stored file per key.
 func createUserWithFiles(t *testing.T, pool *pgxpool.Pool, keys ...string) string {
 	t.Helper()
 	ctx := t.Context()
-	email := "it-" + strings.ToLower(rand.Text()) + "@example.org"
 	var userID string
-	if err := pool.QueryRow(ctx, "INSERT INTO users (email, password_hash) VALUES ($1, 'hash') RETURNING id::text", email).Scan(&userID); err != nil {
+	if err := pool.QueryRow(ctx, "INSERT INTO users (email, password_hash) VALUES ($1, 'hash') RETURNING id::text", testenv.Email(t)).Scan(&userID); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		bg := context.Background()
-		if _, err := pool.Exec(bg, "DELETE FROM users WHERE id = $1", userID); err != nil {
-			t.Errorf("cleanup: %v", err)
-		}
-		if _, err := pool.Exec(bg, "DELETE FROM storage_deletions WHERE object_key = ANY($1)", keys); err != nil {
-			t.Errorf("cleanup: %v", err)
-		}
-	})
 	for _, k := range keys {
 		if _, err := pool.Exec(ctx, `INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes)
 			VALUES ($1, 'photo', $2, 'image/png', 100)`, userID, k); err != nil {

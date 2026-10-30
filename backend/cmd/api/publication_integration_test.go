@@ -5,7 +5,6 @@
 package main
 
 import (
-	"context"
 	"crypto/rand"
 	"fmt"
 	"net/http"
@@ -13,17 +12,10 @@ import (
 	"testing"
 )
 
-// newDOI returns a DOI no other test run uses and deletes its publication when the test
-// ends; deleting the users who added it leaves the record behind.
+// newDOI returns a DOI no other test run uses.
 func (e mediaEnv) newDOI(t *testing.T) string {
 	t.Helper()
-	doi := "10.5555/e2e-" + strings.ToLower(rand.Text())
-	t.Cleanup(func() {
-		if _, err := e.pool.Exec(context.Background(), "DELETE FROM publications WHERE doi = $1", doi); err != nil {
-			t.Errorf("cleanup: %v", err)
-		}
-	})
-	return doi
+	return "10.5555/e2e-" + strings.ToLower(rand.Text())
 }
 
 func TestPublicationAddListPatchDeleteEndToEnd(t *testing.T) {

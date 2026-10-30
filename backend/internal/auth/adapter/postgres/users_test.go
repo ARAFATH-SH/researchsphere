@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/auth/domain"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/testenv"
 )
 
 // ListUsers returns real rows from users and profiles, newest first, a page at a time
@@ -22,7 +23,7 @@ func TestListUsers(t *testing.T) {
 
 	var emails, ids []string
 	for i, name := range []string{"Oldest", "Middle", "Newest"} {
-		email := uniqueEmail(t, pool)
+		email := testenv.Email(t)
 		id, err := register(ctx, s, email, name, rand.Text(), time.Now().Add(time.Hour))
 		if err != nil {
 			t.Fatal(err)
@@ -77,8 +78,8 @@ func TestListUsers(t *testing.T) {
 // SetRoleByEmail is what `make admin` and `make unadmin` run.
 func TestSetRoleByEmail(t *testing.T) {
 	ctx := t.Context()
-	s, pool := newTestStore(t)
-	email := uniqueEmail(t, pool)
+	s, _ := newTestStore(t)
+	email := testenv.Email(t)
 	id, err := register(ctx, s, email, "Ada", rand.Text(), time.Now().Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
