@@ -8,7 +8,11 @@ import { adaID, emptyProfile } from "@/features/profile/test-profiles";
 import { AppShell } from "./app-shell";
 
 const mockPathname = jest.fn<string, []>();
-jest.mock("next/navigation", () => ({ usePathname: () => mockPathname(), useRouter: () => ({ replace: jest.fn() }) }));
+jest.mock("next/navigation", () => ({
+  usePathname: () => mockPathname(),
+  useRouter: () => ({ replace: jest.fn(), push: jest.fn() }),
+  useSearchParams: () => new URLSearchParams(),
+}));
 const mockSession = jest.fn<Session, []>(() => ({ status: "loading" }));
 jest.mock("@/features/auth/session", () => ({ useSession: () => mockSession() }));
 jest.mock("@/features/auth/api");

@@ -1,0 +1,220 @@
+import { fireEvent, render, screen, within } from "@testing-library/react";
+
+import { type PeopleSearchPage, type PersonSearchResult, searchPeople } from "./api";
+import { SearchPage } from "./search-page";
+
+jest.mock("./api");
+const mockSearchPeople = jest.mocked(searchPeople);
+const mockPush = jest.fn();
+let mockSearch = "";
+jest.mock("next/navigation", () => ({
+  useRouter: () => ({ push: mockPush }),
+  useSearchParams: () => new URLSearchParams(mockSearch),
+}));
+
+const ada: PersonSearchResult = {
+  userId: "0b8f4c1e-0000-4000-8000-000000000001",
+  fullName: "Ada Rahman",
+  headline: "PhD student · Medical imaging",
+  institution: "BUET",
+  photoUrl: null,
+  interests: ["Machine learning", "Retinal analysis"],
+  matchedOn: "name",
+};
+
+function resultPage(over: Partial<PeopleSearchPage> = {}): PeopleSearchPage {
+  return {
+    items: [ada],
+    total: 1,
+    page: 1,
+    pageSize: 20,
+    fuzzy: false,
+    correctedQuery: null,
+    facets: {
+      institutions: [
+        { name: "BUET", count: 1 },
+        { name: "University of Dhaka", count: 4 },
+      ],
+      interests: [
+        { name: "Machine learning", count: 1 },
+        { name: "NLP", count: 2 },
+      ],
+    },
+    ...over,
+  };
+}
+
+beforeEach(() => {
+  mockPush.mockReset();
+  mockSearchPeople.mockReset();
+  mockSearchPeople.mockResolvedValue({ ok: true, data: resultPage() });
+});
+
+function renderAt(search: string) {
+  mockSearch = search;
+  return render(<SearchPage />);
+}
+
+describe("SearchPage", () => {
+  it.each(["", "q=a", "q=+b+"])("asks for 2 characters and does not search for %j", (search) => {
+    renderAt(search);
+    expect(screen.getByText("Type at least 2 characters to search.")).toBeTruthy();
+    expect(mockSearchPeople).not.toHaveBeenCalled();
+  });
+
+  it("shows the skeleton while searching, then the results", async () => {
+    renderAt("q=ada");
+    expect(screen.getByRole("status").textContent).toBe("Searching…");
+    const link = await screen.findByRole("link", { name: "Ada Rahman" });
+    expect(link.getAttribute("href")).toBe(`/profile/${ada.userId}`);
+    expect(screen.getByText("PhD student · Medical imaging")).toBeTruthy();
+    expect(within(screen.getByRole("list", { name: "People" })).getByText("BUET")).toBeTruthy();
+    expect(screen.getByText("Interests: Machine learning, Retinal analysis")).toBeTruthy();
+    expect(screen.getByText("1 person · page 1 of 1")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /connect/i })).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(mockSearchPeople).toHaveBeenCalledWith({ q: "ada", institution: "", interests: [], page: 1 });
+  });
+
+  it("has only the People tab", async () => {
+    renderAt("q=ada");
+    await screen.findByRole("link", { name: "Ada Rahman" });
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["People"]);
+  });
+
+  it("says which name the results are for when the search was fuzzy", async () => {
+    mockSearchPeople.mockResolvedValue({
+      ok: true,
+      data: resultPage({ fuzzy: true, correctedQuery: "Ada Rahman" }),
+    });
+    renderAt("q=Ada+Rahmn");
+    const notice = await screen.findByText(/Showing results for/);
+    expect(notice.textContent).toBe("Showing results for Ada Rahman · searched for “Ada Rahmn”");
+  });
+
+  it("lists the facets with their counts", async () => {
+    renderAt("q=ada");
+    await screen.findByRole("link", { name: "Ada Rahman" });
+    const select = screen.getByLabelText("Institution");
+    expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual([
+      "Any institution",
+      "BUET (1)",
+      "University of Dhaka (4)",
+    ]);
+    expect(screen.getByRole("checkbox", { name: "NLP (2)" })).toBeTruthy();
+  });
+
+  it("puts a filter change in the URL and starts again at page 1", async () => {
+    mockSearchPeople.mockResolvedValue({ ok: true, data: resultPage({ total: 60, page: 2 }) });
+    renderAt("q=ada&page=2");
+    await screen.findByRole("link", { name: "Ada Rahman" });
+
+    fireEvent.change(screen.getByLabelText("Institution"), { target: { value: "University of Dhaka" } });
+    expect(mockPush).toHaveBeenLastCalledWith("/search?q=ada&institution=University+of+Dhaka");
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "NLP (2)" }));
+    expect(mockPush).toHaveBeenLastCalledWith("/search?q=ada&interest=NLP");
+  });
+
+  it("restores the search from the URL", async () => {
+    mockSearchPeople.mockResolvedValue({
+      ok: true,
+      data: resultPage({
+        total: 41,
+        page: 2,
+        facets: {
+          institutions: [{ name: "BUET", count: 41 }],
+          interests: [
+            { name: "ml", count: 41 },
+            { name: "nlp", count: 41 },
+            { name: "vision", count: 3 },
+          ],
+        },
+      }),
+    });
+    renderAt("q=ada&institution=BUET&interest=ml&interest=nlp&page=2");
+    await screen.findByRole("link", { name: "Ada Rahman" });
+    expect(mockSearchPeople).toHaveBeenCalledWith({
+      q: "ada",
+      institution: "BUET",
+      interests: ["ml", "nlp"],
+      page: 2,
+    });
+    expect(screen.getByLabelText<HTMLSelectElement>("Institution").value).toBe("BUET");
+    expect(screen.getByRole<HTMLInputElement>("checkbox", { name: "ml (41)" }).checked).toBe(true);
+    expect(screen.getByRole<HTMLInputElement>("checkbox", { name: "nlp (41)" }).checked).toBe(true);
+    expect(screen.getByRole<HTMLInputElement>("checkbox", { name: "vision (3)" }).checked).toBe(false);
+
+    // Unticking one keeps the others.
+    fireEvent.click(screen.getByRole("checkbox", { name: "ml (41)" }));
+    expect(mockPush).toHaveBeenLastCalledWith("/search?q=ada&institution=BUET&interest=nlp");
+  });
+
+  it("resets the filters", async () => {
+    renderAt("q=ada&institution=BUET&interest=NLP");
+    await screen.findByRole("link", { name: "Ada Rahman" });
+    fireEvent.click(screen.getByRole("button", { name: "Reset filters" }));
+    expect(mockPush).toHaveBeenCalledWith("/search?q=ada");
+  });
+
+  it("cannot reset when no filter is on", async () => {
+    renderAt("q=ada");
+    await screen.findByRole("link", { name: "Ada Rahman" });
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Reset filters" }).disabled).toBe(true);
+  });
+
+  it("links to the other pages", async () => {
+    mockSearchPeople.mockResolvedValue({ ok: true, data: resultPage({ total: 45, page: 2 }) });
+    renderAt("q=ada&interest=NLP&page=2");
+    const nav = await screen.findByRole("navigation", { name: "Pages" });
+    const links = within(nav)
+      .getAllByRole("link")
+      .map((l) => [l.textContent, l.getAttribute("href"), l.getAttribute("aria-current")]);
+    expect(links).toEqual([
+      ["Previous", "/search?q=ada&interest=NLP", null],
+      ["1", "/search?q=ada&interest=NLP", null],
+      ["2", "/search?q=ada&interest=NLP&page=2", "page"],
+      ["3", "/search?q=ada&interest=NLP&page=3", null],
+      ["Next", "/search?q=ada&interest=NLP&page=3", null],
+    ]);
+    expect(screen.getByText("45 people · page 2 of 3")).toBeTruthy();
+  });
+
+  it("has no page links for a single page", async () => {
+    renderAt("q=ada");
+    await screen.findByRole("link", { name: "Ada Rahman" });
+    expect(screen.queryByRole("navigation", { name: "Pages" })).toBeNull();
+  });
+
+  it("shows the empty state with a tip", async () => {
+    mockSearchPeople.mockResolvedValue({ ok: true, data: resultPage({ items: [], total: 0 }) });
+    renderAt("q=zzz");
+    expect(await screen.findByText("No researchers match “zzz”.")).toBeTruthy();
+    expect(screen.getByText("Try a different spelling, or search by institution or interest.")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Reset filters" })).toBeNull();
+  });
+
+  it("offers to reset the filters when nothing matches with filters on", async () => {
+    mockSearchPeople.mockResolvedValue({ ok: true, data: resultPage({ items: [], total: 0 }) });
+    renderAt("q=zzz&institution=BUET");
+    const reset = await screen.findByRole("link", { name: "Reset filters" });
+    expect(reset.getAttribute("href")).toBe("/search?q=zzz");
+  });
+
+  it("says to slow down when searching too fast", async () => {
+    mockSearchPeople.mockResolvedValue({ ok: false, code: "rate_limited", message: "Too many." });
+    renderAt("q=ada");
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "You're searching too fast. Try again in a moment.",
+    );
+  });
+
+  it("offers to try again after another error", async () => {
+    mockSearchPeople.mockResolvedValueOnce({ ok: false, code: "internal_error", message: "Oops." });
+    renderAt("q=ada");
+    expect((await screen.findByRole("alert")).textContent).toBe("We couldn't load the results.");
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("link", { name: "Ada Rahman" })).toBeTruthy();
+    expect(mockSearchPeople).toHaveBeenCalledTimes(2);
+  });
+});

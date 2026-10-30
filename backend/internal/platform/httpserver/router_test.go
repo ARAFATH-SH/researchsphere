@@ -211,6 +211,10 @@ func (fakeAPI) GetMedia(context.Context, gen.GetMediaRequestObject) (gen.GetMedi
 	return gen.GetMedia302Response{Headers: gen.GetMedia302ResponseHeaders{Location: "http://localhost/x", CacheControl: "private, max-age=300"}}, nil
 }
 
+func (fakeAPI) SearchPeople(context.Context, gen.SearchPeopleRequestObject) (gen.SearchPeopleResponseObject, error) {
+	return gen.SearchPeople200JSONResponse{}, nil
+}
+
 func (fakeAPI) SuggestInterestTags(context.Context, gen.SuggestInterestTagsRequestObject) (gen.SuggestInterestTagsResponseObject, error) {
 	return gen.SuggestInterestTags200JSONResponse{Items: []gen.Tag{}}, nil
 }
@@ -470,8 +474,8 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 
 func TestRoutes(t *testing.T) {
 	got := Routes()
-	if len(got) != 50 {
-		t.Errorf("Routes() returned %d routes, want the 50 operations in the contract: %v", len(got), got)
+	if len(got) != 51 {
+		t.Errorf("Routes() returned %d routes, want the 51 operations in the contract: %v", len(got), got)
 	}
 	seen := map[string]bool{}
 	for _, p := range got {

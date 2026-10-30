@@ -30,7 +30,7 @@ func newTestLookups(t *testing.T) (*Lookups, *goredis.Client, string) {
 	l := New(client)
 	id := "it-" + strings.ToLower(rand.Text())
 	t.Cleanup(func() {
-		client.Del(t.Context(), limitPrefix+id, orcidLimitPrefix+id, workPrefix+"10.5555/"+id, orcidWorksPrefix+id)
+		client.Del(t.Context(), limitPrefix+id, orcidLimitPrefix+id, searchPrefix+id, workPrefix+"10.5555/"+id, orcidWorksPrefix+id)
 		_ = l.Close()
 		_ = client.Close()
 	})
@@ -144,5 +144,29 @@ func TestORCIDLimiterHasItsOwnCounter(t *testing.T) {
 	}
 	if n, _, err := l.Used(ctx, user); err != nil || n != 1 {
 		t.Errorf("DOI Used() = %d, %v; want 1", n, err)
+	}
+}
+
+func TestSearchLimiterHasItsOwnCounter(t *testing.T) {
+	l, client, user := newTestLookups(t)
+	ctx := t.Context()
+	search := l.SearchLimiter()
+	for range 60 {
+		if err := search.Record(ctx, user, time.Minute); err != nil {
+			t.Fatal(err)
+		}
+	}
+	n, left, err := search.Used(ctx, user)
+	if err != nil || n != 60 {
+		t.Errorf("search Used() = %d, %v; want 60", n, err)
+	}
+	if left <= 0 || left > time.Minute {
+		t.Errorf("search Used() left = %v, want within the minute", left)
+	}
+	if ttl := client.PTTL(ctx, searchPrefix+user).Val(); ttl <= 0 || ttl > time.Minute {
+		t.Errorf("search counter TTL = %v, want at most a minute", ttl)
+	}
+	if n, _, err := l.Used(ctx, user); err != nil || n != 0 {
+		t.Errorf("DOI Used() = %d, %v; want 0", n, err)
 	}
 }

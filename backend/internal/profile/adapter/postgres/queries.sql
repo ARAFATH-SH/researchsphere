@@ -383,3 +383,223 @@ WHERE p.doi = ANY(@dois::text[]);
 
 -- name: CountConfirmedUserPublications :one
 SELECT count(*) FROM user_publications WHERE user_id = @user_id AND confirmed_at IS NOT NULL;
+
+-- Researcher search (FR-6.1 to FR-6.3). Only public fields are searched: full_name,
+-- institution, headline and research interest names; contact info, links and bio never
+-- appear here. The four Search* queries share one CTE, repeated because sqlc has no shared
+-- fragments: keep the copies identical. Its parameters:
+--   q          the trimmed search text
+--   pattern    '%' || q || '%' with \ % _ escaped, for ILIKE (case-insensitive contains)
+--   fuzzy      true when no visible name contains q (AnyVisibleNameContains): the name
+--              matches are then names with a part similar to q (pg_trgm word similarity,
+--              full_name %> q, with the threshold that SetWordSimilarityThreshold sets in
+--              the same transaction), not literal ones. Word similarity compares q with
+--              the best-matching stretch of the name, so a typo in one word of a
+--              multi-word name still matches; whole-name similarity would not.
+--   institution  NULL, or keep only this institution, ignoring letter case
+--   interests  lower-cased interest names the result must all have; empty for none
+-- Each UNION ALL branch can use its own index: profiles_name_trgm_idx,
+-- profiles_institution_trgm_idx, research_interests_name_trgm_idx and
+-- profiles_headline_trgm_idx. A result's rank is its best match: 0 exact name, 1 name
+-- prefix, 2 name contains, 3 similar name, 4 institution, 5 research interest, 6 headline.
+-- Visibility is the profile view rule: verified and not suspended.
+
+-- name: SetWordSimilarityThreshold :exec
+-- Transaction-local (is_local true), so it ends with the search's transaction.
+SELECT set_config('pg_trgm.word_similarity_threshold', @threshold::text, true);
+
+-- name: AnyVisibleNameContains :one
+SELECT EXISTS (
+    SELECT 1
+    FROM profiles p
+    JOIN users u ON u.id = p.user_id
+    WHERE p.full_name ILIKE @pattern::text
+      AND u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL
+);
+
+-- name: SearchPeopleSummary :one
+-- The number of results, and the name most similar to q among the similar-name results
+-- ('' when there are none): highest word similarity, then whole-name similarity.
+WITH hits AS (
+    SELECT p.user_id,
+           CASE WHEN lower(p.full_name) = lower(@q::text) THEN 0
+                WHEN starts_with(lower(p.full_name), lower(@q::text)) THEN 1
+                ELSE 2 END AS rank
+    FROM profiles p
+    WHERE NOT @fuzzy::boolean AND p.full_name ILIKE @pattern::text
+    UNION ALL
+    SELECT p.user_id, 3 FROM profiles p WHERE @fuzzy::boolean AND p.full_name %> @q::text
+    UNION ALL
+    SELECT p.user_id, 4 FROM profiles p WHERE p.institution ILIKE @pattern::text
+    UNION ALL
+    SELECT l.user_id, 5
+    FROM research_interests t
+    JOIN user_interests l ON l.interest_id = t.id
+    WHERE t.name::text ILIKE @pattern::text
+    UNION ALL
+    SELECT p.user_id, 6 FROM profiles p WHERE p.headline ILIKE @pattern::text
+), best AS (
+    SELECT user_id, min(rank) AS rank FROM hits GROUP BY user_id
+), matches AS (
+    SELECT b.user_id, b.rank, p.full_name, p.headline, p.institution, p.photo_file_id
+    FROM best b
+    JOIN users u ON u.id = b.user_id
+    JOIN profiles p ON p.user_id = b.user_id
+    WHERE u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL
+      AND (sqlc.narg(institution)::text IS NULL OR lower(p.institution) = lower(sqlc.narg(institution)::text))
+      AND (cardinality(@interests::text[]) = 0 OR cardinality(@interests::text[]) = (
+          SELECT count(*)
+          FROM user_interests l
+          WHERE l.user_id = b.user_id
+            AND l.interest_id IN (SELECT t.id FROM research_interests t WHERE lower(t.name::text) = ANY (@interests::text[]))))
+)
+SELECT count(*)::int AS total,
+       coalesce((array_agg(m.full_name ORDER BY word_similarity(@q::text, m.full_name) DESC, similarity(m.full_name, @q::text) DESC, m.full_name, m.user_id)
+                 FILTER (WHERE m.rank = 3))[1], '')::text AS corrected_query
+FROM matches m;
+
+-- name: SearchPeoplePage :many
+-- Within a rank: word similarity (it orders similar names; every literal name match has
+-- 1), then whole-name similarity, then name.
+WITH hits AS (
+    SELECT p.user_id,
+           CASE WHEN lower(p.full_name) = lower(@q::text) THEN 0
+                WHEN starts_with(lower(p.full_name), lower(@q::text)) THEN 1
+                ELSE 2 END AS rank
+    FROM profiles p
+    WHERE NOT @fuzzy::boolean AND p.full_name ILIKE @pattern::text
+    UNION ALL
+    SELECT p.user_id, 3 FROM profiles p WHERE @fuzzy::boolean AND p.full_name %> @q::text
+    UNION ALL
+    SELECT p.user_id, 4 FROM profiles p WHERE p.institution ILIKE @pattern::text
+    UNION ALL
+    SELECT l.user_id, 5
+    FROM research_interests t
+    JOIN user_interests l ON l.interest_id = t.id
+    WHERE t.name::text ILIKE @pattern::text
+    UNION ALL
+    SELECT p.user_id, 6 FROM profiles p WHERE p.headline ILIKE @pattern::text
+), best AS (
+    SELECT user_id, min(rank) AS rank FROM hits GROUP BY user_id
+), matches AS (
+    SELECT b.user_id, b.rank, p.full_name, p.headline, p.institution, p.photo_file_id
+    FROM best b
+    JOIN users u ON u.id = b.user_id
+    JOIN profiles p ON p.user_id = b.user_id
+    WHERE u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL
+      AND (sqlc.narg(institution)::text IS NULL OR lower(p.institution) = lower(sqlc.narg(institution)::text))
+      AND (cardinality(@interests::text[]) = 0 OR cardinality(@interests::text[]) = (
+          SELECT count(*)
+          FROM user_interests l
+          WHERE l.user_id = b.user_id
+            AND l.interest_id IN (SELECT t.id FROM research_interests t WHERE lower(t.name::text) = ANY (@interests::text[]))))
+)
+SELECT m.user_id, m.rank::int AS rank, m.full_name, m.headline, m.institution, m.photo_file_id
+FROM matches m
+ORDER BY m.rank, word_similarity(@q::text, m.full_name) DESC, similarity(m.full_name, @q::text) DESC, m.full_name, m.user_id
+LIMIT @page_size OFFSET @page_offset;
+
+-- name: SearchInstitutionFacets :many
+-- Institutions that differ only in letter case count as one, under their most common
+-- spelling (the first in sort order on a tie).
+WITH hits AS (
+    SELECT p.user_id,
+           CASE WHEN lower(p.full_name) = lower(@q::text) THEN 0
+                WHEN starts_with(lower(p.full_name), lower(@q::text)) THEN 1
+                ELSE 2 END AS rank
+    FROM profiles p
+    WHERE NOT @fuzzy::boolean AND p.full_name ILIKE @pattern::text
+    UNION ALL
+    SELECT p.user_id, 3 FROM profiles p WHERE @fuzzy::boolean AND p.full_name %> @q::text
+    UNION ALL
+    SELECT p.user_id, 4 FROM profiles p WHERE p.institution ILIKE @pattern::text
+    UNION ALL
+    SELECT l.user_id, 5
+    FROM research_interests t
+    JOIN user_interests l ON l.interest_id = t.id
+    WHERE t.name::text ILIKE @pattern::text
+    UNION ALL
+    SELECT p.user_id, 6 FROM profiles p WHERE p.headline ILIKE @pattern::text
+), best AS (
+    SELECT user_id, min(rank) AS rank FROM hits GROUP BY user_id
+), matches AS (
+    SELECT b.user_id, b.rank, p.full_name, p.headline, p.institution, p.photo_file_id
+    FROM best b
+    JOIN users u ON u.id = b.user_id
+    JOIN profiles p ON p.user_id = b.user_id
+    WHERE u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL
+      AND (sqlc.narg(institution)::text IS NULL OR lower(p.institution) = lower(sqlc.narg(institution)::text))
+      AND (cardinality(@interests::text[]) = 0 OR cardinality(@interests::text[]) = (
+          SELECT count(*)
+          FROM user_interests l
+          WHERE l.user_id = b.user_id
+            AND l.interest_id IN (SELECT t.id FROM research_interests t WHERE lower(t.name::text) = ANY (@interests::text[]))))
+)
+SELECT (mode() WITHIN GROUP (ORDER BY m.institution))::text AS name, count(*)::int AS n
+FROM matches m
+WHERE btrim(coalesce(m.institution, '')) <> ''
+GROUP BY lower(m.institution)
+ORDER BY n DESC, lower(m.institution)
+LIMIT @max_facets;
+
+-- name: SearchInterestFacets :many
+-- The selected interests (every result has them) come first, then the most common;
+-- max_results is the facet limit plus the number of selected interests.
+WITH hits AS (
+    SELECT p.user_id,
+           CASE WHEN lower(p.full_name) = lower(@q::text) THEN 0
+                WHEN starts_with(lower(p.full_name), lower(@q::text)) THEN 1
+                ELSE 2 END AS rank
+    FROM profiles p
+    WHERE NOT @fuzzy::boolean AND p.full_name ILIKE @pattern::text
+    UNION ALL
+    SELECT p.user_id, 3 FROM profiles p WHERE @fuzzy::boolean AND p.full_name %> @q::text
+    UNION ALL
+    SELECT p.user_id, 4 FROM profiles p WHERE p.institution ILIKE @pattern::text
+    UNION ALL
+    SELECT l.user_id, 5
+    FROM research_interests t
+    JOIN user_interests l ON l.interest_id = t.id
+    WHERE t.name::text ILIKE @pattern::text
+    UNION ALL
+    SELECT p.user_id, 6 FROM profiles p WHERE p.headline ILIKE @pattern::text
+), best AS (
+    SELECT user_id, min(rank) AS rank FROM hits GROUP BY user_id
+), matches AS (
+    SELECT b.user_id, b.rank, p.full_name, p.headline, p.institution, p.photo_file_id
+    FROM best b
+    JOIN users u ON u.id = b.user_id
+    JOIN profiles p ON p.user_id = b.user_id
+    WHERE u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL
+      AND (sqlc.narg(institution)::text IS NULL OR lower(p.institution) = lower(sqlc.narg(institution)::text))
+      AND (cardinality(@interests::text[]) = 0 OR cardinality(@interests::text[]) = (
+          SELECT count(*)
+          FROM user_interests l
+          WHERE l.user_id = b.user_id
+            AND l.interest_id IN (SELECT t.id FROM research_interests t WHERE lower(t.name::text) = ANY (@interests::text[]))))
+)
+SELECT t.name::text AS name, count(*)::int AS n,
+       (lower(t.name::text) = ANY (@interests::text[]))::boolean AS selected
+FROM matches m
+JOIN user_interests l ON l.user_id = m.user_id
+JOIN research_interests t ON t.id = l.interest_id
+GROUP BY t.id, t.name
+ORDER BY selected DESC, n DESC, t.name, t.id
+LIMIT @max_results;
+
+-- name: ListSearchResultInterests :many
+-- Up to 3 interests per result user: those matching q or a selected interest first, then
+-- by name.
+SELECT r.user_id, r.name
+FROM (
+    SELECT l.user_id, t.name::text AS name,
+           row_number() OVER (
+               PARTITION BY l.user_id
+               ORDER BY (t.name::text ILIKE @pattern::text OR lower(t.name::text) = ANY (@interests::text[])) DESC,
+                        t.name, t.id) AS n
+    FROM user_interests l
+    JOIN research_interests t ON t.id = l.interest_id
+    WHERE l.user_id = ANY (@user_ids::uuid[])
+) r
+WHERE r.n <= 3
+ORDER BY r.user_id, r.n;

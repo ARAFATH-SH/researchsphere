@@ -134,6 +134,8 @@ func testRouter() http.Handler {
 			Source: okWorks{}, Cache: okWorks{}, Limiter: okWorks{},
 		}), profileusecase.WithORCIDImport(profileusecase.ORCIDImport{
 			Source: okWorks{}, Cache: okWorks{}, Limiter: okWorks{},
+		}), profileusecase.WithPeopleSearch(profileusecase.PeopleSearch{
+			Searcher: okWorks{}, Limiter: okWorks{},
 		}))),
 		mediahttp.NewHandler(okMedia{}),
 		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
@@ -521,6 +523,10 @@ func (okWorks) PutWork(context.Context, profiledomain.WorkMetadata, time.Duratio
 func (okWorks) Used(context.Context, string) (int, time.Duration, error) { return 0, 0, nil }
 
 func (okWorks) Record(context.Context, string, time.Duration) error { return nil }
+
+func (okWorks) SearchPeople(context.Context, profiledomain.PeopleQuery, int) (profiledomain.PeopleResults, error) {
+	return profiledomain.PeopleResults{}, nil
+}
 
 func (okWorks) ListWorks(context.Context, string) ([]profiledomain.ORCIDWork, error) {
 	return []profiledomain.ORCIDWork{{PutCode: "1", Title: "Notes"}}, nil

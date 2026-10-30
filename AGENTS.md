@@ -114,6 +114,7 @@ check, tests and a production build.
   | `lib/api/` | `client.ts`, the one API client (openapi-fetch), and `schema.gen.ts`, generated from `docs/openapi.yaml` (do not edit; run `make generate`) |
   | `lib/` | Other helpers that belong to no feature |
   | `features/<module>/` | Code for one feature, named after the backend module (health, auth, profile, social, project, event, notification); created when the module has code |
+  | `features/search/` | The search page, which spans modules: its People tab uses the profile module's search API; Projects and Posts tabs join it with their slices |
 
   Every API call goes through `lib/api/client.ts`, never a hand-written `fetch`. The browser
   calls `/api/v1` on its own origin and `next.config.ts` forwards it to `API_URL`, which is

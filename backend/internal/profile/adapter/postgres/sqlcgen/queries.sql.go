@@ -11,6 +11,23 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const anyVisibleNameContains = `-- name: AnyVisibleNameContains :one
+SELECT EXISTS (
+    SELECT 1
+    FROM profiles p
+    JOIN users u ON u.id = p.user_id
+    WHERE p.full_name ILIKE $1::text
+      AND u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL
+)
+`
+
+func (q *Queries) AnyVisibleNameContains(ctx context.Context, pattern string) (bool, error) {
+	row := q.db.QueryRow(ctx, anyVisibleNameContains, pattern)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const confirmPublicationLink = `-- name: ConfirmPublicationLink :exec
 UPDATE user_publications SET confirmed_at = now()
 WHERE user_id = $1 AND publication_id = $2 AND confirmed_at IS NULL
@@ -989,6 +1006,55 @@ func (q *Queries) ListConfirmedUserPublications(ctx context.Context, userID pgty
 	return items, nil
 }
 
+const listSearchResultInterests = `-- name: ListSearchResultInterests :many
+SELECT r.user_id, r.name
+FROM (
+    SELECT l.user_id, t.name::text AS name,
+           row_number() OVER (
+               PARTITION BY l.user_id
+               ORDER BY (t.name::text ILIKE $1::text OR lower(t.name::text) = ANY ($2::text[])) DESC,
+                        t.name, t.id) AS n
+    FROM user_interests l
+    JOIN research_interests t ON t.id = l.interest_id
+    WHERE l.user_id = ANY ($3::uuid[])
+) r
+WHERE r.n <= 3
+ORDER BY r.user_id, r.n
+`
+
+type ListSearchResultInterestsParams struct {
+	Pattern   string
+	Interests []string
+	UserIds   []pgtype.UUID
+}
+
+type ListSearchResultInterestsRow struct {
+	UserID pgtype.UUID
+	Name   string
+}
+
+// Up to 3 interests per result user: those matching q or a selected interest first, then
+// by name.
+func (q *Queries) ListSearchResultInterests(ctx context.Context, arg ListSearchResultInterestsParams) ([]ListSearchResultInterestsRow, error) {
+	rows, err := q.db.Query(ctx, listSearchResultInterests, arg.Pattern, arg.Interests, arg.UserIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSearchResultInterestsRow
+	for rows.Next() {
+		var i ListSearchResultInterestsRow
+		if err := rows.Scan(&i.UserID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUserEducation = `-- name: ListUserEducation :many
 SELECT id, user_id, institution, degree, field_of_study, start_year, end_year, grade, description
 FROM profile_education
@@ -1294,6 +1360,343 @@ func (q *Queries) MatchPublicationsByDOI(ctx context.Context, arg MatchPublicati
 	return items, nil
 }
 
+const searchInstitutionFacets = `-- name: SearchInstitutionFacets :many
+WITH hits AS (
+    SELECT p.user_id,
+           CASE WHEN lower(p.full_name) = lower($2::text) THEN 0
+                WHEN starts_with(lower(p.full_name), lower($2::text)) THEN 1
+                ELSE 2 END AS rank
+    FROM profiles p
+    WHERE NOT $3::boolean AND p.full_name ILIKE $4::text
+    UNION ALL
+    SELECT p.user_id, 3 FROM profiles p WHERE $3::boolean AND p.full_name %> $2::text
+    UNION ALL
+    SELECT p.user_id, 4 FROM profiles p WHERE p.institution ILIKE $4::text
+    UNION ALL
+    SELECT l.user_id, 5
+    FROM research_interests t
+    JOIN user_interests l ON l.interest_id = t.id
+    WHERE t.name::text ILIKE $4::text
+    UNION ALL
+    SELECT p.user_id, 6 FROM profiles p WHERE p.headline ILIKE $4::text
+), best AS (
+    SELECT user_id, min(rank) AS rank FROM hits GROUP BY user_id
+), matches AS (
+    SELECT b.user_id, b.rank, p.full_name, p.headline, p.institution, p.photo_file_id
+    FROM best b
+    JOIN users u ON u.id = b.user_id
+    JOIN profiles p ON p.user_id = b.user_id
+    WHERE u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL
+      AND ($5::text IS NULL OR lower(p.institution) = lower($5::text))
+      AND (cardinality($6::text[]) = 0 OR cardinality($6::text[]) = (
+          SELECT count(*)
+          FROM user_interests l
+          WHERE l.user_id = b.user_id
+            AND l.interest_id IN (SELECT t.id FROM research_interests t WHERE lower(t.name::text) = ANY ($6::text[]))))
+)
+SELECT (mode() WITHIN GROUP (ORDER BY m.institution))::text AS name, count(*)::int AS n
+FROM matches m
+WHERE btrim(coalesce(m.institution, '')) <> ''
+GROUP BY lower(m.institution)
+ORDER BY n DESC, lower(m.institution)
+LIMIT $1
+`
+
+type SearchInstitutionFacetsParams struct {
+	MaxFacets   int32
+	Q           string
+	Fuzzy       bool
+	Pattern     string
+	Institution pgtype.Text
+	Interests   []string
+}
+
+type SearchInstitutionFacetsRow struct {
+	Name string
+	N    int32
+}
+
+// Institutions that differ only in letter case count as one, under their most common
+// spelling (the first in sort order on a tie).
+func (q *Queries) SearchInstitutionFacets(ctx context.Context, arg SearchInstitutionFacetsParams) ([]SearchInstitutionFacetsRow, error) {
+	rows, err := q.db.Query(ctx, searchInstitutionFacets,
+		arg.MaxFacets,
+		arg.Q,
+		arg.Fuzzy,
+		arg.Pattern,
+		arg.Institution,
+		arg.Interests,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SearchInstitutionFacetsRow
+	for rows.Next() {
+		var i SearchInstitutionFacetsRow
+		if err := rows.Scan(&i.Name, &i.N); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const searchInterestFacets = `-- name: SearchInterestFacets :many
+WITH hits AS (
+    SELECT p.user_id,
+           CASE WHEN lower(p.full_name) = lower($3::text) THEN 0
+                WHEN starts_with(lower(p.full_name), lower($3::text)) THEN 1
+                ELSE 2 END AS rank
+    FROM profiles p
+    WHERE NOT $4::boolean AND p.full_name ILIKE $5::text
+    UNION ALL
+    SELECT p.user_id, 3 FROM profiles p WHERE $4::boolean AND p.full_name %> $3::text
+    UNION ALL
+    SELECT p.user_id, 4 FROM profiles p WHERE p.institution ILIKE $5::text
+    UNION ALL
+    SELECT l.user_id, 5
+    FROM research_interests t
+    JOIN user_interests l ON l.interest_id = t.id
+    WHERE t.name::text ILIKE $5::text
+    UNION ALL
+    SELECT p.user_id, 6 FROM profiles p WHERE p.headline ILIKE $5::text
+), best AS (
+    SELECT user_id, min(rank) AS rank FROM hits GROUP BY user_id
+), matches AS (
+    SELECT b.user_id, b.rank, p.full_name, p.headline, p.institution, p.photo_file_id
+    FROM best b
+    JOIN users u ON u.id = b.user_id
+    JOIN profiles p ON p.user_id = b.user_id
+    WHERE u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL
+      AND ($6::text IS NULL OR lower(p.institution) = lower($6::text))
+      AND (cardinality($1::text[]) = 0 OR cardinality($1::text[]) = (
+          SELECT count(*)
+          FROM user_interests l
+          WHERE l.user_id = b.user_id
+            AND l.interest_id IN (SELECT t.id FROM research_interests t WHERE lower(t.name::text) = ANY ($1::text[]))))
+)
+SELECT t.name::text AS name, count(*)::int AS n,
+       (lower(t.name::text) = ANY ($1::text[]))::boolean AS selected
+FROM matches m
+JOIN user_interests l ON l.user_id = m.user_id
+JOIN research_interests t ON t.id = l.interest_id
+GROUP BY t.id, t.name
+ORDER BY selected DESC, n DESC, t.name, t.id
+LIMIT $2
+`
+
+type SearchInterestFacetsParams struct {
+	Interests   []string
+	MaxResults  int32
+	Q           string
+	Fuzzy       bool
+	Pattern     string
+	Institution pgtype.Text
+}
+
+type SearchInterestFacetsRow struct {
+	Name     string
+	N        int32
+	Selected bool
+}
+
+// The selected interests (every result has them) come first, then the most common;
+// max_results is the facet limit plus the number of selected interests.
+func (q *Queries) SearchInterestFacets(ctx context.Context, arg SearchInterestFacetsParams) ([]SearchInterestFacetsRow, error) {
+	rows, err := q.db.Query(ctx, searchInterestFacets,
+		arg.Interests,
+		arg.MaxResults,
+		arg.Q,
+		arg.Fuzzy,
+		arg.Pattern,
+		arg.Institution,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SearchInterestFacetsRow
+	for rows.Next() {
+		var i SearchInterestFacetsRow
+		if err := rows.Scan(&i.Name, &i.N, &i.Selected); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const searchPeoplePage = `-- name: SearchPeoplePage :many
+WITH hits AS (
+    SELECT p.user_id,
+           CASE WHEN lower(p.full_name) = lower($1::text) THEN 0
+                WHEN starts_with(lower(p.full_name), lower($1::text)) THEN 1
+                ELSE 2 END AS rank
+    FROM profiles p
+    WHERE NOT $4::boolean AND p.full_name ILIKE $5::text
+    UNION ALL
+    SELECT p.user_id, 3 FROM profiles p WHERE $4::boolean AND p.full_name %> $1::text
+    UNION ALL
+    SELECT p.user_id, 4 FROM profiles p WHERE p.institution ILIKE $5::text
+    UNION ALL
+    SELECT l.user_id, 5
+    FROM research_interests t
+    JOIN user_interests l ON l.interest_id = t.id
+    WHERE t.name::text ILIKE $5::text
+    UNION ALL
+    SELECT p.user_id, 6 FROM profiles p WHERE p.headline ILIKE $5::text
+), best AS (
+    SELECT user_id, min(rank) AS rank FROM hits GROUP BY user_id
+), matches AS (
+    SELECT b.user_id, b.rank, p.full_name, p.headline, p.institution, p.photo_file_id
+    FROM best b
+    JOIN users u ON u.id = b.user_id
+    JOIN profiles p ON p.user_id = b.user_id
+    WHERE u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL
+      AND ($6::text IS NULL OR lower(p.institution) = lower($6::text))
+      AND (cardinality($7::text[]) = 0 OR cardinality($7::text[]) = (
+          SELECT count(*)
+          FROM user_interests l
+          WHERE l.user_id = b.user_id
+            AND l.interest_id IN (SELECT t.id FROM research_interests t WHERE lower(t.name::text) = ANY ($7::text[]))))
+)
+SELECT m.user_id, m.rank::int AS rank, m.full_name, m.headline, m.institution, m.photo_file_id
+FROM matches m
+ORDER BY m.rank, word_similarity($1::text, m.full_name) DESC, similarity(m.full_name, $1::text) DESC, m.full_name, m.user_id
+LIMIT $3 OFFSET $2
+`
+
+type SearchPeoplePageParams struct {
+	Q           string
+	PageOffset  int32
+	PageSize    int32
+	Fuzzy       bool
+	Pattern     string
+	Institution pgtype.Text
+	Interests   []string
+}
+
+type SearchPeoplePageRow struct {
+	UserID      pgtype.UUID
+	Rank        int32
+	FullName    string
+	Headline    pgtype.Text
+	Institution pgtype.Text
+	PhotoFileID pgtype.UUID
+}
+
+// Within a rank: word similarity (it orders similar names; every literal name match has
+// 1), then whole-name similarity, then name.
+func (q *Queries) SearchPeoplePage(ctx context.Context, arg SearchPeoplePageParams) ([]SearchPeoplePageRow, error) {
+	rows, err := q.db.Query(ctx, searchPeoplePage,
+		arg.Q,
+		arg.PageOffset,
+		arg.PageSize,
+		arg.Fuzzy,
+		arg.Pattern,
+		arg.Institution,
+		arg.Interests,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SearchPeoplePageRow
+	for rows.Next() {
+		var i SearchPeoplePageRow
+		if err := rows.Scan(
+			&i.UserID,
+			&i.Rank,
+			&i.FullName,
+			&i.Headline,
+			&i.Institution,
+			&i.PhotoFileID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const searchPeopleSummary = `-- name: SearchPeopleSummary :one
+WITH hits AS (
+    SELECT p.user_id,
+           CASE WHEN lower(p.full_name) = lower($1::text) THEN 0
+                WHEN starts_with(lower(p.full_name), lower($1::text)) THEN 1
+                ELSE 2 END AS rank
+    FROM profiles p
+    WHERE NOT $2::boolean AND p.full_name ILIKE $3::text
+    UNION ALL
+    SELECT p.user_id, 3 FROM profiles p WHERE $2::boolean AND p.full_name %> $1::text
+    UNION ALL
+    SELECT p.user_id, 4 FROM profiles p WHERE p.institution ILIKE $3::text
+    UNION ALL
+    SELECT l.user_id, 5
+    FROM research_interests t
+    JOIN user_interests l ON l.interest_id = t.id
+    WHERE t.name::text ILIKE $3::text
+    UNION ALL
+    SELECT p.user_id, 6 FROM profiles p WHERE p.headline ILIKE $3::text
+), best AS (
+    SELECT user_id, min(rank) AS rank FROM hits GROUP BY user_id
+), matches AS (
+    SELECT b.user_id, b.rank, p.full_name, p.headline, p.institution, p.photo_file_id
+    FROM best b
+    JOIN users u ON u.id = b.user_id
+    JOIN profiles p ON p.user_id = b.user_id
+    WHERE u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL
+      AND ($4::text IS NULL OR lower(p.institution) = lower($4::text))
+      AND (cardinality($5::text[]) = 0 OR cardinality($5::text[]) = (
+          SELECT count(*)
+          FROM user_interests l
+          WHERE l.user_id = b.user_id
+            AND l.interest_id IN (SELECT t.id FROM research_interests t WHERE lower(t.name::text) = ANY ($5::text[]))))
+)
+SELECT count(*)::int AS total,
+       coalesce((array_agg(m.full_name ORDER BY word_similarity($1::text, m.full_name) DESC, similarity(m.full_name, $1::text) DESC, m.full_name, m.user_id)
+                 FILTER (WHERE m.rank = 3))[1], '')::text AS corrected_query
+FROM matches m
+`
+
+type SearchPeopleSummaryParams struct {
+	Q           string
+	Fuzzy       bool
+	Pattern     string
+	Institution pgtype.Text
+	Interests   []string
+}
+
+type SearchPeopleSummaryRow struct {
+	Total          int32
+	CorrectedQuery string
+}
+
+// The number of results, and the name most similar to q among the similar-name results
+// (” when there are none): highest word similarity, then whole-name similarity.
+func (q *Queries) SearchPeopleSummary(ctx context.Context, arg SearchPeopleSummaryParams) (SearchPeopleSummaryRow, error) {
+	row := q.db.QueryRow(ctx, searchPeopleSummary,
+		arg.Q,
+		arg.Fuzzy,
+		arg.Pattern,
+		arg.Institution,
+		arg.Interests,
+	)
+	var i SearchPeopleSummaryRow
+	err := row.Scan(&i.Total, &i.CorrectedQuery)
+	return i, err
+}
+
 const setOrcidID = `-- name: SetOrcidID :execrows
 UPDATE profiles SET orcid_id = $1 WHERE user_id = $2
 `
@@ -1311,6 +1714,38 @@ func (q *Queries) SetOrcidID(ctx context.Context, arg SetOrcidIDParams) (int64, 
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const setWordSimilarityThreshold = `-- name: SetWordSimilarityThreshold :exec
+
+SELECT set_config('pg_trgm.word_similarity_threshold', $1::text, true)
+`
+
+// Researcher search (FR-6.1 to FR-6.3). Only public fields are searched: full_name,
+// institution, headline and research interest names; contact info, links and bio never
+// appear here. The four Search* queries share one CTE, repeated because sqlc has no shared
+// fragments: keep the copies identical. Its parameters:
+//
+//	q          the trimmed search text
+//	pattern    '%' || q || '%' with \ % _ escaped, for ILIKE (case-insensitive contains)
+//	fuzzy      true when no visible name contains q (AnyVisibleNameContains): the name
+//	           matches are then names with a part similar to q (pg_trgm word similarity,
+//	           full_name %> q, with the threshold that SetWordSimilarityThreshold sets in
+//	           the same transaction), not literal ones. Word similarity compares q with
+//	           the best-matching stretch of the name, so a typo in one word of a
+//	           multi-word name still matches; whole-name similarity would not.
+//	institution  NULL, or keep only this institution, ignoring letter case
+//	interests  lower-cased interest names the result must all have; empty for none
+//
+// Each UNION ALL branch can use its own index: profiles_name_trgm_idx,
+// profiles_institution_trgm_idx, research_interests_name_trgm_idx and
+// profiles_headline_trgm_idx. A result's rank is its best match: 0 exact name, 1 name
+// prefix, 2 name contains, 3 similar name, 4 institution, 5 research interest, 6 headline.
+// Visibility is the profile view rule: verified and not suspended.
+// Transaction-local (is_local true), so it ends with the search's transaction.
+func (q *Queries) SetWordSimilarityThreshold(ctx context.Context, threshold string) error {
+	_, err := q.db.Exec(ctx, setWordSimilarityThreshold, threshold)
+	return err
 }
 
 const suggestInterests = `-- name: SuggestInterests :many

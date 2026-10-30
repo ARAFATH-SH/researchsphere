@@ -1,7 +1,7 @@
-// Package redis implements the profile domain's WorkCache, ORCIDWorksCache and
-// LookupLimiter with Redis: fetched DOI metadata and ORCID works lists kept for a while,
-// and counters per user that expire at the end of their window (FR-5.2, FR-5.3,
-// docs/decisions.md).
+// Package redis implements the profile domain's WorkCache, ORCIDWorksCache,
+// LookupLimiter and SearchLimiter with Redis: fetched DOI metadata and ORCID works lists
+// kept for a while, and counters per user that expire at the end of their window
+// (FR-5.2, FR-5.3, FR-6, docs/decisions.md).
 package redis
 
 import (
@@ -22,6 +22,7 @@ import (
 const (
 	limitPrefix      = "profile:doi-lookup:"
 	orcidLimitPrefix = "profile:orcid-list:"
+	searchPrefix     = "profile:people-search:"
 	workPrefix       = "profile:openalex:work:"
 	orcidWorksPrefix = "profile:orcid:works:"
 )
@@ -42,6 +43,7 @@ var (
 	_ domain.ORCIDWorksCache = (*Lookups)(nil)
 	_ domain.LookupLimiter   = (*Lookups)(nil)
 	_ domain.LookupLimiter   = counter{}
+	_ domain.SearchLimiter   = counter{}
 )
 
 // New returns Lookups with a client of its own, made from the shared client's address
@@ -62,6 +64,12 @@ func New(shared *goredis.Client) *Lookups {
 // ORCIDLimiter returns the counter of the user's ORCID list calls, on the same client.
 func (l *Lookups) ORCIDLimiter() domain.LookupLimiter {
 	return counter{client: l.client, prefix: orcidLimitPrefix}
+}
+
+// SearchLimiter returns the counter of the user's researcher searches, on the same
+// client.
+func (l *Lookups) SearchLimiter() domain.SearchLimiter {
+	return counter{client: l.client, prefix: searchPrefix}
 }
 
 // Close closes the own client.

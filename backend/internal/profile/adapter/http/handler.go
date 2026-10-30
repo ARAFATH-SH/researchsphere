@@ -2,7 +2,8 @@
 // profile and editing its basic fields (FR-4.1), research interests and skills (FR-4.2)
 // with suggestions (FR-4.3), education entries (FR-4.4), contact info and links (FR-4.7),
 // work experience entries (FR-4.8), languages (FR-4.9), any user's profile (FR-4.5) and
-// publications added by hand, from a DOI or from ORCID (FR-5.1 to FR-5.7).
+// publications added by hand, from a DOI or from ORCID (FR-5.1 to FR-5.7), and researcher
+// search (FR-6.1 to FR-6.3).
 // It turns the usecase's errors into the error codes the web client shows next to each
 // field. cmd/api guards each route with its platform action (SRS 2.3) before it gets here.
 package http
@@ -117,6 +118,7 @@ type service interface {
 	SetOrcidID(ctx context.Context, userID string, orcidID *string) (*string, error)
 	ListORCIDWorks(ctx context.Context, userID string) (usecase.ORCIDWorkList, error)
 	ImportORCIDWorks(ctx context.Context, userID string, putCodes []string) (usecase.ImportResult, error)
+	SearchPeople(ctx context.Context, userID string, in usecase.SearchInput) (domain.PeopleResults, error)
 }
 
 // Handler implements the profile operations of gen.StrictServerInterface.
