@@ -41,15 +41,19 @@ const shownEducation = 2;
 const shownSkills = 6;
 
 // The main column's sections in the order of design/screens/Profile.html, one card each.
-// Publications (slice 11) and Activity (FR-8.6) are not built yet and are left out. On the
-// owner's profile each section has a pencil or "+" and an empty one shows the dashed
-// empty-state card with a button to fill it in; on anyone else's an empty section is hidden.
+// publications is the Publications card (publications-section.tsx), passed in by the page
+// and placed after "Research interests & skills". Activity (FR-8.6) is not built yet and is
+// left out. On the owner's profile each section has a pencil or "+" and an empty one shows
+// the dashed empty-state card with a button to fill it in; on anyone else's an empty section
+// is hidden.
 export function ProfileSections({
   profile,
   edit,
+  publications,
 }: {
   profile: Profile;
   edit?: EditControls;
+  publications?: ReactNode;
 }) {
   return (
     <>
@@ -63,6 +67,7 @@ export function ProfileSections({
         {profile.bio && <Bio text={profile.bio} />}
       </Section>
       <TagsSection profile={profile} edit={edit} />
+      {publications}
       <ExperienceSection entries={profile.experience} edit={edit} />
       <Section
         title="Education"
@@ -116,7 +121,7 @@ function Section({
 
 // EmptyPrompt is the empty-state button of a section on the owner's profile. It links to
 // /profile?edit=<section>, which opens the section's dialog.
-function EmptyPrompt({
+export function EmptyPrompt({
   section,
   label,
 }: {
@@ -544,7 +549,7 @@ function LanguagesSection({
 const clampedLines = 3;
 const clampedChars = 250;
 
-function ClampedText({ text }: { text: string }) {
+export function ClampedText({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false);
   const textId = useId();
   const long =

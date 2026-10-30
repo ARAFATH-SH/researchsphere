@@ -37,7 +37,10 @@ import (
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/redis"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/storage"
 	profilehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/http"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/openalex"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/orcid"
 	profilepg "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/postgres"
+	profileredis "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/redis"
 	profileusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/usecase"
 )
 
@@ -96,6 +99,23 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 	attempts := authredis.New(rdb)
 	defer func() { _ = attempts.Close() }()
 
+	lookups := profileredis.New(rdb)
+	defer func() { _ = lookups.Close() }()
+	profiles := profileusecase.New(profilepg.NewStore(pool),
+		profileusecase.WithDOILookup(profileusecase.DOILookup{
+			Source:  openalex.New(openalex.Config{BaseURL: cfg.OpenAlexBaseURL, Mailto: cfg.OpenAlexMailto}),
+			Cache:   lookups,
+			Limiter: lookups,
+			Logger:  logger,
+		}),
+		profileusecase.WithORCIDImport(profileusecase.ORCIDImport{
+			Source:  orcid.New(orcid.Config{BaseURL: cfg.ORCIDBaseURL}),
+			Cache:   lookups,
+			Limiter: lookups.ORCIDLimiter(),
+			Logger:  logger,
+		}),
+	)
+
 	tokens := accesstoken.New(cfg.JWTSecret, accessTTL)
 	auth := authusecase.New(
 		authpg.NewStore(pool),
@@ -109,7 +129,7 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 	)
 	handler := newRouter(logger, healthpg.NewPinger(pool), healthredis.NewPinger(rdb), files,
 		authhttp.NewHandler(auth, authhttp.CookieConfig{Secure: cfg.CookieSecure}),
-		profilehttp.NewHandler(profileusecase.New(profilepg.NewStore(pool))),
+		profilehttp.NewHandler(profiles),
 		mediahttp.NewHandler(images),
 		httpx.RequireAuth(tokens, time.Now))
 

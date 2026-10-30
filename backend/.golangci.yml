@@ -77,6 +77,21 @@ linters:
             - $gostd
             - golang.org/x/image
             - github.com/ARAFATH-SH/researchsphere/backend/internal/media/domain
+        # The OpenAlex client sees only HTTP and the profile domain: no database, Redis or
+        # generated API code (FR-5.2).
+        adapter-openalex:
+          files: ["**/internal/profile/adapter/openalex/**"]
+          list-mode: strict
+          allow:
+            - $gostd
+            - github.com/ARAFATH-SH/researchsphere/backend/internal/profile/domain
+        # The ORCID client sees only HTTP and the profile domain (FR-5.3).
+        adapter-orcid:
+          files: ["**/internal/profile/adapter/orcid/**"]
+          list-mode: strict
+          allow:
+            - $gostd
+            - github.com/ARAFATH-SH/researchsphere/backend/internal/profile/domain
     sloglint:
       attr-only: false
       no-mixed-args: true

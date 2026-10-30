@@ -1,7 +1,8 @@
 // Package http serves the profile operations in docs/openapi.yaml: the caller's own
 // profile and editing its basic fields (FR-4.1), research interests and skills (FR-4.2)
 // with suggestions (FR-4.3), education entries (FR-4.4), contact info and links (FR-4.7),
-// work experience entries (FR-4.8), languages (FR-4.9) and any user's profile (FR-4.5).
+// work experience entries (FR-4.8), languages (FR-4.9), any user's profile (FR-4.5) and
+// publications added by hand, from a DOI or from ORCID (FR-5.1 to FR-5.7).
 // It turns the usecase's errors into the error codes the web client shows next to each
 // field. cmd/api guards each route with its platform action (SRS 2.3) before it gets here.
 package http
@@ -64,6 +65,25 @@ const (
 	CodeInvalidLinkKind   = "invalid_link_kind"
 	CodeInvalidLinkURL    = "invalid_link_url"
 	CodeLinkLimitReached  = "link_limit_reached"
+
+	CodeInvalidYear               = "invalid_year"
+	CodeInvalidVenue              = "invalid_venue"
+	CodeInvalidAbstract           = "invalid_abstract"
+	CodeInvalidURL                = "invalid_url"
+	CodeInvalidDOI                = "invalid_doi"
+	CodePublicationLimitReached   = "publication_limit_reached"
+	CodePublicationAlreadyAdded   = "publication_already_added"
+	CodePublicationSharedReadonly = "publication_shared_readonly"
+	CodeDuplicateDOI              = "duplicate_doi"
+	CodeDOINotFound               = "doi_not_found"
+	CodeMetadataUnavailable       = "metadata_unavailable"
+	CodeRateLimited               = "rate_limited"
+
+	CodeInvalidORCIDID = "invalid_orcid_id"
+	CodeORCIDTaken     = "orcid_taken"
+	CodeORCIDNotSet    = "orcid_not_set"
+	CodeORCIDNotFound  = "orcid_not_found"
+	CodeInvalidPutCode = "invalid_put_code"
 )
 
 // service is the part of usecase.Service this handler needs.
@@ -87,6 +107,16 @@ type service interface {
 	UpdateContact(ctx context.Context, userID string, in usecase.ContactInput) (domain.Contact, error)
 	AddLink(ctx context.Context, userID string, kind domain.LinkKind, url string) (domain.Link, error)
 	RemoveLink(ctx context.Context, userID, id string) error
+	AddPublication(ctx context.Context, userID string, in usecase.PublicationInput) (usecase.AddedPublication, error)
+	UpdatePublication(ctx context.Context, userID, id string, patch usecase.PublicationPatch) (domain.Publication, error)
+	RemovePublication(ctx context.Context, userID, id string) error
+	ListOwnPublications(ctx context.Context, userID string, page, pageSize int) (domain.PublicationPage, error)
+	ListPublications(ctx context.Context, userID string, page, pageSize int) (domain.PublicationPage, error)
+	LookupDOI(ctx context.Context, userID, doi string) (usecase.DOIPreview, error)
+	AddPublicationFromDOI(ctx context.Context, userID, doi string) (usecase.AddedPublication, error)
+	SetOrcidID(ctx context.Context, userID string, orcidID *string) (*string, error)
+	ListORCIDWorks(ctx context.Context, userID string) (usecase.ORCIDWorkList, error)
+	ImportORCIDWorks(ctx context.Context, userID string, putCodes []string) (usecase.ImportResult, error)
 }
 
 // Handler implements the profile operations of gen.StrictServerInterface.
@@ -206,8 +236,8 @@ func (h *Handler) GetProfile(ctx context.Context, req gen.GetProfileRequestObjec
 	return gen.GetProfile200JSONResponse(body), nil
 }
 
-// profileBody builds the response. Publications and the connection status are
-// placeholders until publications (FR-5.5) and connections (FR-7) exist. Every list is empty, never null, when there is nothing in it.
+// profileBody builds the response. The connection status is a placeholder until
+// connections (FR-7) exist. Every list is empty, never null, when there is nothing in it.
 func profileBody(p domain.Profile) (gen.Profile, error) {
 	var id openapi_types.UUID
 	if err := id.UnmarshalText([]byte(p.UserID)); err != nil {
@@ -247,12 +277,13 @@ func profileBody(p domain.Profile) (gen.Profile, error) {
 		JobTitle:         p.JobTitle,
 		Country:          p.Country,
 		City:             p.City,
+		OrcidId:          p.OrcidID,
 		Interests:        interests,
 		Skills:           skills,
 		Education:        education,
 		Experience:       experience,
 		Languages:        languages,
-		Publications:     []map[string]any{},
+		PublicationCount: p.PublicationCount,
 		ConnectionStatus: gen.None,
 		Contact:          contact,
 		PhotoUrl:         mediaURL(p.PhotoFileID),

@@ -11,6 +11,43 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const confirmPublicationLink = `-- name: ConfirmPublicationLink :exec
+UPDATE user_publications SET confirmed_at = now()
+WHERE user_id = $1 AND publication_id = $2 AND confirmed_at IS NULL
+`
+
+type ConfirmPublicationLinkParams struct {
+	UserID        pgtype.UUID
+	PublicationID pgtype.UUID
+}
+
+func (q *Queries) ConfirmPublicationLink(ctx context.Context, arg ConfirmPublicationLinkParams) error {
+	_, err := q.db.Exec(ctx, confirmPublicationLink, arg.UserID, arg.PublicationID)
+	return err
+}
+
+const countConfirmedUserPublications = `-- name: CountConfirmedUserPublications :one
+SELECT count(*) FROM user_publications WHERE user_id = $1 AND confirmed_at IS NOT NULL
+`
+
+func (q *Queries) CountConfirmedUserPublications(ctx context.Context, userID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countConfirmedUserPublications, userID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countPublicationAuthors = `-- name: CountPublicationAuthors :one
+SELECT count(*) FROM user_publications WHERE publication_id = $1
+`
+
+func (q *Queries) CountPublicationAuthors(ctx context.Context, publicationID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countPublicationAuthors, publicationID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countUserEducation = `-- name: CountUserEducation :one
 
 SELECT count(*) FROM profile_education WHERE user_id = $1
@@ -75,6 +112,22 @@ func (q *Queries) CountUserLinks(ctx context.Context, userID pgtype.UUID) (int64
 	return count, err
 }
 
+const countUserPublicationLinks = `-- name: CountUserPublicationLinks :one
+
+SELECT count(*) FROM user_publications WHERE user_id = $1
+`
+
+// Publications (FR-5.1, FR-5.4, FR-5.5, FR-5.7). A publication is stored once and linked to
+// each author in user_publications; a link is confirmed when confirmed_at is set. Every
+// query that reads or changes a publication for a user joins the user's link, so a
+// publication the user is not linked to is simply not found.
+func (q *Queries) CountUserPublicationLinks(ctx context.Context, userID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countUserPublicationLinks, userID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countUserSkills = `-- name: CountUserSkills :one
 SELECT count(*) FROM user_skills WHERE user_id = $1
 `
@@ -84,6 +137,34 @@ func (q *Queries) CountUserSkills(ctx context.Context, userID pgtype.UUID) (int6
 	var count int64
 	err := row.Scan(&count)
 	return count, err
+}
+
+const deletePublicationIfOrphaned = `-- name: DeletePublicationIfOrphaned :exec
+DELETE FROM publications p
+WHERE p.id = $1
+  AND NOT EXISTS (SELECT 1 FROM user_publications up WHERE up.publication_id = p.id)
+`
+
+func (q *Queries) DeletePublicationIfOrphaned(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deletePublicationIfOrphaned, id)
+	return err
+}
+
+const deletePublicationLink = `-- name: DeletePublicationLink :execrows
+DELETE FROM user_publications WHERE user_id = $1 AND publication_id = $2
+`
+
+type DeletePublicationLinkParams struct {
+	UserID        pgtype.UUID
+	PublicationID pgtype.UUID
+}
+
+func (q *Queries) DeletePublicationLink(ctx context.Context, arg DeletePublicationLinkParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deletePublicationLink, arg.UserID, arg.PublicationID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const deleteUserEducation = `-- name: DeleteUserEducation :execrows
@@ -157,7 +238,7 @@ func (q *Queries) DeleteUserLink(ctx context.Context, arg DeleteUserLinkParams) 
 const findAccount = `-- name: FindAccount :one
 SELECT u.id, u.email_verified_at, u.suspended_at,
        p.user_id AS profile_user_id, p.full_name, p.headline, p.bio, p.institution,
-       p.department, p.job_title, p.country, p.city, p.photo_file_id, p.cover_file_id
+       p.department, p.job_title, p.country, p.city, p.orcid_id, p.photo_file_id, p.cover_file_id
 FROM users u
 LEFT JOIN profiles p ON p.user_id = u.id
 WHERE u.id = $1
@@ -176,6 +257,7 @@ type FindAccountRow struct {
 	JobTitle        pgtype.Text
 	Country         pgtype.Text
 	City            pgtype.Text
+	OrcidID         pgtype.Text
 	PhotoFileID     pgtype.UUID
 	CoverFileID     pgtype.UUID
 }
@@ -197,6 +279,7 @@ func (q *Queries) FindAccount(ctx context.Context, id pgtype.UUID) (FindAccountR
 		&i.JobTitle,
 		&i.Country,
 		&i.City,
+		&i.OrcidID,
 		&i.PhotoFileID,
 		&i.CoverFileID,
 	)
@@ -252,6 +335,66 @@ func (q *Queries) FindInterestByName(ctx context.Context, name string) (Research
 	var i ResearchInterest
 	err := row.Scan(&i.ID, &i.Name)
 	return i, err
+}
+
+const findPublicationByDOI = `-- name: FindPublicationByDOI :one
+SELECT id, doi, title, publication_year, venue_name, abstract, url, source, created_by, created_at, updated_at
+FROM publications
+WHERE doi = $1
+FOR KEY SHARE
+`
+
+type FindPublicationByDOIRow struct {
+	ID              pgtype.UUID
+	Doi             pgtype.Text
+	Title           string
+	PublicationYear pgtype.Int4
+	VenueName       pgtype.Text
+	Abstract        pgtype.Text
+	Url             pgtype.Text
+	Source          PublicationSource
+	CreatedBy       pgtype.UUID
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+}
+
+// KEY SHARE keeps the record from being deleted (by its last author leaving, or account
+// deletion) until the transaction ends, without blocking an edit of its fields.
+func (q *Queries) FindPublicationByDOI(ctx context.Context, doi pgtype.Text) (FindPublicationByDOIRow, error) {
+	row := q.db.QueryRow(ctx, findPublicationByDOI, doi)
+	var i FindPublicationByDOIRow
+	err := row.Scan(
+		&i.ID,
+		&i.Doi,
+		&i.Title,
+		&i.PublicationYear,
+		&i.VenueName,
+		&i.Abstract,
+		&i.Url,
+		&i.Source,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const findPublicationLink = `-- name: FindPublicationLink :one
+SELECT confirmed_at IS NOT NULL AS confirmed
+FROM user_publications
+WHERE user_id = $1 AND publication_id = $2
+`
+
+type FindPublicationLinkParams struct {
+	UserID        pgtype.UUID
+	PublicationID pgtype.UUID
+}
+
+func (q *Queries) FindPublicationLink(ctx context.Context, arg FindPublicationLinkParams) (interface{}, error) {
+	row := q.db.QueryRow(ctx, findPublicationLink, arg.UserID, arg.PublicationID)
+	var confirmed interface{}
+	err := row.Scan(&confirmed)
+	return confirmed, err
 }
 
 const findSkillByName = `-- name: FindSkillByName :one
@@ -390,6 +533,70 @@ func (q *Queries) FindUserLanguageForUpdate(ctx context.Context, arg FindUserLan
 		&i.Proficiency,
 	)
 	return i, err
+}
+
+const findUserPublicationForUpdate = `-- name: FindUserPublicationForUpdate :one
+SELECT p.id, p.doi, p.title, p.publication_year, p.venue_name, p.abstract, p.url, p.source,
+       p.created_by, p.created_at, p.updated_at
+FROM publications p
+JOIN user_publications up ON up.publication_id = p.id
+WHERE p.id = $1 AND up.user_id = $2
+FOR UPDATE OF p
+`
+
+type FindUserPublicationForUpdateParams struct {
+	ID     pgtype.UUID
+	UserID pgtype.UUID
+}
+
+type FindUserPublicationForUpdateRow struct {
+	ID              pgtype.UUID
+	Doi             pgtype.Text
+	Title           string
+	PublicationYear pgtype.Int4
+	VenueName       pgtype.Text
+	Abstract        pgtype.Text
+	Url             pgtype.Text
+	Source          PublicationSource
+	CreatedBy       pgtype.UUID
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+}
+
+// Locks the record until the transaction ends, so an edit, a removal and account deletion
+// of a co-author run one after the other.
+func (q *Queries) FindUserPublicationForUpdate(ctx context.Context, arg FindUserPublicationForUpdateParams) (FindUserPublicationForUpdateRow, error) {
+	row := q.db.QueryRow(ctx, findUserPublicationForUpdate, arg.ID, arg.UserID)
+	var i FindUserPublicationForUpdateRow
+	err := row.Scan(
+		&i.ID,
+		&i.Doi,
+		&i.Title,
+		&i.PublicationYear,
+		&i.VenueName,
+		&i.Abstract,
+		&i.Url,
+		&i.Source,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const insertConfirmedPublicationLink = `-- name: InsertConfirmedPublicationLink :exec
+INSERT INTO user_publications (user_id, publication_id, confirmed_at)
+VALUES ($1, $2, now())
+`
+
+type InsertConfirmedPublicationLinkParams struct {
+	UserID        pgtype.UUID
+	PublicationID pgtype.UUID
+}
+
+func (q *Queries) InsertConfirmedPublicationLink(ctx context.Context, arg InsertConfirmedPublicationLinkParams) error {
+	_, err := q.db.Exec(ctx, insertConfirmedPublicationLink, arg.UserID, arg.PublicationID)
+	return err
 }
 
 const insertEducation = `-- name: InsertEducation :one
@@ -597,6 +804,68 @@ func (q *Queries) InsertLink(ctx context.Context, arg InsertLinkParams) (InsertL
 	return i, err
 }
 
+const insertPublication = `-- name: InsertPublication :one
+INSERT INTO publications (doi, title, publication_year, venue_name, abstract, url, source, created_by)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+ON CONFLICT (doi) DO NOTHING
+RETURNING id, doi, title, publication_year, venue_name, abstract, url, source, created_by, created_at, updated_at
+`
+
+type InsertPublicationParams struct {
+	Doi             pgtype.Text
+	Title           string
+	PublicationYear pgtype.Int4
+	VenueName       pgtype.Text
+	Abstract        pgtype.Text
+	Url             pgtype.Text
+	Source          PublicationSource
+	CreatedBy       pgtype.UUID
+}
+
+type InsertPublicationRow struct {
+	ID              pgtype.UUID
+	Doi             pgtype.Text
+	Title           string
+	PublicationYear pgtype.Int4
+	VenueName       pgtype.Text
+	Abstract        pgtype.Text
+	Url             pgtype.Text
+	Source          PublicationSource
+	CreatedBy       pgtype.UUID
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+}
+
+// A DOI another record has, even one stored at this moment by another transaction, inserts
+// nothing and returns no row; the caller then links to that record (FR-5.4).
+func (q *Queries) InsertPublication(ctx context.Context, arg InsertPublicationParams) (InsertPublicationRow, error) {
+	row := q.db.QueryRow(ctx, insertPublication,
+		arg.Doi,
+		arg.Title,
+		arg.PublicationYear,
+		arg.VenueName,
+		arg.Abstract,
+		arg.Url,
+		arg.Source,
+		arg.CreatedBy,
+	)
+	var i InsertPublicationRow
+	err := row.Scan(
+		&i.ID,
+		&i.Doi,
+		&i.Title,
+		&i.PublicationYear,
+		&i.VenueName,
+		&i.Abstract,
+		&i.Url,
+		&i.Source,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const insertSkillIfMissing = `-- name: InsertSkillIfMissing :exec
 
 INSERT INTO skills (name) VALUES ($1) ON CONFLICT (name) DO NOTHING
@@ -661,6 +930,63 @@ type LinkUserSkillParams struct {
 func (q *Queries) LinkUserSkill(ctx context.Context, arg LinkUserSkillParams) error {
 	_, err := q.db.Exec(ctx, linkUserSkill, arg.UserID, arg.TagID)
 	return err
+}
+
+const listConfirmedUserPublications = `-- name: ListConfirmedUserPublications :many
+SELECT p.id, p.doi, p.title, p.publication_year, p.venue_name, p.abstract, p.url, p.source,
+       p.created_by, p.created_at, p.updated_at, up.created_at AS added_at
+FROM publications p
+JOIN user_publications up ON up.publication_id = p.id
+WHERE up.user_id = $1 AND up.confirmed_at IS NOT NULL
+`
+
+type ListConfirmedUserPublicationsRow struct {
+	ID              pgtype.UUID
+	Doi             pgtype.Text
+	Title           string
+	PublicationYear pgtype.Int4
+	VenueName       pgtype.Text
+	Abstract        pgtype.Text
+	Url             pgtype.Text
+	Source          PublicationSource
+	CreatedBy       pgtype.UUID
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+	AddedAt         pgtype.Timestamptz
+}
+
+// At most a few hundred rows; the usecase sorts and pages them.
+func (q *Queries) ListConfirmedUserPublications(ctx context.Context, userID pgtype.UUID) ([]ListConfirmedUserPublicationsRow, error) {
+	rows, err := q.db.Query(ctx, listConfirmedUserPublications, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListConfirmedUserPublicationsRow
+	for rows.Next() {
+		var i ListConfirmedUserPublicationsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Doi,
+			&i.Title,
+			&i.PublicationYear,
+			&i.VenueName,
+			&i.Abstract,
+			&i.Url,
+			&i.Source,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.AddedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listUserEducation = `-- name: ListUserEducation :many
@@ -922,6 +1248,71 @@ func (q *Queries) LockUser(ctx context.Context, id pgtype.UUID) (pgtype.UUID, er
 	return id_2, err
 }
 
+const matchPublicationsByDOI = `-- name: MatchPublicationsByDOI :many
+SELECT p.id, p.doi, (up.user_id IS NOT NULL)::boolean AS linked, coalesce(up.confirmed_at IS NOT NULL, false)::boolean AS confirmed
+FROM publications p
+LEFT JOIN user_publications up ON up.publication_id = p.id AND up.user_id = $1
+WHERE p.doi = ANY($2::text[])
+`
+
+type MatchPublicationsByDOIParams struct {
+	UserID pgtype.UUID
+	Dois   []string
+}
+
+type MatchPublicationsByDOIRow struct {
+	ID        pgtype.UUID
+	Doi       pgtype.Text
+	Linked    bool
+	Confirmed bool
+}
+
+// The stored publications with one of the DOIs, and whether the user has confirmed each
+// (FR-5.3, FR-5.4). linked is false when the user has no link.
+func (q *Queries) MatchPublicationsByDOI(ctx context.Context, arg MatchPublicationsByDOIParams) ([]MatchPublicationsByDOIRow, error) {
+	rows, err := q.db.Query(ctx, matchPublicationsByDOI, arg.UserID, arg.Dois)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MatchPublicationsByDOIRow
+	for rows.Next() {
+		var i MatchPublicationsByDOIRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Doi,
+			&i.Linked,
+			&i.Confirmed,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const setOrcidID = `-- name: SetOrcidID :execrows
+UPDATE profiles SET orcid_id = $1 WHERE user_id = $2
+`
+
+type SetOrcidIDParams struct {
+	OrcidID pgtype.Text
+	UserID  pgtype.UUID
+}
+
+// Saves or clears the user's ORCID iD (FR-5.3). The unique constraint refuses an iD
+// another profile has.
+func (q *Queries) SetOrcidID(ctx context.Context, arg SetOrcidIDParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setOrcidID, arg.OrcidID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const suggestInterests = `-- name: SuggestInterests :many
 SELECT t.id, t.name
 FROM research_interests t
@@ -1028,6 +1419,69 @@ func (q *Queries) UnlinkUserSkill(ctx context.Context, arg UnlinkUserSkillParams
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const updatePublication = `-- name: UpdatePublication :one
+UPDATE publications SET
+    doi              = $1,
+    title            = $2,
+    publication_year = $3,
+    venue_name       = $4,
+    abstract         = $5,
+    url              = $6
+WHERE id = $7
+RETURNING id, doi, title, publication_year, venue_name, abstract, url, source, created_by, created_at, updated_at
+`
+
+type UpdatePublicationParams struct {
+	Doi             pgtype.Text
+	Title           string
+	PublicationYear pgtype.Int4
+	VenueName       pgtype.Text
+	Abstract        pgtype.Text
+	Url             pgtype.Text
+	ID              pgtype.UUID
+}
+
+type UpdatePublicationRow struct {
+	ID              pgtype.UUID
+	Doi             pgtype.Text
+	Title           string
+	PublicationYear pgtype.Int4
+	VenueName       pgtype.Text
+	Abstract        pgtype.Text
+	Url             pgtype.Text
+	Source          PublicationSource
+	CreatedBy       pgtype.UUID
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+}
+
+func (q *Queries) UpdatePublication(ctx context.Context, arg UpdatePublicationParams) (UpdatePublicationRow, error) {
+	row := q.db.QueryRow(ctx, updatePublication,
+		arg.Doi,
+		arg.Title,
+		arg.PublicationYear,
+		arg.VenueName,
+		arg.Abstract,
+		arg.Url,
+		arg.ID,
+	)
+	var i UpdatePublicationRow
+	err := row.Scan(
+		&i.ID,
+		&i.Doi,
+		&i.Title,
+		&i.PublicationYear,
+		&i.VenueName,
+		&i.Abstract,
+		&i.Url,
+		&i.Source,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const updateUserEducation = `-- name: UpdateUserEducation :one
@@ -1266,7 +1720,7 @@ ON CONFLICT (user_id) DO UPDATE SET
     country     = EXCLUDED.country,
     city        = EXCLUDED.city
 RETURNING user_id, full_name, headline, bio, institution, department, job_title, country, city,
-          photo_file_id, cover_file_id
+          orcid_id, photo_file_id, cover_file_id
 `
 
 type UpsertProfileParams struct {
@@ -1291,6 +1745,7 @@ type UpsertProfileRow struct {
 	JobTitle    pgtype.Text
 	Country     pgtype.Text
 	City        pgtype.Text
+	OrcidID     pgtype.Text
 	PhotoFileID pgtype.UUID
 	CoverFileID pgtype.UUID
 }
@@ -1319,6 +1774,7 @@ func (q *Queries) UpsertProfile(ctx context.Context, arg UpsertProfileParams) (U
 		&i.JobTitle,
 		&i.Country,
 		&i.City,
+		&i.OrcidID,
 		&i.PhotoFileID,
 		&i.CoverFileID,
 	)

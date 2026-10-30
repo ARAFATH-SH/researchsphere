@@ -5,6 +5,7 @@ package domain
 import (
 	"context"
 	"errors"
+	"time"
 )
 
 // Profile is the part of a research profile a user edits (FR-4.1). FullName is the one
@@ -20,6 +21,9 @@ type Profile struct {
 	JobTitle    *string
 	Country     *string // ISO 3166-1 alpha-2 code in capitals
 	City        *string
+	// OrcidID is the user's ORCID iD (FR-5.3), such as 0000-0002-1825-0097. SetOrcidID
+	// changes it; UpsertProfile leaves it alone.
+	OrcidID *string
 	// PhotoFileID and CoverFileID are the stored files of the profile photo and cover
 	// image (FR-4.6), nil when not set. The media module sets them; UpsertProfile leaves
 	// them alone.
@@ -37,6 +41,9 @@ type Profile struct {
 	// Contact is the contact info the viewer of the profile may see (FR-4.7). The
 	// usecase fills it when it reads a profile.
 	Contact VisibleContact
+	// PublicationCount is how many publications the user has confirmed (FR-5.5). The
+	// usecase fills it when it reads a profile.
+	PublicationCount int
 }
 
 // Visibility says who may see a contact item (FR-4.7). Slice 13 adds "connections only".
@@ -188,6 +195,56 @@ type Language struct {
 	Proficiency Proficiency
 }
 
+// PublicationSource says how a publication was added (FR-5.1, FR-5.2, FR-5.3).
+type PublicationSource string
+
+// Publication sources.
+const (
+	SourceManual PublicationSource = "manual" // typed in by hand
+	SourceDOI    PublicationSource = "doi"    // fetched for a DOI (slice 11.2)
+	SourceORCID  PublicationSource = "orcid"  // imported from ORCID (slice 11.3)
+)
+
+// Publication is a publication record (FR-5.1). A record with a DOI is stored once and
+// linked to every author who is a user (FR-5.4). An optional field is nil when not set;
+// DOI is the bare, lower-case form, such as 10.1145/3292500.3330701. Year is set for every
+// manual record; an imported one may have none.
+type Publication struct {
+	ID        string
+	DOI       *string
+	Title     string
+	Year      *int
+	Venue     *string
+	Abstract  *string
+	URL       *string
+	Source    PublicationSource
+	CreatedBy *string // the user who added the record; nil once that account is deleted
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	// AddedAt is when the user whose list it is linked to the record. Only
+	// ListConfirmedPublications fills it.
+	AddedAt time.Time
+}
+
+// PublicationPage is one page of a user's confirmed publications. Total counts them on
+// all pages.
+type PublicationPage struct {
+	Items    []Publication
+	Page     int
+	PageSize int
+	Total    int
+}
+
+// LinkState says how a user is linked to a publication.
+type LinkState int
+
+// Link states.
+const (
+	NotLinked   LinkState = iota
+	Unconfirmed           // linked, not yet confirmed by the user (FR-5.5)
+	Confirmed
+)
+
 // TagKind says which shared vocabulary a tag belongs to.
 type TagKind string
 
@@ -268,12 +325,21 @@ type Store interface {
 	// link with the ID, including one that belongs to someone else, or the ID is not a
 	// UUID.
 	DeleteLink(ctx context.Context, userID, id string) error
+	// ListConfirmedPublications returns every publication the user has confirmed, with
+	// AddedAt set, in no particular order. A user has at most a few hundred.
+	ListConfirmedPublications(ctx context.Context, userID string) ([]Publication, error)
+	// CountConfirmedPublications returns how many publications the user has confirmed.
+	CountConfirmedPublications(ctx context.Context, userID string) (int, error)
+	// SetOrcidID saves the user's ORCID iD, or clears it when orcidID is nil. It returns
+	// ErrORCIDTaken when another profile has the iD, and ErrNotFound when the user has no
+	// profile row.
+	SetOrcidID(ctx context.Context, userID string, orcidID *string) error
 }
 
 // Tx is the set of steps available inside a transaction.
 type Tx interface {
-	// LockUser locks the user against other tag, education, experience, language and link
-	// changes until the transaction ends, so two requests cannot both pass a limit. It
+	// LockUser locks the user against other tag, education, experience, language, link and
+	// publication changes until the transaction ends, so two requests cannot both pass a limit. It
 	// returns ErrNotFound when the user does not exist.
 	LockUser(ctx context.Context, userID string) error
 	// FindOrCreateTag returns the tag of kind named name ignoring letter case, creating
@@ -328,6 +394,40 @@ type Tx interface {
 	CountLinks(ctx context.Context, userID string) (int, error)
 	// InsertLink stores a new link for l.UserID and returns it with its ID.
 	InsertLink(ctx context.Context, l Link) (Link, error)
+	// CountPublicationLinks returns how many publications the user is linked to,
+	// confirmed or not.
+	CountPublicationLinks(ctx context.Context, userID string) (int, error)
+	// FindPublicationByDOI returns the publication with the DOI and keeps it from being
+	// deleted until the transaction ends. It returns ErrNotFound when there is none.
+	FindPublicationByDOI(ctx context.Context, doi string) (Publication, error)
+	// InsertPublication stores a new publication and returns it with its ID. It returns
+	// ErrDuplicateDOI, and stores nothing, when another publication has the DOI, including
+	// one stored at the same moment by another transaction.
+	InsertPublication(ctx context.Context, p Publication) (Publication, error)
+	// PublicationLink returns how the user is linked to the publication.
+	PublicationLink(ctx context.Context, userID, publicationID string) (LinkState, error)
+	// LinkPublication links the user to the publication, confirmed.
+	LinkPublication(ctx context.Context, userID, publicationID string) error
+	// ConfirmPublication confirms the user's link to the publication.
+	ConfirmPublication(ctx context.Context, userID, publicationID string) error
+	// FindPublicationForUpdate returns the publication and locks it until the transaction
+	// ends. It returns ErrNotFound when the user is not linked to it, or the ID is not a
+	// UUID.
+	FindPublicationForUpdate(ctx context.Context, userID, id string) (Publication, error)
+	// CountPublicationAuthors returns how many users are linked to the publication,
+	// confirmed or not.
+	CountPublicationAuthors(ctx context.Context, publicationID string) (int, error)
+	// UpdatePublication replaces the edited fields of publication p.ID and returns what
+	// was stored. It returns ErrDuplicateDOI when another publication has the DOI.
+	UpdatePublication(ctx context.Context, p Publication) (Publication, error)
+	// UnlinkPublication removes the user's link to the publication. It returns
+	// ErrNotFound when there is none.
+	UnlinkPublication(ctx context.Context, userID, publicationID string) error
+	// DeletePublicationIfOrphaned deletes the publication when no user is linked to it.
+	DeletePublicationIfOrphaned(ctx context.Context, publicationID string) error
+	// MatchPublicationsByDOI returns the stored publications with one of the DOIs, by
+	// DOI, with how the user is linked to each. A DOI no publication has is left out.
+	MatchPublicationsByDOI(ctx context.Context, userID string, dois []string) (map[string]DOIMatch, error)
 }
 
 // Errors the usecase returns. The HTTP adapter turns each into an error code.
@@ -378,4 +478,15 @@ var (
 	ErrInvalidLinkKind   = errors.New("link kind is not one of the allowed kinds")
 	ErrInvalidLinkURL    = errors.New("link URL is not an https URL of at most 300 characters")
 	ErrLinkLimitReached  = errors.New("user has the most links allowed")
+
+	ErrInvalidYear               = errors.New("year is missing or out of range")
+	ErrInvalidVenue              = errors.New("venue is too long or has a line break")
+	ErrInvalidAbstract           = errors.New("abstract is too long")
+	ErrInvalidPublicationURL     = errors.New("publication URL is not an http or https URL of at most 500 characters")
+	ErrInvalidDOI                = errors.New("DOI is not of the form 10.NNNN/suffix")
+	ErrPublicationLimitReached   = errors.New("user has the most publications allowed")
+	ErrPublicationAlreadyAdded   = errors.New("user has the publication with this DOI already")
+	ErrPublicationSharedReadonly = errors.New("publication is shared with another user or was not added by hand")
+	ErrDuplicateDOI              = errors.New("another publication has this DOI")
+	ErrInvalidPage               = errors.New("page or page size is less than 1")
 )

@@ -3,6 +3,8 @@
 package httpserver
 
 import (
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -27,7 +29,12 @@ func newRouter(logger *slog.Logger, si gen.StrictServerInterface, auth func(http
 	strict := gen.NewStrictHandlerWithOptions(si, nil, gen.StrictHTTPServerOptions{
 		RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
 			logger.WarnContext(r.Context(), "bad request", slog.Any("error", err))
-			httpx.WriteError(w, http.StatusBadRequest, httpx.CodeBadRequest, "The request is not valid.")
+			message := "The request is not valid."
+			var unknown *gen.UnknownFieldError
+			if errors.As(err, &unknown) {
+				message = fmt.Sprintf("The request has an unknown field %q.", unknown.Field)
+			}
+			httpx.WriteError(w, http.StatusBadRequest, httpx.CodeBadRequest, message)
 		},
 		ResponseErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
 			logger.ErrorContext(r.Context(), "handler failed", slog.Any("error", err))

@@ -123,6 +123,46 @@ func (fakeAPI) RemoveMyExperience(context.Context, gen.RemoveMyExperienceRequest
 	return gen.RemoveMyExperience204Response{}, nil
 }
 
+func (fakeAPI) ListMyPublications(context.Context, gen.ListMyPublicationsRequestObject) (gen.ListMyPublicationsResponseObject, error) {
+	return gen.ListMyPublications200JSONResponse{}, nil
+}
+
+func (fakeAPI) ListPublications(context.Context, gen.ListPublicationsRequestObject) (gen.ListPublicationsResponseObject, error) {
+	return gen.ListPublications200JSONResponse{}, nil
+}
+
+func (fakeAPI) AddMyPublication(context.Context, gen.AddMyPublicationRequestObject) (gen.AddMyPublicationResponseObject, error) {
+	return gen.AddMyPublication201JSONResponse{}, nil
+}
+
+func (fakeAPI) UpdateMyPublication(context.Context, gen.UpdateMyPublicationRequestObject) (gen.UpdateMyPublicationResponseObject, error) {
+	return gen.UpdateMyPublication200JSONResponse{}, nil
+}
+
+func (fakeAPI) RemoveMyPublication(context.Context, gen.RemoveMyPublicationRequestObject) (gen.RemoveMyPublicationResponseObject, error) {
+	return gen.RemoveMyPublication204Response{}, nil
+}
+
+func (fakeAPI) LookupPublicationByDOI(context.Context, gen.LookupPublicationByDOIRequestObject) (gen.LookupPublicationByDOIResponseObject, error) {
+	return gen.LookupPublicationByDOI200JSONResponse{}, nil
+}
+
+func (fakeAPI) AddMyPublicationFromDOI(context.Context, gen.AddMyPublicationFromDOIRequestObject) (gen.AddMyPublicationFromDOIResponseObject, error) {
+	return gen.AddMyPublicationFromDOI201JSONResponse{}, nil
+}
+
+func (fakeAPI) SetMyOrcidId(context.Context, gen.SetMyOrcidIdRequestObject) (gen.SetMyOrcidIdResponseObject, error) {
+	return gen.SetMyOrcidId200JSONResponse{}, nil
+}
+
+func (fakeAPI) ListMyOrcidWorks(context.Context, gen.ListMyOrcidWorksRequestObject) (gen.ListMyOrcidWorksResponseObject, error) {
+	return gen.ListMyOrcidWorks200JSONResponse{}, nil
+}
+
+func (fakeAPI) ImportMyOrcidWorks(context.Context, gen.ImportMyOrcidWorksRequestObject) (gen.ImportMyOrcidWorksResponseObject, error) {
+	return gen.ImportMyOrcidWorks200JSONResponse{}, nil
+}
+
 func (fakeAPI) AddMyLanguage(context.Context, gen.AddMyLanguageRequestObject) (gen.AddMyLanguageResponseObject, error) {
 	return gen.AddMyLanguage201JSONResponse{}, nil
 }
@@ -264,6 +304,39 @@ func TestErrorShape(t *testing.T) {
 	}
 }
 
+func TestUnknownBodyFieldIsRefused(t *testing.T) {
+	tests := []struct {
+		name        string
+		body        string
+		wantStatus  int
+		wantMessage string
+	}{
+		{"known fields", `{"email":"ada@example.org","password":"secret"}`, http.StatusOK, ""},
+		{"unknown field", `{"email":"ada@example.org","password":"secret","orcidId":"x"}`,
+			http.StatusBadRequest, `The request has an unknown field "orcidId".`},
+		{"not JSON", `{`, http.StatusBadRequest, "The request is not valid."},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			router, _ := newTestRouter(t)
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/auth/login", strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			router.ServeHTTP(rec, req)
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d (%s)", rec.Code, tt.wantStatus, rec.Body)
+			}
+			if tt.wantStatus == http.StatusOK {
+				return
+			}
+			code, message := decodeError(t, rec)
+			if code != "bad_request" || message != tt.wantMessage {
+				t.Errorf("got %q %q, want bad_request %q", code, message, tt.wantMessage)
+			}
+		})
+	}
+}
+
 func TestRequestIDIsSetAndUnique(t *testing.T) {
 	router, _ := newTestRouter(t)
 	seen := map[string]bool{}
@@ -397,8 +470,8 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 
 func TestRoutes(t *testing.T) {
 	got := Routes()
-	if len(got) != 40 {
-		t.Errorf("Routes() returned %d routes, want the 40 operations in the contract: %v", len(got), got)
+	if len(got) != 50 {
+		t.Errorf("Routes() returned %d routes, want the 50 operations in the contract: %v", len(got), got)
 	}
 	seen := map[string]bool{}
 	for _, p := range got {

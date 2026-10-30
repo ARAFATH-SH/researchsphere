@@ -25,6 +25,10 @@ const (
 	DefaultMailFrom   = "ResearchSphere <no-reply@researchsphere.local>"
 	DefaultAppBaseURL = "http://localhost:3000"
 	DefaultS3Region   = "us-east-1"
+	// OpenAlex (FR-5.2); tests point it at a fake server.
+	DefaultOpenAlexBaseURL = "https://api.openalex.org"
+	// ORCID public API (FR-5.3); tests point it at a fake server.
+	DefaultORCIDBaseURL = "https://pub.orcid.org"
 )
 
 // MinJWTSecretLen is the shortest JWT_SECRET accepted, in bytes: HS256 needs a key at
@@ -52,6 +56,13 @@ type Config struct {
 
 	// Object storage (FR-4.6, NFR-13): an S3-compatible bucket, MinIO locally.
 	Storage storage.Config
+
+	// Publication metadata by DOI (FR-5.2). OpenAlexMailto, when set, is sent with each
+	// request so OpenAlex puts it in its "polite pool"; empty sends none.
+	OpenAlexBaseURL string
+	OpenAlexMailto  string
+	// The ORCID public API, for importing works (FR-5.3).
+	ORCIDBaseURL string
 }
 
 // Load reads the settings through getenv (os.Getenv in main). Errors name the
@@ -140,6 +151,19 @@ func Load(getenv func(string) string) (Config, error) {
 		errs = append(errs, err)
 	}
 
+	cfg.OpenAlexBaseURL = strings.TrimRight(orDefault(getenv("OPENALEX_BASE_URL"), DefaultOpenAlexBaseURL), "/")
+	if err := checkBaseURL("OPENALEX_BASE_URL", cfg.OpenAlexBaseURL); err != nil {
+		errs = append(errs, err)
+	}
+	cfg.OpenAlexMailto = strings.TrimSpace(getenv("OPENALEX_MAILTO"))
+	if a, err := mail.ParseAddress(cfg.OpenAlexMailto); cfg.OpenAlexMailto != "" && (err != nil || a.Name != "" || a.Address != cfg.OpenAlexMailto) {
+		errs = append(errs, errors.New("OPENALEX_MAILTO must be a bare email address, such as dev@example.org"))
+	}
+	cfg.ORCIDBaseURL = strings.TrimRight(orDefault(getenv("ORCID_BASE_URL"), DefaultORCIDBaseURL), "/")
+	if err := checkBaseURL("ORCID_BASE_URL", cfg.ORCIDBaseURL); err != nil {
+		errs = append(errs, err)
+	}
+
 	if len(errs) > 0 {
 		return Config{}, errors.Join(errs...)
 	}
@@ -147,8 +171,9 @@ func Load(getenv func(string) string) (Config, error) {
 }
 
 // LogValue keeps the database and Redis URLs, and so any password in them, the JWT
-// secret and the storage keys out of the logs. The mail, cookie and storage location
-// settings hold no secrets.
+// secret and the storage keys out of the logs. The mail, cookie, storage location,
+// OpenAlex and ORCID address settings hold no secrets; the OpenAlex contact address is
+// left out as personal data.
 func (c Config) LogValue() slog.Value {
 	return slog.GroupValue(
 		slog.Int("port", c.Port),
@@ -162,6 +187,8 @@ func (c Config) LogValue() slog.Value {
 		slog.String("s3_region", c.Storage.Region),
 		slog.String("s3_bucket", c.Storage.Bucket),
 		slog.Bool("s3_use_ssl", c.Storage.UseSSL),
+		slog.String("openalex_base_url", c.OpenAlexBaseURL),
+		slog.String("orcid_base_url", c.ORCIDBaseURL),
 	)
 }
 

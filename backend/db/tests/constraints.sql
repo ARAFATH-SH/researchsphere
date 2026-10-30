@@ -615,14 +615,59 @@ SELECT pg_temp.expect_true('Profile media: deleting the photo row clears only th
 -- Publication
 -- ---------------------------------------------------------------------------
 
-INSERT INTO publications (id, doi, title) VALUES
-    ('00000000-0000-0000-0000-0000000000c1', '10.1000/' || pg_temp.t('xyz123'), 'A paper');
-SELECT pg_temp.expect_error('Publication: DOI is unique ignoring letter case (FR-5.4)',
-    $s$INSERT INTO publications (doi, title) VALUES ('10.1000/' || upper(pg_temp.t('xyz123')), 'Same paper')$s$, '23505');
+INSERT INTO publications (id, doi, title, created_by) VALUES
+    ('00000000-0000-0000-0000-0000000000c1', '10.1000/' || pg_temp.t('xyz123'), 'A paper', '00000000-0000-0000-0000-000000000003');
+SELECT pg_temp.expect_error('Publication: DOI is unique (FR-5.4)',
+    $s$INSERT INTO publications (doi, title) VALUES ('10.1000/' || pg_temp.t('xyz123'), 'Same paper')$s$, '23505');
+SELECT pg_temp.expect_error('Publication: DOI is stored lower-case, so one spelling per DOI (FR-5.4)',
+    $s$INSERT INTO publications (doi, title) VALUES ('10.1000/' || upper(pg_temp.t('xyz123')), 'Same paper')$s$, '23514');
 SELECT pg_temp.expect_error('Publication: DOI is stored in bare form, not as a link (FR-5.4)',
     $s$INSERT INTO publications (doi, title) VALUES ('https://doi.org/10.1000/' || pg_temp.t('xyz123'), 'Same paper')$s$, '23514');
+SELECT pg_temp.expect_error('Publication: DOI registrant code has at least 4 digits (FR-5.4)',
+    $s$INSERT INTO publications (doi, title) VALUES ('10.123/' || pg_temp.t('short'), 'Paper')$s$, '23514');
 SELECT pg_temp.expect_ok('Publication: a manual entry needs no DOI (FR-5.1)',
     $s$INSERT INTO publications (title) VALUES ('Workshop talk')$s$);
+SELECT pg_temp.expect_ok('Publication: an imported record may have no year (FR-5.3)',
+    $s$INSERT INTO publications (title, source) VALUES ('Imported work', 'orcid')$s$);
+SELECT pg_temp.expect_ok('Publication: every field at its limit (FR-5.1)',
+    $s$INSERT INTO publications (title, publication_year, venue_name, abstract, url) VALUES
+       (repeat('t', 500), 2024, repeat('v', 300), repeat('a', 4990) || E'\nline two', 'https://example.org/' || repeat('p', 480))$s$);
+SELECT pg_temp.expect_error('Publication: title of 501 characters (FR-5.1)',
+    $s$INSERT INTO publications (title) VALUES (repeat('t', 501))$s$, '23514');
+SELECT pg_temp.expect_error('Publication: blank title (FR-5.1)',
+    $s$INSERT INTO publications (title) VALUES ('   ')$s$, '23514');
+SELECT pg_temp.expect_error('Publication: title on two lines (FR-5.1)',
+    $s$INSERT INTO publications (title) VALUES (E'A\nB')$s$, '23514');
+SELECT pg_temp.expect_error('Publication: year before 1900 (FR-5.1)',
+    $s$INSERT INTO publications (title, publication_year) VALUES ('Old', 1899)$s$, '23514');
+SELECT pg_temp.expect_error('Publication: venue of 301 characters (FR-5.1)',
+    $s$INSERT INTO publications (title, venue_name) VALUES ('Paper', repeat('v', 301))$s$, '23514');
+SELECT pg_temp.expect_error('Publication: blank venue is NULL, not stored (FR-5.1)',
+    $s$INSERT INTO publications (title, venue_name) VALUES ('Paper', ' ')$s$, '23514');
+SELECT pg_temp.expect_error('Publication: venue on two lines (FR-5.1)',
+    $s$INSERT INTO publications (title, venue_name) VALUES ('Paper', E'A\rB')$s$, '23514');
+SELECT pg_temp.expect_error('Publication: abstract of 5001 characters (FR-5.1)',
+    $s$INSERT INTO publications (title, abstract) VALUES ('Paper', repeat('a', 5001))$s$, '23514');
+SELECT pg_temp.expect_error('Publication: link that is not http or https (FR-5.1)',
+    $s$INSERT INTO publications (title, url) VALUES ('Paper', 'ftp://example.org/p')$s$, '23514');
+SELECT pg_temp.expect_error('Publication: link of 501 characters (FR-5.1)',
+    $s$INSERT INTO publications (title, url) VALUES ('Paper', 'https://example.org/' || repeat('p', 481))$s$, '23514');
+SELECT pg_temp.expect_error('Publication: link to a publication that does not exist (FR-5.4)',
+    $s$INSERT INTO user_publications (user_id, publication_id)
+       VALUES ('00000000-0000-0000-0000-000000000002', gen_random_uuid())$s$, '23503');
+INSERT INTO publications (id, title, publication_year, created_by) VALUES
+    ('00000000-0000-0000-0000-0000000000c2', 'Bob''s paper', 2024, '00000000-0000-0000-0000-000000000002');
+INSERT INTO user_publications (user_id, publication_id, confirmed_at) VALUES
+    ('00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-0000000000c2', now());
+SELECT pg_temp.expect_error('Publication: one link per user and publication (FR-5.4)',
+    $s$INSERT INTO user_publications (user_id, publication_id)
+       VALUES ('00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-0000000000c2')$s$, '23505');
+SELECT pg_temp.expect_error('Publication: created_by names a real user',
+    $s$INSERT INTO publications (title, created_by) VALUES ('Paper', gen_random_uuid())$s$, '23503');
+SELECT pg_temp.expect_ok('Publication: a record with links can be deleted (FR-5.7)',
+    $s$DELETE FROM publications WHERE id = '00000000-0000-0000-0000-0000000000c2'$s$);
+SELECT pg_temp.expect_true('Publication: deleting the record removes its links (FR-5.7)', $q$
+    SELECT NOT EXISTS (SELECT 1 FROM user_publications WHERE publication_id = '00000000-0000-0000-0000-0000000000c2')$q$);
 
 -- ---------------------------------------------------------------------------
 -- Connection (FR-7.2, FR-7.6)
@@ -884,6 +929,8 @@ SELECT pg_temp.expect_true('Deletion: a publication shared with a co-author stay
     SELECT EXISTS (SELECT 1 FROM user_publications
                    WHERE publication_id = '00000000-0000-0000-0000-0000000000c1'
                      AND user_id = '00000000-0000-0000-0000-000000000001')$q$);
+SELECT pg_temp.expect_true('Deletion: a shared publication the user added no longer names them', $q$
+    SELECT created_by IS NULL FROM publications WHERE id = '00000000-0000-0000-0000-0000000000c1'$q$);
 
 -- ---------------------------------------------------------------------------
 -- Project deletion (FR-10.6): files, members, requests, compile jobs and embedding go with it.

@@ -36,7 +36,10 @@ import (
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpx"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/storage"
 	profilehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/http"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/openalex"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/orcid"
 	profilepg "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/postgres"
+	profileredis "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/redis"
 	profileusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/usecase"
 )
 
@@ -44,9 +47,26 @@ type mediaEnv struct {
 	router http.Handler
 	pool   *pgxpool.Pool
 	files  *storage.S3
+	rdb    *goredis.Client
 }
 
 func newMediaEnv(t *testing.T) mediaEnv {
+	t.Helper()
+	return newMediaEnvWithOpenAlex(t, "")
+}
+
+// newMediaEnvWithOpenAlex is newMediaEnv with DOI lookups (FR-5.2) sent to the OpenAlex
+// at openAlexURL, the OPENALEX_BASE_URL setting; tests pass a fake server, never the real
+// one. Empty leaves lookups unconfigured.
+func newMediaEnvWithOpenAlex(t *testing.T, openAlexURL string) mediaEnv {
+	t.Helper()
+	return newMediaEnvWithSources(t, openAlexURL, "")
+}
+
+// newMediaEnvWithSources is newMediaEnvWithOpenAlex with ORCID imports (FR-5.3) sent to
+// the ORCID API at orcidURL, the ORCID_BASE_URL setting; tests pass a fake server, never
+// the real one. Empty leaves imports unconfigured.
+func newMediaEnvWithSources(t *testing.T, openAlexURL, orcidURL string) mediaEnv {
 	t.Helper()
 	for _, k := range []string{"DATABASE_URL", "REDIS_URL", "S3_ENDPOINT", "S3_BUCKET"} {
 		if os.Getenv(k) == "" {
@@ -75,11 +95,30 @@ func newMediaEnv(t *testing.T) mediaEnv {
 	logger := slog.New(slog.DiscardHandler)
 	images := mediausecase.NewImages(mediapg.NewStore(pool), files, imaging.Codec{}, limiter, logger)
 	up := pingerFunc(func(context.Context) error { return nil })
+	var profileOpts []profileusecase.Option
+	lookups := profileredis.New(rdb)
+	t.Cleanup(func() { _ = lookups.Close() })
+	if orcidURL != "" {
+		profileOpts = append(profileOpts, profileusecase.WithORCIDImport(profileusecase.ORCIDImport{
+			Source:  orcid.New(orcid.Config{BaseURL: orcidURL, Timeout: time.Second, RetryDelay: time.Millisecond}),
+			Cache:   lookups,
+			Limiter: lookups.ORCIDLimiter(),
+			Logger:  logger,
+		}))
+	}
+	if openAlexURL != "" {
+		profileOpts = append(profileOpts, profileusecase.WithDOILookup(profileusecase.DOILookup{
+			Source:  openalex.New(openalex.Config{BaseURL: openAlexURL, Mailto: "it@example.org", Timeout: time.Second, RetryDelay: time.Millisecond}),
+			Cache:   lookups,
+			Limiter: lookups,
+			Logger:  logger,
+		}))
+	}
 	router := newRouter(logger, up, up, up, authhttp.NewHandler(okAuth{}, authhttp.CookieConfig{}),
-		profilehttp.NewHandler(profileusecase.New(profilepg.NewStore(pool))),
+		profilehttp.NewHandler(profileusecase.New(profilepg.NewStore(pool), profileOpts...)),
 		mediahttp.NewHandler(images),
 		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
-	return mediaEnv{router: router, pool: pool, files: files}
+	return mediaEnv{router: router, pool: pool, files: files, rdb: rdb}
 }
 
 // newProfileUser stores a verified user with a profile and removes the user, its queued

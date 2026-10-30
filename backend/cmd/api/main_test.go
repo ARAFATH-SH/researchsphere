@@ -130,7 +130,11 @@ const testSecret = "test-jwt-secret-0123456789abcdefghij"
 func testRouter() http.Handler {
 	up := pingerFunc(func(context.Context) error { return nil })
 	return newRouter(slog.New(slog.DiscardHandler), up, up, up, authhttp.NewHandler(okAuth{}, authhttp.CookieConfig{}),
-		profilehttp.NewHandler(profileusecase.New(okProfiles{})),
+		profilehttp.NewHandler(profileusecase.New(okProfiles{}, profileusecase.WithDOILookup(profileusecase.DOILookup{
+			Source: okWorks{}, Cache: okWorks{}, Limiter: okWorks{},
+		}), profileusecase.WithORCIDImport(profileusecase.ORCIDImport{
+			Source: okWorks{}, Cache: okWorks{}, Limiter: okWorks{},
+		}))),
 		mediahttp.NewHandler(okMedia{}),
 		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
 }
@@ -257,7 +261,8 @@ const okUserID = "6f1c2b9e-1d2a-4c3b-9a8e-0f1e2d3c4b5a"
 type okProfiles struct{}
 
 func (okProfiles) FindAccount(_ context.Context, id string) (profiledomain.Account, error) {
-	return profiledomain.Account{UserID: id, Verified: true, Profile: &profiledomain.Profile{UserID: id, FullName: "Ada"}}, nil
+	orcidID := "0000-0002-1825-0097"
+	return profiledomain.Account{UserID: id, Verified: true, Profile: &profiledomain.Profile{UserID: id, FullName: "Ada", OrcidID: &orcidID}}, nil
 }
 
 func (okProfiles) UpsertProfile(_ context.Context, p profiledomain.Profile) (profiledomain.Profile, error) {
@@ -386,6 +391,52 @@ func (okProfiles) InsertLink(_ context.Context, l profiledomain.Link) (profiledo
 	return l, nil
 }
 
+func (okProfiles) ListConfirmedPublications(context.Context, string) ([]profiledomain.Publication, error) {
+	return nil, nil
+}
+
+func (okProfiles) CountConfirmedPublications(context.Context, string) (int, error) { return 0, nil }
+
+func (okProfiles) CountPublicationLinks(context.Context, string) (int, error) { return 0, nil }
+
+func (okProfiles) FindPublicationByDOI(context.Context, string) (profiledomain.Publication, error) {
+	return profiledomain.Publication{}, profiledomain.ErrNotFound
+}
+
+func (okProfiles) InsertPublication(_ context.Context, p profiledomain.Publication) (profiledomain.Publication, error) {
+	p.ID = okPublicationID
+	return p, nil
+}
+
+func (okProfiles) PublicationLink(context.Context, string, string) (profiledomain.LinkState, error) {
+	return profiledomain.NotLinked, nil
+}
+
+func (okProfiles) LinkPublication(context.Context, string, string) error { return nil }
+
+func (okProfiles) ConfirmPublication(context.Context, string, string) error { return nil }
+
+func (okProfiles) FindPublicationForUpdate(_ context.Context, _, id string) (profiledomain.Publication, error) {
+	year := 2024
+	return profiledomain.Publication{ID: id, Title: "Notes", Year: &year, Source: profiledomain.SourceManual}, nil
+}
+
+func (okProfiles) CountPublicationAuthors(context.Context, string) (int, error) { return 1, nil }
+
+func (okProfiles) UpdatePublication(_ context.Context, p profiledomain.Publication) (profiledomain.Publication, error) {
+	return p, nil
+}
+
+func (okProfiles) UnlinkPublication(context.Context, string, string) error { return nil }
+
+func (okProfiles) DeletePublicationIfOrphaned(context.Context, string) error { return nil }
+
+func (okProfiles) SetOrcidID(context.Context, string, *string) error { return nil }
+
+func (okProfiles) MatchPublicationsByDOI(context.Context, string, []string) (map[string]profiledomain.DOIMatch, error) {
+	return map[string]profiledomain.DOIMatch{}, nil
+}
+
 const okEducationID = "8b3e4d5c-6f7a-4b2c-9d0e-1f2a3b4c5d6e"
 
 const okLinkID = "9c4f5e6d-7a8b-4c3d-8e1f-2a3b4c5d6e7f"
@@ -393,6 +444,8 @@ const okLinkID = "9c4f5e6d-7a8b-4c3d-8e1f-2a3b4c5d6e7f"
 const okExperienceID = "ad5a6f7e-8b9c-4d4e-9f2a-3b4c5d6e7f8a"
 
 const okLanguageID = "be6b7a8f-9c0d-4e5f-8a3b-4c5d6e7f8a9b"
+
+const okPublicationID = "cf7c8b9a-0d1e-4f6a-9b4c-5d6e7f8a9b0c"
 
 const okTagID = "7a2d3c4b-5e6f-4a1b-8c9d-0e1f2a3b4c5d"
 
@@ -450,3 +503,33 @@ func TestDeleteAccountThroughRouter(t *testing.T) {
 type pingerFunc func(ctx context.Context) error
 
 func (f pingerFunc) Ping(ctx context.Context) error { return f(ctx) }
+
+// okWorks finds every DOI, lists one ORCID work with put-code 1, caches nothing and never
+// limits.
+type okWorks struct{}
+
+func (okWorks) FetchWork(_ context.Context, doi string) (profiledomain.WorkMetadata, error) {
+	return profiledomain.WorkMetadata{DOI: doi, Title: "Notes"}, nil
+}
+
+func (okWorks) GetWork(context.Context, string) (profiledomain.WorkMetadata, bool, error) {
+	return profiledomain.WorkMetadata{}, false, nil
+}
+
+func (okWorks) PutWork(context.Context, profiledomain.WorkMetadata, time.Duration) error { return nil }
+
+func (okWorks) Used(context.Context, string) (int, time.Duration, error) { return 0, 0, nil }
+
+func (okWorks) Record(context.Context, string, time.Duration) error { return nil }
+
+func (okWorks) ListWorks(context.Context, string) ([]profiledomain.ORCIDWork, error) {
+	return []profiledomain.ORCIDWork{{PutCode: "1", Title: "Notes"}}, nil
+}
+
+func (okWorks) GetORCIDWorks(context.Context, string) ([]profiledomain.ORCIDWork, bool, error) {
+	return nil, false, nil
+}
+
+func (okWorks) PutORCIDWorks(context.Context, string, []profiledomain.ORCIDWork, time.Duration) error {
+	return nil
+}

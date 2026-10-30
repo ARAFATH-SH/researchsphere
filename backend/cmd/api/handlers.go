@@ -74,6 +74,24 @@ var platformGuards = map[string]authz.Action{
 	"PATCH /api/v1/profiles/me/languages/{languageId}":  authz.ActAsMember,
 	"DELETE /api/v1/profiles/me/languages/{languageId}": authz.ActAsMember,
 
+	// Publications (FR-5.1, FR-5.5, FR-5.7) are part of the user's own profile; reading
+	// anyone's list, the caller's own included, is viewing content, like the profile.
+	"GET /api/v1/profiles/me/publications":                    authz.ViewContent,
+	"POST /api/v1/profiles/me/publications":                   authz.ActAsMember,
+	"PATCH /api/v1/profiles/me/publications/{publicationId}":  authz.ActAsMember,
+	"DELETE /api/v1/profiles/me/publications/{publicationId}": authz.ActAsMember,
+	"GET /api/v1/profiles/{userId}/publications":              authz.ViewContent,
+	// Adding from a DOI (FR-5.2) edits the own profile; the lookup is its first step and
+	// spends the user's lookups, so it needs the same action.
+	"POST /api/v1/profiles/me/publications/from-doi": authz.ActAsMember,
+	"GET /api/v1/publications/lookup":                authz.ActAsMember,
+	// The ORCID iD (FR-5.3) is part of the own profile; listing its works spends the
+	// user's ORCID calls and is the first step of importing them, so all three need the
+	// same action.
+	"PUT /api/v1/profiles/me/orcid":                    authz.ActAsMember,
+	"GET /api/v1/profiles/me/publications/orcid-works": authz.ActAsMember,
+	"POST /api/v1/profiles/me/publications/from-orcid": authz.ActAsMember,
+
 	// Contact info and links (FR-4.7) are part of the user's own profile.
 	"GET /api/v1/profiles/me/contact":           authz.ViewContent,
 	"PUT /api/v1/profiles/me/contact":           authz.ActAsMember,

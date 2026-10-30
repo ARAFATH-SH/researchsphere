@@ -2,7 +2,7 @@
 -- The user and, through the left join, the profile row when there is one.
 SELECT u.id, u.email_verified_at, u.suspended_at,
        p.user_id AS profile_user_id, p.full_name, p.headline, p.bio, p.institution,
-       p.department, p.job_title, p.country, p.city, p.photo_file_id, p.cover_file_id
+       p.department, p.job_title, p.country, p.city, p.orcid_id, p.photo_file_id, p.cover_file_id
 FROM users u
 LEFT JOIN profiles p ON p.user_id = u.id
 WHERE u.id = @id;
@@ -21,7 +21,12 @@ ON CONFLICT (user_id) DO UPDATE SET
     country     = EXCLUDED.country,
     city        = EXCLUDED.city
 RETURNING user_id, full_name, headline, bio, institution, department, job_title, country, city,
-          photo_file_id, cover_file_id;
+          orcid_id, photo_file_id, cover_file_id;
+
+-- name: SetOrcidID :execrows
+-- Saves or clears the user's ORCID iD (FR-5.3). The unique constraint refuses an iD
+-- another profile has.
+UPDATE profiles SET orcid_id = @orcid_id WHERE user_id = @user_id;
 
 -- name: LockUser :one
 -- Taken before a tag is added, so two requests of one user cannot both pass the tag
@@ -290,3 +295,91 @@ RETURNING id, user_id, kind, url;
 
 -- name: DeleteUserLink :execrows
 DELETE FROM profile_links WHERE id = @id AND user_id = @user_id;
+
+-- Publications (FR-5.1, FR-5.4, FR-5.5, FR-5.7). A publication is stored once and linked to
+-- each author in user_publications; a link is confirmed when confirmed_at is set. Every
+-- query that reads or changes a publication for a user joins the user's link, so a
+-- publication the user is not linked to is simply not found.
+
+-- name: CountUserPublicationLinks :one
+SELECT count(*) FROM user_publications WHERE user_id = @user_id;
+
+-- name: FindPublicationByDOI :one
+-- KEY SHARE keeps the record from being deleted (by its last author leaving, or account
+-- deletion) until the transaction ends, without blocking an edit of its fields.
+SELECT id, doi, title, publication_year, venue_name, abstract, url, source, created_by, created_at, updated_at
+FROM publications
+WHERE doi = @doi
+FOR KEY SHARE;
+
+-- name: InsertPublication :one
+-- A DOI another record has, even one stored at this moment by another transaction, inserts
+-- nothing and returns no row; the caller then links to that record (FR-5.4).
+INSERT INTO publications (doi, title, publication_year, venue_name, abstract, url, source, created_by)
+VALUES (@doi, @title, @publication_year, @venue_name, @abstract, @url, @source, @created_by)
+ON CONFLICT (doi) DO NOTHING
+RETURNING id, doi, title, publication_year, venue_name, abstract, url, source, created_by, created_at, updated_at;
+
+-- name: FindPublicationLink :one
+SELECT confirmed_at IS NOT NULL AS confirmed
+FROM user_publications
+WHERE user_id = @user_id AND publication_id = @publication_id;
+
+-- name: InsertConfirmedPublicationLink :exec
+INSERT INTO user_publications (user_id, publication_id, confirmed_at)
+VALUES (@user_id, @publication_id, now());
+
+-- name: ConfirmPublicationLink :exec
+UPDATE user_publications SET confirmed_at = now()
+WHERE user_id = @user_id AND publication_id = @publication_id AND confirmed_at IS NULL;
+
+-- name: FindUserPublicationForUpdate :one
+-- Locks the record until the transaction ends, so an edit, a removal and account deletion
+-- of a co-author run one after the other.
+SELECT p.id, p.doi, p.title, p.publication_year, p.venue_name, p.abstract, p.url, p.source,
+       p.created_by, p.created_at, p.updated_at
+FROM publications p
+JOIN user_publications up ON up.publication_id = p.id
+WHERE p.id = @id AND up.user_id = @user_id
+FOR UPDATE OF p;
+
+-- name: CountPublicationAuthors :one
+SELECT count(*) FROM user_publications WHERE publication_id = @publication_id;
+
+-- name: UpdatePublication :one
+UPDATE publications SET
+    doi              = @doi,
+    title            = @title,
+    publication_year = @publication_year,
+    venue_name       = @venue_name,
+    abstract         = @abstract,
+    url              = @url
+WHERE id = @id
+RETURNING id, doi, title, publication_year, venue_name, abstract, url, source, created_by, created_at, updated_at;
+
+-- name: DeletePublicationLink :execrows
+DELETE FROM user_publications WHERE user_id = @user_id AND publication_id = @publication_id;
+
+-- name: DeletePublicationIfOrphaned :exec
+DELETE FROM publications p
+WHERE p.id = @id
+  AND NOT EXISTS (SELECT 1 FROM user_publications up WHERE up.publication_id = p.id);
+
+-- name: ListConfirmedUserPublications :many
+-- At most a few hundred rows; the usecase sorts and pages them.
+SELECT p.id, p.doi, p.title, p.publication_year, p.venue_name, p.abstract, p.url, p.source,
+       p.created_by, p.created_at, p.updated_at, up.created_at AS added_at
+FROM publications p
+JOIN user_publications up ON up.publication_id = p.id
+WHERE up.user_id = @user_id AND up.confirmed_at IS NOT NULL;
+
+-- name: MatchPublicationsByDOI :many
+-- The stored publications with one of the DOIs, and whether the user has confirmed each
+-- (FR-5.3, FR-5.4). linked is false when the user has no link.
+SELECT p.id, p.doi, (up.user_id IS NOT NULL)::boolean AS linked, coalesce(up.confirmed_at IS NOT NULL, false)::boolean AS confirmed
+FROM publications p
+LEFT JOIN user_publications up ON up.publication_id = p.id AND up.user_id = @user_id
+WHERE p.doi = ANY(@dois::text[]);
+
+-- name: CountConfirmedUserPublications :one
+SELECT count(*) FROM user_publications WHERE user_id = @user_id AND confirmed_at IS NOT NULL;

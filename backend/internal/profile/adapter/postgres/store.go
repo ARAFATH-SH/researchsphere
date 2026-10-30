@@ -73,6 +73,7 @@ func (s *Store) FindAccount(ctx context.Context, userID string) (domain.Account,
 			JobTitle:    textPtr(row.JobTitle),
 			Country:     textPtr(row.Country),
 			City:        textPtr(row.City),
+			OrcidID:     textPtr(row.OrcidID),
 			PhotoFileID: uuidPtr(row.PhotoFileID),
 			CoverFileID: uuidPtr(row.CoverFileID),
 		}
@@ -113,6 +114,7 @@ func (s *Store) UpsertProfile(ctx context.Context, p domain.Profile) (domain.Pro
 		JobTitle:    textPtr(row.JobTitle),
 		Country:     textPtr(row.Country),
 		City:        textPtr(row.City),
+		OrcidID:     textPtr(row.OrcidID),
 		PhotoFileID: uuidPtr(row.PhotoFileID),
 		CoverFileID: uuidPtr(row.CoverFileID),
 	}, nil

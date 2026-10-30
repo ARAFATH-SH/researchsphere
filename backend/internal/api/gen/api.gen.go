@@ -219,6 +219,48 @@ func (e LocationType) Valid() bool {
 	}
 }
 
+// Defines values for OrcidImportOutcome.
+const (
+	Created OrcidImportOutcome = "created"
+	Linked  OrcidImportOutcome = "linked"
+	Skipped OrcidImportOutcome = "skipped"
+)
+
+// Valid indicates whether the value is a known member of the OrcidImportOutcome enum.
+func (e OrcidImportOutcome) Valid() bool {
+	switch e {
+	case Created:
+		return true
+	case Linked:
+		return true
+	case Skipped:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PublicationSource.
+const (
+	Doi    PublicationSource = "doi"
+	Manual PublicationSource = "manual"
+	Orcid  PublicationSource = "orcid"
+)
+
+// Valid indicates whether the value is a known member of the PublicationSource enum.
+func (e PublicationSource) Valid() bool {
+	switch e {
+	case Doi:
+		return true
+	case Manual:
+		return true
+	case Orcid:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for Role.
 const (
 	Admin      Role = "admin"
@@ -592,6 +634,81 @@ type LoginRequest struct {
 	Password string `json:"password"`
 }
 
+// OrcidIdUpdate defines model for OrcidIdUpdate.
+type OrcidIdUpdate struct {
+	// OrcidId Example: 0000-0002-1825-0097
+	OrcidId *string `json:"orcidId"`
+}
+
+// OrcidImportItem defines model for OrcidImportItem.
+type OrcidImportItem struct {
+	PublicationId openapi_types.UUID `json:"publicationId"`
+	PutCode       string             `json:"putCode"`
+
+	// Result `created`: a new record was stored. `linked`: the caller was linked to a stored
+	// record, or confirmed a link they had. `skipped`: the caller had confirmed it already.
+	Result OrcidImportOutcome `json:"result"`
+}
+
+// OrcidImportOutcome `created`: a new record was stored. `linked`: the caller was linked to a stored
+// record, or confirmed a link they had. `skipped`: the caller had confirmed it already.
+type OrcidImportOutcome string
+
+// OrcidImportRequest defines model for OrcidImportRequest.
+type OrcidImportRequest struct {
+	// PutCodes 1 to 100 put-codes from `listMyOrcidWorks`, each once.
+	PutCodes []string `json:"putCodes"`
+}
+
+// OrcidImportResult defines model for OrcidImportResult.
+type OrcidImportResult struct {
+	Created int `json:"created"`
+
+	// Items One item per put-code, in the order given.
+	Items   []OrcidImportItem `json:"items"`
+	Linked  int               `json:"linked"`
+	Skipped int               `json:"skipped"`
+}
+
+// OrcidWork One public work of an ORCID record (FR-5.3). The optional fields are always present and null when not known.
+type OrcidWork struct {
+	// Doi The bare, lower-case DOI.
+	Doi *string `json:"doi"`
+
+	// ExistsAlready True when a publication with this DOI is already stored.
+	ExistsAlready bool `json:"existsAlready"`
+
+	// LinkedToMe True when the stored publication is confirmed on the caller's profile.
+	LinkedToMe bool `json:"linkedToMe"`
+
+	// PublicationId The stored publication's ID, present only when `existsAlready` is true.
+	PublicationId *openapi_types.UUID `json:"publicationId,omitempty"`
+
+	// PutCode ORCID's identifier of the work within the record.
+	//
+	// Example: 123456
+	PutCode string `json:"putCode"`
+	Title   string `json:"title"`
+
+	// Type ORCID's work type, such as `journal-article`.
+	Type *string `json:"type"`
+	Url  *string `json:"url"`
+
+	// Venue The journal title.
+	Venue *string `json:"venue"`
+	Year  *int    `json:"year"`
+}
+
+// OrcidWorkList defines model for OrcidWorkList.
+type OrcidWorkList struct {
+	Items []OrcidWork `json:"items"`
+
+	// OrcidId The ORCID iD the works were listed for.
+	//
+	// Example: 0000-0002-1825-0097
+	OrcidId string `json:"orcidId"`
+}
+
 // OwnsSharedProjectError The error shape with the projects that block an account deletion (FR-2.9).
 type OwnsSharedProjectError struct {
 	// Code Example: owns_shared_project
@@ -614,9 +731,9 @@ type PasswordResetRequest struct {
 	Email string `json:"email"`
 }
 
-// Profile A researcher's profile (FR-4.1, FR-4.2, FR-4.4, FR-4.5, FR-4.6, FR-4.7). The optional text fields are
-// always present and null when not set. `publications` and `connectionStatus` are
-// placeholders for now; later work fills them in.
+// Profile A researcher's profile (FR-4.1, FR-4.2, FR-4.4, FR-4.5, FR-4.6, FR-4.7, FR-5.5). The optional text fields are
+// always present and null when not set. `connectionStatus` is a placeholder for now;
+// later work fills it in.
 type Profile struct {
 	Bio *string `json:"bio"`
 
@@ -662,13 +779,21 @@ type Profile struct {
 	// (`native_or_bilingual` first), then oldest entry first.
 	Languages []Language `json:"languages"`
 
+	// OrcidId The user's ORCID iD (FR-5.3), a public identifier shown to every viewer; set
+	// with `setMyOrcidId`.
+	//
+	//
+	// Example: 0000-0002-1825-0097
+	OrcidId *string `json:"orcidId"`
+
 	// PhotoUrl The profile photo (FR-4.6) as `/api/v1/media/{fileId}`; null when not set.
 	//
 	// Example: /api/v1/media/3f1c2b9e-8a41-4d7e-9c55-2f6a1b0e7d10
 	PhotoUrl *string `json:"photoUrl"`
 
-	// Publications Placeholder: always empty until confirmed publications are shown (FR-5.5).
-	Publications []map[string]interface{} `json:"publications"`
+	// PublicationCount How many publications the user has confirmed (FR-5.5). The list itself comes
+	// from `listPublications`.
+	PublicationCount int `json:"publicationCount"`
 
 	// Skills The user's skills (FR-4.2), sorted by name ignoring letter case.
 	Skills []Tag              `json:"skills"`
@@ -743,6 +868,151 @@ type PublicContact struct {
 	Email    *openapi_types.Email `json:"email,omitempty"`
 	Links    []ProfileLink        `json:"links"`
 	Phone    *string              `json:"phone,omitempty"`
+}
+
+// Publication One publication (FR-5.1). The optional fields are always present and null when not set.
+type Publication struct {
+	Abstract  *string   `json:"abstract"`
+	CreatedAt time.Time `json:"createdAt"`
+
+	// Doi The bare, lower-case DOI.
+	//
+	// Example: 10.1145/3292500.3330701
+	Doi *string            `json:"doi"`
+	Id  openapi_types.UUID `json:"id"`
+
+	// Source How the publication was added (FR-5.1, FR-5.2, FR-5.3).
+	Source    PublicationSource `json:"source"`
+	Title     string            `json:"title"`
+	UpdatedAt time.Time         `json:"updatedAt"`
+
+	// Url Example: https://example.org/paper
+	Url *string `json:"url"`
+
+	// Venue Example: KDD
+	Venue *string `json:"venue"`
+
+	// Year Always set for a publication added by hand; an imported one may have none.
+	//
+	// Example: 2024
+	Year *int `json:"year"`
+}
+
+// PublicationAdded The publication, and whether the caller was linked to one that already existed (FR-5.4).
+type PublicationAdded struct {
+	Abstract  *string   `json:"abstract"`
+	CreatedAt time.Time `json:"createdAt"`
+
+	// Doi The bare, lower-case DOI.
+	//
+	// Example: 10.1145/3292500.3330701
+	Doi *string            `json:"doi"`
+	Id  openapi_types.UUID `json:"id"`
+
+	// Linked True when a publication with the same DOI already existed and the caller was linked to it.
+	Linked bool `json:"linked"`
+
+	// Source How the publication was added (FR-5.1, FR-5.2, FR-5.3).
+	Source    PublicationSource `json:"source"`
+	Title     string            `json:"title"`
+	UpdatedAt time.Time         `json:"updatedAt"`
+
+	// Url Example: https://example.org/paper
+	Url *string `json:"url"`
+
+	// Venue Example: KDD
+	Venue *string `json:"venue"`
+
+	// Year Always set for a publication added by hand; an imported one may have none.
+	//
+	// Example: 2024
+	Year *int `json:"year"`
+}
+
+// PublicationCreate A publication added by hand (FR-5.1). Text is trimmed first and lengths count
+// characters after trimming; `title` and `venue` must be one line.
+type PublicationCreate struct {
+	// Abstract At most 5000 characters, line breaks allowed; empty means not set.
+	Abstract *string `json:"abstract,omitempty"`
+
+	// Doi A DOI such as `10.1145/3292500.3330701`, optionally as a `https://doi.org/` link
+	// or with a `doi:` prefix; empty means not set.
+	//
+	//
+	// Example: 10.1145/3292500.3330701
+	Doi *string `json:"doi,omitempty"`
+
+	// Title 1 to 500 characters.
+	Title string `json:"title"`
+
+	// Url An http or https link of at most 500 characters; empty means not set.
+	Url *string `json:"url,omitempty"`
+
+	// Venue At most 300 characters; empty means not set.
+	Venue *string `json:"venue,omitempty"`
+
+	// Year From 1900 to next year (UTC).
+	Year int `json:"year"`
+}
+
+// PublicationFromDOI defines model for PublicationFromDOI.
+type PublicationFromDOI struct {
+	// Doi The DOI from the preview, in any form `lookupPublicationByDOI` accepts.
+	//
+	// Example: 10.1145/3292500.3330701
+	Doi string `json:"doi"`
+}
+
+// PublicationPage defines model for PublicationPage.
+type PublicationPage struct {
+	Items []Publication `json:"items"`
+	Page  int           `json:"page"`
+
+	// PageSize The page size used, at most 50.
+	PageSize int `json:"pageSize"`
+
+	// Total The number of publications on all pages.
+	Total int `json:"total"`
+}
+
+// PublicationPreview A publication's metadata for a DOI (FR-5.2), shown for confirmation before it is
+// saved. The optional fields are always present and null when not known.
+type PublicationPreview struct {
+	Abstract *string `json:"abstract"`
+
+	// Doi The bare, lower-case DOI.
+	//
+	// Example: 10.1145/3292500.3330701
+	Doi string `json:"doi"`
+
+	// ExistsAlready True when a publication with this DOI is already stored; the fields are the stored record's.
+	ExistsAlready bool `json:"existsAlready"`
+
+	// LinkedToMe True when the stored publication is confirmed on the caller's profile.
+	LinkedToMe bool `json:"linkedToMe"`
+
+	// PublicationId The stored publication's ID, present only when `existsAlready` is true.
+	PublicationId *openapi_types.UUID `json:"publicationId,omitempty"`
+	Title         string              `json:"title"`
+	Url           *string             `json:"url"`
+	Venue         *string             `json:"venue"`
+	Year          *int                `json:"year"`
+}
+
+// PublicationSource How the publication was added (FR-5.1, FR-5.2, FR-5.3).
+type PublicationSource string
+
+// PublicationUpdate The fields to change in a publication (FR-5.1). A missing field keeps its value.
+// `null` clears `venue`, `abstract`, `url` or `doi`; `null` for `title` or `year` is
+// refused, because they are required. The rules of PublicationCreate apply to the
+// publication after the change.
+type PublicationUpdate struct {
+	Abstract nullable.Nullable[string] `json:"abstract,omitempty"`
+	Doi      nullable.Nullable[string] `json:"doi,omitempty"`
+	Title    nullable.Nullable[string] `json:"title,omitempty"`
+	Url      nullable.Nullable[string] `json:"url,omitempty"`
+	Venue    nullable.Nullable[string] `json:"venue,omitempty"`
+	Year     nullable.Nullable[int]    `json:"year,omitempty"`
 }
 
 // RegisterRequest defines model for RegisterRequest.
@@ -837,6 +1107,15 @@ type LanguageID = string
 // LinkID defines model for LinkID.
 type LinkID = string
 
+// PublicationID defines model for PublicationID.
+type PublicationID = string
+
+// PublicationListPage defines model for PublicationListPage.
+type PublicationListPage = int
+
+// PublicationListPageSize defines model for PublicationListPageSize.
+type PublicationListPageSize = int
+
 // RefreshCookie defines model for RefreshCookie.
 type RefreshCookie = string
 
@@ -849,6 +1128,9 @@ type TagLimit = int
 // TagQuery defines model for TagQuery.
 type TagQuery = string
 
+// DOINotFound The shape of every error response (SRS 5.3).
+type DOINotFound = Error
+
 // FileTooLarge The shape of every error response (SRS 5.3).
 type FileTooLarge = Error
 
@@ -857,6 +1139,9 @@ type Forbidden = Error
 
 // InternalError The shape of every error response (SRS 5.3).
 type InternalError = Error
+
+// InvalidDOI The shape of every error response (SRS 5.3).
+type InvalidDOI = Error
 
 // InvalidEducation The shape of every error response (SRS 5.3).
 type InvalidEducation = Error
@@ -870,11 +1155,32 @@ type InvalidImage = Error
 // InvalidLanguage The shape of every error response (SRS 5.3).
 type InvalidLanguage = Error
 
+// InvalidPublication The shape of every error response (SRS 5.3).
+type InvalidPublication = Error
+
+// LookupRateLimited The shape of every error response (SRS 5.3).
+type LookupRateLimited = Error
+
+// MetadataUnavailable The shape of every error response (SRS 5.3).
+type MetadataUnavailable = Error
+
 // NoProfile The shape of every error response (SRS 5.3).
 type NoProfile = Error
 
 // NotFound The shape of every error response (SRS 5.3).
 type NotFound = Error
+
+// OrcidNotFound The shape of every error response (SRS 5.3).
+type OrcidNotFound = Error
+
+// OrcidNotSet The shape of every error response (SRS 5.3).
+type OrcidNotSet = Error
+
+// OrcidRateLimited The shape of every error response (SRS 5.3).
+type OrcidRateLimited = Error
+
+// OrcidUnavailable The shape of every error response (SRS 5.3).
+type OrcidUnavailable = Error
 
 // ProfileImageStored A stored profile photo or cover image (FR-4.6).
 type ProfileImageStored = ProfileImage
@@ -927,6 +1233,34 @@ type UploadMyCoverMultipartBody struct {
 // UploadMyPhotoMultipartBody defines parameters for UploadMyPhoto.
 type UploadMyPhotoMultipartBody struct {
 	File openapi_types.File `json:"file"`
+}
+
+// ListMyPublicationsParams defines parameters for ListMyPublications.
+type ListMyPublicationsParams struct {
+	// Page The page to return, from 1. Defaults to 1.
+	Page *PublicationListPage `form:"page,omitempty" json:"page,omitempty"`
+
+	// PageSize Publications per page, from 1. Defaults to 10. A larger value than 50 is reduced
+	// to 50, and the response says which size was used.
+	PageSize *PublicationListPageSize `form:"pageSize,omitempty" json:"pageSize,omitempty"`
+}
+
+// ListPublicationsParams defines parameters for ListPublications.
+type ListPublicationsParams struct {
+	// Page The page to return, from 1. Defaults to 1.
+	Page *PublicationListPage `form:"page,omitempty" json:"page,omitempty"`
+
+	// PageSize Publications per page, from 1. Defaults to 10. A larger value than 50 is reduced
+	// to 50, and the response says which size was used.
+	PageSize *PublicationListPageSize `form:"pageSize,omitempty" json:"pageSize,omitempty"`
+}
+
+// LookupPublicationByDOIParams defines parameters for LookupPublicationByDOI.
+type LookupPublicationByDOIParams struct {
+	// Doi A DOI such as `10.1145/3292500.3330701`, optionally as a `https://doi.org/` link
+	// or with a `doi:` prefix. It is declared optional so that the login check runs
+	// before it is read (FR-3.1); a missing or empty value gets 400 `invalid_doi`.
+	Doi *string `form:"doi,omitempty" json:"doi,omitempty"`
 }
 
 // SuggestInterestTagsParams defines parameters for SuggestInterestTags.
@@ -1006,8 +1340,23 @@ type UpdateMyLanguageJSONRequestBody = LanguageUpdate
 // AddMyLinkJSONRequestBody defines body for AddMyLink for application/json ContentType.
 type AddMyLinkJSONRequestBody = AddLinkRequest
 
+// SetMyOrcidIdJSONRequestBody defines body for SetMyOrcidId for application/json ContentType.
+type SetMyOrcidIdJSONRequestBody = OrcidIdUpdate
+
 // UploadMyPhotoMultipartRequestBody defines body for UploadMyPhoto for multipart/form-data ContentType.
 type UploadMyPhotoMultipartRequestBody UploadMyPhotoMultipartBody
+
+// AddMyPublicationJSONRequestBody defines body for AddMyPublication for application/json ContentType.
+type AddMyPublicationJSONRequestBody = PublicationCreate
+
+// AddMyPublicationFromDOIJSONRequestBody defines body for AddMyPublicationFromDOI for application/json ContentType.
+type AddMyPublicationFromDOIJSONRequestBody = PublicationFromDOI
+
+// ImportMyOrcidWorksJSONRequestBody defines body for ImportMyOrcidWorks for application/json ContentType.
+type ImportMyOrcidWorksJSONRequestBody = OrcidImportRequest
+
+// UpdateMyPublicationJSONRequestBody defines body for UpdateMyPublication for application/json ContentType.
+type UpdateMyPublicationJSONRequestBody = PublicationUpdate
 
 // AddMySkillJSONRequestBody defines body for AddMySkill for application/json ContentType.
 type AddMySkillJSONRequestBody = AddTagRequest
@@ -1113,12 +1462,36 @@ type ServerInterface interface {
 	// RemoveMyLink Remove one of the logged-in user's links (FR-4.7)
 	// (DELETE /profiles/me/links/{linkId})
 	RemoveMyLink(w http.ResponseWriter, r *http.Request, linkId LinkID)
+	// SetMyOrcidId Save or clear the ORCID iD on the logged-in user's profile (FR-5.3)
+	// (PUT /profiles/me/orcid)
+	SetMyOrcidId(w http.ResponseWriter, r *http.Request)
 	// RemoveMyPhoto Remove the logged-in user's profile photo (FR-4.6)
 	// (DELETE /profiles/me/photo)
 	RemoveMyPhoto(w http.ResponseWriter, r *http.Request)
 	// UploadMyPhoto Upload or replace the logged-in user's profile photo (FR-4.6)
 	// (PUT /profiles/me/photo)
 	UploadMyPhoto(w http.ResponseWriter, r *http.Request)
+	// ListMyPublications List the logged-in user's confirmed publications (FR-5.5)
+	// (GET /profiles/me/publications)
+	ListMyPublications(w http.ResponseWriter, r *http.Request, params ListMyPublicationsParams)
+	// AddMyPublication Add a publication to the logged-in user's profile by hand (FR-5.1, FR-5.4)
+	// (POST /profiles/me/publications)
+	AddMyPublication(w http.ResponseWriter, r *http.Request)
+	// AddMyPublicationFromDOI Add a publication to the logged-in user's profile from its DOI (FR-5.2, FR-5.4, FR-5.6)
+	// (POST /profiles/me/publications/from-doi)
+	AddMyPublicationFromDOI(w http.ResponseWriter, r *http.Request)
+	// ImportMyOrcidWorks Import the selected ORCID works into the logged-in user's profile (FR-5.3, FR-5.4, FR-5.6)
+	// (POST /profiles/me/publications/from-orcid)
+	ImportMyOrcidWorks(w http.ResponseWriter, r *http.Request)
+	// ListMyOrcidWorks List the public works of the ORCID iD on the logged-in user's profile (FR-5.3, FR-5.6)
+	// (GET /profiles/me/publications/orcid-works)
+	ListMyOrcidWorks(w http.ResponseWriter, r *http.Request)
+	// RemoveMyPublication Remove a publication from the logged-in user's profile (FR-5.7)
+	// (DELETE /profiles/me/publications/{publicationId})
+	RemoveMyPublication(w http.ResponseWriter, r *http.Request, publicationId PublicationID)
+	// UpdateMyPublication Change some fields of one of the logged-in user's publications (FR-5.1)
+	// (PATCH /profiles/me/publications/{publicationId})
+	UpdateMyPublication(w http.ResponseWriter, r *http.Request, publicationId PublicationID)
 	// AddMySkill Add a skill to the logged-in user's profile (FR-4.2)
 	// (POST /profiles/me/skills)
 	AddMySkill(w http.ResponseWriter, r *http.Request)
@@ -1128,6 +1501,12 @@ type ServerInterface interface {
 	// GetProfile Return any user's profile to a logged-in user (FR-4.5)
 	// (GET /profiles/{userId})
 	GetProfile(w http.ResponseWriter, r *http.Request, userId string)
+	// ListPublications List any user's confirmed publications to a logged-in user (FR-5.5)
+	// (GET /profiles/{userId}/publications)
+	ListPublications(w http.ResponseWriter, r *http.Request, userId string, params ListPublicationsParams)
+	// LookupPublicationByDOI Preview the metadata of a publication by its DOI (FR-5.2, FR-5.6)
+	// (GET /publications/lookup)
+	LookupPublicationByDOI(w http.ResponseWriter, r *http.Request, params LookupPublicationByDOIParams)
 	// SuggestInterestTags Suggest existing research interest tags while the user types (FR-4.3)
 	// (GET /tags/interests)
 	SuggestInterestTags(w http.ResponseWriter, r *http.Request, params SuggestInterestTagsParams)
@@ -1954,6 +2333,26 @@ func (siw *ServerInterfaceWrapper) RemoveMyLink(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
+// SetMyOrcidId operation middleware
+func (siw *ServerInterfaceWrapper) SetMyOrcidId(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetMyOrcidId(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // RemoveMyPhoto operation middleware
 func (siw *ServerInterfaceWrapper) RemoveMyPhoto(w http.ResponseWriter, r *http.Request) {
 
@@ -1985,6 +2384,202 @@ func (siw *ServerInterfaceWrapper) UploadMyPhoto(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UploadMyPhoto(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListMyPublications operation middleware
+func (siw *ServerInterfaceWrapper) ListMyPublications(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListMyPublicationsParams
+
+	// ------------- Optional query parameter "page" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "page", r.URL.Query(), &params.Page, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "page"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "pageSize" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "pageSize", r.URL.Query(), &params.PageSize, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "pageSize"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "pageSize", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListMyPublications(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AddMyPublication operation middleware
+func (siw *ServerInterfaceWrapper) AddMyPublication(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AddMyPublication(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AddMyPublicationFromDOI operation middleware
+func (siw *ServerInterfaceWrapper) AddMyPublicationFromDOI(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AddMyPublicationFromDOI(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ImportMyOrcidWorks operation middleware
+func (siw *ServerInterfaceWrapper) ImportMyOrcidWorks(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ImportMyOrcidWorks(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListMyOrcidWorks operation middleware
+func (siw *ServerInterfaceWrapper) ListMyOrcidWorks(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListMyOrcidWorks(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RemoveMyPublication operation middleware
+func (siw *ServerInterfaceWrapper) RemoveMyPublication(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "publicationId" -------------
+	var publicationId PublicationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "publicationId", r.PathValue("publicationId"), &publicationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "publicationId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RemoveMyPublication(w, r, publicationId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateMyPublication operation middleware
+func (siw *ServerInterfaceWrapper) UpdateMyPublication(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "publicationId" -------------
+	var publicationId PublicationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "publicationId", r.PathValue("publicationId"), &publicationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "publicationId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateMyPublication(w, r, publicationId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2069,6 +2664,106 @@ func (siw *ServerInterfaceWrapper) GetProfile(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetProfile(w, r, userId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListPublications operation middleware
+func (siw *ServerInterfaceWrapper) ListPublications(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "userId" -------------
+	var userId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", r.PathValue("userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "userId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListPublicationsParams
+
+	// ------------- Optional query parameter "page" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "page", r.URL.Query(), &params.Page, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "page"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "pageSize" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "pageSize", r.URL.Query(), &params.PageSize, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "pageSize"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "pageSize", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListPublications(w, r, userId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// LookupPublicationByDOI operation middleware
+func (siw *ServerInterfaceWrapper) LookupPublicationByDOI(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params LookupPublicationByDOIParams
+
+	// ------------- Optional query parameter "doi" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "doi", r.URL.Query(), &params.Doi, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "doi"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "doi", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.LookupPublicationByDOI(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2337,6 +3032,16 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/profiles/me/contact", wrapper.UpdateMyContact)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/profiles/me/links", wrapper.AddMyLink)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/profiles/me/links/{linkId}", wrapper.RemoveMyLink)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles/me/publications", wrapper.ListMyPublications)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/profiles/me/publications", wrapper.AddMyPublication)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/profiles/me/publications/from-doi", wrapper.AddMyPublicationFromDOI)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/publications/lookup", wrapper.LookupPublicationByDOI)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/profiles/me/orcid", wrapper.SetMyOrcidId)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles/me/publications/orcid-works", wrapper.ListMyOrcidWorks)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/profiles/me/publications/from-orcid", wrapper.ImportMyOrcidWorks)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/profiles/me/publications/{publicationId}", wrapper.RemoveMyPublication)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/profiles/me/publications/{publicationId}", wrapper.UpdateMyPublication)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles/{userId}/publications", wrapper.ListPublications)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/profiles/me/photo", wrapper.RemoveMyPhoto)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/profiles/me/photo", wrapper.UploadMyPhoto)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/profiles/me/cover", wrapper.RemoveMyCover)
@@ -2346,11 +3051,15 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	return m
 }
 
+type DOINotFoundJSONResponse Error
+
 type FileTooLargeJSONResponse Error
 
 type ForbiddenJSONResponse Error
 
 type InternalErrorJSONResponse Error
+
+type InvalidDOIJSONResponse Error
 
 type InvalidEducationJSONResponse Error
 
@@ -2360,9 +3069,37 @@ type InvalidImageJSONResponse Error
 
 type InvalidLanguageJSONResponse Error
 
+type InvalidPublicationJSONResponse Error
+
+type LookupRateLimitedResponseHeaders struct {
+	RetryAfter int
+}
+type LookupRateLimitedJSONResponse struct {
+	Body Error
+
+	Headers LookupRateLimitedResponseHeaders
+}
+
+type MetadataUnavailableJSONResponse Error
+
 type NoProfileJSONResponse Error
 
 type NotFoundJSONResponse Error
+
+type OrcidNotFoundJSONResponse Error
+
+type OrcidNotSetJSONResponse Error
+
+type OrcidRateLimitedResponseHeaders struct {
+	RetryAfter int
+}
+type OrcidRateLimitedJSONResponse struct {
+	Body Error
+
+	Headers OrcidRateLimitedResponseHeaders
+}
+
+type OrcidUnavailableJSONResponse Error
 
 type ProfileImageStoredJSONResponse ProfileImage
 
@@ -4891,6 +5628,98 @@ func (response RemoveMyLink500JSONResponse) VisitRemoveMyLinkResponse(w http.Res
 	return err
 }
 
+type SetMyOrcidIdRequestObject struct {
+	Body *SetMyOrcidIdJSONRequestBody
+}
+
+type SetMyOrcidIdResponseObject interface {
+	VisitSetMyOrcidIdResponse(w http.ResponseWriter) error
+}
+
+type SetMyOrcidId200JSONResponse OrcidIdUpdate
+
+func (response SetMyOrcidId200JSONResponse) VisitSetMyOrcidIdResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetMyOrcidId400JSONResponse Error
+
+func (response SetMyOrcidId400JSONResponse) VisitSetMyOrcidIdResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetMyOrcidId401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response SetMyOrcidId401JSONResponse) VisitSetMyOrcidIdResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetMyOrcidId403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response SetMyOrcidId403JSONResponse) VisitSetMyOrcidIdResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetMyOrcidId409JSONResponse Error
+
+func (response SetMyOrcidId409JSONResponse) VisitSetMyOrcidIdResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetMyOrcidId500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response SetMyOrcidId500JSONResponse) VisitSetMyOrcidIdResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type RemoveMyPhotoRequestObject struct {
 }
 
@@ -5074,6 +5903,747 @@ func (response UploadMyPhoto429JSONResponse) VisitUploadMyPhotoResponse(w http.R
 type UploadMyPhoto500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response UploadMyPhoto500JSONResponse) VisitUploadMyPhotoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMyPublicationsRequestObject struct {
+	Params ListMyPublicationsParams
+}
+
+type ListMyPublicationsResponseObject interface {
+	VisitListMyPublicationsResponse(w http.ResponseWriter) error
+}
+
+type ListMyPublications200JSONResponse PublicationPage
+
+func (response ListMyPublications200JSONResponse) VisitListMyPublicationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMyPublications400JSONResponse Error
+
+func (response ListMyPublications400JSONResponse) VisitListMyPublicationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMyPublications401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListMyPublications401JSONResponse) VisitListMyPublicationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMyPublications403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListMyPublications403JSONResponse) VisitListMyPublicationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMyPublications500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ListMyPublications500JSONResponse) VisitListMyPublicationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyPublicationRequestObject struct {
+	Body *AddMyPublicationJSONRequestBody
+}
+
+type AddMyPublicationResponseObject interface {
+	VisitAddMyPublicationResponse(w http.ResponseWriter) error
+}
+
+type AddMyPublication201JSONResponse PublicationAdded
+
+func (response AddMyPublication201JSONResponse) VisitAddMyPublicationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyPublication400JSONResponse struct{ InvalidPublicationJSONResponse }
+
+func (response AddMyPublication400JSONResponse) VisitAddMyPublicationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyPublication401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response AddMyPublication401JSONResponse) VisitAddMyPublicationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyPublication403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response AddMyPublication403JSONResponse) VisitAddMyPublicationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyPublication409JSONResponse Error
+
+func (response AddMyPublication409JSONResponse) VisitAddMyPublicationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyPublication500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response AddMyPublication500JSONResponse) VisitAddMyPublicationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyPublicationFromDOIRequestObject struct {
+	Body *AddMyPublicationFromDOIJSONRequestBody
+}
+
+type AddMyPublicationFromDOIResponseObject interface {
+	VisitAddMyPublicationFromDOIResponse(w http.ResponseWriter) error
+}
+
+type AddMyPublicationFromDOI201JSONResponse PublicationAdded
+
+func (response AddMyPublicationFromDOI201JSONResponse) VisitAddMyPublicationFromDOIResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyPublicationFromDOI400JSONResponse struct{ InvalidDOIJSONResponse }
+
+func (response AddMyPublicationFromDOI400JSONResponse) VisitAddMyPublicationFromDOIResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyPublicationFromDOI401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response AddMyPublicationFromDOI401JSONResponse) VisitAddMyPublicationFromDOIResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyPublicationFromDOI403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response AddMyPublicationFromDOI403JSONResponse) VisitAddMyPublicationFromDOIResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyPublicationFromDOI404JSONResponse struct{ DOINotFoundJSONResponse }
+
+func (response AddMyPublicationFromDOI404JSONResponse) VisitAddMyPublicationFromDOIResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyPublicationFromDOI409JSONResponse Error
+
+func (response AddMyPublicationFromDOI409JSONResponse) VisitAddMyPublicationFromDOIResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyPublicationFromDOI429JSONResponse struct{ LookupRateLimitedJSONResponse }
+
+func (response AddMyPublicationFromDOI429JSONResponse) VisitAddMyPublicationFromDOIResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyPublicationFromDOI500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response AddMyPublicationFromDOI500JSONResponse) VisitAddMyPublicationFromDOIResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddMyPublicationFromDOI503JSONResponse struct {
+	MetadataUnavailableJSONResponse
+}
+
+func (response AddMyPublicationFromDOI503JSONResponse) VisitAddMyPublicationFromDOIResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ImportMyOrcidWorksRequestObject struct {
+	Body *ImportMyOrcidWorksJSONRequestBody
+}
+
+type ImportMyOrcidWorksResponseObject interface {
+	VisitImportMyOrcidWorksResponse(w http.ResponseWriter) error
+}
+
+type ImportMyOrcidWorks200JSONResponse OrcidImportResult
+
+func (response ImportMyOrcidWorks200JSONResponse) VisitImportMyOrcidWorksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ImportMyOrcidWorks400JSONResponse Error
+
+func (response ImportMyOrcidWorks400JSONResponse) VisitImportMyOrcidWorksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ImportMyOrcidWorks401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ImportMyOrcidWorks401JSONResponse) VisitImportMyOrcidWorksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ImportMyOrcidWorks403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ImportMyOrcidWorks403JSONResponse) VisitImportMyOrcidWorksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ImportMyOrcidWorks404JSONResponse struct{ OrcidNotFoundJSONResponse }
+
+func (response ImportMyOrcidWorks404JSONResponse) VisitImportMyOrcidWorksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ImportMyOrcidWorks409JSONResponse Error
+
+func (response ImportMyOrcidWorks409JSONResponse) VisitImportMyOrcidWorksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ImportMyOrcidWorks429JSONResponse struct{ OrcidRateLimitedJSONResponse }
+
+func (response ImportMyOrcidWorks429JSONResponse) VisitImportMyOrcidWorksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ImportMyOrcidWorks500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ImportMyOrcidWorks500JSONResponse) VisitImportMyOrcidWorksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ImportMyOrcidWorks503JSONResponse struct{ OrcidUnavailableJSONResponse }
+
+func (response ImportMyOrcidWorks503JSONResponse) VisitImportMyOrcidWorksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMyOrcidWorksRequestObject struct {
+}
+
+type ListMyOrcidWorksResponseObject interface {
+	VisitListMyOrcidWorksResponse(w http.ResponseWriter) error
+}
+
+type ListMyOrcidWorks200JSONResponse OrcidWorkList
+
+func (response ListMyOrcidWorks200JSONResponse) VisitListMyOrcidWorksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMyOrcidWorks401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListMyOrcidWorks401JSONResponse) VisitListMyOrcidWorksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMyOrcidWorks403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListMyOrcidWorks403JSONResponse) VisitListMyOrcidWorksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMyOrcidWorks404JSONResponse struct{ OrcidNotFoundJSONResponse }
+
+func (response ListMyOrcidWorks404JSONResponse) VisitListMyOrcidWorksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMyOrcidWorks409JSONResponse struct{ OrcidNotSetJSONResponse }
+
+func (response ListMyOrcidWorks409JSONResponse) VisitListMyOrcidWorksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMyOrcidWorks429JSONResponse struct{ OrcidRateLimitedJSONResponse }
+
+func (response ListMyOrcidWorks429JSONResponse) VisitListMyOrcidWorksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMyOrcidWorks500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ListMyOrcidWorks500JSONResponse) VisitListMyOrcidWorksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMyOrcidWorks503JSONResponse struct{ OrcidUnavailableJSONResponse }
+
+func (response ListMyOrcidWorks503JSONResponse) VisitListMyOrcidWorksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMyPublicationRequestObject struct {
+	PublicationId PublicationID `json:"publicationId"`
+}
+
+type RemoveMyPublicationResponseObject interface {
+	VisitRemoveMyPublicationResponse(w http.ResponseWriter) error
+}
+
+type RemoveMyPublication204Response struct {
+}
+
+func (response RemoveMyPublication204Response) VisitRemoveMyPublicationResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RemoveMyPublication401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RemoveMyPublication401JSONResponse) VisitRemoveMyPublicationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMyPublication403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response RemoveMyPublication403JSONResponse) VisitRemoveMyPublicationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMyPublication404JSONResponse Error
+
+func (response RemoveMyPublication404JSONResponse) VisitRemoveMyPublicationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveMyPublication500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RemoveMyPublication500JSONResponse) VisitRemoveMyPublicationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMyPublicationRequestObject struct {
+	PublicationId PublicationID `json:"publicationId"`
+	Body          *UpdateMyPublicationJSONRequestBody
+}
+
+type UpdateMyPublicationResponseObject interface {
+	VisitUpdateMyPublicationResponse(w http.ResponseWriter) error
+}
+
+type UpdateMyPublication200JSONResponse Publication
+
+func (response UpdateMyPublication200JSONResponse) VisitUpdateMyPublicationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMyPublication400JSONResponse struct{ InvalidPublicationJSONResponse }
+
+func (response UpdateMyPublication400JSONResponse) VisitUpdateMyPublicationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMyPublication401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response UpdateMyPublication401JSONResponse) VisitUpdateMyPublicationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMyPublication403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response UpdateMyPublication403JSONResponse) VisitUpdateMyPublicationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMyPublication404JSONResponse Error
+
+func (response UpdateMyPublication404JSONResponse) VisitUpdateMyPublicationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMyPublication409JSONResponse Error
+
+func (response UpdateMyPublication409JSONResponse) VisitUpdateMyPublicationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMyPublication500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response UpdateMyPublication500JSONResponse) VisitUpdateMyPublicationResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -5341,6 +6911,222 @@ func (response GetProfile500JSONResponse) VisitGetProfileResponse(w http.Respons
 	return err
 }
 
+type ListPublicationsRequestObject struct {
+	UserId string `json:"userId"`
+	Params ListPublicationsParams
+}
+
+type ListPublicationsResponseObject interface {
+	VisitListPublicationsResponse(w http.ResponseWriter) error
+}
+
+type ListPublications200JSONResponse PublicationPage
+
+func (response ListPublications200JSONResponse) VisitListPublicationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPublications400JSONResponse Error
+
+func (response ListPublications400JSONResponse) VisitListPublicationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPublications401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListPublications401JSONResponse) VisitListPublicationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPublications403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListPublications403JSONResponse) VisitListPublicationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPublications404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListPublications404JSONResponse) VisitListPublicationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPublications500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ListPublications500JSONResponse) VisitListPublicationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LookupPublicationByDOIRequestObject struct {
+	Params LookupPublicationByDOIParams
+}
+
+type LookupPublicationByDOIResponseObject interface {
+	VisitLookupPublicationByDOIResponse(w http.ResponseWriter) error
+}
+
+type LookupPublicationByDOI200JSONResponse PublicationPreview
+
+func (response LookupPublicationByDOI200JSONResponse) VisitLookupPublicationByDOIResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LookupPublicationByDOI400JSONResponse struct{ InvalidDOIJSONResponse }
+
+func (response LookupPublicationByDOI400JSONResponse) VisitLookupPublicationByDOIResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LookupPublicationByDOI401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response LookupPublicationByDOI401JSONResponse) VisitLookupPublicationByDOIResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LookupPublicationByDOI403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response LookupPublicationByDOI403JSONResponse) VisitLookupPublicationByDOIResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LookupPublicationByDOI404JSONResponse struct{ DOINotFoundJSONResponse }
+
+func (response LookupPublicationByDOI404JSONResponse) VisitLookupPublicationByDOIResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LookupPublicationByDOI429JSONResponse struct{ LookupRateLimitedJSONResponse }
+
+func (response LookupPublicationByDOI429JSONResponse) VisitLookupPublicationByDOIResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LookupPublicationByDOI500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response LookupPublicationByDOI500JSONResponse) VisitLookupPublicationByDOIResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LookupPublicationByDOI503JSONResponse struct {
+	MetadataUnavailableJSONResponse
+}
+
+func (response LookupPublicationByDOI503JSONResponse) VisitLookupPublicationByDOIResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type SuggestInterestTagsRequestObject struct {
 	Params SuggestInterestTagsParams
 }
@@ -5598,12 +7384,36 @@ type StrictServerInterface interface {
 	// RemoveMyLink Remove one of the logged-in user's links (FR-4.7)
 	// (DELETE /profiles/me/links/{linkId})
 	RemoveMyLink(ctx context.Context, request RemoveMyLinkRequestObject) (RemoveMyLinkResponseObject, error)
+	// SetMyOrcidId Save or clear the ORCID iD on the logged-in user's profile (FR-5.3)
+	// (PUT /profiles/me/orcid)
+	SetMyOrcidId(ctx context.Context, request SetMyOrcidIdRequestObject) (SetMyOrcidIdResponseObject, error)
 	// RemoveMyPhoto Remove the logged-in user's profile photo (FR-4.6)
 	// (DELETE /profiles/me/photo)
 	RemoveMyPhoto(ctx context.Context, request RemoveMyPhotoRequestObject) (RemoveMyPhotoResponseObject, error)
 	// UploadMyPhoto Upload or replace the logged-in user's profile photo (FR-4.6)
 	// (PUT /profiles/me/photo)
 	UploadMyPhoto(ctx context.Context, request UploadMyPhotoRequestObject) (UploadMyPhotoResponseObject, error)
+	// ListMyPublications List the logged-in user's confirmed publications (FR-5.5)
+	// (GET /profiles/me/publications)
+	ListMyPublications(ctx context.Context, request ListMyPublicationsRequestObject) (ListMyPublicationsResponseObject, error)
+	// AddMyPublication Add a publication to the logged-in user's profile by hand (FR-5.1, FR-5.4)
+	// (POST /profiles/me/publications)
+	AddMyPublication(ctx context.Context, request AddMyPublicationRequestObject) (AddMyPublicationResponseObject, error)
+	// AddMyPublicationFromDOI Add a publication to the logged-in user's profile from its DOI (FR-5.2, FR-5.4, FR-5.6)
+	// (POST /profiles/me/publications/from-doi)
+	AddMyPublicationFromDOI(ctx context.Context, request AddMyPublicationFromDOIRequestObject) (AddMyPublicationFromDOIResponseObject, error)
+	// ImportMyOrcidWorks Import the selected ORCID works into the logged-in user's profile (FR-5.3, FR-5.4, FR-5.6)
+	// (POST /profiles/me/publications/from-orcid)
+	ImportMyOrcidWorks(ctx context.Context, request ImportMyOrcidWorksRequestObject) (ImportMyOrcidWorksResponseObject, error)
+	// ListMyOrcidWorks List the public works of the ORCID iD on the logged-in user's profile (FR-5.3, FR-5.6)
+	// (GET /profiles/me/publications/orcid-works)
+	ListMyOrcidWorks(ctx context.Context, request ListMyOrcidWorksRequestObject) (ListMyOrcidWorksResponseObject, error)
+	// RemoveMyPublication Remove a publication from the logged-in user's profile (FR-5.7)
+	// (DELETE /profiles/me/publications/{publicationId})
+	RemoveMyPublication(ctx context.Context, request RemoveMyPublicationRequestObject) (RemoveMyPublicationResponseObject, error)
+	// UpdateMyPublication Change some fields of one of the logged-in user's publications (FR-5.1)
+	// (PATCH /profiles/me/publications/{publicationId})
+	UpdateMyPublication(ctx context.Context, request UpdateMyPublicationRequestObject) (UpdateMyPublicationResponseObject, error)
 	// AddMySkill Add a skill to the logged-in user's profile (FR-4.2)
 	// (POST /profiles/me/skills)
 	AddMySkill(ctx context.Context, request AddMySkillRequestObject) (AddMySkillResponseObject, error)
@@ -5613,6 +7423,12 @@ type StrictServerInterface interface {
 	// GetProfile Return any user's profile to a logged-in user (FR-4.5)
 	// (GET /profiles/{userId})
 	GetProfile(ctx context.Context, request GetProfileRequestObject) (GetProfileResponseObject, error)
+	// ListPublications List any user's confirmed publications to a logged-in user (FR-5.5)
+	// (GET /profiles/{userId}/publications)
+	ListPublications(ctx context.Context, request ListPublicationsRequestObject) (ListPublicationsResponseObject, error)
+	// LookupPublicationByDOI Preview the metadata of a publication by its DOI (FR-5.2, FR-5.6)
+	// (GET /publications/lookup)
+	LookupPublicationByDOI(ctx context.Context, request LookupPublicationByDOIRequestObject) (LookupPublicationByDOIResponseObject, error)
 	// SuggestInterestTags Suggest existing research interest tags while the user types (FR-4.3)
 	// (GET /tags/interests)
 	SuggestInterestTags(ctx context.Context, request SuggestInterestTagsRequestObject) (SuggestInterestTagsResponseObject, error)
@@ -5665,7 +7481,7 @@ func (sh *strictHandler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 	var request DeleteAccountRequestObject
 
 	var body DeleteAccountJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -5722,7 +7538,7 @@ func (sh *strictHandler) LoginUser(w http.ResponseWriter, r *http.Request) {
 	var request LoginUserRequestObject
 
 	var body LoginUserJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -5805,7 +7621,7 @@ func (sh *strictHandler) ChangePassword(w http.ResponseWriter, r *http.Request, 
 	request.Params = params
 
 	var body ChangePasswordJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -5836,7 +7652,7 @@ func (sh *strictHandler) ConfirmPasswordReset(w http.ResponseWriter, r *http.Req
 	var request ConfirmPasswordResetRequestObject
 
 	var body ConfirmPasswordResetJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -5867,7 +7683,7 @@ func (sh *strictHandler) RequestPasswordReset(w http.ResponseWriter, r *http.Req
 	var request RequestPasswordResetRequestObject
 
 	var body RequestPasswordResetJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -5924,7 +7740,7 @@ func (sh *strictHandler) RegisterUser(w http.ResponseWriter, r *http.Request) {
 	var request RegisterUserRequestObject
 
 	var body RegisterUserJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -5955,7 +7771,7 @@ func (sh *strictHandler) ResendVerification(w http.ResponseWriter, r *http.Reque
 	var request ResendVerificationRequestObject
 
 	var body ResendVerificationJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -5986,7 +7802,7 @@ func (sh *strictHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 	var request VerifyEmailRequestObject
 
 	var body VerifyEmailJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -6091,7 +7907,7 @@ func (sh *strictHandler) UpdateMyProfile(w http.ResponseWriter, r *http.Request)
 	var request UpdateMyProfileRequestObject
 
 	var body UpdateMyProfileJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -6146,7 +7962,7 @@ func (sh *strictHandler) UpdateMyContact(w http.ResponseWriter, r *http.Request)
 	var request UpdateMyContactRequestObject
 
 	var body UpdateMyContactJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -6232,7 +8048,7 @@ func (sh *strictHandler) AddMyEducation(w http.ResponseWriter, r *http.Request) 
 	var request AddMyEducationRequestObject
 
 	var body AddMyEducationJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -6291,7 +8107,7 @@ func (sh *strictHandler) UpdateMyEducation(w http.ResponseWriter, r *http.Reques
 	request.EducationId = educationId
 
 	var body UpdateMyEducationJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -6322,7 +8138,7 @@ func (sh *strictHandler) AddMyExperience(w http.ResponseWriter, r *http.Request)
 	var request AddMyExperienceRequestObject
 
 	var body AddMyExperienceJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -6381,7 +8197,7 @@ func (sh *strictHandler) UpdateMyExperience(w http.ResponseWriter, r *http.Reque
 	request.ExperienceId = experienceId
 
 	var body UpdateMyExperienceJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -6412,7 +8228,7 @@ func (sh *strictHandler) AddMyInterest(w http.ResponseWriter, r *http.Request) {
 	var request AddMyInterestRequestObject
 
 	var body AddMyInterestJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -6469,7 +8285,7 @@ func (sh *strictHandler) AddMyLanguage(w http.ResponseWriter, r *http.Request) {
 	var request AddMyLanguageRequestObject
 
 	var body AddMyLanguageJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -6528,7 +8344,7 @@ func (sh *strictHandler) UpdateMyLanguage(w http.ResponseWriter, r *http.Request
 	request.LanguageId = languageId
 
 	var body UpdateMyLanguageJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -6559,7 +8375,7 @@ func (sh *strictHandler) AddMyLink(w http.ResponseWriter, r *http.Request) {
 	var request AddMyLinkRequestObject
 
 	var body AddMyLinkJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -6604,6 +8420,37 @@ func (sh *strictHandler) RemoveMyLink(w http.ResponseWriter, r *http.Request, li
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RemoveMyLinkResponseObject); ok {
 		if err := validResponse.VisitRemoveMyLinkResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetMyOrcidId operation middleware
+func (sh *strictHandler) SetMyOrcidId(w http.ResponseWriter, r *http.Request) {
+	var request SetMyOrcidIdRequestObject
+
+	var body SetMyOrcidIdJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetMyOrcidId(ctx, request.(SetMyOrcidIdRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetMyOrcidId")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetMyOrcidIdResponseObject); ok {
+		if err := validResponse.VisitSetMyOrcidIdResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -6666,12 +8513,214 @@ func (sh *strictHandler) UploadMyPhoto(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// ListMyPublications operation middleware
+func (sh *strictHandler) ListMyPublications(w http.ResponseWriter, r *http.Request, params ListMyPublicationsParams) {
+	var request ListMyPublicationsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListMyPublications(ctx, request.(ListMyPublicationsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListMyPublications")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListMyPublicationsResponseObject); ok {
+		if err := validResponse.VisitListMyPublicationsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AddMyPublication operation middleware
+func (sh *strictHandler) AddMyPublication(w http.ResponseWriter, r *http.Request) {
+	var request AddMyPublicationRequestObject
+
+	var body AddMyPublicationJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AddMyPublication(ctx, request.(AddMyPublicationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AddMyPublication")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AddMyPublicationResponseObject); ok {
+		if err := validResponse.VisitAddMyPublicationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AddMyPublicationFromDOI operation middleware
+func (sh *strictHandler) AddMyPublicationFromDOI(w http.ResponseWriter, r *http.Request) {
+	var request AddMyPublicationFromDOIRequestObject
+
+	var body AddMyPublicationFromDOIJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AddMyPublicationFromDOI(ctx, request.(AddMyPublicationFromDOIRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AddMyPublicationFromDOI")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AddMyPublicationFromDOIResponseObject); ok {
+		if err := validResponse.VisitAddMyPublicationFromDOIResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ImportMyOrcidWorks operation middleware
+func (sh *strictHandler) ImportMyOrcidWorks(w http.ResponseWriter, r *http.Request) {
+	var request ImportMyOrcidWorksRequestObject
+
+	var body ImportMyOrcidWorksJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ImportMyOrcidWorks(ctx, request.(ImportMyOrcidWorksRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ImportMyOrcidWorks")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ImportMyOrcidWorksResponseObject); ok {
+		if err := validResponse.VisitImportMyOrcidWorksResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListMyOrcidWorks operation middleware
+func (sh *strictHandler) ListMyOrcidWorks(w http.ResponseWriter, r *http.Request) {
+	var request ListMyOrcidWorksRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListMyOrcidWorks(ctx, request.(ListMyOrcidWorksRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListMyOrcidWorks")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListMyOrcidWorksResponseObject); ok {
+		if err := validResponse.VisitListMyOrcidWorksResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RemoveMyPublication operation middleware
+func (sh *strictHandler) RemoveMyPublication(w http.ResponseWriter, r *http.Request, publicationId PublicationID) {
+	var request RemoveMyPublicationRequestObject
+
+	request.PublicationId = publicationId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RemoveMyPublication(ctx, request.(RemoveMyPublicationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RemoveMyPublication")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RemoveMyPublicationResponseObject); ok {
+		if err := validResponse.VisitRemoveMyPublicationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateMyPublication operation middleware
+func (sh *strictHandler) UpdateMyPublication(w http.ResponseWriter, r *http.Request, publicationId PublicationID) {
+	var request UpdateMyPublicationRequestObject
+
+	request.PublicationId = publicationId
+
+	var body UpdateMyPublicationJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateMyPublication(ctx, request.(UpdateMyPublicationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateMyPublication")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateMyPublicationResponseObject); ok {
+		if err := validResponse.VisitUpdateMyPublicationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // AddMySkill operation middleware
 func (sh *strictHandler) AddMySkill(w http.ResponseWriter, r *http.Request) {
 	var request AddMySkillRequestObject
 
 	var body AddMySkillJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -6742,6 +8791,59 @@ func (sh *strictHandler) GetProfile(w http.ResponseWriter, r *http.Request, user
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetProfileResponseObject); ok {
 		if err := validResponse.VisitGetProfileResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListPublications operation middleware
+func (sh *strictHandler) ListPublications(w http.ResponseWriter, r *http.Request, userId string, params ListPublicationsParams) {
+	var request ListPublicationsRequestObject
+
+	request.UserId = userId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListPublications(ctx, request.(ListPublicationsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListPublications")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListPublicationsResponseObject); ok {
+		if err := validResponse.VisitListPublicationsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// LookupPublicationByDOI operation middleware
+func (sh *strictHandler) LookupPublicationByDOI(w http.ResponseWriter, r *http.Request, params LookupPublicationByDOIParams) {
+	var request LookupPublicationByDOIRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.LookupPublicationByDOI(ctx, request.(LookupPublicationByDOIRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "LookupPublicationByDOI")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(LookupPublicationByDOIResponseObject); ok {
+		if err := validResponse.VisitLookupPublicationByDOIResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

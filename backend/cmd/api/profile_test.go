@@ -13,7 +13,7 @@ import (
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpx"
 )
 
-// The profile, tag, contact, experience and language routes go through authz (FR-3.2, SRS 2.3): both platform roles may
+// The profile, tag, contact, experience, language and publication routes go through authz (FR-3.2, SRS 2.3): both platform roles may
 // view profiles and tags and edit their own, and any other role gets exactly the FR-3.3
 // refusal.
 func TestProfileRoutesThroughRouter(t *testing.T) {
@@ -42,6 +42,16 @@ func TestProfileRoutesThroughRouter(t *testing.T) {
 		{http.MethodPost, "/api/v1/profiles/me/languages", `{"name":"Bangla","proficiency":"native_or_bilingual"}`},
 		{http.MethodPatch, "/api/v1/profiles/me/languages/" + okLanguageID, `{"proficiency":"elementary"}`},
 		{http.MethodDelete, "/api/v1/profiles/me/languages/" + okLanguageID, ""},
+		{http.MethodGet, "/api/v1/profiles/me/publications", ""},
+		{http.MethodGet, "/api/v1/profiles/" + okUserID + "/publications?page=2&pageSize=5", ""},
+		{http.MethodPost, "/api/v1/profiles/me/publications", `{"title":"Notes","year":2024,"doi":"doi:10.1000/x"}`},
+		{http.MethodPatch, "/api/v1/profiles/me/publications/" + okPublicationID, `{"venue":null}`},
+		{http.MethodDelete, "/api/v1/profiles/me/publications/" + okPublicationID, ""},
+		{http.MethodGet, "/api/v1/publications/lookup?doi=10.1000/x", ""},
+		{http.MethodPost, "/api/v1/profiles/me/publications/from-doi", `{"doi":"10.1000/x"}`},
+		{http.MethodPut, "/api/v1/profiles/me/orcid", `{"orcidId":"0000-0002-1825-0097"}`},
+		{http.MethodGet, "/api/v1/profiles/me/publications/orcid-works", ""},
+		{http.MethodPost, "/api/v1/profiles/me/publications/from-orcid", `{"putCodes":["1"]}`},
 	}
 	send := func(t *testing.T, method, path, body, role string) *httptest.ResponseRecorder {
 		t.Helper()
@@ -108,6 +118,17 @@ func TestProfileRoutesAreGuarded(t *testing.T) {
 		"PATCH /api/v1/profiles/me/languages/{languageId}":  authz.ActAsMember,
 		"DELETE /api/v1/profiles/me/languages/{languageId}": authz.ActAsMember,
 
+		"GET /api/v1/profiles/me/publications":                    authz.ViewContent,
+		"POST /api/v1/profiles/me/publications":                   authz.ActAsMember,
+		"PATCH /api/v1/profiles/me/publications/{publicationId}":  authz.ActAsMember,
+		"DELETE /api/v1/profiles/me/publications/{publicationId}": authz.ActAsMember,
+		"GET /api/v1/profiles/{userId}/publications":              authz.ViewContent,
+		"POST /api/v1/profiles/me/publications/from-doi":          authz.ActAsMember,
+		"GET /api/v1/publications/lookup":                         authz.ActAsMember,
+		"PUT /api/v1/profiles/me/orcid":                           authz.ActAsMember,
+		"GET /api/v1/profiles/me/publications/orcid-works":        authz.ActAsMember,
+		"POST /api/v1/profiles/me/publications/from-orcid":        authz.ActAsMember,
+
 		"GET /api/v1/profiles/me/contact":           authz.ViewContent,
 		"PUT /api/v1/profiles/me/contact":           authz.ActAsMember,
 		"POST /api/v1/profiles/me/links":            authz.ActAsMember,
@@ -125,7 +146,8 @@ func TestProfileRoutesAreGuarded(t *testing.T) {
 	}
 	for _, r := range httpserver.Routes() {
 		_, path, _ := strings.Cut(r, " ")
-		if !strings.HasPrefix(path, httpserver.BaseURL+"/profiles") && !strings.HasPrefix(path, httpserver.BaseURL+"/tags") {
+		if !strings.HasPrefix(path, httpserver.BaseURL+"/profiles") && !strings.HasPrefix(path, httpserver.BaseURL+"/tags") &&
+			!strings.HasPrefix(path, httpserver.BaseURL+"/publications") {
 			continue
 		}
 		if _, ok := want[r]; !ok {

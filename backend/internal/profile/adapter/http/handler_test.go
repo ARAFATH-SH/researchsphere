@@ -59,6 +59,73 @@ type fakeService struct {
 	linkKind  domain.LinkKind      // given to AddLink
 	linkURL   string               // given to AddLink
 	linkID    string               // given to RemoveLink
+
+	publication      domain.Publication       // returned by AddPublication and UpdatePublication
+	linked           bool                     // returned by AddPublication
+	publicationIn    usecase.PublicationInput // given to AddPublication
+	publicationPatch usecase.PublicationPatch // given to UpdatePublication
+	publicationID    string                   // given to UpdatePublication and RemovePublication
+	publicationPage  domain.PublicationPage   // returned by the list operations
+	page, pageSize   int                      // given to the list operations
+	listedOwn        bool                     // ListOwnPublications was called, not ListPublications
+	preview          usecase.DOIPreview       // returned by LookupDOI
+	doi              string                   // given to LookupDOI and AddPublicationFromDOI
+
+	orcidIn      *string               // given to SetOrcidID
+	orcidSaved   *string               // returned by SetOrcidID
+	orcidList    usecase.ORCIDWorkList // returned by ListORCIDWorks
+	putCodes     []string              // given to ImportORCIDWorks
+	importResult usecase.ImportResult  // returned by ImportORCIDWorks
+}
+
+func (f *fakeService) SetOrcidID(_ context.Context, userID string, orcidID *string) (*string, error) {
+	f.userID, f.orcidIn = userID, orcidID
+	return f.orcidSaved, f.err
+}
+
+func (f *fakeService) ListORCIDWorks(_ context.Context, userID string) (usecase.ORCIDWorkList, error) {
+	f.userID = userID
+	return f.orcidList, f.err
+}
+
+func (f *fakeService) ImportORCIDWorks(_ context.Context, userID string, putCodes []string) (usecase.ImportResult, error) {
+	f.userID, f.putCodes = userID, putCodes
+	return f.importResult, f.err
+}
+
+func (f *fakeService) AddPublication(_ context.Context, userID string, in usecase.PublicationInput) (usecase.AddedPublication, error) {
+	f.userID, f.publicationIn = userID, in
+	return usecase.AddedPublication{Publication: f.publication, Linked: f.linked}, f.err
+}
+
+func (f *fakeService) UpdatePublication(_ context.Context, userID, id string, patch usecase.PublicationPatch) (domain.Publication, error) {
+	f.userID, f.publicationID, f.publicationPatch = userID, id, patch
+	return f.publication, f.err
+}
+
+func (f *fakeService) RemovePublication(_ context.Context, userID, id string) error {
+	f.userID, f.publicationID = userID, id
+	return f.err
+}
+
+func (f *fakeService) ListOwnPublications(_ context.Context, userID string, page, pageSize int) (domain.PublicationPage, error) {
+	f.userID, f.page, f.pageSize, f.listedOwn = userID, page, pageSize, true
+	return f.publicationPage, f.err
+}
+
+func (f *fakeService) ListPublications(_ context.Context, userID string, page, pageSize int) (domain.PublicationPage, error) {
+	f.userID, f.page, f.pageSize = userID, page, pageSize
+	return f.publicationPage, f.err
+}
+
+func (f *fakeService) LookupDOI(_ context.Context, userID, doi string) (usecase.DOIPreview, error) {
+	f.userID, f.doi = userID, doi
+	return f.preview, f.err
+}
+
+func (f *fakeService) AddPublicationFromDOI(_ context.Context, userID, doi string) (usecase.AddedPublication, error) {
+	f.userID, f.doi = userID, doi
+	return usecase.AddedPublication{Publication: f.publication, Linked: f.linked}, f.err
 }
 
 func (f *fakeService) GetContact(_ context.Context, userID string) (domain.Contact, error) {
@@ -203,17 +270,19 @@ func ptr(s string) *string { return &s }
 
 var ada = domain.Profile{
 	UserID: callerID, FullName: "Ada Lovelace", Headline: ptr("Analyst"), Country: ptr("GB"), City: ptr("London"),
+	PublicationCount: 3,
 }
 
-// The body has every field, nulls for unset ones, the placeholders (FR-4.5) and the
-// contact info the viewer may see, here only the empty list of links (FR-4.7).
+// The body has every field, nulls for unset ones, the placeholder connection status
+// (FR-4.5), the number of confirmed publications (FR-5.5) and the contact info the viewer
+// may see, here only the empty list of links (FR-4.7).
 func checkProfileBody(t *testing.T, rec *httptest.ResponseRecorder, wantID string) {
 	t.Helper()
 	got := decode(t, rec)
 	want := map[string]any{
 		"userId": wantID, "fullName": "Ada Lovelace", "headline": "Analyst", "bio": nil,
-		"institution": nil, "department": nil, "jobTitle": nil, "country": "GB", "city": "London",
-		"interests": []any{}, "skills": []any{}, "education": []any{}, "experience": []any{}, "languages": []any{}, "publications": []any{},
+		"institution": nil, "department": nil, "jobTitle": nil, "country": "GB", "city": "London", "orcidId": nil,
+		"interests": []any{}, "skills": []any{}, "education": []any{}, "experience": []any{}, "languages": []any{}, "publicationCount": float64(3),
 		"connectionStatus": "none", "contact": map[string]any{"links": []any{}},
 		"photoUrl": nil, "coverUrl": nil,
 	}
@@ -334,11 +403,20 @@ func TestUpdateMyProfile(t *testing.T) {
 			t.Errorf("got %d, service called for %q; want 400 and no call", rec.Code, svc.userID)
 		}
 	})
+
+	// ORCID has its own endpoint; here the field must be refused, not ignored.
+	t.Run("unknown field", func(t *testing.T) {
+		svc := &fakeService{}
+		rec := send(t, svc, http.MethodPut, "/api/v1/profiles/me", `{"fullName":"Ada","orcidId":"0000-0002-1825-0097"}`, callerID)
+		if rec.Code != http.StatusBadRequest || svc.userID != "" {
+			t.Errorf("got %d, service called for %q; want 400 and no call", rec.Code, svc.userID)
+		}
+	})
 }
 
 func TestGetProfile(t *testing.T) {
 	t.Run("another user's profile", func(t *testing.T) {
-		svc := &fakeService{profile: domain.Profile{UserID: otherID, FullName: "Ada Lovelace", Headline: ptr("Analyst"), Country: ptr("GB"), City: ptr("London")}}
+		svc := &fakeService{profile: domain.Profile{UserID: otherID, FullName: "Ada Lovelace", Headline: ptr("Analyst"), Country: ptr("GB"), City: ptr("London"), PublicationCount: 3}}
 		rec := send(t, svc, http.MethodGet, "/api/v1/profiles/"+otherID, "", callerID)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want 200; body %s", rec.Code, rec.Body)

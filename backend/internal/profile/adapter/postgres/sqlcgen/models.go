@@ -5,8 +5,54 @@
 package sqlcgen
 
 import (
+	"database/sql/driver"
+	"fmt"
+
 	"github.com/jackc/pgx/v5/pgtype"
 )
+
+type PublicationSource string
+
+const (
+	PublicationSourceManual PublicationSource = "manual"
+	PublicationSourceOrcid  PublicationSource = "orcid"
+	PublicationSourceDoi    PublicationSource = "doi"
+)
+
+func (e *PublicationSource) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = PublicationSource(s)
+	case string:
+		*e = PublicationSource(s)
+	default:
+		return fmt.Errorf("unsupported scan type for PublicationSource: %T", src)
+	}
+	return nil
+}
+
+type NullPublicationSource struct {
+	PublicationSource PublicationSource
+	Valid             bool // Valid is true if PublicationSource is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullPublicationSource) Scan(value interface{}) error {
+	if value == nil {
+		ns.PublicationSource, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.PublicationSource.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullPublicationSource) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.PublicationSource), nil
+}
 
 type ResearchInterest struct {
 	ID   pgtype.UUID

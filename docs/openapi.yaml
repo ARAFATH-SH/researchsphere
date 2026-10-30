@@ -6,7 +6,9 @@ info:
   version: 0.1.0
   description: |
     JSON API between the web client and the API server. Every error response uses the
-    Error schema. Lists are paginated and the server caps the page size at 50.
+    Error schema. Lists are paginated and the server caps the page size at 50. A JSON
+    request body with a field its schema does not define is refused with 400
+    bad_request, and the message names the field.
 servers:
   - url: /api/v1
 
@@ -1305,6 +1307,448 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /profiles/me/publications:
+    get:
+      operationId: listMyPublications
+      summary: List the logged-in user's confirmed publications (FR-5.5)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed,
+        events and recommendations" (SRS 2.3). Only publications the user has confirmed
+        are listed, sorted by year, newest first (no year last), then by when the user
+        added them, newest first.
+      tags: [profile]
+      parameters:
+        - $ref: "#/components/parameters/PublicationListPage"
+        - $ref: "#/components/parameters/PublicationListPageSize"
+      responses:
+        "200":
+          description: One page of the caller's publications.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicationPage"
+        "400":
+          description: "`page` or `pageSize` is not a whole number of at least 1 (`bad_request`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      operationId: addMyPublication
+      summary: Add a publication to the logged-in user's profile by hand (FR-5.1, FR-5.4)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Text is trimmed; an optional field that is missing, null
+        or empty after trimming is stored as null. The DOI is stored in its bare,
+        lower-case form: a leading `https://doi.org/`, `http://doi.org/`,
+        `https://dx.doi.org/`, `http://dx.doi.org/` or `doi:` is removed. A publication
+        with a given DOI is stored once (FR-5.4): when one with the same DOI already
+        exists, the caller is linked to it, the other fields in the body are ignored, and
+        the answer is the existing record with `linked` true. The caller's link is
+        confirmed. A user has at most 300 publications.
+      tags: [profile]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublicationCreate"
+      responses:
+        "201":
+          description: The stored publication, or the existing one the caller is now linked to.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicationAdded"
+        "400":
+          $ref: "#/components/responses/InvalidPublication"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: |
+            The user already has 300 publications (`publication_limit_reached`), or already
+            has the publication with this DOI on their profile (`publication_already_added`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /profiles/me/publications/from-doi:
+    post:
+      operationId: addMyPublicationFromDOI
+      summary: Add a publication to the logged-in user's profile from its DOI (FR-5.2, FR-5.4, FR-5.6)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). The user has seen the preview from
+        `lookupPublicationByDOI` and confirms it. When a publication with the DOI is
+        already stored, the caller is linked to it with no outside call (FR-5.4, `linked`
+        true). Otherwise the metadata comes from the cached lookup or is fetched again
+        from OpenAlex, and the record is stored with source `doi`; it cannot be changed
+        with `updateMyPublication`. The caller's link is confirmed. A user has at most 300
+        publications. Fetching from OpenAlex counts toward the lookup limit.
+      tags: [profile]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublicationFromDOI"
+      responses:
+        "201":
+          description: The stored publication, or the existing one the caller is now linked to.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicationAdded"
+        "400":
+          $ref: "#/components/responses/InvalidDOI"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/DOINotFound"
+        "409":
+          description: |
+            The user already has 300 publications (`publication_limit_reached`), or already
+            has the publication with this DOI on their profile (`publication_already_added`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/LookupRateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/MetadataUnavailable"
+
+  /publications/lookup:
+    get:
+      operationId: lookupPublicationByDOI
+      summary: Preview the metadata of a publication by its DOI (FR-5.2, FR-5.6)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). The DOI is normalized as in `addMyPublication`. When a
+        publication with the DOI is already stored, the stored record is returned with no
+        outside call. Otherwise title, year, venue, abstract and link come from OpenAlex:
+        text is trimmed, line breaks in the title and venue become spaces, a title over
+        500, a venue over 300 or an abstract over 5000 characters is cut at a word
+        boundary, a year outside 1900 to next year is left out, and a missing link becomes
+        `https://doi.org/<doi>`. Successful lookups are cached for 24 hours. A user may
+        make 30 lookups an hour that reach OpenAlex; cached and stored DOIs do not count.
+      tags: [profile]
+      parameters:
+        - name: doi
+          in: query
+          required: false
+          description: |
+            A DOI such as `10.1145/3292500.3330701`, optionally as a `https://doi.org/` link
+            or with a `doi:` prefix. It is declared optional so that the login check runs
+            before it is read (FR-3.1); a missing or empty value gets 400 `invalid_doi`.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The metadata to show for confirmation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicationPreview"
+        "400":
+          $ref: "#/components/responses/InvalidDOI"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/DOINotFound"
+        "429":
+          $ref: "#/components/responses/LookupRateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/MetadataUnavailable"
+
+  /profiles/me/orcid:
+    put:
+      operationId: setMyOrcidId
+      summary: Save or clear the ORCID iD on the logged-in user's profile (FR-5.3)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). The iD is trimmed; one leading `https://orcid.org/` or
+        `http://orcid.org/` is removed (ignoring case) and a final `x` is upper-cased. It
+        must then be of the form `0000-0000-0000-000X` with a valid check digit (ISO 7064
+        11,2). Null or an empty value clears it. Ownership of the iD is not proven yet
+        (docs/decisions.md); an iD saved on another profile is refused.
+      tags: [profile]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrcidIdUpdate"
+      responses:
+        "200":
+          description: The saved iD.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrcidIdUpdate"
+        "400":
+          description: |
+            The iD is not a valid ORCID iD (`invalid_orcid_id`). A body that is not JSON
+            gets `bad_request`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: Another profile has this ORCID iD (`orcid_taken`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /profiles/me/publications/orcid-works:
+    get:
+      operationId: listMyOrcidWorks
+      summary: List the public works of the ORCID iD on the logged-in user's profile (FR-5.3, FR-5.6)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). The works come from the ORCID public API, one item per
+        work group, in ORCID's order; works without a title are left out. Text is
+        normalized as in `lookupPublicationByDOI`, a DOI that is not valid is left out, and
+        a missing link becomes `https://doi.org/<doi>` when there is a DOI. Each item says
+        whether a publication with its DOI is already stored (FR-5.4). The list is cached
+        for one hour per ORCID iD. A user may make 10 calls an hour that reach ORCID;
+        cached lists do not count. The list is not paginated: the user picks from all of
+        it.
+      tags: [profile]
+      responses:
+        "200":
+          description: The works.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrcidWorkList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/OrcidNotFound"
+        "409":
+          $ref: "#/components/responses/OrcidNotSet"
+        "429":
+          $ref: "#/components/responses/OrcidRateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/OrcidUnavailable"
+
+  /profiles/me/publications/from-orcid:
+    post:
+      operationId: importMyOrcidWorks
+      summary: Import the selected ORCID works into the logged-in user's profile (FR-5.3, FR-5.4, FR-5.6)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Every put-code must be in the current list of
+        `listMyOrcidWorks` (from the cache, or fetched again). For each selected work, in
+        the order given:
+
+        - a DOI that is already stored links the caller to that record (FR-5.4, `linked`);
+        - a new DOI is fetched from OpenAlex as in `addMyPublicationFromDOI` (source `doi`,
+          with the abstract); when OpenAlex fails, does not know the DOI or the DOI
+          lookup limit is used up, the record is made from the ORCID data (source `orcid`);
+        - a work without a DOI is made from the ORCID data (source `orcid`);
+        - a work the caller has already confirmed, or a second work with the same DOI, is
+          `skipped`.
+
+        The caller's links are confirmed. Imported records cannot be changed with
+        `updateMyPublication`. A user has at most 300 publications: when the import would
+        go over, nothing is saved. The import is saved all at once or not at all.
+      tags: [profile]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrcidImportRequest"
+      responses:
+        "200":
+          description: What happened to each selected work.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrcidImportResult"
+        "400":
+          description: |
+            The list is empty, has more than 100 put-codes, repeats one, or has one that is
+            not in the current ORCID list (`invalid_put_code`). A body that is not JSON
+            gets `bad_request`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/OrcidNotFound"
+        "409":
+          description: |
+            The profile has no ORCID iD (`orcid_not_set`), or the import would take the
+            user over 300 publications (`publication_limit_reached`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/OrcidRateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/OrcidUnavailable"
+
+  /profiles/me/publications/{publicationId}:
+    patch:
+      operationId: updateMyPublication
+      summary: Change some fields of one of the logged-in user's publications (FR-5.1)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). A field that is missing keeps its value; `null` clears
+        `venue`, `abstract`, `url` or `doi`. The rules of PublicationCreate apply to the
+        record after the change. Only a publication that was added by hand and that no
+        other user is linked to can be changed. A publication the caller is not linked to
+        gets 404 `not_found`, before the body is checked.
+      tags: [profile]
+      parameters:
+        - $ref: "#/components/parameters/PublicationID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublicationUpdate"
+      responses:
+        "200":
+          description: The publication after the change.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Publication"
+        "400":
+          $ref: "#/components/responses/InvalidPublication"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: The user has no publication with this ID (`not_found`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: |
+            Another user is linked to the publication or it was not added by hand
+            (`publication_shared_readonly`), or another publication already has the new DOI
+            (`duplicate_doi`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: removeMyPublication
+      summary: Remove a publication from the logged-in user's profile (FR-5.7)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Removes only the caller's link; the publication stays for
+        every other linked user and is deleted when no user is linked to it any more. A
+        publication the caller is not linked to gets 404 `not_found`.
+      tags: [profile]
+      parameters:
+        - $ref: "#/components/parameters/PublicationID"
+      responses:
+        "204":
+          description: The publication is removed from the caller's profile.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: The user has no publication with this ID (`not_found`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /profiles/{userId}/publications:
+    get:
+      operationId: listPublications
+      summary: List any user's confirmed publications to a logged-in user (FR-5.5)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed,
+        events and recommendations" (SRS 2.3). Only publications the user has confirmed
+        are listed, in the order of `listMyPublications`. An unknown, suspended or
+        unverified account gets the same 404 `not_found`, as for the profile.
+      tags: [profile]
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          description: |
+            The user's ID, a UUID. It is declared as a plain string so that the login check
+            runs before it is read (FR-3.1); a value that is not a UUID names no user and
+            gets 404 `not_found`.
+          schema:
+            type: string
+        - $ref: "#/components/parameters/PublicationListPage"
+        - $ref: "#/components/parameters/PublicationListPageSize"
+      responses:
+        "200":
+          description: One page of the user's publications.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicationPage"
+        "400":
+          description: "`page` or `pageSize` is not a whole number of at least 1 (`bad_request`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /profiles/me/photo:
     put:
       operationId: uploadMyPhoto
@@ -1491,6 +1935,36 @@ components:
         user and gets 404 `not_found`.
       schema:
         type: string
+    PublicationID:
+      name: publicationId
+      in: path
+      required: true
+      description: |
+        The publication's ID, a UUID. It is declared as a plain string so that the login
+        check runs before it is read (FR-3.1); a value that is not a UUID names no
+        publication of the user and gets 404 `not_found`.
+      schema:
+        type: string
+    PublicationListPage:
+      name: page
+      in: query
+      required: false
+      description: The page to return, from 1. Defaults to 1.
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PublicationListPageSize:
+      name: pageSize
+      in: query
+      required: false
+      description: |
+        Publications per page, from 1. Defaults to 10. A larger value than 50 is reduced
+        to 50, and the response says which size was used.
+      schema:
+        type: integer
+        minimum: 1
+        default: 10
     LinkID:
       name: linkId
       in: path
@@ -1774,9 +2248,9 @@ components:
     Profile:
       type: object
       description: |
-        A researcher's profile (FR-4.1, FR-4.2, FR-4.4, FR-4.5, FR-4.6, FR-4.7). The optional text fields are
-        always present and null when not set. `publications` and `connectionStatus` are
-        placeholders for now; later work fills them in.
+        A researcher's profile (FR-4.1, FR-4.2, FR-4.4, FR-4.5, FR-4.6, FR-4.7, FR-5.5). The optional text fields are
+        always present and null when not set. `connectionStatus` is a placeholder for now;
+        later work fills it in.
       required:
         - userId
         - fullName
@@ -1787,12 +2261,13 @@ components:
         - jobTitle
         - country
         - city
+        - orcidId
         - interests
         - skills
         - education
         - experience
         - languages
-        - publications
+        - publicationCount
         - connectionStatus
         - contact
         - photoUrl
@@ -1828,6 +2303,13 @@ components:
           type: string
           nullable: true
           example: Cambridge
+        orcidId:
+          type: string
+          nullable: true
+          description: |
+            The user's ORCID iD (FR-5.3), a public identifier shown to every viewer; set
+            with `setMyOrcidId`.
+          example: 0000-0002-1825-0097
         interests:
           type: array
           description: The user's research interests (FR-4.2), sorted by name ignoring letter case.
@@ -1859,11 +2341,11 @@ components:
             (`native_or_bilingual` first), then oldest entry first.
           items:
             $ref: "#/components/schemas/Language"
-        publications:
-          type: array
-          description: "Placeholder: always empty until confirmed publications are shown (FR-5.5)."
-          items:
-            type: object
+        publicationCount:
+          type: integer
+          description: |
+            How many publications the user has confirmed (FR-5.5). The list itself comes
+            from `listPublications`.
         connectionStatus:
           $ref: "#/components/schemas/ConnectionStatus"
         contact:
@@ -2496,6 +2978,323 @@ components:
           x-go-type-skip-optional-pointer: true
           x-go-type-import:
             path: github.com/oapi-codegen/nullable
+    PublicationSource:
+      type: string
+      description: How the publication was added (FR-5.1, FR-5.2, FR-5.3).
+      enum: [manual, doi, orcid]
+
+    Publication:
+      type: object
+      description: One publication (FR-5.1). The optional fields are always present and null when not set.
+      required: [id, doi, title, year, venue, abstract, url, source, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        doi:
+          type: string
+          nullable: true
+          description: The bare, lower-case DOI.
+          example: 10.1145/3292500.3330701
+        title:
+          type: string
+        year:
+          type: integer
+          nullable: true
+          description: Always set for a publication added by hand; an imported one may have none.
+          example: 2024
+        venue:
+          type: string
+          nullable: true
+          example: KDD
+        abstract:
+          type: string
+          nullable: true
+        url:
+          type: string
+          nullable: true
+          example: https://example.org/paper
+        source:
+          $ref: "#/components/schemas/PublicationSource"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    PublicationAdded:
+      description: The publication, and whether the caller was linked to one that already existed (FR-5.4).
+      allOf:
+        - $ref: "#/components/schemas/Publication"
+        - type: object
+          required: [linked]
+          properties:
+            linked:
+              type: boolean
+              description: True when a publication with the same DOI already existed and the caller was linked to it.
+
+    PublicationPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Publication"
+        page:
+          type: integer
+        pageSize:
+          type: integer
+          description: The page size used, at most 50.
+        total:
+          type: integer
+          description: The number of publications on all pages.
+
+    PublicationFromDOI:
+      type: object
+      required: [doi]
+      properties:
+        doi:
+          type: string
+          description: The DOI from the preview, in any form `lookupPublicationByDOI` accepts.
+          example: 10.1145/3292500.3330701
+
+    PublicationPreview:
+      type: object
+      description: |
+        A publication's metadata for a DOI (FR-5.2), shown for confirmation before it is
+        saved. The optional fields are always present and null when not known.
+      required: [doi, title, year, venue, abstract, url, existsAlready, linkedToMe]
+      properties:
+        doi:
+          type: string
+          description: The bare, lower-case DOI.
+          example: 10.1145/3292500.3330701
+        title:
+          type: string
+        year:
+          type: integer
+          nullable: true
+        venue:
+          type: string
+          nullable: true
+        abstract:
+          type: string
+          nullable: true
+        url:
+          type: string
+          nullable: true
+        existsAlready:
+          type: boolean
+          description: True when a publication with this DOI is already stored; the fields are the stored record's.
+        publicationId:
+          type: string
+          format: uuid
+          description: The stored publication's ID, present only when `existsAlready` is true.
+        linkedToMe:
+          type: boolean
+          description: True when the stored publication is confirmed on the caller's profile.
+
+    OrcidIdUpdate:
+      type: object
+      required: [orcidId]
+      properties:
+        orcidId:
+          type: string
+          nullable: true
+          example: 0000-0002-1825-0097
+
+    OrcidWorkList:
+      type: object
+      required: [orcidId, items]
+      properties:
+        orcidId:
+          type: string
+          description: The ORCID iD the works were listed for.
+          example: 0000-0002-1825-0097
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrcidWork"
+
+    OrcidWork:
+      type: object
+      description: One public work of an ORCID record (FR-5.3). The optional fields are always present and null when not known.
+      required: [putCode, title, year, venue, doi, type, url, existsAlready, linkedToMe]
+      properties:
+        putCode:
+          type: string
+          description: ORCID's identifier of the work within the record.
+          example: "123456"
+        title:
+          type: string
+        year:
+          type: integer
+          nullable: true
+        venue:
+          type: string
+          nullable: true
+          description: The journal title.
+        doi:
+          type: string
+          nullable: true
+          description: The bare, lower-case DOI.
+        type:
+          type: string
+          nullable: true
+          description: ORCID's work type, such as `journal-article`.
+        url:
+          type: string
+          nullable: true
+        existsAlready:
+          type: boolean
+          description: True when a publication with this DOI is already stored.
+        publicationId:
+          type: string
+          format: uuid
+          description: The stored publication's ID, present only when `existsAlready` is true.
+        linkedToMe:
+          type: boolean
+          description: True when the stored publication is confirmed on the caller's profile.
+
+    OrcidImportRequest:
+      type: object
+      required: [putCodes]
+      properties:
+        putCodes:
+          type: array
+          description: 1 to 100 put-codes from `listMyOrcidWorks`, each once.
+          items:
+            type: string
+
+    OrcidImportOutcome:
+      type: string
+      description: |
+        `created`: a new record was stored. `linked`: the caller was linked to a stored
+        record, or confirmed a link they had. `skipped`: the caller had confirmed it already.
+      enum: [created, linked, skipped]
+
+    OrcidImportItem:
+      type: object
+      required: [putCode, result, publicationId]
+      properties:
+        putCode:
+          type: string
+        result:
+          $ref: "#/components/schemas/OrcidImportOutcome"
+        publicationId:
+          type: string
+          format: uuid
+
+    OrcidImportResult:
+      type: object
+      required: [items, created, linked, skipped]
+      properties:
+        items:
+          type: array
+          description: One item per put-code, in the order given.
+          items:
+            $ref: "#/components/schemas/OrcidImportItem"
+        created:
+          type: integer
+        linked:
+          type: integer
+        skipped:
+          type: integer
+
+    PublicationCreate:
+      type: object
+      description: |
+        A publication added by hand (FR-5.1). Text is trimmed first and lengths count
+        characters after trimming; `title` and `venue` must be one line.
+      required: [title, year]
+      properties:
+        title:
+          type: string
+          description: 1 to 500 characters.
+          maxLength: 500
+        year:
+          type: integer
+          description: From 1900 to next year (UTC).
+        venue:
+          type: string
+          nullable: true
+          description: At most 300 characters; empty means not set.
+          maxLength: 300
+        abstract:
+          type: string
+          nullable: true
+          description: At most 5000 characters, line breaks allowed; empty means not set.
+          maxLength: 5000
+        url:
+          type: string
+          nullable: true
+          description: An http or https link of at most 500 characters; empty means not set.
+          maxLength: 500
+        doi:
+          type: string
+          nullable: true
+          description: |
+            A DOI such as `10.1145/3292500.3330701`, optionally as a `https://doi.org/` link
+            or with a `doi:` prefix; empty means not set.
+          example: 10.1145/3292500.3330701
+
+    PublicationUpdate:
+      type: object
+      description: |
+        The fields to change in a publication (FR-5.1). A missing field keeps its value.
+        `null` clears `venue`, `abstract`, `url` or `doi`; `null` for `title` or `year` is
+        refused, because they are required. The rules of PublicationCreate apply to the
+        publication after the change.
+      properties:
+        title:
+          type: string
+          nullable: true
+          maxLength: 500
+          x-go-type: nullable.Nullable[string]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        year:
+          type: integer
+          nullable: true
+          x-go-type: nullable.Nullable[int]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        venue:
+          type: string
+          nullable: true
+          maxLength: 300
+          x-go-type: nullable.Nullable[string]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        abstract:
+          type: string
+          nullable: true
+          maxLength: 5000
+          x-go-type: nullable.Nullable[string]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        url:
+          type: string
+          nullable: true
+          maxLength: 500
+          x-go-type: nullable.Nullable[string]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        doi:
+          type: string
+          nullable: true
+          x-go-type: nullable.Nullable[string]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+
 
   responses:
     Forbidden:
@@ -2540,6 +3339,17 @@ components:
         `endDate`), `end_date_not_allowed` (`isCurrent` true with `endDate`),
         `invalid_date_range` (`endDate` before `startDate`), `invalid_description`. A body
         that is not JSON gets `bad_request`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    InvalidPublication:
+      description: |
+        A field is not valid. The code names the first invalid field, in this order:
+        `invalid_title`, `invalid_year` (also before 1900 or after next year),
+        `invalid_venue`, `invalid_abstract`, `invalid_url` (also a link that is not http or
+        https), `invalid_doi` (also a value that is not of the form `10.NNNN/...` after the
+        prefix is removed). A body that is not JSON gets `bad_request`.
       content:
         application/json:
           schema:
@@ -2592,6 +3402,74 @@ components:
       headers:
         Retry-After:
           description: Seconds until the hour ends and uploads are accepted again.
+          required: true
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    InvalidDOI:
+      description: |
+        The DOI is missing or not of the form `10.NNNN/...` after the prefix is removed
+        (`invalid_doi`). A body that is not JSON gets `bad_request`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    DOINotFound:
+      description: OpenAlex has no work with this DOI, or none with a title (`doi_not_found`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    MetadataUnavailable:
+      description: |
+        OpenAlex did not answer in time, failed or refused the request (FR-5.6). The body is
+        `{"code":"metadata_unavailable","message":"We couldn't reach the publication
+        database. You can add this publication by hand."}`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    LookupRateLimited:
+      description: The user has made 30 lookups that reached OpenAlex in the current hour (`rate_limited`).
+      headers:
+        Retry-After:
+          description: Seconds until the hour ends and lookups are accepted again.
+          required: true
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    OrcidNotSet:
+      description: The caller's profile has no ORCID iD (`orcid_not_set`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    OrcidNotFound:
+      description: ORCID has no record with the iD on the profile (`orcid_not_found`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    OrcidUnavailable:
+      description: |
+        ORCID did not answer in time, failed or refused the request (FR-5.6). The body is
+        `{"code":"metadata_unavailable","message":"We couldn't reach ORCID. You can still
+        add publications by DOI or by hand."}`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    OrcidRateLimited:
+      description: The user has made 10 calls that reached ORCID in the current hour (`rate_limited`).
+      headers:
+        Retry-After:
+          description: Seconds until the hour ends and calls are accepted again.
           required: true
           schema:
             type: integer
