@@ -1,11 +1,13 @@
-import { ComingSoon } from "@/components/coming-soon";
+import { Suspense } from "react";
 
+import { SearchPage } from "@/features/search/search-page";
+import { SearchSkeleton } from "@/features/search/search-results";
+
+// Search for researchers (FR-6.1 to FR-6.3). Projects and posts come with their slices.
 export default function Page() {
   return (
-    <ComingSoon
-      title="Search"
-      purpose="Search researchers, projects and posts by keyword or meaning."
-      requirements={["FR-6", "FR-10.3", "AI-5"]}
-    />
+    <Suspense fallback={<SearchSkeleton />}>
+      <SearchPage />
+    </Suspense>
   );
 }

@@ -5,8 +5,9 @@ import { Container } from "@/components/Container";
 import { Logo } from "@/components/logo";
 import { CurrentSiteFooter } from "@/components/site-footer";
 
-import { MessagingIcon, SearchIcon } from "./icons";
+import { MessagingIcon } from "./icons";
 import { MeMenu } from "./me-menu";
+import { SearchBox, type SearchBoxVariant, StaticSearchBox } from "./search-box";
 import { CurrentTabList, TabList, type TabListVariant } from "./tab-list";
 
 // AppShell is the signed-in frame (docs/ui-guidelines.md, Signed-in pages): a sticky 52px
@@ -19,7 +20,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <header className="sticky top-0 z-50 h-[52px] border-b border-rs-nav-border bg-rs-surface font-rs-ui text-rs-nav-text max-[480px]:hidden">
         <Container className="flex h-[52px] items-center gap-2">
           <Logo href="/home" markOnly />
-          <SearchBox id="site-search" variant="top" />
+          <Search id="site-search" variant="top" />
           <nav aria-label="Main" className="ml-auto flex h-full">
             <Tabs variant="top" />
           </nav>
@@ -28,7 +29,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <header className="fixed inset-x-0 top-0 z-[70] hidden h-14 items-center gap-3 border-b border-rs-nav-border bg-rs-surface px-3 font-rs-ui text-rs-nav-text shadow-rs-bar max-[480px]:flex">
         <MeMenu placement="phone" />
-        <SearchBox id="phone-search" variant="phone" />
+        <Search id="phone-search" variant="phone" />
         <Link
           href="/messaging"
           aria-label="Messaging"
@@ -64,37 +65,11 @@ function Tabs({ variant }: { variant: TabListVariant }) {
   );
 }
 
-const searchStyles = {
-  // Up to 280px; between 641 and 760px only the icon shows until the field has the focus;
-  // from 481 to 640px it fills the space beside the logo.
-  top: {
-    box: "h-[34px] flex-[0_1_280px] rounded-rs-xs px-2.5 max-[760px]:flex-[0_1_40px] max-[760px]:focus-within:flex-[0_1_280px] max-[640px]:flex-auto max-[640px]:focus-within:flex-auto",
-    input: "max-[760px]:placeholder:text-transparent max-[640px]:placeholder:text-rs-nav-muted",
-    placeholder: "Search researchers, projects, posts",
-  },
-  phone: { box: "h-9 flex-1 rounded-rs-pill px-3", input: "", placeholder: "Search researchers, projects" },
-};
-
-// SearchBox sends the query to the search page (FR-6), which a later slice builds.
-function SearchBox({ id, variant }: { id: string; variant: keyof typeof searchStyles }) {
-  const style = searchStyles[variant];
+// Search reads the URL, so it prerenders as a plain box and then shows the current query.
+function Search({ id, variant }: { id: string; variant: SearchBoxVariant }) {
   return (
-    <form
-      action="/search"
-      role="search"
-      className={`flex min-w-0 items-center gap-2 bg-rs-search text-rs-body text-rs-nav-muted focus-within:shadow-focus ${style.box}`}
-    >
-      <label htmlFor={id} className="flex flex-none">
-        <SearchIcon />
-        <span className="sr-only">Search</span>
-      </label>
-      <input
-        id={id}
-        name="q"
-        type="search"
-        placeholder={style.placeholder}
-        className={`min-w-0 flex-1 bg-transparent text-rs-nav-text outline-none placeholder:text-rs-nav-muted ${style.input}`}
-      />
-    </form>
+    <Suspense fallback={<StaticSearchBox id={id} variant={variant} />}>
+      <SearchBox id={id} variant={variant} />
+    </Suspense>
   );
 }
