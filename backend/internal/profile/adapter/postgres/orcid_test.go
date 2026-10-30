@@ -3,36 +3,12 @@
 package postgres
 
 import (
-	"crypto/rand"
 	"errors"
-	"fmt"
-	"math/big"
 	"testing"
 
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/testenv"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/profile/domain"
 )
-
-// testORCID returns a random ORCID iD with a valid check digit, so test runs do not
-// collide on the unique constraint.
-func testORCID(t *testing.T) string {
-	t.Helper()
-	n, err := rand.Int(rand.Reader, big.NewInt(1e15))
-	if err != nil {
-		t.Fatal(err)
-	}
-	digits := fmt.Sprintf("%015d", n)
-	total := 0
-	for _, r := range digits {
-		total = (total + int(r-'0')) * 2
-	}
-	check := (12 - total%11) % 11
-	last := fmt.Sprint(check)
-	if check == 10 {
-		last = "X"
-	}
-	s := digits + last
-	return s[0:4] + "-" + s[4:8] + "-" + s[8:12] + "-" + s[12:16]
-}
 
 // The ORCID iD is saved, read back with the profile, refused when another profile has
 // it, and cleared (FR-5.3).
@@ -44,7 +20,7 @@ func TestSetOrcidID(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	orcid := testORCID(t)
+	orcid := testenv.ORCIDiD(t)
 
 	if err := s.SetOrcidID(t.Context(), ada, &orcid); err != nil {
 		t.Fatal(err)
@@ -87,7 +63,6 @@ func TestMatchPublicationsByDOI(t *testing.T) {
 	s, pool := newTestStore(t)
 	ada, bob := newUser(t, pool), newUser(t, pool)
 	confirmed, unconfirmed, others, unknown := testDOI(), testDOI(), testDOI(), testDOI()
-	cleanupPublications(t, pool, []string{ada, bob}, confirmed, unconfirmed, others)
 
 	ids := map[string]string{}
 	for _, doi := range []string{confirmed, unconfirmed, others} {

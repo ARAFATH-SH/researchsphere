@@ -1,53 +1,31 @@
 //go:build integration
 
-// Tests against the real Redis. Run with `make test-integration` (needs `make up`);
-// they read REDIS_URL.
+// Tests against the test Redis DB. Run with `make test-integration` (needs `make up`);
+// they read TEST_REDIS_URL, and each test starts with that DB empty.
 package redis
 
 import (
-	"crypto/rand"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
 	goredis "github.com/redis/go-redis/v9"
+
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/testenv"
 )
 
 func newTestAttempts(t *testing.T) (*Attempts, *goredis.Client) {
 	t.Helper()
-	url := os.Getenv("REDIS_URL")
-	if url == "" {
-		t.Fatal("REDIS_URL is not set")
-	}
-	opts, err := goredis.ParseURL(url)
-	if err != nil {
-		t.Fatal("REDIS_URL is not accepted by the Redis client")
-	}
-	client := goredis.NewClient(opts)
+	client := testenv.Redis(t)
 	a := New(client)
-	t.Cleanup(func() {
-		_ = a.Close()
-		_ = client.Close()
-	})
+	t.Cleanup(func() { _ = a.Close() })
 	return a, client
-}
-
-// uniqueKey returns an account key no other test run uses, and deletes its Redis keys
-// when the test ends.
-func uniqueKey(t *testing.T, client *goredis.Client) string {
-	t.Helper()
-	key := "it-" + strings.ToLower(rand.Text()) + "@example.org"
-	t.Cleanup(func() {
-		client.Del(t.Context(), failuresPrefix+hashKey(key), lockPrefix+hashKey(key))
-	})
-	return key
 }
 
 func TestRecordFailureAndReset(t *testing.T) {
 	a, client := newTestAttempts(t)
 	ctx := t.Context()
-	key := uniqueKey(t, client)
+	key := testenv.Email(t)
 
 	for want := 1; want <= 3; want++ {
 		got, err := a.RecordFailure(ctx, key, time.Minute)
@@ -67,7 +45,7 @@ func TestRecordFailureAndReset(t *testing.T) {
 		t.Errorf("TTL = %v, want at most the 1-minute window", ttl)
 	}
 	// Another account has its own counter.
-	if got, err := a.RecordFailure(ctx, uniqueKey(t, client), time.Minute); err != nil || got != 1 {
+	if got, err := a.RecordFailure(ctx, testenv.Email(t), time.Minute); err != nil || got != 1 {
 		t.Errorf("RecordFailure() for another key = %d, %v; want 1, nil", got, err)
 	}
 
@@ -80,9 +58,9 @@ func TestRecordFailureAndReset(t *testing.T) {
 }
 
 func TestRecordFailureWindowEnds(t *testing.T) {
-	a, client := newTestAttempts(t)
+	a, _ := newTestAttempts(t)
 	ctx := t.Context()
-	key := uniqueKey(t, client)
+	key := testenv.Email(t)
 
 	if _, err := a.RecordFailure(ctx, key, 100*time.Millisecond); err != nil {
 		t.Fatal(err)
@@ -96,7 +74,7 @@ func TestRecordFailureWindowEnds(t *testing.T) {
 func TestLock(t *testing.T) {
 	a, client := newTestAttempts(t)
 	ctx := t.Context()
-	key := uniqueKey(t, client)
+	key := testenv.Email(t)
 
 	if until, err := a.LockedUntil(ctx, key); err != nil || !until.IsZero() {
 		t.Fatalf("LockedUntil() before Lock = %v, %v; want zero, nil", until, err)

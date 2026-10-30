@@ -6,34 +6,18 @@
 package main
 
 import (
-	"context"
-	"crypto/rand"
-	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
-)
 
-// searchWord returns a random capitalized word that no stored name contains.
-func searchWord(t *testing.T) string {
-	t.Helper()
-	b := []byte{'Q', 0, 0, 0, 0, 0, 0, 0, 0}
-	for i := 1; i < len(b); i++ {
-		n, err := rand.Int(rand.Reader, big.NewInt(26))
-		if err != nil {
-			t.Fatal(err)
-		}
-		b[i] = "abcdefghijklmnopqrstuvwxyz"[n.Int64()]
-	}
-	return string(b)
-}
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/testenv"
+)
 
 func TestSearchPeopleEndToEnd(t *testing.T) {
 	e := newMediaEnv(t)
 	ada, bob := e.newProfileUser(t), e.newProfileUser(t)
-	t.Cleanup(func() { e.rdb.Del(context.Background(), "profile:people-search:"+ada, "profile:people-search:"+bob) })
-	first, last := searchWord(t), searchWord(t)
+	first, last := testenv.Word(t), testenv.Word(t)
 	if _, err := e.pool.Exec(t.Context(), "UPDATE profiles SET full_name = $1, institution = 'BUET' WHERE user_id = $2",
 		first+" "+last, bob); err != nil {
 		t.Fatal(err)

@@ -10,8 +10,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/profile/domain"
 )
 
@@ -19,19 +17,6 @@ func yr(n int) *int { return &n }
 
 // testDOI returns a DOI no other test run uses.
 func testDOI() string { return "10.5555/it-" + strings.ToLower(rand.Text()) }
-
-// cleanupPublications deletes, when the test ends, the publications created by the users
-// or carrying the DOIs; deleting a user leaves its publications behind.
-func cleanupPublications(t *testing.T, pool *pgxpool.Pool, userIDs []string, dois ...string) {
-	t.Helper()
-	t.Cleanup(func() {
-		_, err := pool.Exec(context.Background(),
-			"DELETE FROM publications WHERE created_by = ANY($1::uuid[]) OR doi = ANY($2::text[])", userIDs, dois)
-		if err != nil {
-			t.Errorf("cleanup: %v", err)
-		}
-	})
-}
 
 // addPublication runs the steps the usecase runs to add p for userID: look up the DOI,
 // insert when it is new, link to the existing record when the insert finds it taken.
@@ -75,7 +60,6 @@ func addPublication(ctx context.Context, s *Store, userID string, p domain.Publi
 func TestInsertLinkListPublications(t *testing.T) {
 	s, pool := newTestStore(t)
 	ada := newUser(t, pool)
-	cleanupPublications(t, pool, []string{ada})
 
 	saved, linked, err := addPublication(t.Context(), s, ada, domain.Publication{
 		Title: "Notes", Year: yr(2024), Venue: ptr("Journal"), Abstract: ptr("Line one\nline two"),
@@ -145,7 +129,6 @@ func TestSameDOISharesOneRecord(t *testing.T) {
 	s, pool := newTestStore(t)
 	ada, bob := newUser(t, pool), newUser(t, pool)
 	doi := testDOI()
-	cleanupPublications(t, pool, []string{ada, bob}, doi)
 
 	first, linked, err := addPublication(t.Context(), s, ada, domain.Publication{
 		DOI: &doi, Title: "Shared", Year: yr(2020), Source: domain.SourceManual, CreatedBy: &ada,
@@ -184,7 +167,6 @@ func TestConcurrentAddOfSameDOI(t *testing.T) {
 	s, pool := newTestStore(t)
 	ada, bob := newUser(t, pool), newUser(t, pool)
 	doi := testDOI()
-	cleanupPublications(t, pool, []string{ada, bob}, doi)
 
 	var looked sync.WaitGroup
 	looked.Add(2)
@@ -244,7 +226,6 @@ func TestRemovePublication(t *testing.T) {
 	s, pool := newTestStore(t)
 	ada, bob := newUser(t, pool), newUser(t, pool)
 	doi := testDOI()
-	cleanupPublications(t, pool, []string{ada, bob}, doi)
 
 	shared, _, err := addPublication(t.Context(), s, ada, domain.Publication{
 		DOI: &doi, Title: "Shared", Year: yr(2020), Source: domain.SourceManual, CreatedBy: &ada}, nil)
@@ -291,7 +272,6 @@ func TestUpdatePublicationToTakenDOI(t *testing.T) {
 	s, pool := newTestStore(t)
 	ada := newUser(t, pool)
 	taken := testDOI()
-	cleanupPublications(t, pool, []string{ada}, taken)
 
 	if _, _, err := addPublication(t.Context(), s, ada, domain.Publication{
 		DOI: &taken, Title: "Has it", Year: yr(2020), Source: domain.SourceManual, CreatedBy: &ada}, nil); err != nil {

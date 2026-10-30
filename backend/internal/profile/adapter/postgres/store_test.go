@@ -1,14 +1,11 @@
 //go:build integration
 
-// Repository tests against the real database. Run with `make test-integration`
-// (needs `make up` and `make migrate`); they read DATABASE_URL.
+// Repository tests against the test database. Run with `make test-integration` (needs
+// `make up`); they read TEST_DATABASE_URL, and each test starts with every table empty.
 package postgres
 
 import (
-	"context"
-	"crypto/rand"
 	"errors"
-	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -16,39 +13,25 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/testenv"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/profile/domain"
 )
 
 func newTestStore(t *testing.T) (*Store, *pgxpool.Pool) {
 	t.Helper()
-	url := os.Getenv("DATABASE_URL")
-	if url == "" {
-		t.Fatal("DATABASE_URL is not set")
-	}
-	pool, err := pgxpool.New(t.Context(), url)
-	if err != nil {
-		t.Fatal("DATABASE_URL is not accepted by the PostgreSQL driver")
-	}
-	t.Cleanup(pool.Close)
+	pool := testenv.DB(t)
 	return NewStore(pool), pool
 }
 
-// newUser stores a verified user with no profile row and deletes it (and, through the
-// cascade, its profile) when the test ends.
+// newUser stores a verified user with no profile row.
 func newUser(t *testing.T, pool *pgxpool.Pool) string {
 	t.Helper()
-	email := "it-" + strings.ToLower(rand.Text()) + "@example.org"
 	var id string
 	err := pool.QueryRow(t.Context(),
-		"INSERT INTO users (email, password_hash, email_verified_at) VALUES ($1, 'hash', now()) RETURNING id", email).Scan(&id)
+		"INSERT INTO users (email, password_hash, email_verified_at) VALUES ($1, 'hash', now()) RETURNING id", testenv.Email(t)).Scan(&id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		if _, err := pool.Exec(context.Background(), "DELETE FROM users WHERE id = $1", id); err != nil {
-			t.Errorf("cleanup: %v", err)
-		}
-	})
 	return id
 }
 
@@ -119,7 +102,8 @@ func TestUpsertProfile(t *testing.T) {
 	}
 
 	// A column outside this operation must survive the update.
-	if _, err := pool.Exec(t.Context(), "UPDATE profiles SET orcid_id = '0000-0002-1825-0097' WHERE user_id = $1", id); err != nil {
+	orcid := testenv.ORCIDiD(t)
+	if _, err := pool.Exec(t.Context(), "UPDATE profiles SET orcid_id = $1 WHERE user_id = $2", orcid, id); err != nil {
 		t.Fatal(err)
 	}
 	var createdBefore string
@@ -134,7 +118,7 @@ func TestUpsertProfile(t *testing.T) {
 	}
 	// The ORCID iD is not edited here, so it is returned as stored (FR-5.3).
 	wantSecond := second
-	wantSecond.OrcidID = ptr("0000-0002-1825-0097")
+	wantSecond.OrcidID = ptr(orcid)
 	if !reflect.DeepEqual(got, wantSecond) {
 		t.Errorf("update returned %+v, want %+v", got, wantSecond)
 	}
@@ -162,7 +146,7 @@ func TestUpsertProfile(t *testing.T) {
 			t.Errorf("%s = %q, want NULL", name, *v)
 		}
 	}
-	if orcidID == nil || *orcidID != "0000-0002-1825-0097" {
+	if orcidID == nil || *orcidID != orcid {
 		t.Errorf("orcid_id = %v, want it kept", orcidID)
 	}
 	if createdAfter != createdBefore {

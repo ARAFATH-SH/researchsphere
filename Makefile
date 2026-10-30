@@ -12,10 +12,15 @@ POSTGRES_DB   ?= researchsphere
 MINIO_API_PORT ?= 9000
 S3_BUCKET     ?= researchsphere
 DATABASE_URL  ?= postgres://researchsphere:devpassword@localhost:5433/researchsphere?sslmode=disable
+# Tests use their own database and Redis DB, never the development ones. The tests empty
+# them, so they refuse a database name that does not end in _test and Redis DB 0.
+TEST_POSTGRES_DB  ?= researchsphere_test
+TEST_DATABASE_URL ?= postgres://researchsphere:devpassword@localhost:5433/researchsphere_test?sslmode=disable
+TEST_REDIS_URL    ?= redis://localhost:6379/15
 MIGRATIONS_DIR := backend/db/migrations
 
 .DEFAULT_GOAL := help
-.PHONY: help up down logs ps psql check migrate migrate-down migrate-new admin unadmin api web web-clean generate check-generated test test-db test-go test-integration test-web lint lint-go lint-web
+.PHONY: help up down logs ps psql check migrate migrate-down migrate-new admin unadmin api web web-clean generate check-generated test test-prepare test-db test-go test-integration test-web lint lint-go lint-web
 
 help: ## List the available commands
 	@grep -hE '^[a-zA-Z_-]+:.*## ' $(firstword $(MAKEFILE_LIST)) | awk 'BEGIN {FS = ":.*## "} {printf "  make %-16s %s\n", $$1, $$2}'
@@ -87,16 +92,29 @@ check-generated: generate ## Fail if generated code is out of date
 		exit 1; \
 	fi
 
-test: test-db test-go test-integration test-web ## Run all tests (needs make up and make migrate)
+test: test-prepare test-db test-go test-integration test-web ## Run all tests (needs make up)
 
-test-db: ## Run the database constraint tests (needs make up and make migrate)
-	docker compose exec -T postgres psql -U $(POSTGRES_USER) -d $(POSTGRES_DB) -X -v ON_ERROR_STOP=1 < backend/db/tests/constraints.sql
+# The database name reaches psql as a variable (:'db'), never pasted into the SQL.
+test-prepare: ## Create the test database (TEST_POSTGRES_DB) if missing and apply all migrations to it
+	@if [[ "$(TEST_POSTGRES_DB)" != *_test ]]; then echo "TEST_POSTGRES_DB=$(TEST_POSTGRES_DB) must end in _test"; exit 1; fi
+	@exists=$$(echo "SELECT 1 FROM pg_database WHERE datname = :'db'" | \
+		docker compose exec -T postgres psql -U $(POSTGRES_USER) -d postgres -X -tA -v ON_ERROR_STOP=1 -v db="$(TEST_POSTGRES_DB)"); \
+	if [[ "$$exists" != 1 ]]; then \
+		echo "Creating database $(TEST_POSTGRES_DB)"; \
+		docker compose exec -T postgres createdb -U $(POSTGRES_USER) "$(TEST_POSTGRES_DB)"; \
+	fi
+	migrate -path $(MIGRATIONS_DIR) -database "$(TEST_DATABASE_URL)" up
+
+test-db: test-prepare ## Run the database constraint tests on the test database (needs make up)
+	docker compose exec -T postgres psql -U $(POSTGRES_USER) -d $(TEST_POSTGRES_DB) -X -v ON_ERROR_STOP=1 < backend/db/tests/constraints.sql
 
 test-go: ## Run the backend Go tests
 	cd backend && go test -race -count=1 ./...
 
-test-integration: ## Run the Go repository and end-to-end tests against the database, Redis and MinIO (needs make up and make migrate)
-	cd backend && go test -race -count=1 -tags=integration ./internal/... ./cmd/...
+# -p 1: the packages share the test database and each test empties it, so they run one
+# package at a time.
+test-integration: test-prepare ## Run the Go repository and end-to-end tests against the test database, test Redis DB and MinIO (needs make up)
+	cd backend && go test -race -count=1 -p 1 -tags=integration ./internal/... ./cmd/...
 
 test-web: ## Run the frontend tests (Jest)
 	cd frontend && npm test

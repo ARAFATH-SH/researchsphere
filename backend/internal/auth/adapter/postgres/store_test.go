@@ -1,14 +1,13 @@
 //go:build integration
 
-// Repository tests against the real database. Run with `make test-integration`
-// (needs `make up` and `make migrate`); they read DATABASE_URL.
+// Repository tests against the test database. Run with `make test-integration` (needs
+// `make up`); they read TEST_DATABASE_URL, and each test starts with every table empty.
 package postgres
 
 import (
 	"context"
 	"crypto/rand"
 	"errors"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -16,34 +15,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/auth/domain"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/testenv"
 )
 
 func newTestStore(t *testing.T) (*Store, *pgxpool.Pool) {
 	t.Helper()
-	url := os.Getenv("DATABASE_URL")
-	if url == "" {
-		t.Fatal("DATABASE_URL is not set")
-	}
-	pool, err := pgxpool.New(t.Context(), url)
-	if err != nil {
-		t.Fatal("DATABASE_URL is not accepted by the PostgreSQL driver")
-	}
-	t.Cleanup(pool.Close)
+	pool := testenv.DB(t)
 	return NewStore(pool), pool
-}
-
-// uniqueEmail returns an address no other test run uses, and deletes its user (and,
-// through the cascade, the profile and tokens) when the test ends.
-func uniqueEmail(t *testing.T, pool *pgxpool.Pool) string {
-	t.Helper()
-	email := "it-" + strings.ToLower(rand.Text()) + "@example.org"
-	t.Cleanup(func() {
-		_, err := pool.Exec(context.Background(), "DELETE FROM users WHERE email = $1", email)
-		if err != nil {
-			t.Errorf("cleanup: %v", err)
-		}
-	})
-	return email
 }
 
 // register stores a user, profile and token in one transaction, as the usecase does.
@@ -65,7 +43,7 @@ func register(ctx context.Context, s *Store, email, fullName, tokenHash string, 
 func TestRegisterCommitsUserProfileAndToken(t *testing.T) {
 	ctx := t.Context()
 	s, pool := newTestStore(t)
-	email := uniqueEmail(t, pool)
+	email := testenv.Email(t)
 	hash := rand.Text()
 
 	id, err := register(ctx, s, email, "Ada Lovelace", hash, time.Now().Add(time.Hour))
@@ -92,8 +70,8 @@ func TestRegisterCommitsUserProfileAndToken(t *testing.T) {
 
 func TestCreateUserDuplicateEmailInAnotherCase(t *testing.T) {
 	ctx := t.Context()
-	s, pool := newTestStore(t)
-	email := uniqueEmail(t, pool)
+	s, _ := newTestStore(t)
+	email := testenv.Email(t)
 
 	if _, err := register(ctx, s, email, "Ada", rand.Text(), time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)
@@ -107,7 +85,7 @@ func TestCreateUserDuplicateEmailInAnotherCase(t *testing.T) {
 func TestRegisterRollsBackWhenProfileFails(t *testing.T) {
 	ctx := t.Context()
 	s, pool := newTestStore(t)
-	email := uniqueEmail(t, pool)
+	email := testenv.Email(t)
 
 	// An empty name breaks the CHECK on profiles.full_name after the user row is written.
 	if _, err := register(ctx, s, email, " ", rand.Text(), time.Now().Add(time.Hour)); err == nil {
@@ -127,8 +105,8 @@ func TestRegisterRollsBackWhenProfileFails(t *testing.T) {
 
 func TestTokenLifecycle(t *testing.T) {
 	ctx := t.Context()
-	s, pool := newTestStore(t)
-	email := uniqueEmail(t, pool)
+	s, _ := newTestStore(t)
+	email := testenv.Email(t)
 	hash := rand.Text()
 	expires := time.Now().Add(time.Hour).Truncate(time.Microsecond)
 
@@ -189,8 +167,8 @@ func TestTokenLifecycle(t *testing.T) {
 
 func TestFindTokenForUpdateUnknownOrOtherPurpose(t *testing.T) {
 	ctx := t.Context()
-	s, pool := newTestStore(t)
-	email := uniqueEmail(t, pool)
+	s, _ := newTestStore(t)
+	email := testenv.Email(t)
 	hash := rand.Text()
 	if _, err := register(ctx, s, email, "Ada", hash, time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)
@@ -220,7 +198,7 @@ func TestFindTokenForUpdateUnknownOrOtherPurpose(t *testing.T) {
 func TestDeleteUnusedTokensKeepsUsedOnes(t *testing.T) {
 	ctx := t.Context()
 	s, pool := newTestStore(t)
-	email := uniqueEmail(t, pool)
+	email := testenv.Email(t)
 	used, unused := rand.Text(), rand.Text()
 
 	id, err := register(ctx, s, email, "Ada", used, time.Now().Add(time.Hour))
@@ -269,8 +247,8 @@ func TestDeleteUnusedTokensKeepsUsedOnes(t *testing.T) {
 
 func TestFindCredentialsByEmail(t *testing.T) {
 	ctx := t.Context()
-	s, pool := newTestStore(t)
-	email := uniqueEmail(t, pool)
+	s, _ := newTestStore(t)
+	email := testenv.Email(t)
 	id, err := register(ctx, s, email, "Ada", rand.Text(), time.Now().Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
@@ -290,8 +268,8 @@ func TestFindCredentialsByEmail(t *testing.T) {
 
 func TestFindUserByID(t *testing.T) {
 	ctx := t.Context()
-	s, pool := newTestStore(t)
-	email := uniqueEmail(t, pool)
+	s, _ := newTestStore(t)
+	email := testenv.Email(t)
 	id, err := register(ctx, s, email, "Ada", rand.Text(), time.Now().Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
@@ -314,7 +292,7 @@ func TestFindUserByID(t *testing.T) {
 func TestCreateSession(t *testing.T) {
 	ctx := t.Context()
 	s, pool := newTestStore(t)
-	email := uniqueEmail(t, pool)
+	email := testenv.Email(t)
 	id, err := register(ctx, s, email, "Ada", rand.Text(), time.Now().Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
@@ -360,7 +338,7 @@ func TestCreateSession(t *testing.T) {
 func newSession(t *testing.T, s *Store, pool *pgxpool.Pool) (userID, hash string) {
 	t.Helper()
 	ctx := t.Context()
-	userID, err := register(ctx, s, uniqueEmail(t, pool), "Ada", rand.Text(), time.Now().Add(time.Hour))
+	userID, err := register(ctx, s, testenv.Email(t), "Ada", rand.Text(), time.Now().Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -489,12 +467,12 @@ func TestRevokeSessionByToken(t *testing.T) {
 func TestUpdatePasswordHash(t *testing.T) {
 	ctx := t.Context()
 	s, pool := newTestStore(t)
-	email := uniqueEmail(t, pool)
+	email := testenv.Email(t)
 	id, err := register(ctx, s, email, "Ada", rand.Text(), time.Now().Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
-	other, err := register(ctx, s, uniqueEmail(t, pool), "Grace", rand.Text(), time.Now().Add(time.Hour))
+	other, err := register(ctx, s, testenv.Email(t), "Grace", rand.Text(), time.Now().Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -565,8 +543,8 @@ func TestRevokeUserSessions(t *testing.T) {
 
 func TestFindCredentialsByID(t *testing.T) {
 	ctx := t.Context()
-	s, pool := newTestStore(t)
-	email := uniqueEmail(t, pool)
+	s, _ := newTestStore(t)
+	email := testenv.Email(t)
 	id, err := register(ctx, s, email, "Ada", rand.Text(), time.Now().Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
@@ -642,7 +620,7 @@ func TestRevokeOtherUserSessions(t *testing.T) {
 func TestSuspendedAtIsRead(t *testing.T) {
 	ctx := t.Context()
 	s, pool := newTestStore(t)
-	email := uniqueEmail(t, pool)
+	email := testenv.Email(t)
 	tokenHash := rand.Text()
 	id, err := register(ctx, s, email, "Ada", tokenHash, time.Now().Add(time.Hour))
 	if err != nil {
@@ -712,7 +690,7 @@ func TestSuspendedAtIsRead(t *testing.T) {
 func TestRoleIsRead(t *testing.T) {
 	ctx := t.Context()
 	s, pool := newTestStore(t)
-	email := uniqueEmail(t, pool)
+	email := testenv.Email(t)
 	id, err := register(ctx, s, email, "Ada", rand.Text(), time.Now().Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)

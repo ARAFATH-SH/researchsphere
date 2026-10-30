@@ -69,12 +69,18 @@ jobs:
       - name: Apply migrations again
         run: make migrate
 
+      # The tests use their own database (researchsphere_test, created and migrated here)
+      # and Redis DB 15, as they do locally; make test-db and make test-integration would
+      # also run this step themselves.
+      - name: Prepare test database
+        run: make test-prepare
+
       - name: Database tests
         run: make test-db
 
       # Go lint and unit tests run in the backend job, which needs no database. Only the
-      # repository tests (build tag "integration") run here, against the migrated database
-      # and MinIO (S3_ settings from .env).
+      # repository tests (build tag "integration") run here, against the test database,
+      # Redis DB 15 and MinIO (TEST_ and S3_ settings from .env).
       - uses: actions/setup-go@v7
         with:
           go-version-file: backend/go.mod

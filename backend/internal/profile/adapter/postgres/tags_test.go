@@ -20,22 +20,8 @@ import (
 
 var kinds = []domain.TagKind{domain.KindInterest, domain.KindSkill}
 
-// token returns lower-case text no other test run uses, and deletes every tag of kind
-// whose name contains it when the test ends. Users are cleaned up by newUser.
-func token(t *testing.T, pool *pgxpool.Pool, kind domain.TagKind) string {
-	t.Helper()
-	tok := "zq" + strings.ToLower(rand.Text()[:10])
-	t.Cleanup(func() {
-		q := "DELETE FROM research_interests WHERE strpos(lower(name::text), $1) > 0"
-		if kind == domain.KindSkill {
-			q = "DELETE FROM skills WHERE strpos(lower(name::text), $1) > 0"
-		}
-		if _, err := pool.Exec(context.Background(), q, tok); err != nil {
-			t.Errorf("cleanup: %v", err)
-		}
-	})
-	return tok
-}
+// token returns lower-case text no other test run uses.
+func token() string { return "zq" + strings.ToLower(rand.Text()[:10]) }
 
 // addTag runs the steps the usecase runs to add a tag, in one transaction, with limit.
 func addTag(ctx context.Context, s *Store, userID string, kind domain.TagKind, name string, limit int) (domain.Tag, bool, error) {
@@ -115,7 +101,7 @@ func TestFindOrCreateTagIgnoresCase(t *testing.T) {
 	for _, kind := range kinds {
 		t.Run(string(kind), func(t *testing.T) {
 			s, pool := newTestStore(t)
-			tok := token(t, pool, kind)
+			tok := token()
 
 			first, err := findOrCreate(t.Context(), s, kind, "Machine Learning "+tok)
 			if err != nil {
@@ -141,7 +127,7 @@ func TestFindOrCreateTagConcurrent(t *testing.T) {
 	for _, kind := range kinds {
 		t.Run(string(kind), func(t *testing.T) {
 			s, pool := newTestStore(t)
-			tok := token(t, pool, kind)
+			tok := token()
 
 			const n = 8
 			got := make([]domain.Tag, n)
@@ -177,7 +163,7 @@ func TestAddTagLimitUnderConcurrency(t *testing.T) {
 	for _, kind := range kinds {
 		t.Run(string(kind), func(t *testing.T) {
 			s, pool := newTestStore(t)
-			tok := token(t, pool, kind)
+			tok := token()
 			user := newUser(t, pool)
 			const limit = 3
 			for i := range limit - 1 {
@@ -236,7 +222,7 @@ func TestListAndRemoveTags(t *testing.T) {
 	for _, kind := range kinds {
 		t.Run(string(kind), func(t *testing.T) {
 			s, pool := newTestStore(t)
-			tok := token(t, pool, kind)
+			tok := token()
 			user := newUser(t, pool)
 			var added []domain.Tag
 			for _, name := range []string{"beta " + tok, "Alpha " + tok, "GAMMA " + tok} {
@@ -283,7 +269,7 @@ func TestSuggestTagsOrdering(t *testing.T) {
 	for _, kind := range kinds {
 		t.Run(string(kind), func(t *testing.T) {
 			s, pool := newTestStore(t)
-			tok := token(t, pool, kind)
+			tok := token()
 			users := []string{newUser(t, pool), newUser(t, pool), newUser(t, pool)}
 
 			// name -> how many users have it
@@ -310,13 +296,6 @@ func TestSuggestTagsOrdering(t *testing.T) {
 					}
 				}
 			}
-			t.Cleanup(func() {
-				q := "DELETE FROM research_interests WHERE name = $1"
-				if kind == domain.KindSkill {
-					q = "DELETE FROM skills WHERE name = $1"
-				}
-				_, _ = pool.Exec(context.Background(), q, "unrelated "+tok[:4]+" name")
-			})
 
 			names := func(ts []domain.Tag) []string {
 				out := []string{}

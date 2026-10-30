@@ -12,17 +12,11 @@ import (
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/media/domain"
 )
 
-// createProfile stores a verified user with a profile row and no files. The keys are
-// removed from the deletion queue when the test ends.
-func createProfile(t *testing.T, pool *pgxpool.Pool, keys []string) string {
+// createProfile stores a verified user with a profile row and no files.
+func createProfile(t *testing.T, pool *pgxpool.Pool) string {
 	t.Helper()
 	userID := createUserWithFiles(t, pool)
 	ctx := t.Context()
-	t.Cleanup(func() {
-		if _, err := pool.Exec(context.Background(), "DELETE FROM storage_deletions WHERE object_key = ANY($1)", keys); err != nil {
-			t.Errorf("cleanup: %v", err)
-		}
-	})
 	if _, err := pool.Exec(ctx, "UPDATE users SET email_verified_at = now() WHERE id = $1", userID); err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +59,7 @@ func TestReplaceProfileImage(t *testing.T) {
 	s, pool := newTestStore(t)
 	ctx := t.Context()
 	keys := uniqueKeys(3)
-	user := createProfile(t, pool, keys)
+	user := createProfile(t, pool)
 
 	first, err := s.ReplaceProfileImage(ctx, newFile(user, domain.PurposePhoto, keys[0]))
 	if err != nil {
@@ -107,9 +101,6 @@ func TestReplaceProfileImage(t *testing.T) {
 func TestReplaceProfileImageWithoutProfile(t *testing.T) {
 	s, pool := newTestStore(t)
 	keys := uniqueKeys(1)
-	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), "DELETE FROM storage_deletions WHERE object_key = ANY($1)", keys)
-	})
 	user := createUserWithFiles(t, pool)
 	if _, err := s.ReplaceProfileImage(t.Context(), newFile(user, domain.PurposePhoto, keys[0])); !errors.Is(err, domain.ErrNoProfile) {
 		t.Fatalf("err = %v, want ErrNoProfile", err)
@@ -127,7 +118,7 @@ func TestClearProfileImage(t *testing.T) {
 	s, pool := newTestStore(t)
 	ctx := t.Context()
 	keys := uniqueKeys(2)
-	user := createProfile(t, pool, keys)
+	user := createProfile(t, pool)
 	if _, err := s.ReplaceProfileImage(ctx, newFile(user, domain.PurposePhoto, keys[0])); err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +143,7 @@ func TestFindFileOwnerState(t *testing.T) {
 	s, pool := newTestStore(t)
 	ctx := t.Context()
 	keys := uniqueKeys(1)
-	user := createProfile(t, pool, keys)
+	user := createProfile(t, pool)
 	id, err := s.ReplaceProfileImage(ctx, newFile(user, domain.PurposeCover, keys[0]))
 	if err != nil {
 		t.Fatal(err)
