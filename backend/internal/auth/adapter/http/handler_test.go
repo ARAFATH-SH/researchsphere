@@ -322,6 +322,23 @@ func TestMalformedBody(t *testing.T) {
 	}
 }
 
+// TestUnknownBodyField checks that a body with a field the contract does not define is
+// refused, not silently ignored.
+func TestUnknownBodyField(t *testing.T) {
+	tests := []struct{ path, body string }{
+		{"/auth/register", `{"fullName":"Ada","email":"ada@example.org","password":"password1","role":"admin"}`},
+		{"/auth/login", `{"email":"ada@example.org","password":"password1","remember":true}`},
+		{"/auth/password-reset/request", `{"email":"ada@example.org","extra":1}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			if rec := post(t, &fakeService{}, tt.path, tt.body); rec.Code != http.StatusBadRequest {
+				t.Errorf("status = %d, want 400", rec.Code)
+			}
+		})
+	}
+}
+
 const userID = "6f1c2b9e-1d2a-4c3b-9a8e-0f1e2d3c4b5a"
 
 func loginResult() usecase.LoginResult {

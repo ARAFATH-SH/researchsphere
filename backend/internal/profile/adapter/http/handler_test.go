@@ -403,6 +403,15 @@ func TestUpdateMyProfile(t *testing.T) {
 			t.Errorf("got %d, service called for %q; want 400 and no call", rec.Code, svc.userID)
 		}
 	})
+
+	// ORCID has its own endpoint; here the field must be refused, not ignored.
+	t.Run("unknown field", func(t *testing.T) {
+		svc := &fakeService{}
+		rec := send(t, svc, http.MethodPut, "/api/v1/profiles/me", `{"fullName":"Ada","orcidId":"0000-0002-1825-0097"}`, callerID)
+		if rec.Code != http.StatusBadRequest || svc.userID != "" {
+			t.Errorf("got %d, service called for %q; want 400 and no call", rec.Code, svc.userID)
+		}
+	})
 }
 
 func TestGetProfile(t *testing.T) {

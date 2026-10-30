@@ -7481,7 +7481,7 @@ func (sh *strictHandler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 	var request DeleteAccountRequestObject
 
 	var body DeleteAccountJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -7538,7 +7538,7 @@ func (sh *strictHandler) LoginUser(w http.ResponseWriter, r *http.Request) {
 	var request LoginUserRequestObject
 
 	var body LoginUserJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -7621,7 +7621,7 @@ func (sh *strictHandler) ChangePassword(w http.ResponseWriter, r *http.Request, 
 	request.Params = params
 
 	var body ChangePasswordJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -7652,7 +7652,7 @@ func (sh *strictHandler) ConfirmPasswordReset(w http.ResponseWriter, r *http.Req
 	var request ConfirmPasswordResetRequestObject
 
 	var body ConfirmPasswordResetJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -7683,7 +7683,7 @@ func (sh *strictHandler) RequestPasswordReset(w http.ResponseWriter, r *http.Req
 	var request RequestPasswordResetRequestObject
 
 	var body RequestPasswordResetJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -7740,7 +7740,7 @@ func (sh *strictHandler) RegisterUser(w http.ResponseWriter, r *http.Request) {
 	var request RegisterUserRequestObject
 
 	var body RegisterUserJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -7771,7 +7771,7 @@ func (sh *strictHandler) ResendVerification(w http.ResponseWriter, r *http.Reque
 	var request ResendVerificationRequestObject
 
 	var body ResendVerificationJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -7802,7 +7802,7 @@ func (sh *strictHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 	var request VerifyEmailRequestObject
 
 	var body VerifyEmailJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -7907,7 +7907,7 @@ func (sh *strictHandler) UpdateMyProfile(w http.ResponseWriter, r *http.Request)
 	var request UpdateMyProfileRequestObject
 
 	var body UpdateMyProfileJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -7962,7 +7962,7 @@ func (sh *strictHandler) UpdateMyContact(w http.ResponseWriter, r *http.Request)
 	var request UpdateMyContactRequestObject
 
 	var body UpdateMyContactJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -8048,7 +8048,7 @@ func (sh *strictHandler) AddMyEducation(w http.ResponseWriter, r *http.Request) 
 	var request AddMyEducationRequestObject
 
 	var body AddMyEducationJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -8107,7 +8107,7 @@ func (sh *strictHandler) UpdateMyEducation(w http.ResponseWriter, r *http.Reques
 	request.EducationId = educationId
 
 	var body UpdateMyEducationJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -8138,7 +8138,7 @@ func (sh *strictHandler) AddMyExperience(w http.ResponseWriter, r *http.Request)
 	var request AddMyExperienceRequestObject
 
 	var body AddMyExperienceJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -8197,7 +8197,7 @@ func (sh *strictHandler) UpdateMyExperience(w http.ResponseWriter, r *http.Reque
 	request.ExperienceId = experienceId
 
 	var body UpdateMyExperienceJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -8228,7 +8228,7 @@ func (sh *strictHandler) AddMyInterest(w http.ResponseWriter, r *http.Request) {
 	var request AddMyInterestRequestObject
 
 	var body AddMyInterestJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -8285,7 +8285,7 @@ func (sh *strictHandler) AddMyLanguage(w http.ResponseWriter, r *http.Request) {
 	var request AddMyLanguageRequestObject
 
 	var body AddMyLanguageJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -8344,7 +8344,7 @@ func (sh *strictHandler) UpdateMyLanguage(w http.ResponseWriter, r *http.Request
 	request.LanguageId = languageId
 
 	var body UpdateMyLanguageJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -8375,7 +8375,7 @@ func (sh *strictHandler) AddMyLink(w http.ResponseWriter, r *http.Request) {
 	var request AddMyLinkRequestObject
 
 	var body AddMyLinkJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -8432,7 +8432,7 @@ func (sh *strictHandler) SetMyOrcidId(w http.ResponseWriter, r *http.Request) {
 	var request SetMyOrcidIdRequestObject
 
 	var body SetMyOrcidIdJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -8544,7 +8544,7 @@ func (sh *strictHandler) AddMyPublication(w http.ResponseWriter, r *http.Request
 	var request AddMyPublicationRequestObject
 
 	var body AddMyPublicationJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -8575,7 +8575,7 @@ func (sh *strictHandler) AddMyPublicationFromDOI(w http.ResponseWriter, r *http.
 	var request AddMyPublicationFromDOIRequestObject
 
 	var body AddMyPublicationFromDOIJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -8606,7 +8606,7 @@ func (sh *strictHandler) ImportMyOrcidWorks(w http.ResponseWriter, r *http.Reque
 	var request ImportMyOrcidWorksRequestObject
 
 	var body ImportMyOrcidWorksJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -8689,7 +8689,7 @@ func (sh *strictHandler) UpdateMyPublication(w http.ResponseWriter, r *http.Requ
 	request.PublicationId = publicationId
 
 	var body UpdateMyPublicationJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}
@@ -8720,7 +8720,7 @@ func (sh *strictHandler) AddMySkill(w http.ResponseWriter, r *http.Request) {
 	var request AddMySkillRequestObject
 
 	var body AddMySkillJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSONBody(r.Body, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
 	}

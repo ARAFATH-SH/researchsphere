@@ -1,6 +1,7 @@
 // EditSection names a part of the own profile that has its own edit dialog. It is also
 // the value of /profile?edit=…, which opens that dialog.
-// "experience" and "languages" open the form for a new entry.
+// "experience" and "languages" open the form for a new entry; "publications" opens the
+// Add publication dialog.
 export type EditSection =
   | "intro"
   | "about"
@@ -8,6 +9,7 @@ export type EditSection =
   | "skills"
   | "experience"
   | "languages"
+  | "publications"
   | "education"
   | "contact"
   | "photo"
@@ -20,6 +22,7 @@ export const editSections: readonly EditSection[] = [
   "skills",
   "experience",
   "languages",
+  "publications",
   "education",
   "contact",
   "photo",

@@ -24,9 +24,17 @@ import {
 } from "./api";
 import { clearMyProfile } from "./my-profile";
 import { ProfileView } from "./profile-view";
+import {
+  addManualPublication,
+  listMyPublications,
+  listPublications,
+  removePublication,
+} from "./publications-api";
 import { adaID, bobID, emptyProfile, fullProfile } from "./test-profiles";
+import { page, publication } from "./test-publications";
 
 jest.mock("./api");
+jest.mock("./publications-api");
 jest.mock("@/features/auth/session");
 const mockReplace = jest.fn();
 let mockSearch = "";
@@ -117,10 +125,11 @@ describe("ProfileView, own profile", () => {
     render(<ProfileView />);
     await screen.findByRole("heading", { level: 1 });
 
-    // Publications and Activity are not built yet, so they are not rendered.
+    // Activity is not built yet, so it is not rendered. Publications is empty here.
     expect(headings(2)).toEqual([
       "About",
       "Research interests & skills",
+      "Publications",
       "Experience",
       "Education",
       "Languages",
@@ -128,7 +137,6 @@ describe("ProfileView, own profile", () => {
       "Profile strength",
     ]);
     expect(headings(3)).toEqual(["Interests", "Skills"]);
-    expect(screen.queryByText(/publications/i)).toBeNull();
     expect(screen.queryByText(/activity/i)).toBeNull();
     const interests = screen.getByRole("list", { name: "Research interests" });
     expect(
@@ -169,6 +177,7 @@ describe("ProfileView, own profile", () => {
       ["About", "Write a short bio", "/profile?edit=about"],
       ["Interests", "Add your research interests", "/profile?edit=interests"],
       ["Skills", "Add your skills", "/profile?edit=skills"],
+      ["Publications", "Add publication", "/profile?edit=publications"],
       ["Experience", "Add experience", "/profile?edit=experience"],
       ["Education", "Add your education", "/profile?edit=education"],
       ["Languages", "Add language", "/profile?edit=languages"],
@@ -1047,5 +1056,68 @@ describe("ProfileView, experience", () => {
     expect(document.activeElement).toBe(
       screen.getByRole("button", { name: "Add experience" }),
     );
+  });
+});
+
+describe("ProfileView, publications", () => {
+  it("places Publications after interests and before Experience on another profile", async () => {
+    const p = { ...fullProfile(bobID, "Bob Babbage"), publicationCount: 1 };
+    mockGetProfile.mockResolvedValue({ status: "ok", profile: p });
+    jest.mocked(listPublications).mockResolvedValue({ ok: true, data: page([publication(1)]) });
+    render(<ProfileView userId={bobID} />);
+    expect(await screen.findByText("Paper 1")).toBeTruthy();
+    const h = headings(2);
+    expect(h.indexOf("Publications")).toBe(h.indexOf("Research interests & skills") + 1);
+    expect(h.indexOf("Experience")).toBe(h.indexOf("Publications") + 1);
+    expect(jest.mocked(listPublications)).toHaveBeenCalledWith(bobID, 1, 3);
+  });
+
+  it("adds a publication from ?edit=publications and shows it without a page reload", async () => {
+    mockSearch = "edit=publications";
+    const before = emptyProfile(adaID, "Ada Lovelace");
+    mockGetMyProfile.mockResolvedValue({ status: "ok", profile: before });
+    render(<ProfileView />);
+    const dialog = await screen.findByRole("dialog", { name: "Add publication" });
+
+    jest.mocked(addManualPublication).mockResolvedValue({
+      ok: true,
+      data: { ...publication(1, { source: "manual" }), linked: false },
+    });
+    mockGetMyProfile.mockResolvedValue({ status: "ok", profile: { ...before, publicationCount: 1 } });
+    jest.mocked(listMyPublications).mockResolvedValue({
+      ok: true,
+      data: page([publication(1, { source: "manual" })]),
+    });
+    fireEvent.click(within(dialog).getByRole("tab", { name: "Add manually" }));
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Title" }), {
+      target: { value: "Paper 1" },
+    });
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Year" }), {
+      target: { value: "2021" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Add publication" }));
+
+    expect(await screen.findByText("Paper 1")).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toBe("Publication added");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(mockReplace).toHaveBeenCalledWith("/profile", { scroll: false });
+  });
+
+  it("removes a publication and goes back to the empty state", async () => {
+    const one = { ...emptyProfile(adaID, "Ada Lovelace"), publicationCount: 1 };
+    mockGetMyProfile.mockResolvedValue({ status: "ok", profile: one });
+    jest.mocked(listMyPublications).mockResolvedValue({ ok: true, data: page([publication(1)]) });
+    jest.mocked(removePublication).mockResolvedValue({ ok: true, data: null });
+    render(<ProfileView />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "More actions for Paper 1" }));
+    mockGetMyProfile.mockResolvedValue({ status: "ok", profile: { ...one, publicationCount: 0 } });
+    fireEvent.click(screen.getByRole("menuitem", { name: "Remove" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+
+    const region = within(await screen.findByRole("region", { name: "Publications" }));
+    expect(await region.findByRole("link", { name: "Add publication" })).toBeTruthy();
+    expect(screen.queryByText("Paper 1")).toBeNull();
+    expect(screen.getByRole("status").textContent).toBe("Removed");
   });
 });

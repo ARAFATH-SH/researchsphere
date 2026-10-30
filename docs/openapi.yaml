@@ -6,7 +6,9 @@ info:
   version: 0.1.0
   description: |
     JSON API between the web client and the API server. Every error response uses the
-    Error schema. Lists are paginated and the server caps the page size at 50.
+    Error schema. Lists are paginated and the server caps the page size at 50. A JSON
+    request body with a field its schema does not define is refused with 400
+    bad_request, and the message names the field.
 servers:
   - url: /api/v1
 

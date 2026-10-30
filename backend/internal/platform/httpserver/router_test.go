@@ -304,6 +304,39 @@ func TestErrorShape(t *testing.T) {
 	}
 }
 
+func TestUnknownBodyFieldIsRefused(t *testing.T) {
+	tests := []struct {
+		name        string
+		body        string
+		wantStatus  int
+		wantMessage string
+	}{
+		{"known fields", `{"email":"ada@example.org","password":"secret"}`, http.StatusOK, ""},
+		{"unknown field", `{"email":"ada@example.org","password":"secret","orcidId":"x"}`,
+			http.StatusBadRequest, `The request has an unknown field "orcidId".`},
+		{"not JSON", `{`, http.StatusBadRequest, "The request is not valid."},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			router, _ := newTestRouter(t)
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/auth/login", strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			router.ServeHTTP(rec, req)
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d (%s)", rec.Code, tt.wantStatus, rec.Body)
+			}
+			if tt.wantStatus == http.StatusOK {
+				return
+			}
+			code, message := decodeError(t, rec)
+			if code != "bad_request" || message != tt.wantMessage {
+				t.Errorf("got %q %q, want bad_request %q", code, message, tt.wantMessage)
+			}
+		})
+	}
+}
+
 func TestRequestIDIsSetAndUnique(t *testing.T) {
 	router, _ := newTestRouter(t)
 	seen := map[string]bool{}

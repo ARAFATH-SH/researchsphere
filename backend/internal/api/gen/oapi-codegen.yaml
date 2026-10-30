@@ -12,3 +12,8 @@ compatibility:
   # (docs/decisions.md). Deprecated upstream only because it cannot express OR/AND
   # combinations of schemes, which this API does not use.
   enable-auth-scopes-on-context: true
+output-options:
+  # Read JSON request bodies with decodeJSONBody (decode.go), which refuses unknown
+  # fields, instead of a plain json.Decoder that ignores them.
+  user-templates:
+    strict/strict-http.tmpl: templates/strict-http.tmpl

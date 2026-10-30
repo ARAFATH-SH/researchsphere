@@ -15,6 +15,7 @@ import { useSession } from "@/features/auth/session";
 import { homeCard } from "@/features/home/cards";
 
 import { AboutDialog } from "./about-dialog";
+import { AddPublicationDialog } from "./add-publication-dialog";
 import { contactCardButtonId } from "./contact-card";
 import { ContactDialog } from "./contact-dialog";
 import { ContactViewDialog, hasVisibleContact } from "./contact-view-dialog";
@@ -39,6 +40,10 @@ import { ImageDialog } from "./image-dialog";
 import { IntroDialog } from "./intro-dialog";
 import { LanguageDialog } from "./language-dialog";
 import { reloadMyProfile } from "./my-profile";
+import { EditPublicationDialog } from "./publication-form";
+import { publicationMenuId } from "./publication-menu";
+import type { Publication } from "./publications-api";
+import { PublicationsSection } from "./publications-section";
 import { ProfileHeader } from "./profile-header";
 import { ProfileLayout } from "./profile-layout";
 import { type EditControls, ProfileSections } from "./profile-sections";
@@ -109,7 +114,10 @@ function OtherProfile({ profile }: { profile: Profile }) {
               profile={profile}
               onContact={showContact ? () => setContactOpen(true) : undefined}
             />
-            <ProfileSections profile={profile} />
+            <ProfileSections
+              profile={profile}
+              publications={<PublicationsSection profile={profile} />}
+            />
           </>
         }
         aside={<ProfileSidebar profile={profile} />}
@@ -126,7 +134,8 @@ function OtherProfile({ profile }: { profile: Profile }) {
   );
 }
 
-// OwnProfile is the owner's profile with its edit dialogs (FR-4.1 to FR-4.4, FR-4.6, FR-4.8, FR-4.9). A pencil
+// OwnProfile is the owner's profile with its edit dialogs (FR-4.1 to FR-4.4, FR-4.6, FR-4.8, FR-4.9,
+// FR-5.1 to FR-5.3, FR-5.7). A pencil
 // opens a section's dialog, and so does /profile?edit=<section>, which the profile
 // checklist and the empty-section prompts link to.
 function OwnProfile({
@@ -144,6 +153,11 @@ function OwnProfile({
   const [experience, setExperience] = useState<Experience | null>(null);
   // language is the language the language dialog edits; null while it adds one.
   const [language, setLanguage] = useState<Language | null>(null);
+  // publication is the publication the edit dialog changes, outside the ?edit= sections.
+  const [publication, setPublication] = useState<Publication | null>(null);
+  // publicationsVersion makes the Publications card fetch its list again after a change
+  // that leaves the count as it was, such as an edit.
+  const [publicationsVersion, setPublicationsVersion] = useState(0);
   // focusAfterClose is an element to focus once a dialog has gone, when the one that
   // opened it is about to disappear, such as a deleted entry's pencil.
   const focusAfterClose = useRef<string | null>(null);
@@ -174,12 +188,22 @@ function OwnProfile({
     }
   }
 
-  function saved(message = "Saved") {
-    close();
-    reload();
+  function showToast(message: string) {
     setToast(message);
     clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), toastDuration);
+  }
+
+  function saved(message = "Saved") {
+    close();
+    reload();
+    showToast(message);
+  }
+
+  // publicationsChanged refreshes the profile's count and the Publications card.
+  function publicationsChanged() {
+    reload();
+    setPublicationsVersion((n) => n + 1);
   }
 
   // contactReturnId is the "Contact info" link or the contact card's pencil, whichever
@@ -216,7 +240,25 @@ function OwnProfile({
               edit={edit}
               onContact={() => editContact(editButtonId("contact"))}
             />
-            <ProfileSections profile={profile} edit={edit} />
+            <ProfileSections
+              profile={profile}
+              edit={edit}
+              publications={
+                <PublicationsSection
+                  profile={profile}
+                  refreshKey={publicationsVersion}
+                  controls={{
+                    add: () => setEditing("publications"),
+                    edit: setPublication,
+                    removed: () => {
+                      focusAfterClose.current = editButtonId("publications");
+                      publicationsChanged();
+                      showToast("Removed");
+                    },
+                  }}
+                />
+              }
+            />
           </>
         }
         aside={
@@ -259,6 +301,30 @@ function OwnProfile({
           returnFocusId={
             language ? languageButtonId(language.id) : editButtonId("languages")
           }
+        />
+      )}
+      {open === "publications" && (
+        <AddPublicationDialog
+          orcidId={profile.orcidId}
+          onClose={close}
+          onAdded={(message) => {
+            setPublicationsVersion((n) => n + 1);
+            saved(message);
+          }}
+          onChanged={publicationsChanged}
+          returnFocusId={editButtonId("publications")}
+        />
+      )}
+      {publication && (
+        <EditPublicationDialog
+          publication={publication}
+          onClose={() => setPublication(null)}
+          onSaved={() => {
+            setPublication(null);
+            publicationsChanged();
+            showToast("Saved");
+          }}
+          returnFocusId={publicationMenuId(publication.id)}
         />
       )}
       {open === "education" && <EducationDialog {...common} onSaved={saved} />}
