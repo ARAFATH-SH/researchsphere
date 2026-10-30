@@ -31,6 +31,18 @@ func TestLookupsReturnErrorsWhenRedisIsDown(t *testing.T) {
 	if err := l.PutWork(t.Context(), domain.WorkMetadata{DOI: "10.5555/x", Title: "T"}, time.Hour); err == nil {
 		t.Error("PutWork() error = nil")
 	}
+	if _, _, err := l.GetORCIDWorks(t.Context(), "0000-0002-1825-0097"); err == nil {
+		t.Error("GetORCIDWorks() error = nil")
+	}
+	if err := l.PutORCIDWorks(t.Context(), "0000-0002-1825-0097", nil, time.Hour); err == nil {
+		t.Error("PutORCIDWorks() error = nil")
+	}
+	if _, _, err := l.ORCIDLimiter().Used(t.Context(), "u1"); err == nil {
+		t.Error("ORCIDLimiter().Used() error = nil")
+	}
+	if err := l.ORCIDLimiter().Record(t.Context(), "u1", time.Hour); err == nil {
+		t.Error("ORCIDLimiter().Record() error = nil")
+	}
 	if d := time.Since(start); d > 3*time.Second {
 		t.Errorf("calls took %s, want them to give up quickly", d)
 	}

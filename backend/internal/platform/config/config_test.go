@@ -369,3 +369,38 @@ func TestLoadOpenAlexSettings(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadORCIDSettings(t *testing.T) {
+	tests := []struct {
+		name     string
+		base     string
+		wantBase string
+		wantErr  bool
+	}{
+		{"default", "", DefaultORCIDBaseURL, false},
+		{"set, trailing slash removed", "http://127.0.0.1:4011/", "http://127.0.0.1:4011", false},
+		{"without a scheme", "pub.orcid.org", "", true},
+		{"with a query", "https://pub.orcid.org?x=1", "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			v := map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL}
+			if tt.base != "" {
+				v["ORCID_BASE_URL"] = tt.base
+			}
+			cfg, err := Load(env(v))
+			if tt.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "ORCID_BASE_URL") {
+					t.Fatalf("Load() error = %v, want one naming ORCID_BASE_URL", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.ORCIDBaseURL != tt.wantBase {
+				t.Errorf("ORCIDBaseURL = %q, want %q", cfg.ORCIDBaseURL, tt.wantBase)
+			}
+		})
+	}
+}

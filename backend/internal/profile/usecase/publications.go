@@ -106,39 +106,44 @@ func (s *Service) storePublication(ctx context.Context, userID string, p domain.
 		if n >= MaxPublications {
 			return domain.ErrPublicationLimitReached
 		}
-		if p.DOI != nil {
-			existing, err := tx.FindPublicationByDOI(ctx, *p.DOI)
-			switch {
-			case err == nil:
-				res, err = linkExisting(ctx, tx, userID, existing)
-				return err
-			case !errors.Is(err, domain.ErrNotFound):
-				return err
-			}
-		}
-		saved, err := tx.InsertPublication(ctx, p)
-		if errors.Is(err, domain.ErrDuplicateDOI) {
-			// Another user stored the DOI after the lookup above; link to theirs.
-			existing, err := tx.FindPublicationByDOI(ctx, *p.DOI)
-			if err != nil {
-				return err
-			}
-			res, err = linkExisting(ctx, tx, userID, existing)
-			return err
-		}
-		if err != nil {
-			return err
-		}
-		if err := tx.LinkPublication(ctx, userID, saved.ID); err != nil {
-			return err
-		}
-		res = AddedPublication{Publication: saved}
-		return nil
+		res, err = addToUser(ctx, tx, userID, p)
+		return err
 	})
 	if err != nil {
 		return AddedPublication{}, err
 	}
 	return res, nil
+}
+
+// addToUser stores p, which is valid, with the user's link confirmed, or links the user
+// to the stored publication with p's DOI (FR-5.4), including one another user stores at
+// the same moment. It returns the errors of linkExisting. The caller checks the limit.
+func addToUser(ctx context.Context, tx domain.Tx, userID string, p domain.Publication) (AddedPublication, error) {
+	if p.DOI != nil {
+		existing, err := tx.FindPublicationByDOI(ctx, *p.DOI)
+		switch {
+		case err == nil:
+			return linkExisting(ctx, tx, userID, existing)
+		case !errors.Is(err, domain.ErrNotFound):
+			return AddedPublication{}, err
+		}
+	}
+	saved, err := tx.InsertPublication(ctx, p)
+	if errors.Is(err, domain.ErrDuplicateDOI) {
+		// Another user stored the DOI after the lookup above; link to theirs.
+		existing, err := tx.FindPublicationByDOI(ctx, *p.DOI)
+		if err != nil {
+			return AddedPublication{}, err
+		}
+		return linkExisting(ctx, tx, userID, existing)
+	}
+	if err != nil {
+		return AddedPublication{}, err
+	}
+	if err := tx.LinkPublication(ctx, userID, saved.ID); err != nil {
+		return AddedPublication{}, err
+	}
+	return AddedPublication{Publication: saved}, nil
 }
 
 // linkExisting links the user to the existing publication p, confirmed, or confirms a

@@ -195,10 +195,14 @@ func (s *Service) metadata(ctx context.Context, userID, doi string) (domain.Work
 }
 
 func (s *Service) logger() *slog.Logger {
-	if s.lookup.Logger == nil {
+	switch {
+	case s.lookup.Logger != nil:
+		return s.lookup.Logger
+	case s.orcid.Logger != nil:
+		return s.orcid.Logger
+	default:
 		return slog.New(slog.DiscardHandler)
 	}
-	return s.lookup.Logger
 }
 
 // normalizeWork makes fetched metadata fit the publication rules of FR-5.1 instead of

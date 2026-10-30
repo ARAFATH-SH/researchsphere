@@ -132,6 +132,8 @@ func testRouter() http.Handler {
 	return newRouter(slog.New(slog.DiscardHandler), up, up, up, authhttp.NewHandler(okAuth{}, authhttp.CookieConfig{}),
 		profilehttp.NewHandler(profileusecase.New(okProfiles{}, profileusecase.WithDOILookup(profileusecase.DOILookup{
 			Source: okWorks{}, Cache: okWorks{}, Limiter: okWorks{},
+		}), profileusecase.WithORCIDImport(profileusecase.ORCIDImport{
+			Source: okWorks{}, Cache: okWorks{}, Limiter: okWorks{},
 		}))),
 		mediahttp.NewHandler(okMedia{}),
 		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
@@ -259,7 +261,8 @@ const okUserID = "6f1c2b9e-1d2a-4c3b-9a8e-0f1e2d3c4b5a"
 type okProfiles struct{}
 
 func (okProfiles) FindAccount(_ context.Context, id string) (profiledomain.Account, error) {
-	return profiledomain.Account{UserID: id, Verified: true, Profile: &profiledomain.Profile{UserID: id, FullName: "Ada"}}, nil
+	orcidID := "0000-0002-1825-0097"
+	return profiledomain.Account{UserID: id, Verified: true, Profile: &profiledomain.Profile{UserID: id, FullName: "Ada", OrcidID: &orcidID}}, nil
 }
 
 func (okProfiles) UpsertProfile(_ context.Context, p profiledomain.Profile) (profiledomain.Profile, error) {
@@ -428,6 +431,12 @@ func (okProfiles) UnlinkPublication(context.Context, string, string) error { ret
 
 func (okProfiles) DeletePublicationIfOrphaned(context.Context, string) error { return nil }
 
+func (okProfiles) SetOrcidID(context.Context, string, *string) error { return nil }
+
+func (okProfiles) MatchPublicationsByDOI(context.Context, string, []string) (map[string]profiledomain.DOIMatch, error) {
+	return map[string]profiledomain.DOIMatch{}, nil
+}
+
 const okEducationID = "8b3e4d5c-6f7a-4b2c-9d0e-1f2a3b4c5d6e"
 
 const okLinkID = "9c4f5e6d-7a8b-4c3d-8e1f-2a3b4c5d6e7f"
@@ -495,7 +504,8 @@ type pingerFunc func(ctx context.Context) error
 
 func (f pingerFunc) Ping(ctx context.Context) error { return f(ctx) }
 
-// okWorks finds every DOI, caches nothing and never limits.
+// okWorks finds every DOI, lists one ORCID work with put-code 1, caches nothing and never
+// limits.
 type okWorks struct{}
 
 func (okWorks) FetchWork(_ context.Context, doi string) (profiledomain.WorkMetadata, error) {
@@ -511,3 +521,15 @@ func (okWorks) PutWork(context.Context, profiledomain.WorkMetadata, time.Duratio
 func (okWorks) Used(context.Context, string) (int, time.Duration, error) { return 0, 0, nil }
 
 func (okWorks) Record(context.Context, string, time.Duration) error { return nil }
+
+func (okWorks) ListWorks(context.Context, string) ([]profiledomain.ORCIDWork, error) {
+	return []profiledomain.ORCIDWork{{PutCode: "1", Title: "Notes"}}, nil
+}
+
+func (okWorks) GetORCIDWorks(context.Context, string) ([]profiledomain.ORCIDWork, bool, error) {
+	return nil, false, nil
+}
+
+func (okWorks) PutORCIDWorks(context.Context, string, []profiledomain.ORCIDWork, time.Duration) error {
+	return nil
+}

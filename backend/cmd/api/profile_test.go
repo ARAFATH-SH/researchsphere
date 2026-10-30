@@ -49,6 +49,9 @@ func TestProfileRoutesThroughRouter(t *testing.T) {
 		{http.MethodDelete, "/api/v1/profiles/me/publications/" + okPublicationID, ""},
 		{http.MethodGet, "/api/v1/publications/lookup?doi=10.1000/x", ""},
 		{http.MethodPost, "/api/v1/profiles/me/publications/from-doi", `{"doi":"10.1000/x"}`},
+		{http.MethodPut, "/api/v1/profiles/me/orcid", `{"orcidId":"0000-0002-1825-0097"}`},
+		{http.MethodGet, "/api/v1/profiles/me/publications/orcid-works", ""},
+		{http.MethodPost, "/api/v1/profiles/me/publications/from-orcid", `{"putCodes":["1"]}`},
 	}
 	send := func(t *testing.T, method, path, body, role string) *httptest.ResponseRecorder {
 		t.Helper()
@@ -122,6 +125,9 @@ func TestProfileRoutesAreGuarded(t *testing.T) {
 		"GET /api/v1/profiles/{userId}/publications":              authz.ViewContent,
 		"POST /api/v1/profiles/me/publications/from-doi":          authz.ActAsMember,
 		"GET /api/v1/publications/lookup":                         authz.ActAsMember,
+		"PUT /api/v1/profiles/me/orcid":                           authz.ActAsMember,
+		"GET /api/v1/profiles/me/publications/orcid-works":        authz.ActAsMember,
+		"POST /api/v1/profiles/me/publications/from-orcid":        authz.ActAsMember,
 
 		"GET /api/v1/profiles/me/contact":           authz.ViewContent,
 		"PUT /api/v1/profiles/me/contact":           authz.ActAsMember,

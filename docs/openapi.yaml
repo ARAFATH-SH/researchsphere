@@ -1478,6 +1478,154 @@ paths:
         "503":
           $ref: "#/components/responses/MetadataUnavailable"
 
+  /profiles/me/orcid:
+    put:
+      operationId: setMyOrcidId
+      summary: Save or clear the ORCID iD on the logged-in user's profile (FR-5.3)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). The iD is trimmed; one leading `https://orcid.org/` or
+        `http://orcid.org/` is removed (ignoring case) and a final `x` is upper-cased. It
+        must then be of the form `0000-0000-0000-000X` with a valid check digit (ISO 7064
+        11,2). Null or an empty value clears it. Ownership of the iD is not proven yet
+        (docs/decisions.md); an iD saved on another profile is refused.
+      tags: [profile]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrcidIdUpdate"
+      responses:
+        "200":
+          description: The saved iD.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrcidIdUpdate"
+        "400":
+          description: |
+            The iD is not a valid ORCID iD (`invalid_orcid_id`). A body that is not JSON
+            gets `bad_request`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: Another profile has this ORCID iD (`orcid_taken`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /profiles/me/publications/orcid-works:
+    get:
+      operationId: listMyOrcidWorks
+      summary: List the public works of the ORCID iD on the logged-in user's profile (FR-5.3, FR-5.6)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). The works come from the ORCID public API, one item per
+        work group, in ORCID's order; works without a title are left out. Text is
+        normalized as in `lookupPublicationByDOI`, a DOI that is not valid is left out, and
+        a missing link becomes `https://doi.org/<doi>` when there is a DOI. Each item says
+        whether a publication with its DOI is already stored (FR-5.4). The list is cached
+        for one hour per ORCID iD. A user may make 10 calls an hour that reach ORCID;
+        cached lists do not count. The list is not paginated: the user picks from all of
+        it.
+      tags: [profile]
+      responses:
+        "200":
+          description: The works.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrcidWorkList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/OrcidNotFound"
+        "409":
+          $ref: "#/components/responses/OrcidNotSet"
+        "429":
+          $ref: "#/components/responses/OrcidRateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/OrcidUnavailable"
+
+  /profiles/me/publications/from-orcid:
+    post:
+      operationId: importMyOrcidWorks
+      summary: Import the selected ORCID works into the logged-in user's profile (FR-5.3, FR-5.4, FR-5.6)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Every put-code must be in the current list of
+        `listMyOrcidWorks` (from the cache, or fetched again). For each selected work, in
+        the order given:
+
+        - a DOI that is already stored links the caller to that record (FR-5.4, `linked`);
+        - a new DOI is fetched from OpenAlex as in `addMyPublicationFromDOI` (source `doi`,
+          with the abstract); when OpenAlex fails, does not know the DOI or the DOI
+          lookup limit is used up, the record is made from the ORCID data (source `orcid`);
+        - a work without a DOI is made from the ORCID data (source `orcid`);
+        - a work the caller has already confirmed, or a second work with the same DOI, is
+          `skipped`.
+
+        The caller's links are confirmed. Imported records cannot be changed with
+        `updateMyPublication`. A user has at most 300 publications: when the import would
+        go over, nothing is saved. The import is saved all at once or not at all.
+      tags: [profile]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrcidImportRequest"
+      responses:
+        "200":
+          description: What happened to each selected work.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrcidImportResult"
+        "400":
+          description: |
+            The list is empty, has more than 100 put-codes, repeats one, or has one that is
+            not in the current ORCID list (`invalid_put_code`). A body that is not JSON
+            gets `bad_request`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/OrcidNotFound"
+        "409":
+          description: |
+            The profile has no ORCID iD (`orcid_not_set`), or the import would take the
+            user over 300 publications (`publication_limit_reached`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/OrcidRateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/OrcidUnavailable"
+
   /profiles/me/publications/{publicationId}:
     patch:
       operationId: updateMyPublication
@@ -2111,6 +2259,7 @@ components:
         - jobTitle
         - country
         - city
+        - orcidId
         - interests
         - skills
         - education
@@ -2152,6 +2301,13 @@ components:
           type: string
           nullable: true
           example: Cambridge
+        orcidId:
+          type: string
+          nullable: true
+          description: |
+            The user's ORCID iD (FR-5.3), a public identifier shown to every viewer; set
+            with `setMyOrcidId`.
+          example: 0000-0002-1825-0097
         interests:
           type: array
           description: The user's research interests (FR-4.2), sorted by name ignoring letter case.
@@ -2938,6 +3094,113 @@ components:
           type: boolean
           description: True when the stored publication is confirmed on the caller's profile.
 
+    OrcidIdUpdate:
+      type: object
+      required: [orcidId]
+      properties:
+        orcidId:
+          type: string
+          nullable: true
+          example: 0000-0002-1825-0097
+
+    OrcidWorkList:
+      type: object
+      required: [orcidId, items]
+      properties:
+        orcidId:
+          type: string
+          description: The ORCID iD the works were listed for.
+          example: 0000-0002-1825-0097
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrcidWork"
+
+    OrcidWork:
+      type: object
+      description: One public work of an ORCID record (FR-5.3). The optional fields are always present and null when not known.
+      required: [putCode, title, year, venue, doi, type, url, existsAlready, linkedToMe]
+      properties:
+        putCode:
+          type: string
+          description: ORCID's identifier of the work within the record.
+          example: "123456"
+        title:
+          type: string
+        year:
+          type: integer
+          nullable: true
+        venue:
+          type: string
+          nullable: true
+          description: The journal title.
+        doi:
+          type: string
+          nullable: true
+          description: The bare, lower-case DOI.
+        type:
+          type: string
+          nullable: true
+          description: ORCID's work type, such as `journal-article`.
+        url:
+          type: string
+          nullable: true
+        existsAlready:
+          type: boolean
+          description: True when a publication with this DOI is already stored.
+        publicationId:
+          type: string
+          format: uuid
+          description: The stored publication's ID, present only when `existsAlready` is true.
+        linkedToMe:
+          type: boolean
+          description: True when the stored publication is confirmed on the caller's profile.
+
+    OrcidImportRequest:
+      type: object
+      required: [putCodes]
+      properties:
+        putCodes:
+          type: array
+          description: 1 to 100 put-codes from `listMyOrcidWorks`, each once.
+          items:
+            type: string
+
+    OrcidImportOutcome:
+      type: string
+      description: |
+        `created`: a new record was stored. `linked`: the caller was linked to a stored
+        record, or confirmed a link they had. `skipped`: the caller had confirmed it already.
+      enum: [created, linked, skipped]
+
+    OrcidImportItem:
+      type: object
+      required: [putCode, result, publicationId]
+      properties:
+        putCode:
+          type: string
+        result:
+          $ref: "#/components/schemas/OrcidImportOutcome"
+        publicationId:
+          type: string
+          format: uuid
+
+    OrcidImportResult:
+      type: object
+      required: [items, created, linked, skipped]
+      properties:
+        items:
+          type: array
+          description: One item per put-code, in the order given.
+          items:
+            $ref: "#/components/schemas/OrcidImportItem"
+        created:
+          type: integer
+        linked:
+          type: integer
+        skipped:
+          type: integer
+
     PublicationCreate:
       type: object
       description: |
@@ -3172,6 +3435,39 @@ components:
       headers:
         Retry-After:
           description: Seconds until the hour ends and lookups are accepted again.
+          required: true
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    OrcidNotSet:
+      description: The caller's profile has no ORCID iD (`orcid_not_set`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    OrcidNotFound:
+      description: ORCID has no record with the iD on the profile (`orcid_not_found`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    OrcidUnavailable:
+      description: |
+        ORCID did not answer in time, failed or refused the request (FR-5.6). The body is
+        `{"code":"metadata_unavailable","message":"We couldn't reach ORCID. You can still
+        add publications by DOI or by hand."}`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    OrcidRateLimited:
+      description: The user has made 10 calls that reached ORCID in the current hour (`rate_limited`).
+      headers:
+        Retry-After:
+          description: Seconds until the hour ends and calls are accepted again.
           required: true
           schema:
             type: integer

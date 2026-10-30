@@ -132,8 +132,11 @@ func TestUpsertProfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(got, second) {
-		t.Errorf("update returned %+v, want %+v", got, second)
+	// The ORCID iD is not edited here, so it is returned as stored (FR-5.3).
+	wantSecond := second
+	wantSecond.OrcidID = ptr("0000-0002-1825-0097")
+	if !reflect.DeepEqual(got, wantSecond) {
+		t.Errorf("update returned %+v, want %+v", got, wantSecond)
 	}
 
 	var (

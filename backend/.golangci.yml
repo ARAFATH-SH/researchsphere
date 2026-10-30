@@ -85,6 +85,13 @@ linters:
           allow:
             - $gostd
             - github.com/ARAFATH-SH/researchsphere/backend/internal/profile/domain
+        # The ORCID client sees only HTTP and the profile domain (FR-5.3).
+        adapter-orcid:
+          files: ["**/internal/profile/adapter/orcid/**"]
+          list-mode: strict
+          allow:
+            - $gostd
+            - github.com/ARAFATH-SH/researchsphere/backend/internal/profile/domain
     sloglint:
       attr-only: false
       no-mixed-args: true

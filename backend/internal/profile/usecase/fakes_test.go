@@ -725,15 +725,20 @@ func (s *fakeStore) givePublication(p domain.Publication, confirmed bool, userID
 	return p.ID
 }
 
-// fakeSource answers FetchWork with work or err and counts the calls.
+// fakeSource answers FetchWork with work or err, or the error errFor has for the DOI, and
+// counts the calls.
 type fakeSource struct {
-	work  domain.WorkMetadata
-	err   error
-	calls int
+	work   domain.WorkMetadata
+	err    error
+	errFor map[string]error
+	calls  int
 }
 
 func (f *fakeSource) FetchWork(_ context.Context, doi string) (domain.WorkMetadata, error) {
 	f.calls++
+	if err := f.errFor[doi]; err != nil {
+		return domain.WorkMetadata{}, err
+	}
 	if f.err != nil {
 		return domain.WorkMetadata{}, f.err
 	}
@@ -790,5 +795,84 @@ func (f *fakeLimiter) Record(_ context.Context, userID string, _ time.Duration) 
 		f.used = map[string]int{}
 	}
 	f.used[userID]++
+	return nil
+}
+
+// SetOrcidID refuses an iD another profile has, as the unique constraint does.
+func (s *fakeStore) SetOrcidID(_ context.Context, userID string, orcidID *string) error {
+	if s.err != nil {
+		return s.err
+	}
+	a, ok := s.accounts[userID]
+	if !ok || a.Profile == nil {
+		return domain.ErrNotFound
+	}
+	if orcidID != nil {
+		for id, o := range s.accounts {
+			if id != userID && o.Profile != nil && o.Profile.OrcidID != nil && *o.Profile.OrcidID == *orcidID {
+				return domain.ErrORCIDTaken
+			}
+		}
+	}
+	p := *a.Profile
+	p.OrcidID = orcidID
+	a.Profile = &p
+	s.accounts[userID] = a
+	return nil
+}
+
+func (s *fakeStore) MatchPublicationsByDOI(ctx context.Context, userID string, dois []string) (map[string]domain.DOIMatch, error) {
+	out := map[string]domain.DOIMatch{}
+	for _, doi := range dois {
+		for _, p := range s.publications {
+			if p.DOI != nil && *p.DOI == doi {
+				state, _ := s.PublicationLink(ctx, userID, p.ID)
+				out[doi] = domain.DOIMatch{PublicationID: p.ID, State: state}
+			}
+		}
+	}
+	return out, nil
+}
+
+// fakeORCID answers ListWorks with works or err and counts the calls.
+type fakeORCID struct {
+	works []domain.ORCIDWork
+	err   error
+	calls int
+	asked string // the iD of the last call
+}
+
+func (f *fakeORCID) ListWorks(_ context.Context, orcidID string) ([]domain.ORCIDWork, error) {
+	f.calls++
+	f.asked = orcidID
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.works, nil
+}
+
+// fakeORCIDCache keeps works lists by ORCID iD; err makes every call fail.
+type fakeORCIDCache struct {
+	lists map[string][]domain.ORCIDWork
+	ttl   time.Duration // given to the last PutORCIDWorks
+	err   error
+}
+
+func (f *fakeORCIDCache) GetORCIDWorks(_ context.Context, orcidID string) ([]domain.ORCIDWork, bool, error) {
+	if f.err != nil {
+		return nil, false, f.err
+	}
+	ws, ok := f.lists[orcidID]
+	return ws, ok, nil
+}
+
+func (f *fakeORCIDCache) PutORCIDWorks(_ context.Context, orcidID string, works []domain.ORCIDWork, ttl time.Duration) error {
+	if f.err != nil {
+		return f.err
+	}
+	if f.lists == nil {
+		f.lists = map[string][]domain.ORCIDWork{}
+	}
+	f.lists[orcidID], f.ttl = works, ttl
 	return nil
 }

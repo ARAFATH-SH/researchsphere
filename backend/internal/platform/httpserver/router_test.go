@@ -151,6 +151,18 @@ func (fakeAPI) AddMyPublicationFromDOI(context.Context, gen.AddMyPublicationFrom
 	return gen.AddMyPublicationFromDOI201JSONResponse{}, nil
 }
 
+func (fakeAPI) SetMyOrcidId(context.Context, gen.SetMyOrcidIdRequestObject) (gen.SetMyOrcidIdResponseObject, error) {
+	return gen.SetMyOrcidId200JSONResponse{}, nil
+}
+
+func (fakeAPI) ListMyOrcidWorks(context.Context, gen.ListMyOrcidWorksRequestObject) (gen.ListMyOrcidWorksResponseObject, error) {
+	return gen.ListMyOrcidWorks200JSONResponse{}, nil
+}
+
+func (fakeAPI) ImportMyOrcidWorks(context.Context, gen.ImportMyOrcidWorksRequestObject) (gen.ImportMyOrcidWorksResponseObject, error) {
+	return gen.ImportMyOrcidWorks200JSONResponse{}, nil
+}
+
 func (fakeAPI) AddMyLanguage(context.Context, gen.AddMyLanguageRequestObject) (gen.AddMyLanguageResponseObject, error) {
 	return gen.AddMyLanguage201JSONResponse{}, nil
 }
@@ -425,8 +437,8 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 
 func TestRoutes(t *testing.T) {
 	got := Routes()
-	if len(got) != 47 {
-		t.Errorf("Routes() returned %d routes, want the 47 operations in the contract: %v", len(got), got)
+	if len(got) != 50 {
+		t.Errorf("Routes() returned %d routes, want the 50 operations in the contract: %v", len(got), got)
 	}
 	seen := map[string]bool{}
 	for _, p := range got {

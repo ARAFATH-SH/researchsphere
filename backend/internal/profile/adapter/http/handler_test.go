@@ -70,6 +70,27 @@ type fakeService struct {
 	listedOwn        bool                     // ListOwnPublications was called, not ListPublications
 	preview          usecase.DOIPreview       // returned by LookupDOI
 	doi              string                   // given to LookupDOI and AddPublicationFromDOI
+
+	orcidIn      *string               // given to SetOrcidID
+	orcidSaved   *string               // returned by SetOrcidID
+	orcidList    usecase.ORCIDWorkList // returned by ListORCIDWorks
+	putCodes     []string              // given to ImportORCIDWorks
+	importResult usecase.ImportResult  // returned by ImportORCIDWorks
+}
+
+func (f *fakeService) SetOrcidID(_ context.Context, userID string, orcidID *string) (*string, error) {
+	f.userID, f.orcidIn = userID, orcidID
+	return f.orcidSaved, f.err
+}
+
+func (f *fakeService) ListORCIDWorks(_ context.Context, userID string) (usecase.ORCIDWorkList, error) {
+	f.userID = userID
+	return f.orcidList, f.err
+}
+
+func (f *fakeService) ImportORCIDWorks(_ context.Context, userID string, putCodes []string) (usecase.ImportResult, error) {
+	f.userID, f.putCodes = userID, putCodes
+	return f.importResult, f.err
 }
 
 func (f *fakeService) AddPublication(_ context.Context, userID string, in usecase.PublicationInput) (usecase.AddedPublication, error) {
@@ -260,7 +281,7 @@ func checkProfileBody(t *testing.T, rec *httptest.ResponseRecorder, wantID strin
 	got := decode(t, rec)
 	want := map[string]any{
 		"userId": wantID, "fullName": "Ada Lovelace", "headline": "Analyst", "bio": nil,
-		"institution": nil, "department": nil, "jobTitle": nil, "country": "GB", "city": "London",
+		"institution": nil, "department": nil, "jobTitle": nil, "country": "GB", "city": "London", "orcidId": nil,
 		"interests": []any{}, "skills": []any{}, "education": []any{}, "experience": []any{}, "languages": []any{}, "publicationCount": float64(3),
 		"connectionStatus": "none", "contact": map[string]any{"links": []any{}},
 		"photoUrl": nil, "coverUrl": nil,

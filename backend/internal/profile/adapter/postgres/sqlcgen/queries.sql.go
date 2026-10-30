@@ -238,7 +238,7 @@ func (q *Queries) DeleteUserLink(ctx context.Context, arg DeleteUserLinkParams) 
 const findAccount = `-- name: FindAccount :one
 SELECT u.id, u.email_verified_at, u.suspended_at,
        p.user_id AS profile_user_id, p.full_name, p.headline, p.bio, p.institution,
-       p.department, p.job_title, p.country, p.city, p.photo_file_id, p.cover_file_id
+       p.department, p.job_title, p.country, p.city, p.orcid_id, p.photo_file_id, p.cover_file_id
 FROM users u
 LEFT JOIN profiles p ON p.user_id = u.id
 WHERE u.id = $1
@@ -257,6 +257,7 @@ type FindAccountRow struct {
 	JobTitle        pgtype.Text
 	Country         pgtype.Text
 	City            pgtype.Text
+	OrcidID         pgtype.Text
 	PhotoFileID     pgtype.UUID
 	CoverFileID     pgtype.UUID
 }
@@ -278,6 +279,7 @@ func (q *Queries) FindAccount(ctx context.Context, id pgtype.UUID) (FindAccountR
 		&i.JobTitle,
 		&i.Country,
 		&i.City,
+		&i.OrcidID,
 		&i.PhotoFileID,
 		&i.CoverFileID,
 	)
@@ -1246,6 +1248,71 @@ func (q *Queries) LockUser(ctx context.Context, id pgtype.UUID) (pgtype.UUID, er
 	return id_2, err
 }
 
+const matchPublicationsByDOI = `-- name: MatchPublicationsByDOI :many
+SELECT p.id, p.doi, (up.user_id IS NOT NULL)::boolean AS linked, coalesce(up.confirmed_at IS NOT NULL, false)::boolean AS confirmed
+FROM publications p
+LEFT JOIN user_publications up ON up.publication_id = p.id AND up.user_id = $1
+WHERE p.doi = ANY($2::text[])
+`
+
+type MatchPublicationsByDOIParams struct {
+	UserID pgtype.UUID
+	Dois   []string
+}
+
+type MatchPublicationsByDOIRow struct {
+	ID        pgtype.UUID
+	Doi       pgtype.Text
+	Linked    bool
+	Confirmed bool
+}
+
+// The stored publications with one of the DOIs, and whether the user has confirmed each
+// (FR-5.3, FR-5.4). linked is false when the user has no link.
+func (q *Queries) MatchPublicationsByDOI(ctx context.Context, arg MatchPublicationsByDOIParams) ([]MatchPublicationsByDOIRow, error) {
+	rows, err := q.db.Query(ctx, matchPublicationsByDOI, arg.UserID, arg.Dois)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MatchPublicationsByDOIRow
+	for rows.Next() {
+		var i MatchPublicationsByDOIRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Doi,
+			&i.Linked,
+			&i.Confirmed,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const setOrcidID = `-- name: SetOrcidID :execrows
+UPDATE profiles SET orcid_id = $1 WHERE user_id = $2
+`
+
+type SetOrcidIDParams struct {
+	OrcidID pgtype.Text
+	UserID  pgtype.UUID
+}
+
+// Saves or clears the user's ORCID iD (FR-5.3). The unique constraint refuses an iD
+// another profile has.
+func (q *Queries) SetOrcidID(ctx context.Context, arg SetOrcidIDParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setOrcidID, arg.OrcidID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const suggestInterests = `-- name: SuggestInterests :many
 SELECT t.id, t.name
 FROM research_interests t
@@ -1653,7 +1720,7 @@ ON CONFLICT (user_id) DO UPDATE SET
     country     = EXCLUDED.country,
     city        = EXCLUDED.city
 RETURNING user_id, full_name, headline, bio, institution, department, job_title, country, city,
-          photo_file_id, cover_file_id
+          orcid_id, photo_file_id, cover_file_id
 `
 
 type UpsertProfileParams struct {
@@ -1678,6 +1745,7 @@ type UpsertProfileRow struct {
 	JobTitle    pgtype.Text
 	Country     pgtype.Text
 	City        pgtype.Text
+	OrcidID     pgtype.Text
 	PhotoFileID pgtype.UUID
 	CoverFileID pgtype.UUID
 }
@@ -1706,6 +1774,7 @@ func (q *Queries) UpsertProfile(ctx context.Context, arg UpsertProfileParams) (U
 		&i.JobTitle,
 		&i.Country,
 		&i.City,
+		&i.OrcidID,
 		&i.PhotoFileID,
 		&i.CoverFileID,
 	)

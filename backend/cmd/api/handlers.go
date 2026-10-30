@@ -85,6 +85,12 @@ var platformGuards = map[string]authz.Action{
 	// spends the user's lookups, so it needs the same action.
 	"POST /api/v1/profiles/me/publications/from-doi": authz.ActAsMember,
 	"GET /api/v1/publications/lookup":                authz.ActAsMember,
+	// The ORCID iD (FR-5.3) is part of the own profile; listing its works spends the
+	// user's ORCID calls and is the first step of importing them, so all three need the
+	// same action.
+	"PUT /api/v1/profiles/me/orcid":                    authz.ActAsMember,
+	"GET /api/v1/profiles/me/publications/orcid-works": authz.ActAsMember,
+	"POST /api/v1/profiles/me/publications/from-orcid": authz.ActAsMember,
 
 	// Contact info and links (FR-4.7) are part of the user's own profile.
 	"GET /api/v1/profiles/me/contact":           authz.ViewContent,

@@ -21,6 +21,9 @@ type Profile struct {
 	JobTitle    *string
 	Country     *string // ISO 3166-1 alpha-2 code in capitals
 	City        *string
+	// OrcidID is the user's ORCID iD (FR-5.3), such as 0000-0002-1825-0097. SetOrcidID
+	// changes it; UpsertProfile leaves it alone.
+	OrcidID *string
 	// PhotoFileID and CoverFileID are the stored files of the profile photo and cover
 	// image (FR-4.6), nil when not set. The media module sets them; UpsertProfile leaves
 	// them alone.
@@ -327,6 +330,10 @@ type Store interface {
 	ListConfirmedPublications(ctx context.Context, userID string) ([]Publication, error)
 	// CountConfirmedPublications returns how many publications the user has confirmed.
 	CountConfirmedPublications(ctx context.Context, userID string) (int, error)
+	// SetOrcidID saves the user's ORCID iD, or clears it when orcidID is nil. It returns
+	// ErrORCIDTaken when another profile has the iD, and ErrNotFound when the user has no
+	// profile row.
+	SetOrcidID(ctx context.Context, userID string, orcidID *string) error
 }
 
 // Tx is the set of steps available inside a transaction.
@@ -418,6 +425,9 @@ type Tx interface {
 	UnlinkPublication(ctx context.Context, userID, publicationID string) error
 	// DeletePublicationIfOrphaned deletes the publication when no user is linked to it.
 	DeletePublicationIfOrphaned(ctx context.Context, publicationID string) error
+	// MatchPublicationsByDOI returns the stored publications with one of the DOIs, by
+	// DOI, with how the user is linked to each. A DOI no publication has is left out.
+	MatchPublicationsByDOI(ctx context.Context, userID string, dois []string) (map[string]DOIMatch, error)
 }
 
 // Errors the usecase returns. The HTTP adapter turns each into an error code.
