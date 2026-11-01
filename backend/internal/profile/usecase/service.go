@@ -135,17 +135,24 @@ func (s *Service) withDetails(ctx context.Context, p domain.Profile, viewerID st
 	if p.PublicationCount, err = s.store.CountConfirmedPublications(ctx, p.UserID); err != nil {
 		return domain.Profile{}, err
 	}
-	p.Connection = domain.ConnectionRelation{Status: domain.ConnectionNone}
+	p.Connection = noConnection(viewerID, p.UserID)
 	if s.conns == nil {
 		return p, nil
 	}
-	if viewerID != p.UserID {
-		if p.Connection, err = s.conns.Relation(ctx, viewerID, p.UserID); err != nil {
-			return domain.Profile{}, err
-		}
+	if p.Connection, err = s.conns.Relation(ctx, viewerID, p.UserID); err != nil {
+		return domain.Profile{}, err
 	}
 	if p.ConnectionCount, err = s.conns.Count(ctx, p.UserID); err != nil {
 		return domain.Profile{}, err
 	}
 	return p, nil
+}
+
+// noConnection is the relation shown without a ConnectionLookup: ConnectionSelf for the
+// viewer's own, ConnectionNone for anyone else.
+func noConnection(viewerID, userID string) domain.ConnectionRelation {
+	if viewerID == userID {
+		return domain.ConnectionRelation{Status: domain.ConnectionSelf}
+	}
+	return domain.ConnectionRelation{Status: domain.ConnectionNone}
 }

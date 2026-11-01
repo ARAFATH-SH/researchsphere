@@ -391,7 +391,7 @@ func TestRelation(t *testing.T) {
 		{"ada", "bob", domain.StatusPendingSent, true},
 		{"bob", "ada", domain.StatusPendingReceived, true},
 		{"ada", "cy", domain.StatusNone, false},
-		{"ada", "ada", domain.StatusNone, false},
+		{"ada", "ada", domain.StatusSelf, false},
 	}
 	for _, tt := range tests {
 		got := e.relation(t, tt.viewer, tt.owner)
@@ -402,6 +402,63 @@ func TestRelation(t *testing.T) {
 	e.store.err = errors.New("boom")
 	if _, err := e.svc.Relation(ctx, "ada", "bob"); err == nil {
 		t.Error("Relation hid the store error")
+	}
+}
+
+func TestRelations(t *testing.T) {
+	e := newEnv()
+	e.store.addUser("dee", false)
+	e.store.addUser("eve", false)
+	sent := e.send(t, "ada", "bob")                    // pending_sent for ada
+	received := e.send(t, "cy", "ada")                 // pending_received for ada
+	mustAcceptAs(e, "ada", e.send(t, "dee", "ada").ID) // connected
+	rejected := e.send(t, "ada", "eve")
+	if err := e.svc.Reject(ctx, "eve", rejected.ID); err != nil {
+		t.Fatal(err)
+	}
+	e.store.addUser("fay", false)
+	e.send(t, "bob", "fay") // someone else's request: none for ada
+
+	e.store.linkLists = 0
+	got, err := e.svc.Relations(ctx, "ada", []string{"bob", "cy", "dee", "eve", "fay", "ada", "nobody"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e.store.linkLists != 1 {
+		t.Errorf("Relations made %d store calls, want 1", e.store.linkLists)
+	}
+	want := map[string]domain.Relation{
+		"bob":    {Status: domain.StatusPendingSent, RequestID: &sent.ID},
+		"cy":     {Status: domain.StatusPendingReceived, RequestID: &received.ID},
+		"dee":    {Status: domain.StatusConnected},
+		"eve":    {Status: domain.StatusNone}, // rejected (FR-7.6)
+		"fay":    {Status: domain.StatusNone},
+		"ada":    {Status: domain.StatusSelf},
+		"nobody": {Status: domain.StatusNone},
+	}
+	if len(got) != len(want) {
+		t.Errorf("got %d entries, want %d: %+v", len(got), len(want), got)
+	}
+	for id, w := range want {
+		g := got[id]
+		if g.Status != w.Status || (g.RequestID == nil) != (w.RequestID == nil) || (w.RequestID != nil && *g.RequestID != *w.RequestID) {
+			t.Errorf("%s: %+v, want %+v", id, g, w)
+		}
+	}
+
+	// Nobody but the viewer, or nobody at all: no store call.
+	e.store.linkLists = 0
+	for _, ids := range [][]string{nil, {"ada"}} {
+		if _, err := e.svc.Relations(ctx, "ada", ids); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if e.store.linkLists != 0 {
+		t.Errorf("Relations of nobody else made %d store calls, want 0", e.store.linkLists)
+	}
+	e.store.err = errors.New("boom")
+	if _, err := e.svc.Relations(ctx, "ada", []string{"bob"}); err == nil {
+		t.Error("Relations hid the store error")
 	}
 }
 
@@ -450,6 +507,9 @@ func TestLists(t *testing.T) {
 	if conns.Total != 1 || len(conns.Items) != 1 || conns.Items[0].Other.UserID != "u00" {
 		t.Errorf("ada's connections: %+v, want only u00", conns)
 	}
+	if v := conns.Items[0].Viewer; v.Status != domain.StatusConnected || v.RequestID != nil {
+		t.Errorf("own list item's relation %+v, want connected", v)
+	}
 	if n, _ := e.svc.CountConnections(ctx, "ada"); n != 1 {
 		t.Errorf("CountConnections = %d, want 1", n)
 	}
@@ -463,15 +523,43 @@ func mustAcceptAs(e env, user, id string) {
 
 func TestListUserConnections(t *testing.T) {
 	e := newEnv()
-	mustAcceptAs(e, "bob", e.send(t, "ada", "bob").ID)
-	got, err := e.svc.ListUserConnections(ctx, "bob", 1)
-	if err != nil || got.Total != 1 || got.Items[0].Other.UserID != "ada" {
-		t.Errorf("bob's connections: %+v, %v; want ada", got, err)
+	e.store.addUser("dee", false)
+	// bob is connected with ada, cy and dee; cy has asked ada, ada is connected with dee.
+	for _, u := range []string{"ada", "cy", "dee"} {
+		mustAcceptAs(e, "bob", e.send(t, u, "bob").ID)
+	}
+	pending := e.send(t, "cy", "ada")
+	mustAcceptAs(e, "ada", e.send(t, "dee", "ada").ID)
+
+	e.store.linkLists = 0
+	got, err := e.svc.ListUserConnections(ctx, "ada", "bob", 1)
+	if err != nil || got.Total != 3 {
+		t.Fatalf("bob's connections: %+v, %v; want 3", got, err)
+	}
+	if e.store.linkLists != 1 {
+		t.Errorf("the page made %d link lookups, want 1", e.store.linkLists)
+	}
+	want := map[string]domain.Status{"ada": domain.StatusSelf, "cy": domain.StatusPendingReceived, "dee": domain.StatusConnected}
+	for _, c := range got.Items {
+		if c.Viewer.Status != want[c.Other.UserID] {
+			t.Errorf("%s: %s, want %s", c.Other.UserID, c.Viewer.Status, want[c.Other.UserID])
+		}
+		if c.Other.UserID == "cy" && (c.Viewer.RequestID == nil || *c.Viewer.RequestID != pending.ID) {
+			t.Errorf("cy's request ID %v, want %s", c.Viewer.RequestID, pending.ID)
+		}
 	}
 	for _, u := range []string{"sam", "nobody"} {
-		if _, err := e.svc.ListUserConnections(ctx, u, 1); !errors.Is(err, domain.ErrNotFound) {
+		if _, err := e.svc.ListUserConnections(ctx, "ada", u, 1); !errors.Is(err, domain.ErrNotFound) {
 			t.Errorf("connections of %s: %v, want ErrNotFound", u, err)
 		}
+	}
+}
+
+func TestAcceptReturnsConnected(t *testing.T) {
+	e := newEnv()
+	c, err := e.svc.Accept(ctx, "bob", e.send(t, "ada", "bob").ID)
+	if err != nil || c.Viewer.Status != domain.StatusConnected || c.Viewer.RequestID != nil {
+		t.Errorf("Accept = %+v, %v; want the relation connected", c, err)
 	}
 }
 
@@ -481,7 +569,7 @@ func TestListsRefuseBadPage(t *testing.T) {
 		if _, err := e.svc.ListConnections(ctx, "ada", p); !errors.Is(err, domain.ErrInvalidPage) {
 			t.Errorf("ListConnections page %d: %v", p, err)
 		}
-		if _, err := e.svc.ListUserConnections(ctx, "ada", p); !errors.Is(err, domain.ErrInvalidPage) {
+		if _, err := e.svc.ListUserConnections(ctx, "bob", "ada", p); !errors.Is(err, domain.ErrInvalidPage) {
 			t.Errorf("ListUserConnections page %d: %v", p, err)
 		}
 		if _, err := e.svc.ListReceived(ctx, "ada", p); !errors.Is(err, domain.ErrInvalidPage) {

@@ -10,9 +10,16 @@ import (
 )
 
 // withContact gives p the contact info of a user who never saved any: nothing to see
-// and no links.
+// and no links. It is the own profile, so the relation is self.
 func withContact(p domain.Profile) domain.Profile {
 	p.Contact = domain.VisibleContact{Links: []domain.Link{}}
+	p.Connection = domain.ConnectionRelation{Status: domain.ConnectionSelf}
+	return p
+}
+
+// viewed is withContact for someone else's profile: no link with the viewer.
+func viewed(p domain.Profile) domain.Profile {
+	p = withContact(p)
 	p.Connection = domain.ConnectionRelation{Status: domain.ConnectionNone}
 	return p
 }
@@ -53,8 +60,8 @@ func TestView(t *testing.T) {
 		want    domain.Profile
 		wantErr error
 	}{
-		{"another user's profile", adaID, withContact(*testAccounts()[0].Profile), nil},
-		{"verified user without a profile row", bobID, withContact(domain.Profile{UserID: bobID}), nil},
+		{"another user's profile", adaID, viewed(*testAccounts()[0].Profile), nil},
+		{"verified user without a profile row", bobID, viewed(domain.Profile{UserID: bobID}), nil},
 		{"unknown user", nobody, domain.Profile{}, domain.ErrNotFound},
 		{"malformed ID", "not-a-uuid", domain.Profile{}, domain.ErrNotFound},
 		{"suspended user", carlID, domain.Profile{}, domain.ErrNotFound},

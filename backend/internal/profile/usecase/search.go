@@ -55,7 +55,7 @@ type SearchInput struct {
 // not 2 to 100 characters after trimming, domain.ErrInvalidSearchFilter for a bad filter,
 // domain.ErrInvalidPage for a page outside 1 to 50, and *domain.RateLimitedError after
 // SearchesPerWindow searches in a SearchWindow. When the limit cannot be read, the search
-// goes ahead.
+// goes ahead. Each result carries the searcher's connection with that person.
 func (s *Service) SearchPeople(ctx context.Context, userID string, in SearchInput) (domain.PeopleResults, error) {
 	q, err := searchQuery(in)
 	if err != nil {
@@ -75,7 +75,34 @@ func (s *Service) SearchPeople(ctx context.Context, userID string, in SearchInpu
 	if err := p.Limiter.Record(ctx, userID, SearchWindow); err != nil {
 		s.logger().WarnContext(ctx, "search rate limit not recorded", slog.Any("error", err))
 	}
-	return p.Searcher.SearchPeople(ctx, q, MaxSearchFacets)
+	res, err := p.Searcher.SearchPeople(ctx, q, MaxSearchFacets)
+	if err != nil {
+		return domain.PeopleResults{}, err
+	}
+	return res, s.fillConnections(ctx, userID, res.Hits)
+}
+
+// fillConnections sets the searcher's link with each person of the page, with one lookup
+// for the whole page (FR-7).
+func (s *Service) fillConnections(ctx context.Context, viewerID string, hits []domain.PersonHit) error {
+	if s.conns == nil || len(hits) == 0 {
+		for i := range hits {
+			hits[i].Connection = noConnection(viewerID, hits[i].UserID)
+		}
+		return nil
+	}
+	ids := make([]string, len(hits))
+	for i, h := range hits {
+		ids[i] = h.UserID
+	}
+	rel, err := s.conns.Relations(ctx, viewerID, ids)
+	if err != nil {
+		return err
+	}
+	for i, h := range hits {
+		hits[i].Connection = rel[h.UserID]
+	}
+	return nil
 }
 
 // searchQuery validates and normalizes in.

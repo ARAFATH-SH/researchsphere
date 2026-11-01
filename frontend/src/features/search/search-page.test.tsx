@@ -20,6 +20,8 @@ const ada: PersonSearchResult = {
   photoUrl: null,
   interests: ["Machine learning", "Retinal analysis"],
   matchedOn: "name",
+  connectionStatus: "none",
+  connectionRequestId: null,
 };
 
 function resultPage(over: Partial<PeopleSearchPage> = {}): PeopleSearchPage {

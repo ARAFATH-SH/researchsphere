@@ -101,7 +101,34 @@ func (s *Store) FindLiveLink(ctx context.Context, a, b string) (domain.LiveLink,
 		return domain.LiveLink{}, false, fmt.Errorf("find connection: %w", err)
 	}
 	return domain.LiveLink{ID: row.ID.String(), RequesterID: row.RequesterID.String(),
-		Accepted: row.Status == sqlcgen.ConnectionStatusAccepted}, true, nil
+		ReceiverID: row.ReceiverID.String(), Accepted: row.Status == sqlcgen.ConnectionStatusAccepted}, true, nil
+}
+
+// ListLiveLinks runs no query when no ID is a UUID other than the viewer's.
+func (s *Store) ListLiveLinks(ctx context.Context, viewerID string, otherIDs []string) ([]domain.LiveLink, error) {
+	viewer, ok := parseUUID(viewerID)
+	if !ok {
+		return nil, nil
+	}
+	ids := make([]pgtype.UUID, 0, len(otherIDs))
+	for _, o := range otherIDs {
+		if id, ok := parseUUID(o); ok && id != viewer {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	rows, err := s.q.ListLiveLinks(ctx, sqlcgen.ListLiveLinksParams{OtherIds: ids, ViewerID: viewer})
+	if err != nil {
+		return nil, fmt.Errorf("list connection links: %w", err)
+	}
+	links := make([]domain.LiveLink, 0, len(rows))
+	for _, r := range rows {
+		links = append(links, domain.LiveLink{ID: r.ID.String(), RequesterID: r.RequesterID.String(),
+			ReceiverID: r.ReceiverID.String(), Accepted: r.Status == sqlcgen.ConnectionStatusAccepted})
+	}
+	return links, nil
 }
 
 // AcceptRequest returns domain.ErrNotFound unless receiverID received the request, it is

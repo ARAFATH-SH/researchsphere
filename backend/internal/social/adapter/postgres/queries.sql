@@ -26,11 +26,21 @@ RETURNING id, created_at;
 
 -- name: FindLiveLink :one
 -- The pending request or connection between two users, in either direction.
-SELECT id, requester_id, status
+SELECT id, requester_id, receiver_id, status
 FROM connections
 WHERE LEAST(requester_id, receiver_id) = LEAST(@a::uuid, @b::uuid)
   AND GREATEST(requester_id, receiver_id) = GREATEST(@a::uuid, @b::uuid)
   AND status IN ('pending', 'accepted');
+
+-- name: ListLiveLinks :many
+-- The pending request or connection between the viewer and each of the other users, in
+-- one statement for a whole page; the join matches connections_live_pair_uq.
+SELECT c.id, c.requester_id, c.receiver_id, c.status
+FROM unnest(@other_ids::uuid[]) AS o(id)
+JOIN connections c
+  ON LEAST(c.requester_id, c.receiver_id) = LEAST(@viewer_id::uuid, o.id)
+ AND GREATEST(c.requester_id, c.receiver_id) = GREATEST(@viewer_id::uuid, o.id)
+ AND c.status IN ('pending', 'accepted');
 
 -- name: AnswerRequest :one
 -- Accepts or rejects a pending request the receiver received from a visible sender.

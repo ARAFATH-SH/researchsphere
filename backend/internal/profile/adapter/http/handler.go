@@ -269,16 +269,9 @@ func profileBody(p domain.Profile) (gen.Profile, error) {
 	if err != nil {
 		return gen.Profile{}, err
 	}
-	status := gen.ConnectionStatus(p.Connection.Status)
-	if !status.Valid() {
-		status = gen.None
-	}
-	var requestID *openapi_types.UUID
-	if r := p.Connection.RequestID; r != nil {
-		requestID = new(openapi_types.UUID)
-		if err := requestID.UnmarshalText([]byte(*r)); err != nil {
-			return gen.Profile{}, fmt.Errorf("connection request id: %w", err)
-		}
+	status, requestID, err := connectionFields(p.Connection)
+	if err != nil {
+		return gen.Profile{}, err
 	}
 	return gen.Profile{
 		UserId:              id,
@@ -313,4 +306,21 @@ func mediaURL(fileID *string) *string {
 	}
 	u := httpx.MediaURL(*fileID)
 	return &u
+}
+
+// connectionFields is the contract's connectionStatus and connectionRequestId for rel; a
+// status the contract does not know reads as none.
+func connectionFields(rel domain.ConnectionRelation) (gen.ConnectionStatus, *openapi_types.UUID, error) {
+	status := gen.ConnectionStatus(rel.Status)
+	if !status.Valid() {
+		status = gen.None
+	}
+	if rel.RequestID == nil {
+		return status, nil, nil
+	}
+	id := new(openapi_types.UUID)
+	if err := id.UnmarshalText([]byte(*rel.RequestID)); err != nil {
+		return "", nil, fmt.Errorf("connection request id: %w", err)
+	}
+	return status, id, nil
 }

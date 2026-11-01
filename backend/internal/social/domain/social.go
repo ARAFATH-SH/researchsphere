@@ -36,11 +36,13 @@ type PendingRequest struct {
 	Other     Person
 }
 
-// Connection is one item of a connections list: the other user and when the request was
-// accepted.
+// Connection is one item of a connections list: the other user, when the request was
+// accepted, and the caller's own Relation with that user, which on another user's list
+// may be anything, StatusSelf included.
 type Connection struct {
 	ConnectedAt time.Time
 	Other       Person
+	Viewer      Relation
 }
 
 // RequestPage is one page of a received or sent list.
@@ -64,18 +66,21 @@ type ConnectionPage struct {
 type LiveLink struct {
 	ID          string
 	RequesterID string
+	ReceiverID  string
 	Accepted    bool // false while the request is pending
 }
 
 // Status is the link between a viewer and another user, seen from the viewer.
 type Status string
 
-// Statuses (FR-7). A rejected request reads as StatusNone to both sides (FR-7.6).
+// Statuses (FR-7). A rejected request reads as StatusNone to both sides (FR-7.6);
+// StatusSelf is the viewer's own.
 const (
 	StatusNone            Status = "none"
 	StatusPendingSent     Status = "pending_sent"
 	StatusPendingReceived Status = "pending_received"
 	StatusConnected       Status = "connected"
+	StatusSelf            Status = "self"
 )
 
 // Relation is the viewer's Status with another user and, while a request is pending, its ID.
@@ -100,6 +105,10 @@ type Store interface {
 	// FindLiveLink returns the pending request or connection between a and b, in either
 	// direction; found is false when there is none.
 	FindLiveLink(ctx context.Context, a, b string) (link LiveLink, found bool, err error)
+	// ListLiveLinks returns, in one query, the pending requests and connections between
+	// viewerID and any of otherIDs, at most one per other user. IDs that are not UUIDs
+	// match nothing.
+	ListLiveLinks(ctx context.Context, viewerID string, otherIDs []string) ([]LiveLink, error)
 	// AcceptRequest marks the request accepted when receiverID received it, it is pending
 	// and its sender is verified and not suspended; otherwise ErrNotFound. It returns the
 	// request and when it was accepted.

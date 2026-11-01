@@ -44,7 +44,7 @@ func (f *fakeService) Send(_ context.Context, requesterID, receiverID string) (d
 
 func (f *fakeService) Accept(_ context.Context, receiverID, id string) (domain.Connection, error) {
 	f.args = []any{receiverID, id}
-	return domain.Connection{ConnectedAt: at, Other: other}, f.err
+	return domain.Connection{ConnectedAt: at, Other: other, Viewer: domain.Relation{Status: domain.StatusConnected}}, f.err
 }
 
 func (f *fakeService) Reject(_ context.Context, receiverID, id string) error {
@@ -64,12 +64,15 @@ func (f *fakeService) Remove(_ context.Context, userID, otherID string) error {
 
 func (f *fakeService) ListConnections(_ context.Context, userID string, page int) (domain.ConnectionPage, error) {
 	f.args = []any{userID, page}
-	return domain.ConnectionPage{Items: []domain.Connection{{ConnectedAt: at, Other: other}}, Page: page, PageSize: 20, Total: 21}, f.err
+	return domain.ConnectionPage{Items: []domain.Connection{{ConnectedAt: at, Other: other,
+		Viewer: domain.Relation{Status: domain.StatusConnected}}}, Page: page, PageSize: 20, Total: 21}, f.err
 }
 
-func (f *fakeService) ListUserConnections(_ context.Context, userID string, page int) (domain.ConnectionPage, error) {
-	f.args = []any{userID, page}
-	return domain.ConnectionPage{Page: page, PageSize: 20}, f.err
+// ListUserConnections answers with the caller's request to the listed person pending.
+func (f *fakeService) ListUserConnections(_ context.Context, viewerID, userID string, page int) (domain.ConnectionPage, error) {
+	f.args = []any{viewerID, userID, page}
+	return domain.ConnectionPage{Items: []domain.Connection{{ConnectedAt: at, Other: other,
+		Viewer: domain.Relation{Status: domain.StatusPendingSent, RequestID: ptr(requestID)}}}, Page: page, PageSize: 20, Total: 1}, f.err
 }
 
 func (f *fakeService) ListReceived(_ context.Context, userID string, page int) (domain.RequestPage, error) {
@@ -215,7 +218,8 @@ func TestAnswerOperations(t *testing.T) {
 			}
 			if tt.name == "accept" {
 				want := map[string]any{"connectedAt": "2026-11-01T09:30:00Z", "userId": otherID, "fullName": "Bob",
-					"headline": "Researcher", "institution": nil, "photoUrl": "/api/v1/media/" + photoID}
+					"headline": "Researcher", "institution": nil, "photoUrl": "/api/v1/media/" + photoID,
+					"connectionStatus": "connected", "connectionRequestId": nil}
 				if got := decode(t, rec); !reflect.DeepEqual(got, want) {
 					t.Errorf("body %v\nwant %v", got, want)
 				}
@@ -238,13 +242,17 @@ func TestAnswerOperations(t *testing.T) {
 
 func TestLists(t *testing.T) {
 	tests := []struct {
-		path    string
-		wantArg string
+		path     string
+		wantArgs []any // without the page
+		// wantStatus and wantRequestID are the first item's connection fields; "" for
+		// request lists, which have none.
+		wantStatus    string
+		wantRequestID any
 	}{
-		{"/api/v1/connections", callerID},
-		{"/api/v1/connections/requests/received", callerID},
-		{"/api/v1/connections/requests/sent", callerID},
-		{"/api/v1/profiles/" + otherID + "/connections", otherID},
+		{"/api/v1/connections", []any{callerID}, "connected", nil},
+		{"/api/v1/connections/requests/received", []any{callerID}, "", nil},
+		{"/api/v1/connections/requests/sent", []any{callerID}, "", nil},
+		{"/api/v1/profiles/" + otherID + "/connections", []any{callerID, otherID}, "pending_sent", requestID},
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
@@ -253,18 +261,28 @@ func TestLists(t *testing.T) {
 			if rec.Code != http.StatusOK {
 				t.Fatalf("status %d %s", rec.Code, rec.Body)
 			}
-			if !reflect.DeepEqual(svc.args, []any{tt.wantArg, 1}) {
-				t.Errorf("service got %v, want %s and page 1", svc.args, tt.wantArg)
+			if want := append(append([]any{}, tt.wantArgs...), 1); !reflect.DeepEqual(svc.args, want) {
+				t.Errorf("service got %v, want %v", svc.args, want)
 			}
 			got := decode(t, rec)
 			if items, ok := got["items"].([]any); !ok || got["pageSize"] != 20.0 || got["page"] != 1.0 {
 				t.Errorf("body %v, want items (never null), page 1 and pageSize 20", got)
-			} else if len(items) > 0 && items[0].(map[string]any)["userId"] != otherID {
-				t.Errorf("first item %v", items[0])
+			} else if len(items) > 0 {
+				item := items[0].(map[string]any)
+				if item["userId"] != otherID {
+					t.Errorf("first item %v", item)
+				}
+				status, has := item["connectionStatus"]
+				if tt.wantStatus == "" && has {
+					t.Errorf("request item has connectionStatus: %v", item)
+				}
+				if tt.wantStatus != "" && (status != tt.wantStatus || item["connectionRequestId"] != tt.wantRequestID) {
+					t.Errorf("connection fields %v, %v; want %s, %v", status, item["connectionRequestId"], tt.wantStatus, tt.wantRequestID)
+				}
 			}
 
 			rec = send(t, svc, http.MethodGet, tt.path+"?page=3", "", callerID)
-			if rec.Code != http.StatusOK || svc.args[1] != 3 {
+			if rec.Code != http.StatusOK || svc.args[len(svc.args)-1] != 3 {
 				t.Errorf("page=3: %d, service got %v", rec.Code, svc.args)
 			}
 			rec = send(t, &fakeService{err: domain.ErrInvalidPage}, http.MethodGet, tt.path+"?page=0", "", callerID)

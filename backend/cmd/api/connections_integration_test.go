@@ -80,7 +80,7 @@ func TestConnectionsSendAcceptListRemove(t *testing.T) {
 	id := req["requestId"].(string)
 	e.wantProfile(t, ada, bob, "pending_sent", id, 0)
 	e.wantProfile(t, bob, ada, "pending_received", id, 0)
-	e.wantProfile(t, ada, ada, "none", nil, 0)
+	e.wantProfile(t, ada, ada, "self", nil, 0)
 
 	if total, items := e.listTotal(t, ada, "/api/v1/connections/requests/sent"); total != 1 || items[0].(map[string]any)["userId"] != bob {
 		t.Errorf("ada's sent list: %v %v", total, items)
@@ -99,7 +99,7 @@ func TestConnectionsSendAcceptListRemove(t *testing.T) {
 	}
 	e.wantProfile(t, ada, bob, "connected", nil, 1)
 	e.wantProfile(t, bob, ada, "connected", nil, 1)
-	e.wantProfile(t, ada, ada, "none", nil, 1)
+	e.wantProfile(t, ada, ada, "self", nil, 1)
 
 	if total, items := e.listTotal(t, ada, "/api/v1/connections"); total != 1 || items[0].(map[string]any)["userId"] != bob {
 		t.Errorf("ada's connections: %v %v", total, items)

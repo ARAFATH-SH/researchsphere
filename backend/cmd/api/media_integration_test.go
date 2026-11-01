@@ -73,12 +73,18 @@ func newMediaEnvWithOpenAlex(t *testing.T, openAlexURL string) mediaEnv {
 // the real one. Empty leaves imports unconfigured.
 func newMediaEnvWithSources(t *testing.T, openAlexURL, orcidURL string) mediaEnv {
 	t.Helper()
+	return newMediaEnvOnPool(t, testenv.DB(t), openAlexURL, orcidURL)
+}
+
+// newMediaEnvOnPool is newMediaEnvWithSources on a given pool to the test database, such
+// as one that counts its queries.
+func newMediaEnvOnPool(t *testing.T, pool *pgxpool.Pool, openAlexURL, orcidURL string) mediaEnv {
+	t.Helper()
 	for _, k := range []string{"S3_ENDPOINT", "S3_BUCKET"} {
 		if os.Getenv(k) == "" {
 			t.Fatalf("%s is not set", k)
 		}
 	}
-	pool := testenv.DB(t)
 	rdb := testenv.Redis(t)
 	limiter := mediaredis.New(rdb)
 	t.Cleanup(func() { _ = limiter.Close() })

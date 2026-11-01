@@ -1566,7 +1566,11 @@ export interface components {
             /** @description The other user's profile photo as `/api/v1/media/{fileId}`; null when not set. */
             photoUrl: string | null;
         };
-        /** @description A connection (FR-7.4). The person fields describe the other user. */
+        /**
+         * @description A connection (FR-7.4). The person fields describe the other user of the
+         *     connection; `connectionStatus` and `connectionRequestId` are the caller's own link
+         *     with that user, which on another user's list may be anything, `self` included.
+         */
         Connection: {
             /**
              * Format: date-time
@@ -1580,6 +1584,13 @@ export interface components {
             institution: string | null;
             /** @description The other user's profile photo as `/api/v1/media/{fileId}`; null when not set. */
             photoUrl: string | null;
+            connectionStatus: components["schemas"]["ConnectionStatus"];
+            /**
+             * Format: uuid
+             * @description The pending request between the caller and this user when `connectionStatus`
+             *     is `pending_sent` or `pending_received`; null otherwise.
+             */
+            connectionRequestId: string | null;
         };
         ConnectionPage: {
             items: components["schemas"]["Connection"][];
@@ -1612,14 +1623,15 @@ export interface components {
             requestId?: string;
         };
         /**
-         * @description The connection between the caller and the profile's owner (FR-4.5, FR-7):
-         *     `none`, `pending_sent` (the caller sent a request that is still pending),
-         *     `pending_received` (the owner sent the caller one) or `connected`. Always `none`
-         *     on the caller's own profile. A rejected request reads as `none` to both sides
-         *     (FR-7.6).
+         * @description The connection between the caller and another user (FR-4.5, FR-7), the owner of
+         *     a profile or the person of a search result or connections list item: `none`,
+         *     `pending_sent` (the caller sent a request that is still pending),
+         *     `pending_received` (the other user sent the caller one), `connected`, or `self`
+         *     when the other user is the caller. A rejected request reads as `none` to both
+         *     sides (FR-7.6).
          * @enum {string}
          */
-        ConnectionStatus: "none" | "pending_sent" | "pending_received" | "connected";
+        ConnectionStatus: "none" | "pending_sent" | "pending_received" | "connected" | "self";
         /**
          * @description The profile fields a user edits (FR-4.1). Every value is trimmed first. Lengths
          *     count characters after trimming.
@@ -1968,6 +1980,13 @@ export interface components {
              * @enum {string}
              */
             matchedOn: "name" | "institution" | "interest" | "headline";
+            connectionStatus: components["schemas"]["ConnectionStatus"];
+            /**
+             * Format: uuid
+             * @description The pending request between the caller and this user when `connectionStatus`
+             *     is `pending_sent` or `pending_received`; null otherwise.
+             */
+            connectionRequestId: string | null;
         };
         PeopleSearchFacets: {
             /**

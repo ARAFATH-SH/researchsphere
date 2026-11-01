@@ -50,16 +50,19 @@ type Profile struct {
 	ConnectionCount int
 }
 
-// ConnectionStatus is the link between a profile's viewer and its owner, seen from the
-// viewer (FR-7). The values match the contract's ConnectionStatus.
+// ConnectionStatus is the link between a viewer and another user, the owner of a profile
+// or the person of a search result, seen from the viewer (FR-7). The values match the
+// contract's ConnectionStatus.
 type ConnectionStatus string
 
-// Connection statuses. A rejected request reads as ConnectionNone to both (FR-7.6).
+// Connection statuses. A rejected request reads as ConnectionNone to both (FR-7.6);
+// ConnectionSelf is the viewer's own.
 const (
 	ConnectionNone            ConnectionStatus = "none"
 	ConnectionPendingSent     ConnectionStatus = "pending_sent"
 	ConnectionPendingReceived ConnectionStatus = "pending_received"
 	ConnectionConnected       ConnectionStatus = "connected"
+	ConnectionSelf            ConnectionStatus = "self"
 )
 
 // ConnectionRelation is the viewer's ConnectionStatus with the owner and, while a request
@@ -72,8 +75,11 @@ type ConnectionRelation struct {
 // ConnectionLookup reads connections, which the social module owns; cmd/api supplies it.
 type ConnectionLookup interface {
 	// Relation returns the link between viewerID and ownerID as the viewer sees it,
-	// ConnectionNone on the viewer's own profile.
+	// ConnectionSelf on the viewer's own profile.
 	Relation(ctx context.Context, viewerID, ownerID string) (ConnectionRelation, error)
+	// Relations returns the viewer's link with each of userIDs, in one lookup for the
+	// whole list, with an entry for every ID.
+	Relations(ctx context.Context, viewerID string, userIDs []string) (map[string]ConnectionRelation, error)
 	// Count returns how many connections the user has, counting only visible users.
 	Count(ctx context.Context, userID string) (int, error)
 }

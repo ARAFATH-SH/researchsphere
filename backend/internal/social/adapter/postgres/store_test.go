@@ -364,3 +364,47 @@ func TestFindPerson(t *testing.T) {
 		}
 	}
 }
+
+// ListLiveLinks finds the viewer's pending requests in both directions and connections,
+// and leaves out rejected requests, links between other users and the viewer's own ID.
+func TestListLiveLinks(t *testing.T) {
+	s, pool := newTestStore(t)
+	ctx := t.Context()
+	ada := newUser(t, pool, "Ada")
+	sentTo, from, conn, rejected, stranger, other := newUser(t, pool, "Bob"), newUser(t, pool, "Cy"),
+		newUser(t, pool, "Dee"), newUser(t, pool, "Eve"), newUser(t, pool, "Fay"), newUser(t, pool, "Gus")
+	sent := create(t, s, ada, sentTo)
+	received := create(t, s, from, ada)
+	accepted := create(t, s, conn, ada)
+	if _, _, err := s.AcceptRequest(ctx, accepted.ID, ada); err != nil {
+		t.Fatal(err)
+	}
+	r := create(t, s, ada, rejected)
+	if err := s.RejectRequest(ctx, r.ID, rejected); err != nil {
+		t.Fatal(err)
+	}
+	create(t, s, stranger, other)
+
+	links, err := s.ListLiveLinks(ctx, ada, []string{sentTo, from, conn, rejected, stranger, other, ada, "not-a-uuid"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]domain.LiveLink{
+		sent.ID:     {ID: sent.ID, RequesterID: ada, ReceiverID: sentTo},
+		received.ID: {ID: received.ID, RequesterID: from, ReceiverID: ada},
+		accepted.ID: {ID: accepted.ID, RequesterID: conn, ReceiverID: ada, Accepted: true},
+	}
+	if len(links) != len(want) {
+		t.Fatalf("got %d links %+v, want %d", len(links), links, len(want))
+	}
+	for _, l := range links {
+		if l != want[l.ID] {
+			t.Errorf("link %+v, want %+v", l, want[l.ID])
+		}
+	}
+	for _, ids := range [][]string{nil, {ada}, {"x"}} {
+		if links, err := s.ListLiveLinks(ctx, ada, ids); err != nil || len(links) != 0 {
+			t.Errorf("ListLiveLinks(%v) = %+v, %v; want none", ids, links, err)
+		}
+	}
+}

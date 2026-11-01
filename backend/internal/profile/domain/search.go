@@ -35,6 +35,8 @@ type PersonHit struct {
 	PhotoFileID *string
 	Interests   []string // up to 3
 	MatchedOn   MatchField
+	// Connection is the searcher's link with this person (FR-7); the usecase fills it.
+	Connection ConnectionRelation
 }
 
 // Facet is one option of a search filter and the number of results it leaves.

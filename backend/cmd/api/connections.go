@@ -29,3 +29,16 @@ func (c connectionLookup) Relation(ctx context.Context, viewerID, ownerID string
 func (c connectionLookup) Count(ctx context.Context, userID string) (int, error) {
 	return c.social.CountConnections(ctx, userID)
 }
+
+// Relations converts the social module's statuses for a whole list, read at once.
+func (c connectionLookup) Relations(ctx context.Context, viewerID string, userIDs []string) (map[string]profiledomain.ConnectionRelation, error) {
+	rs, err := c.social.Relations(ctx, viewerID, userIDs)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]profiledomain.ConnectionRelation, len(rs))
+	for id, r := range rs {
+		out[id] = profiledomain.ConnectionRelation{Status: profiledomain.ConnectionStatus(r.Status), RequestID: r.RequestID}
+	}
+	return out, nil
+}

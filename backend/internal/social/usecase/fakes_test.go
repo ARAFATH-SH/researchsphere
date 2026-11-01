@@ -28,8 +28,9 @@ type fakeStore struct {
 	// vanish makes the next n FindLiveLink calls miss the live link, as if it was
 	// cancelled or rejected between the refused insert and the read.
 	vanish int
-	// creates counts CreateRequest calls.
-	creates int
+	// creates counts CreateRequest calls, linkLists ListLiveLinks calls.
+	creates   int
+	linkLists int
 }
 
 var _ domain.Store = (*fakeStore)(nil)
@@ -111,7 +112,25 @@ func (s *fakeStore) FindLiveLink(_ context.Context, a, b string) (domain.LiveLin
 	if r == nil {
 		return domain.LiveLink{}, false, nil
 	}
-	return domain.LiveLink{ID: r.id, RequesterID: r.requester, Accepted: r.status == "accepted"}, true, nil
+	return r.link(), true, nil
+}
+
+func (r *fakeRow) link() domain.LiveLink {
+	return domain.LiveLink{ID: r.id, RequesterID: r.requester, ReceiverID: r.receiver, Accepted: r.status == "accepted"}
+}
+
+func (s *fakeStore) ListLiveLinks(_ context.Context, viewerID string, otherIDs []string) ([]domain.LiveLink, error) {
+	s.linkLists++
+	if s.err != nil {
+		return nil, s.err
+	}
+	var links []domain.LiveLink
+	for _, o := range otherIDs {
+		if r := s.live(viewerID, o); r != nil && o != viewerID {
+			links = append(links, r.link())
+		}
+	}
+	return links, nil
 }
 
 // answerable is the pending request receiverID received from a visible sender.

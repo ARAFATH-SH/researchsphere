@@ -314,6 +314,7 @@ func TestProfileConnectionFields(t *testing.T) {
 		{domain.ConnectionRelation{Status: domain.ConnectionPendingSent, RequestID: ptr(requestID)}, "pending_sent", requestID},
 		{domain.ConnectionRelation{Status: domain.ConnectionPendingReceived, RequestID: ptr(requestID)}, "pending_received", requestID},
 		{domain.ConnectionRelation{Status: domain.ConnectionConnected}, "connected", nil},
+		{domain.ConnectionRelation{Status: domain.ConnectionSelf}, "self", nil},
 	}
 	for _, tt := range tests {
 		p := ada

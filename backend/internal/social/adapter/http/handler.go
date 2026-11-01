@@ -32,7 +32,7 @@ type Service interface {
 	Cancel(ctx context.Context, requesterID, requestID string) error
 	Remove(ctx context.Context, userID, otherID string) error
 	ListConnections(ctx context.Context, userID string, page int) (domain.ConnectionPage, error)
-	ListUserConnections(ctx context.Context, userID string, page int) (domain.ConnectionPage, error)
+	ListUserConnections(ctx context.Context, viewerID, userID string, page int) (domain.ConnectionPage, error)
 	ListReceived(ctx context.Context, userID string, page int) (domain.RequestPage, error)
 	ListSent(ctx context.Context, userID string, page int) (domain.RequestPage, error)
 }
@@ -190,10 +190,11 @@ func (h *Handler) ListMyConnections(ctx context.Context, req gen.ListMyConnectio
 // ListProfileConnections returns one page of any user's connections (FR-7.4). Unknown,
 // suspended and unverified accounts get the profile's 404.
 func (h *Handler) ListProfileConnections(ctx context.Context, req gen.ListProfileConnectionsRequestObject) (gen.ListProfileConnectionsResponseObject, error) {
-	if _, ok := httpx.UserID(ctx); !ok {
+	viewer, ok := httpx.UserID(ctx)
+	if !ok {
 		return gen.ListProfileConnections401JSONResponse{UnauthorizedJSONResponse: unauthenticated}, nil
 	}
-	res, err := h.svc.ListUserConnections(ctx, req.UserId, pageParam(req.Params.Page))
+	res, err := h.svc.ListUserConnections(ctx, viewer, req.UserId, pageParam(req.Params.Page))
 	switch {
 	case errors.Is(err, domain.ErrInvalidPage):
 		return gen.ListProfileConnections400JSONResponse{InvalidConnectionPageJSONResponse: badPage}, nil
@@ -282,8 +283,17 @@ func connectionBody(c domain.Connection) (gen.Connection, error) {
 	if err != nil {
 		return gen.Connection{}, err
 	}
+	var requestID *openapi_types.UUID
+	if c.Viewer.RequestID != nil {
+		id, err := uuid(*c.Viewer.RequestID)
+		if err != nil {
+			return gen.Connection{}, err
+		}
+		requestID = &id
+	}
 	return gen.Connection{ConnectedAt: c.ConnectedAt, UserId: uid, FullName: c.Other.FullName,
-		Headline: c.Other.Headline, Institution: c.Other.Institution, PhotoUrl: mediaURL(c.Other.PhotoFileID)}, nil
+		Headline: c.Other.Headline, Institution: c.Other.Institution, PhotoUrl: mediaURL(c.Other.PhotoFileID),
+		ConnectionStatus: gen.ConnectionStatus(c.Viewer.Status), ConnectionRequestId: requestID}, nil
 }
 
 // Every list is empty, never null, when there is nothing in it.

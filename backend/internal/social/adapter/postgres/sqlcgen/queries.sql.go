@@ -143,7 +143,7 @@ func (q *Queries) CreateRequest(ctx context.Context, arg CreateRequestParams) (C
 }
 
 const findLiveLink = `-- name: FindLiveLink :one
-SELECT id, requester_id, status
+SELECT id, requester_id, receiver_id, status
 FROM connections
 WHERE LEAST(requester_id, receiver_id) = LEAST($1::uuid, $2::uuid)
   AND GREATEST(requester_id, receiver_id) = GREATEST($1::uuid, $2::uuid)
@@ -158,6 +158,7 @@ type FindLiveLinkParams struct {
 type FindLiveLinkRow struct {
 	ID          pgtype.UUID
 	RequesterID pgtype.UUID
+	ReceiverID  pgtype.UUID
 	Status      ConnectionStatus
 }
 
@@ -165,7 +166,12 @@ type FindLiveLinkRow struct {
 func (q *Queries) FindLiveLink(ctx context.Context, arg FindLiveLinkParams) (FindLiveLinkRow, error) {
 	row := q.db.QueryRow(ctx, findLiveLink, arg.A, arg.B)
 	var i FindLiveLinkRow
-	err := row.Scan(&i.ID, &i.RequesterID, &i.Status)
+	err := row.Scan(
+		&i.ID,
+		&i.RequesterID,
+		&i.ReceiverID,
+		&i.Status,
+	)
 	return i, err
 }
 
@@ -243,6 +249,54 @@ func (q *Queries) ListConnections(ctx context.Context, arg ListConnectionsParams
 			&i.Headline,
 			&i.Institution,
 			&i.PhotoFileID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLiveLinks = `-- name: ListLiveLinks :many
+SELECT c.id, c.requester_id, c.receiver_id, c.status
+FROM unnest($1::uuid[]) AS o(id)
+JOIN connections c
+  ON LEAST(c.requester_id, c.receiver_id) = LEAST($2::uuid, o.id)
+ AND GREATEST(c.requester_id, c.receiver_id) = GREATEST($2::uuid, o.id)
+ AND c.status IN ('pending', 'accepted')
+`
+
+type ListLiveLinksParams struct {
+	OtherIds []pgtype.UUID
+	ViewerID pgtype.UUID
+}
+
+type ListLiveLinksRow struct {
+	ID          pgtype.UUID
+	RequesterID pgtype.UUID
+	ReceiverID  pgtype.UUID
+	Status      ConnectionStatus
+}
+
+// The pending request or connection between the viewer and each of the other users, in
+// one statement for a whole page; the join matches connections_live_pair_uq.
+func (q *Queries) ListLiveLinks(ctx context.Context, arg ListLiveLinksParams) ([]ListLiveLinksRow, error) {
+	rows, err := q.db.Query(ctx, listLiveLinks, arg.OtherIds, arg.ViewerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListLiveLinksRow
+	for rows.Next() {
+		var i ListLiveLinksRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.RequesterID,
+			&i.ReceiverID,
+			&i.Status,
 		); err != nil {
 			return nil, err
 		}

@@ -104,10 +104,10 @@ func (s *Service) create(ctx context.Context, requesterID, receiverID string) (d
 		if !found {
 			continue
 		}
-		switch {
-		case link.Accepted:
+		switch relationOf(requesterID, link).Status {
+		case domain.StatusConnected:
 			return domain.Request{}, domain.ErrAlreadyConnected
-		case link.RequesterID == requesterID:
+		case domain.StatusPendingSent:
 			return domain.Request{}, domain.ErrAlreadyPending
 		default:
 			return domain.Request{}, &domain.PendingFromThemError{RequestID: link.ID}
@@ -146,7 +146,7 @@ func (s *Service) Accept(ctx context.Context, receiverID, requestID string) (dom
 	if err != nil {
 		return domain.Connection{}, err
 	}
-	return domain.Connection{ConnectedAt: at, Other: other}, nil
+	return domain.Connection{ConnectedAt: at, Other: other, Viewer: domain.Relation{Status: domain.StatusConnected}}, nil
 }
 
 // Reject rejects a pending request that receiverID received (FR-7.3). The sender is not
@@ -165,8 +165,20 @@ func (s *Service) Remove(ctx context.Context, userID, otherID string) error {
 	return s.store.RemoveConnection(ctx, userID, otherID)
 }
 
-// ListConnections returns one page of userID's connections (FR-7.4).
+// ListConnections returns one page of userID's connections (FR-7.4). userID is the
+// caller, so every item's Viewer is StatusConnected without another query.
 func (s *Service) ListConnections(ctx context.Context, userID string, page int) (domain.ConnectionPage, error) {
+	p, err := s.listConnections(ctx, userID, page)
+	if err != nil {
+		return domain.ConnectionPage{}, err
+	}
+	for i := range p.Items {
+		p.Items[i].Viewer = domain.Relation{Status: domain.StatusConnected}
+	}
+	return p, nil
+}
+
+func (s *Service) listConnections(ctx context.Context, userID string, page int) (domain.ConnectionPage, error) {
 	if page < 1 {
 		return domain.ConnectionPage{}, domain.ErrInvalidPage
 	}
@@ -177,10 +189,11 @@ func (s *Service) ListConnections(ctx context.Context, userID string, page int) 
 	return domain.ConnectionPage{Items: items, Page: page, PageSize: PageSize, Total: total}, nil
 }
 
-// ListUserConnections returns one page of any user's connections to a logged-in user
-// (FR-7.4). A user who is unknown, suspended or not verified gives ErrNotFound, as for
-// the profile.
-func (s *Service) ListUserConnections(ctx context.Context, userID string, page int) (domain.ConnectionPage, error) {
+// ListUserConnections returns one page of any user's connections to a logged-in viewer
+// (FR-7.4), each with the viewer's own Relation with that person, read for the whole page
+// at once. A user who is unknown, suspended or not verified gives ErrNotFound, as for the
+// profile.
+func (s *Service) ListUserConnections(ctx context.Context, viewerID, userID string, page int) (domain.ConnectionPage, error) {
 	if page < 1 {
 		return domain.ConnectionPage{}, domain.ErrInvalidPage
 	}
@@ -191,7 +204,22 @@ func (s *Service) ListUserConnections(ctx context.Context, userID string, page i
 	if !visible {
 		return domain.ConnectionPage{}, domain.ErrNotFound
 	}
-	return s.ListConnections(ctx, userID, page)
+	p, err := s.listConnections(ctx, userID, page)
+	if err != nil {
+		return domain.ConnectionPage{}, err
+	}
+	ids := make([]string, len(p.Items))
+	for i, c := range p.Items {
+		ids[i] = c.Other.UserID
+	}
+	rel, err := s.Relations(ctx, viewerID, ids)
+	if err != nil {
+		return domain.ConnectionPage{}, err
+	}
+	for i, c := range p.Items {
+		p.Items[i].Viewer = rel[c.Other.UserID]
+	}
+	return p, nil
 }
 
 // ListReceived returns one page of the pending requests userID received (FR-7.4).
@@ -218,24 +246,59 @@ func (s *Service) listRequests(ctx context.Context, userID string, page int,
 }
 
 // Relation returns the link between viewerID and ownerID as the viewer sees it, for the
-// profile's Connect, Pending, Accept or Connected button. It is StatusNone on the
-// viewer's own profile and after a rejection (FR-7.6).
+// profile's Connect, Pending, Accept or Connected button: StatusSelf on the viewer's own
+// profile, StatusNone after a rejection (FR-7.6). It is Relations for one user.
 func (s *Service) Relation(ctx context.Context, viewerID, ownerID string) (domain.Relation, error) {
-	none := domain.Relation{Status: domain.StatusNone}
-	if viewerID == ownerID {
-		return none, nil
+	r, err := s.Relations(ctx, viewerID, []string{ownerID})
+	if err != nil {
+		return domain.Relation{}, err
 	}
-	link, found, err := s.store.FindLiveLink(ctx, viewerID, ownerID)
-	if err != nil || !found {
-		return none, err
+	return r[ownerID], nil
+}
+
+// Relations returns the viewer's Relation with each of otherIDs, for a page of search
+// results or connections, with one store call however many there are (none when the only
+// other user is the viewer). Every ID gets an entry.
+func (s *Service) Relations(ctx context.Context, viewerID string, otherIDs []string) (map[string]domain.Relation, error) {
+	out := make(map[string]domain.Relation, len(otherIDs))
+	var others []string
+	for _, id := range otherIDs {
+		if id == viewerID {
+			out[id] = domain.Relation{Status: domain.StatusSelf}
+			continue
+		}
+		out[id] = domain.Relation{Status: domain.StatusNone}
+		others = append(others, id)
 	}
+	if len(others) == 0 {
+		return out, nil
+	}
+	links, err := s.store.ListLiveLinks(ctx, viewerID, others)
+	if err != nil {
+		return nil, err
+	}
+	for _, l := range links {
+		other := l.ReceiverID
+		if other == viewerID {
+			other = l.RequesterID
+		}
+		if _, asked := out[other]; asked {
+			out[other] = relationOf(viewerID, l)
+		}
+	}
+	return out, nil
+}
+
+// relationOf is the viewer's Relation given the live link between them and another user.
+func relationOf(viewerID string, l domain.LiveLink) domain.Relation {
+	id := l.ID
 	switch {
-	case link.Accepted:
-		return domain.Relation{Status: domain.StatusConnected}, nil
-	case link.RequesterID == viewerID:
-		return domain.Relation{Status: domain.StatusPendingSent, RequestID: &link.ID}, nil
+	case l.Accepted:
+		return domain.Relation{Status: domain.StatusConnected}
+	case l.RequesterID == viewerID:
+		return domain.Relation{Status: domain.StatusPendingSent, RequestID: &id}
 	default:
-		return domain.Relation{Status: domain.StatusPendingReceived, RequestID: &link.ID}, nil
+		return domain.Relation{Status: domain.StatusPendingReceived, RequestID: &id}
 	}
 }
 

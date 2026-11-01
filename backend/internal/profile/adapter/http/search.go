@@ -79,6 +79,10 @@ func searchPageBody(res domain.PeopleResults, page int) (gen.PeopleSearchPage, e
 		if interests == nil {
 			interests = []string{}
 		}
+		status, requestID, err := connectionFields(hit.Connection)
+		if err != nil {
+			return gen.PeopleSearchPage{}, err
+		}
 		items[i] = gen.PersonSearchResult{
 			UserId:      id,
 			FullName:    hit.FullName,
@@ -87,6 +91,9 @@ func searchPageBody(res domain.PeopleResults, page int) (gen.PeopleSearchPage, e
 			PhotoUrl:    mediaURL(hit.PhotoFileID),
 			Interests:   interests,
 			MatchedOn:   gen.PersonSearchResultMatchedOn(hit.MatchedOn),
+
+			ConnectionStatus:    status,
+			ConnectionRequestId: requestID,
 		}
 	}
 	return gen.PeopleSearchPage{

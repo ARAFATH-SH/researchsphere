@@ -51,6 +51,7 @@ const (
 	None            ConnectionStatus = "none"
 	PendingReceived ConnectionStatus = "pending_received"
 	PendingSent     ConnectionStatus = "pending_sent"
+	Self            ConnectionStatus = "self"
 )
 
 // Valid indicates whether the value is a known member of the ConnectionStatus enum.
@@ -63,6 +64,8 @@ func (e ConnectionStatus) Valid() bool {
 	case PendingReceived:
 		return true
 	case PendingSent:
+		return true
+	case Self:
 		return true
 	default:
 		return false
@@ -402,13 +405,27 @@ type ChangePasswordRequest struct {
 	NewPassword string `json:"newPassword"`
 }
 
-// Connection A connection (FR-7.4). The person fields describe the other user.
+// Connection A connection (FR-7.4). The person fields describe the other user of the
+// connection; `connectionStatus` and `connectionRequestId` are the caller's own link
+// with that user, which on another user's list may be anything, `self` included.
 type Connection struct {
 	// ConnectedAt When the request was accepted.
 	ConnectedAt time.Time `json:"connectedAt"`
-	FullName    string    `json:"fullName"`
-	Headline    *string   `json:"headline"`
-	Institution *string   `json:"institution"`
+
+	// ConnectionRequestId The pending request between the caller and this user when `connectionStatus`
+	// is `pending_sent` or `pending_received`; null otherwise.
+	ConnectionRequestId *openapi_types.UUID `json:"connectionRequestId"`
+
+	// ConnectionStatus The connection between the caller and another user (FR-4.5, FR-7), the owner of
+	// a profile or the person of a search result or connections list item: `none`,
+	// `pending_sent` (the caller sent a request that is still pending),
+	// `pending_received` (the other user sent the caller one), `connected`, or `self`
+	// when the other user is the caller. A rejected request reads as `none` to both
+	// sides (FR-7.6).
+	ConnectionStatus ConnectionStatus `json:"connectionStatus"`
+	FullName         string           `json:"fullName"`
+	Headline         *string          `json:"headline"`
+	Institution      *string          `json:"institution"`
 
 	// PhotoUrl The other user's profile photo as `/api/v1/media/{fileId}`; null when not set.
 	PhotoUrl *string            `json:"photoUrl"`
@@ -473,11 +490,12 @@ type ConnectionRequestPage struct {
 	Total int `json:"total"`
 }
 
-// ConnectionStatus The connection between the caller and the profile's owner (FR-4.5, FR-7):
-// `none`, `pending_sent` (the caller sent a request that is still pending),
-// `pending_received` (the owner sent the caller one) or `connected`. Always `none`
-// on the caller's own profile. A rejected request reads as `none` to both sides
-// (FR-7.6).
+// ConnectionStatus The connection between the caller and another user (FR-4.5, FR-7), the owner of
+// a profile or the person of a search result or connections list item: `none`,
+// `pending_sent` (the caller sent a request that is still pending),
+// `pending_received` (the other user sent the caller one), `connected`, or `self`
+// when the other user is the caller. A rejected request reads as `none` to both
+// sides (FR-7.6).
 type ConnectionStatus string
 
 // Contact The owner's contact info with who may see each item (FR-4.7). `email` is the
@@ -894,9 +912,20 @@ type PeopleSearchPage struct {
 
 // PersonSearchResult defines model for PersonSearchResult.
 type PersonSearchResult struct {
-	FullName    string  `json:"fullName"`
-	Headline    *string `json:"headline"`
-	Institution *string `json:"institution"`
+	// ConnectionRequestId The pending request between the caller and this user when `connectionStatus`
+	// is `pending_sent` or `pending_received`; null otherwise.
+	ConnectionRequestId *openapi_types.UUID `json:"connectionRequestId"`
+
+	// ConnectionStatus The connection between the caller and another user (FR-4.5, FR-7), the owner of
+	// a profile or the person of a search result or connections list item: `none`,
+	// `pending_sent` (the caller sent a request that is still pending),
+	// `pending_received` (the other user sent the caller one), `connected`, or `self`
+	// when the other user is the caller. A rejected request reads as `none` to both
+	// sides (FR-7.6).
+	ConnectionStatus ConnectionStatus `json:"connectionStatus"`
+	FullName         string           `json:"fullName"`
+	Headline         *string          `json:"headline"`
+	Institution      *string          `json:"institution"`
 
 	// Interests Up to 3 of the user's research interests: the ones that match `q` or a
 	// selected interest first, then by name.
@@ -930,11 +959,12 @@ type Profile struct {
 	// `pending_received` (the caller may accept or reject it); null otherwise.
 	ConnectionRequestId *openapi_types.UUID `json:"connectionRequestId"`
 
-	// ConnectionStatus The connection between the caller and the profile's owner (FR-4.5, FR-7):
-	// `none`, `pending_sent` (the caller sent a request that is still pending),
-	// `pending_received` (the owner sent the caller one) or `connected`. Always `none`
-	// on the caller's own profile. A rejected request reads as `none` to both sides
-	// (FR-7.6).
+	// ConnectionStatus The connection between the caller and another user (FR-4.5, FR-7), the owner of
+	// a profile or the person of a search result or connections list item: `none`,
+	// `pending_sent` (the caller sent a request that is still pending),
+	// `pending_received` (the other user sent the caller one), `connected`, or `self`
+	// when the other user is the caller. A rejected request reads as `none` to both
+	// sides (FR-7.6).
 	ConnectionStatus ConnectionStatus `json:"connectionStatus"`
 
 	// Contact The contact info the viewer of a profile may see (FR-4.7). An item that is hidden
