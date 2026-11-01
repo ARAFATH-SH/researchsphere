@@ -281,8 +281,8 @@ var ada = domain.Profile{
 	PublicationCount: 3,
 }
 
-// The body has every field, nulls for unset ones, the placeholder connection status
-// (FR-4.5), the number of confirmed publications (FR-5.5) and the contact info the viewer
+// The body has every field, nulls for unset ones, the connection status and count
+// (FR-4.5, FR-7), the number of confirmed publications (FR-5.5) and the contact info the viewer
 // may see, here only the empty list of links (FR-4.7).
 func checkProfileBody(t *testing.T, rec *httptest.ResponseRecorder, wantID string) {
 	t.Helper()
@@ -291,11 +291,38 @@ func checkProfileBody(t *testing.T, rec *httptest.ResponseRecorder, wantID strin
 		"userId": wantID, "fullName": "Ada Lovelace", "headline": "Analyst", "bio": nil,
 		"institution": nil, "department": nil, "jobTitle": nil, "country": "GB", "city": "London", "orcidId": nil,
 		"interests": []any{}, "skills": []any{}, "education": []any{}, "experience": []any{}, "languages": []any{}, "publicationCount": float64(3),
-		"connectionStatus": "none", "contact": map[string]any{"links": []any{}},
+		"connectionStatus": "none", "connectionRequestId": nil, "connectionCount": float64(0),
+		"contact":  map[string]any{"links": []any{}},
 		"photoUrl": nil, "coverUrl": nil,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("body = %v\nwant   %v", got, want)
+	}
+}
+
+// Each connection status reaches the body with the pending request's ID, and the count
+// (FR-7).
+func TestProfileConnectionFields(t *testing.T) {
+	const requestID = "00000000-0000-0000-0000-0000000000a1"
+	tests := []struct {
+		rel    domain.ConnectionRelation
+		status string
+		id     any
+	}{
+		{domain.ConnectionRelation{}, "none", nil}, // a zero value reads as none
+		{domain.ConnectionRelation{Status: domain.ConnectionNone}, "none", nil},
+		{domain.ConnectionRelation{Status: domain.ConnectionPendingSent, RequestID: ptr(requestID)}, "pending_sent", requestID},
+		{domain.ConnectionRelation{Status: domain.ConnectionPendingReceived, RequestID: ptr(requestID)}, "pending_received", requestID},
+		{domain.ConnectionRelation{Status: domain.ConnectionConnected}, "connected", nil},
+		{domain.ConnectionRelation{Status: domain.ConnectionSelf}, "self", nil},
+	}
+	for _, tt := range tests {
+		p := ada
+		p.Connection, p.ConnectionCount = tt.rel, 312
+		got := decode(t, send(t, &fakeService{profile: p}, http.MethodGet, "/api/v1/profiles/"+otherID, "", callerID))
+		if got["connectionStatus"] != tt.status || got["connectionRequestId"] != tt.id || got["connectionCount"] != float64(312) {
+			t.Errorf("%+v: body has %v, %v, %v; want %s, %v, 312", tt.rel, got["connectionStatus"], got["connectionRequestId"], got["connectionCount"], tt.status, tt.id)
+		}
 	}
 }
 

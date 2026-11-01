@@ -1,10 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { type RefObject, useEffect, useRef, useState } from "react";
 
 import { Avatar } from "@/components/avatar";
 import { Container } from "@/components/Container";
 import { homeCard } from "@/features/home/cards";
+import { ConnectButton, type Link as ConnectionLink } from "@/features/social/connect-button";
 
 import type { Profile } from "./api";
 import { Cover } from "./cover";
@@ -27,15 +29,19 @@ const topBarHeight = 52;
 // ProfileHeader is the profile summary card of design/screens/Profile.html: the cover image
 // and photo (FR-4.6), the name, the headline, one line with the job, institution and place
 // and a "Contact info" link (FR-4.7), then the action row. The owner gets a camera button on
-// the cover, a clickable photo and a pencil that opens the intro dialog. Connect and Message
-// request wait for connections (slice 13) and are not shown. Once the card scrolls out of
-// view, a slim bar under the top bar repeats the name and buttons.
+// the cover, a clickable photo and a pencil that opens the intro dialog. Under the meta line
+// "N connections" links to the connections list (FR-7.4). On someone else's profile the
+// action row has the connect button (FR-7.1 to FR-7.3), a "Connected" label once connected,
+// and More, which then offers "Remove connection" (FR-7.5). Message request waits for
+// messaging (slice 14A). Once the card scrolls out of view, a slim bar under the top bar
+// repeats the name and buttons.
 export function ProfileHeader({
   profile,
   edit,
   onContact,
 }: ProfileHeaderProps) {
   const meta = metaLine(profile);
+  const connection = useConnection(profile);
   const card = useRef<HTMLDivElement>(null);
   const pinned = useScrolledPast(card);
   const avatar = (
@@ -107,6 +113,16 @@ export function ProfileHeader({
                   )}
                 </p>
               )}
+              {connection.count > 0 && (
+                <p className="mt-1 text-rs-body">
+                  <Link
+                    href={connection.self ? "/network" : `/profile/${profile.userId}/connections`}
+                    className="rounded-rs-2xs font-medium text-rs-accent hover:text-rs-accent-hover hover:underline focus-visible:shadow-focus focus-visible:outline-none"
+                  >
+                    {connectionsLabel(connection.count)}
+                  </Link>
+                </p>
+              )}
             </div>
             {edit && (
               <EditButton
@@ -116,13 +132,114 @@ export function ProfileHeader({
               />
             )}
           </div>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <MoreMenu userId={profile.userId} />
+          <div className="mt-2 flex flex-wrap items-start gap-2">
+            <Actions profile={profile} connection={connection} variant="pill" />
           </div>
         </div>
       </div>
-      {pinned && <StickyBar profile={profile} edit={edit} />}
+      {pinned && <StickyBar profile={profile} edit={edit} connection={connection} />}
     </>
+  );
+}
+
+// connectionsLabel is "1 connection" or "N connections".
+export function connectionsLabel(count: number): string {
+  return count === 1 ? "1 connection" : `${count} connections`;
+}
+
+type Connection = ConnectionLink & {
+  self: boolean;
+  count: number;
+  change: (next: ConnectionLink) => void;
+};
+
+// useConnection keeps the viewer's link with the profile's owner and the owner's
+// connection count, so the card and the sticky bar agree and the count follows an accept
+// or a remove without a reload. A new profile from the server starts it again.
+function useConnection(profile: Profile): Connection {
+  const initial = () => ({
+    status: profile.connectionStatus,
+    requestId: profile.connectionRequestId,
+    count: profile.connectionCount,
+  });
+  const [state, setState] = useState(initial);
+  const [source, setSource] = useState(profile);
+  if (source !== profile) {
+    setSource(profile);
+    setState(initial());
+  }
+  return {
+    ...state,
+    self: state.status === "self",
+    change: (next) =>
+      setState((prev) => {
+        let count = prev.count;
+        if (prev.status !== "connected" && next.status === "connected") count++;
+        if (prev.status === "connected" && next.status !== "connected") count--;
+        return { ...next, count: Math.max(0, count) };
+      }),
+  };
+}
+
+// Actions is the action row: ConnectButton, the "Connected" label, then More.
+function Actions({
+  profile,
+  connection,
+  variant,
+}: {
+  profile: Profile;
+  connection: Connection;
+  variant: "pill" | "icon";
+}) {
+  const connected = connection.status === "connected";
+  return (
+    <>
+      {!connection.self && (
+        <ConnectButton
+          userId={profile.userId}
+          name={profile.fullName}
+          status={connection.status}
+          requestId={connection.requestId}
+          size="profile"
+          onChange={connection.change}
+        />
+      )}
+      {connected && variant === "pill" && <ConnectedLabel />}
+      <MoreMenu
+        userId={profile.userId}
+        variant={variant}
+        connected={
+          connected
+            ? {
+                name: profile.fullName,
+                onRemoved: () => connection.change({ status: "none", requestId: null }),
+              }
+            : undefined
+        }
+      />
+    </>
+  );
+}
+
+// ConnectedLabel says the viewer is connected. It is status text, not a control, so it
+// has no border and takes no focus.
+function ConnectedLabel() {
+  return (
+    <span className="inline-flex h-10 items-center gap-1.5 px-1 text-rs-body font-medium text-rs-text-muted">
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2.2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="size-4 text-rs-accent-strong"
+      >
+        <path d="M5 12.5l4.5 4.5L19 7.5" />
+      </svg>
+      Connected
+    </span>
   );
 }
 
@@ -162,7 +279,8 @@ function useScrolledPast(target: RefObject<HTMLElement | null>): boolean {
 function StickyBar({
   profile,
   edit,
-}: Pick<ProfileHeaderProps, "profile" | "edit">) {
+  connection,
+}: Pick<ProfileHeaderProps, "profile" | "edit"> & { connection: Connection }) {
   return (
     <div
       role="region"
@@ -190,7 +308,7 @@ function StickyBar({
           {edit && (
             <EditButton label="Edit intro" onClick={() => edit.open("intro")} />
           )}
-          <MoreMenu userId={profile.userId} variant="icon" />
+          <Actions profile={profile} connection={connection} variant="icon" />
         </div>
       </Container>
     </div>

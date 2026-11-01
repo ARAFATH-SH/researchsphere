@@ -5,7 +5,9 @@ import type { Profile } from "./api";
 export const adaID = "0b8f4c1e-0000-4000-8000-000000000001";
 export const bobID = "0b8f4c1e-0000-4000-8000-000000000002";
 
-// emptyProfile has only a name: every optional field null and every list empty.
+// emptyProfile has only a name: every optional field null and every list empty. The tests
+// sign in as Ada, so her profile reads as "self", as the API answers, and anyone else's
+// as "none".
 export function emptyProfile(userId: string, fullName: string): Profile {
   return {
     userId,
@@ -24,7 +26,9 @@ export function emptyProfile(userId: string, fullName: string): Profile {
     experience: [],
     languages: [],
     publicationCount: 0,
-    connectionStatus: "none",
+    connectionStatus: userId === adaID ? "self" : "none",
+    connectionRequestId: null,
+    connectionCount: 0,
     contact: { links: [] },
     photoUrl: null,
     coverUrl: null,

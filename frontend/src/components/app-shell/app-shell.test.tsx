@@ -16,6 +16,8 @@ jest.mock("next/navigation", () => ({
 const mockSession = jest.fn<Session, []>(() => ({ status: "loading" }));
 jest.mock("@/features/auth/session", () => ({ useSession: () => mockSession() }));
 jest.mock("@/features/auth/api");
+// The My Network badge has its own tests (network-badge.test.tsx).
+jest.mock("@/features/social/pending-invitations", () => ({ usePendingInvitations: () => 0 }));
 // The Me menu fetches the signed-in user's own profile for its photo.
 jest.mock("@/features/profile/api");
 const mockGetMyProfile = jest.mocked(getMyProfile);
@@ -47,7 +49,7 @@ describe("AppShell", () => {
     // The Me menu is closed, so its links are hidden.
     expect(links(topBar())).toEqual([
       ["Home", "/home"],
-      ["My Network", "/connections"],
+      ["My Network", "/network"],
       ["Projects", "/projects"],
       ["Messaging", "/messaging"],
       ["Notifications", "/notifications"],
@@ -73,7 +75,7 @@ describe("AppShell", () => {
     expect(phoneBar().className).toContain("max-[480px]:block");
     expect(links(phoneBar())).toEqual([
       ["Home", "/home"],
-      ["Network", "/connections"],
+      ["Network", "/network"],
       ["Post", "/home"],
       ["Alerts", "/notifications"],
       ["Projects", "/projects"],
@@ -87,7 +89,7 @@ describe("AppShell", () => {
   it.each([
     ["/projects", "Projects"],
     ["/projects/123/workspace", "Projects"],
-    ["/connections", "My Network"],
+    ["/network", "My Network"],
     ["/messaging", "Messaging"],
   ])("marks the tab for %s as current", (path, label) => {
     mockPathname.mockReturnValue(path);

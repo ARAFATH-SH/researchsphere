@@ -40,14 +40,18 @@ func TestSearchPeopleParameters(t *testing.T) {
 	}
 }
 
+const searchRequestID = "00000000-0000-0000-0000-0000000000a9"
+
 // The body has every field, nulls for unset ones, the photo as a media path and empty
 // lists, never null (FR-6.1, FR-6.2).
 func TestSearchPeopleBody(t *testing.T) {
 	svc := &fakeService{searchRes: domain.PeopleResults{
 		Hits: []domain.PersonHit{
 			{UserID: otherID, FullName: "Mahmud Rahman", Headline: ptr("PhD student"), Institution: ptr("BUET"),
-				PhotoFileID: ptr("11111111-1111-4111-8111-111111111111"), Interests: []string{"Eye health"}, MatchedOn: domain.MatchName},
-			{UserID: callerID, FullName: "Ada Lovelace", MatchedOn: domain.MatchHeadline},
+				PhotoFileID: ptr("11111111-1111-4111-8111-111111111111"), Interests: []string{"Eye health"}, MatchedOn: domain.MatchName,
+				Connection: domain.ConnectionRelation{Status: domain.ConnectionPendingReceived, RequestID: ptr(searchRequestID)}},
+			{UserID: callerID, FullName: "Ada Lovelace", MatchedOn: domain.MatchHeadline,
+				Connection: domain.ConnectionRelation{Status: domain.ConnectionSelf}},
 		},
 		Total: 21, Fuzzy: true, CorrectedQuery: ptr("Mahmud Rahman"),
 		Institutions: []domain.Facet{{Name: "BUET", Count: 12}},
@@ -60,9 +64,11 @@ func TestSearchPeopleBody(t *testing.T) {
 	want := map[string]any{
 		"items": []any{
 			map[string]any{"userId": otherID, "fullName": "Mahmud Rahman", "headline": "PhD student", "institution": "BUET",
-				"photoUrl": "/api/v1/media/11111111-1111-4111-8111-111111111111", "interests": []any{"Eye health"}, "matchedOn": "name"},
+				"photoUrl": "/api/v1/media/11111111-1111-4111-8111-111111111111", "interests": []any{"Eye health"}, "matchedOn": "name",
+				"connectionStatus": "pending_received", "connectionRequestId": searchRequestID},
 			map[string]any{"userId": callerID, "fullName": "Ada Lovelace", "headline": nil, "institution": nil,
-				"photoUrl": nil, "interests": []any{}, "matchedOn": "headline"},
+				"photoUrl": nil, "interests": []any{}, "matchedOn": "headline",
+				"connectionStatus": "self", "connectionRequestId": nil},
 		},
 		"total": float64(21), "page": float64(2), "pageSize": float64(20),
 		"fuzzy": true, "correctedQuery": "Mahmud Rahman",

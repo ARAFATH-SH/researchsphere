@@ -23,6 +23,7 @@ import (
 	profilehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/http"
 	profiledomain "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/domain"
 	profileusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/usecase"
+	socialhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/social/adapter/http"
 )
 
 // freePort returns a TCP port that was free a moment ago.
@@ -138,6 +139,7 @@ func testRouter() http.Handler {
 			Searcher: okWorks{}, Limiter: okWorks{},
 		}))),
 		mediahttp.NewHandler(okMedia{}),
+		socialhttp.NewHandler(okSocial{}),
 		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
 }
 
@@ -163,6 +165,7 @@ func TestHealthReportsStorageDown(t *testing.T) {
 	router := newRouter(slog.New(slog.DiscardHandler), up, up, files, authhttp.NewHandler(okAuth{}, authhttp.CookieConfig{}),
 		profilehttp.NewHandler(profileusecase.New(okProfiles{})),
 		mediahttp.NewHandler(okMedia{}),
+		socialhttp.NewHandler(okSocial{}),
 		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
 
 	rec := httptest.NewRecorder()

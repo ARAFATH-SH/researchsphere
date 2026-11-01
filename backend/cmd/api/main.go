@@ -42,6 +42,10 @@ import (
 	profilepg "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/postgres"
 	profileredis "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/redis"
 	profileusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/usecase"
+	socialhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/social/adapter/http"
+	socialpg "github.com/ARAFATH-SH/researchsphere/backend/internal/social/adapter/postgres"
+	socialredis "github.com/ARAFATH-SH/researchsphere/backend/internal/social/adapter/redis"
+	socialusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/social/usecase"
 )
 
 // accessTTL is how long an access token is valid (FR-2.1).
@@ -99,6 +103,11 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 	attempts := authredis.New(rdb)
 	defer func() { _ = attempts.Close() }()
 
+	connectLimiter := socialredis.New(rdb)
+	defer func() { _ = connectLimiter.Close() }()
+	// Notifications come in slice 14 (FR-9.1); until then nobody hears about requests.
+	social := socialusecase.New(socialpg.NewStore(pool), connectLimiter, socialusecase.NopNotifier{}, logger)
+
 	lookups := profileredis.New(rdb)
 	defer func() { _ = lookups.Close() }()
 	profileStore := profilepg.NewStore(pool)
@@ -120,6 +129,7 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 			Limiter:  lookups.SearchLimiter(),
 			Logger:   logger,
 		}),
+		profileusecase.WithConnections(connectionLookup{social: social}),
 	)
 
 	tokens := accesstoken.New(cfg.JWTSecret, accessTTL)
@@ -137,6 +147,7 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 		authhttp.NewHandler(auth, authhttp.CookieConfig{Secure: cfg.CookieSecure}),
 		profilehttp.NewHandler(profiles),
 		mediahttp.NewHandler(images),
+		socialhttp.NewHandler(social),
 		httpx.RequireAuth(tokens, time.Now))
 
 	var lc net.ListenConfig

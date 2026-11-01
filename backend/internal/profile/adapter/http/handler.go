@@ -238,8 +238,8 @@ func (h *Handler) GetProfile(ctx context.Context, req gen.GetProfileRequestObjec
 	return gen.GetProfile200JSONResponse(body), nil
 }
 
-// profileBody builds the response. The connection status is a placeholder until
-// connections (FR-7) exist. Every list is empty, never null, when there is nothing in it.
+// profileBody builds the response. Every list is empty, never null, when there is
+// nothing in it.
 func profileBody(p domain.Profile) (gen.Profile, error) {
 	var id openapi_types.UUID
 	if err := id.UnmarshalText([]byte(p.UserID)); err != nil {
@@ -269,27 +269,33 @@ func profileBody(p domain.Profile) (gen.Profile, error) {
 	if err != nil {
 		return gen.Profile{}, err
 	}
+	status, requestID, err := connectionFields(p.Connection)
+	if err != nil {
+		return gen.Profile{}, err
+	}
 	return gen.Profile{
-		UserId:           id,
-		FullName:         p.FullName,
-		Headline:         p.Headline,
-		Bio:              p.Bio,
-		Institution:      p.Institution,
-		Department:       p.Department,
-		JobTitle:         p.JobTitle,
-		Country:          p.Country,
-		City:             p.City,
-		OrcidId:          p.OrcidID,
-		Interests:        interests,
-		Skills:           skills,
-		Education:        education,
-		Experience:       experience,
-		Languages:        languages,
-		PublicationCount: p.PublicationCount,
-		ConnectionStatus: gen.None,
-		Contact:          contact,
-		PhotoUrl:         mediaURL(p.PhotoFileID),
-		CoverUrl:         mediaURL(p.CoverFileID),
+		UserId:              id,
+		FullName:            p.FullName,
+		Headline:            p.Headline,
+		Bio:                 p.Bio,
+		Institution:         p.Institution,
+		Department:          p.Department,
+		JobTitle:            p.JobTitle,
+		Country:             p.Country,
+		City:                p.City,
+		OrcidId:             p.OrcidID,
+		Interests:           interests,
+		Skills:              skills,
+		Education:           education,
+		Experience:          experience,
+		Languages:           languages,
+		PublicationCount:    p.PublicationCount,
+		ConnectionStatus:    status,
+		ConnectionRequestId: requestID,
+		ConnectionCount:     p.ConnectionCount,
+		Contact:             contact,
+		PhotoUrl:            mediaURL(p.PhotoFileID),
+		CoverUrl:            mediaURL(p.CoverFileID),
 	}, nil
 }
 
@@ -300,4 +306,21 @@ func mediaURL(fileID *string) *string {
 	}
 	u := httpx.MediaURL(*fileID)
 	return &u
+}
+
+// connectionFields is the contract's connectionStatus and connectionRequestId for rel; a
+// status the contract does not know reads as none.
+func connectionFields(rel domain.ConnectionRelation) (gen.ConnectionStatus, *openapi_types.UUID, error) {
+	status := gen.ConnectionStatus(rel.Status)
+	if !status.Valid() {
+		status = gen.None
+	}
+	if rel.RequestID == nil {
+		return status, nil, nil
+	}
+	id := new(openapi_types.UUID)
+	if err := id.UnmarshalText([]byte(*rel.RequestID)); err != nil {
+		return "", nil, fmt.Errorf("connection request id: %w", err)
+	}
+	return status, id, nil
 }

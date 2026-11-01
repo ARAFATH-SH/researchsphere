@@ -1749,6 +1749,45 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /profiles/{userId}/connections:
+    get:
+      operationId: listProfileConnections
+      summary: List any user's connections to a logged-in user (FR-7.4)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed,
+        events and recommendations" (SRS 2.3). Lists the user's connections in the order
+        of `listMyConnections`, leaving out suspended and unverified accounts. An unknown,
+        suspended or unverified account gets the same 404 `not_found`, as for the profile.
+      tags: [connections]
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          description: |
+            The user's ID, a UUID. It is declared as a plain string so that the login check
+            runs before it is read (FR-3.1); a value that is not a UUID names no user and
+            gets 404 `not_found`.
+          schema:
+            type: string
+        - $ref: "#/components/parameters/ConnectionListPage"
+      responses:
+        "200":
+          description: One page of the user's connections.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectionPage"
+        "400":
+          $ref: "#/components/responses/InvalidConnectionPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /profiles/me/photo:
     put:
       operationId: uploadMyPhoto
@@ -1886,6 +1925,272 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /connections:
+    get:
+      operationId: listMyConnections
+      summary: List the logged-in user's connections (FR-7.4)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed,
+        events and recommendations" (SRS 2.3). 20 per page, most recently connected
+        first. Suspended and unverified accounts are left out, and so is their count in
+        `total`.
+      tags: [connections]
+      parameters:
+        - $ref: "#/components/parameters/ConnectionListPage"
+      responses:
+        "200":
+          description: One page of the caller's connections.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectionPage"
+        "400":
+          $ref: "#/components/responses/InvalidConnectionPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /connections/{userId}:
+    delete:
+      operationId: removeConnection
+      summary: Remove a connection (FR-7.5)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Either user may remove it. Afterwards either may send a
+        new request.
+      tags: [connections]
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          description: |
+            The other user's ID, a UUID. It is declared as a plain string so that the login
+            check runs before it is read (FR-3.1); a value that is not a UUID gets 404
+            `not_found`.
+          schema:
+            type: string
+      responses:
+        "204":
+          description: The connection is removed.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: The caller is not connected with this user (`not_found`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /connections/requests:
+    post:
+      operationId: sendConnectionRequest
+      summary: Send a connection request (FR-7.1, FR-7.2, FR-7.6)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Checks run in this order: a request to oneself
+        (`cannot_connect_to_self`), the daily limit (`rate_limited`), the receiver (an
+        unknown, suspended or unverified account gets 404 `not_found`, as for the
+        profile), then the existing requests and connections between the two, in either
+        direction (409). A rejected request does not block a new one (FR-7.6).
+
+        Each user may send 50 requests a day; only requests that were created count.
+        Two users who send each other a request at the same moment get one request: the
+        later one gets 409 `request_pending_from_them`.
+      tags: [connections]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConnectionRequestCreate"
+      responses:
+        "201":
+          description: The request is sent; the item is as it appears in the sent list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectionRequest"
+        "400":
+          description: |
+            `userId` is the caller's own ID (`cannot_connect_to_self`), or the body is not
+            valid (`bad_request`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: |
+            A request or connection already exists between the two (FR-7.2):
+            `request_already_pending` (the caller's earlier request is still pending),
+            `request_pending_from_them` (the other user has sent the caller a request that
+            is still pending; `requestId` names it, so the caller can accept it instead) or
+            `already_connected`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectionConflict"
+        "429":
+          description: The user has sent 50 requests in the current day (`rate_limited`).
+          headers:
+            Retry-After:
+              description: Seconds until the day ends and requests are accepted again.
+              required: true
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /connections/requests/received:
+    get:
+      operationId: listReceivedConnectionRequests
+      summary: List the pending requests sent to the logged-in user (FR-7.4)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed,
+        events and recommendations" (SRS 2.3). Only pending requests, 20 per page, newest
+        first; each item names the sender. Requests from suspended and unverified accounts
+        are left out.
+      tags: [connections]
+      parameters:
+        - $ref: "#/components/parameters/ConnectionListPage"
+      responses:
+        "200":
+          description: One page of received requests.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectionRequestPage"
+        "400":
+          $ref: "#/components/responses/InvalidConnectionPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /connections/requests/sent:
+    get:
+      operationId: listSentConnectionRequests
+      summary: List the pending requests the logged-in user sent (FR-7.4)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed,
+        events and recommendations" (SRS 2.3). Only pending requests, 20 per page, newest
+        first; each item names the receiver. A rejected request simply leaves this list,
+        as a cancelled one does (FR-7.6). Requests to suspended and unverified accounts are
+        left out.
+      tags: [connections]
+      parameters:
+        - $ref: "#/components/parameters/ConnectionListPage"
+      responses:
+        "200":
+          description: One page of sent requests.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectionRequestPage"
+        "400":
+          $ref: "#/components/responses/InvalidConnectionPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /connections/requests/{requestId}:
+    delete:
+      operationId: cancelConnectionRequest
+      summary: Cancel a pending request the logged-in user sent (FR-7.3)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Only the sender may cancel, and only while the request
+        is pending; anything else gets 404 `not_found`, which does not reveal whether the
+        request exists.
+      tags: [connections]
+      parameters:
+        - $ref: "#/components/parameters/ConnectionRequestID"
+      responses:
+        "204":
+          description: The request is cancelled.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /connections/requests/{requestId}/accept:
+    post:
+      operationId: acceptConnectionRequest
+      summary: Accept a pending request sent to the logged-in user (FR-7.3)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Only the receiver may accept, and only while the request
+        is pending and the sender is a verified account that is not suspended; anything
+        else gets 404 `not_found`, which does not reveal whether the request exists.
+      tags: [connections]
+      parameters:
+        - $ref: "#/components/parameters/ConnectionRequestID"
+      responses:
+        "200":
+          description: The two users are connected; the item names the sender.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Connection"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /connections/requests/{requestId}/reject:
+    post:
+      operationId: rejectConnectionRequest
+      summary: Reject a pending request sent to the logged-in user (FR-7.3, FR-7.6)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Only the receiver may reject, and only while the request
+        is pending and the sender is a verified account that is not suspended; anything
+        else gets 404 `not_found`. The sender is not told: the request leaves their sent
+        list and they may send a new one (FR-7.6).
+      tags: [connections]
+      parameters:
+        - $ref: "#/components/parameters/ConnectionRequestID"
+      responses:
+        "204":
+          description: The request is rejected.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /search/people:
     get:
       operationId: searchPeople
@@ -1986,6 +2291,25 @@ components:
       description: The access token set by `POST /auth/login`.
 
   parameters:
+    ConnectionListPage:
+      name: page
+      in: query
+      required: false
+      description: The page to return, from 1, 20 items each. Defaults to 1.
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    ConnectionRequestID:
+      name: requestId
+      in: path
+      required: true
+      description: |
+        The request's ID, a UUID. It is declared as a plain string so that the login check
+        runs before it is read (FR-3.1); a value that is not a UUID names no request and
+        gets 404 `not_found`.
+      schema:
+        type: string
     FileID:
       name: fileId
       in: path
@@ -2339,9 +2663,8 @@ components:
     Profile:
       type: object
       description: |
-        A researcher's profile (FR-4.1, FR-4.2, FR-4.4, FR-4.5, FR-4.6, FR-4.7, FR-5.5). The optional text fields are
-        always present and null when not set. `connectionStatus` is a placeholder for now;
-        later work fills it in.
+        A researcher's profile (FR-4.1, FR-4.2, FR-4.4, FR-4.5, FR-4.6, FR-4.7, FR-5.5, FR-7). The optional text fields are
+        always present and null when not set.
       required:
         - userId
         - fullName
@@ -2360,6 +2683,8 @@ components:
         - languages
         - publicationCount
         - connectionStatus
+        - connectionRequestId
+        - connectionCount
         - contact
         - photoUrl
         - coverUrl
@@ -2439,6 +2764,19 @@ components:
             from `listPublications`.
         connectionStatus:
           $ref: "#/components/schemas/ConnectionStatus"
+        connectionRequestId:
+          type: string
+          format: uuid
+          nullable: true
+          description: |
+            The pending request between the caller and the profile's owner when
+            `connectionStatus` is `pending_sent` (the caller may cancel it) or
+            `pending_received` (the caller may accept or reject it); null otherwise.
+        connectionCount:
+          type: integer
+          description: |
+            How many connections the user has (FR-7.4), counting only verified accounts
+            that are not suspended; the `total` of `listProfileConnections`.
         contact:
           $ref: "#/components/schemas/PublicContact"
         photoUrl:
@@ -2498,12 +2836,143 @@ components:
           items:
             $ref: "#/components/schemas/Tag"
 
+    ConnectionRequestCreate:
+      type: object
+      required: [userId]
+      properties:
+        userId:
+          type: string
+          description: |
+            The receiver's ID, a UUID. A value that is not a UUID names no user and gets
+            404 `not_found`.
+
+    ConnectionRequest:
+      type: object
+      description: |
+        A pending connection request (FR-7.4). The person fields describe the other user:
+        the sender in the received list, the receiver in the sent list.
+      required: [requestId, createdAt, userId, fullName, headline, institution, photoUrl]
+      properties:
+        requestId:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        userId:
+          type: string
+          format: uuid
+        fullName:
+          type: string
+        headline:
+          type: string
+          nullable: true
+        institution:
+          type: string
+          nullable: true
+        photoUrl:
+          type: string
+          nullable: true
+          description: The other user's profile photo as `/api/v1/media/{fileId}`; null when not set.
+
+    Connection:
+      type: object
+      description: |
+        A connection (FR-7.4). The person fields describe the other user of the
+        connection; `connectionStatus` and `connectionRequestId` are the caller's own link
+        with that user, which on another user's list may be anything, `self` included.
+      required: [connectedAt, userId, fullName, headline, institution, photoUrl, connectionStatus, connectionRequestId]
+      properties:
+        connectedAt:
+          type: string
+          format: date-time
+          description: When the request was accepted.
+        userId:
+          type: string
+          format: uuid
+        fullName:
+          type: string
+        headline:
+          type: string
+          nullable: true
+        institution:
+          type: string
+          nullable: true
+        photoUrl:
+          type: string
+          nullable: true
+          description: The other user's profile photo as `/api/v1/media/{fileId}`; null when not set.
+        connectionStatus:
+          $ref: "#/components/schemas/ConnectionStatus"
+        connectionRequestId:
+          type: string
+          format: uuid
+          nullable: true
+          description: |
+            The pending request between the caller and this user when `connectionStatus`
+            is `pending_sent` or `pending_received`; null otherwise.
+
+    ConnectionPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Connection"
+        page:
+          type: integer
+        pageSize:
+          type: integer
+          description: Always 20.
+        total:
+          type: integer
+          description: The number of connections on all pages.
+
+    ConnectionRequestPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConnectionRequest"
+        page:
+          type: integer
+        pageSize:
+          type: integer
+          description: Always 20.
+        total:
+          type: integer
+          description: The number of requests on all pages.
+
+    ConnectionConflict:
+      type: object
+      description: |
+        The Error shape of a refused connection request (FR-7.2), with the pending
+        request's ID when the other user sent it.
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum: [request_already_pending, request_pending_from_them, already_connected]
+        message:
+          type: string
+        requestId:
+          type: string
+          format: uuid
+          description: Only with `request_pending_from_them`.
+
     ConnectionStatus:
       type: string
       description: |
-        The connection between the caller and the profile's owner (FR-4.5).
-        Placeholder: always `none` until connections are added (FR-7); more values come then.
-      enum: [none]
+        The connection between the caller and another user (FR-4.5, FR-7), the owner of
+        a profile or the person of a search result or connections list item: `none`,
+        `pending_sent` (the caller sent a request that is still pending),
+        `pending_received` (the other user sent the caller one), `connected`, or `self`
+        when the other user is the caller. A rejected request reads as `none` to both
+        sides (FR-7.6).
+      enum: [none, pending_sent, pending_received, connected, self]
 
     ProfileUpdate:
       type: object
@@ -3173,7 +3642,7 @@ components:
           $ref: "#/components/schemas/PeopleSearchFacets"
     PersonSearchResult:
       type: object
-      required: [userId, fullName, headline, institution, photoUrl, interests, matchedOn]
+      required: [userId, fullName, headline, institution, photoUrl, interests, matchedOn, connectionStatus, connectionRequestId]
       properties:
         userId:
           type: string
@@ -3202,6 +3671,15 @@ components:
           type: string
           enum: [name, institution, interest, headline]
           description: The field of the result's best match.
+        connectionStatus:
+          $ref: "#/components/schemas/ConnectionStatus"
+        connectionRequestId:
+          type: string
+          format: uuid
+          nullable: true
+          description: |
+            The pending request between the caller and this user when `connectionStatus`
+            is `pending_sent` or `pending_received`; null otherwise.
     PeopleSearchFacets:
       type: object
       required: [institutions, interests]
@@ -3477,6 +3955,12 @@ components:
 
 
   responses:
+    InvalidConnectionPage:
+      description: "`page` is not a whole number of at least 1 (`bad_request`)."
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
     Forbidden:
       description: |
         The user's role does not permit the action (FR-3.2). The body is always

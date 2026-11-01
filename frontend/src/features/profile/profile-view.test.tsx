@@ -222,7 +222,7 @@ describe("ProfileView, own profile", () => {
 });
 
 describe("ProfileView, another user's profile", () => {
-  it("shows More but no edit controls, Connect, Message request or strength card", async () => {
+  it("shows Connect and More but no edit controls, Message request or strength card", async () => {
     mockGetProfile.mockResolvedValue({
       status: "ok",
       profile: fullProfile(bobID, "Bob Babbage"),
@@ -235,7 +235,7 @@ describe("ProfileView, another user's profile", () => {
     expect(
       screen.queryByRole("button", { name: "Change profile photo" }),
     ).toBeNull();
-    expect(screen.queryByRole("button", { name: /connect/i })).toBeNull();
+    expect(screen.getByRole("button", { name: "Connect with Bob Babbage" })).toBeTruthy();
     expect(screen.queryByText(/message request/i)).toBeNull();
     expect(screen.queryByText("Profile strength")).toBeNull();
     // The design's AI cards wait for matching (slice 17): no sample people.

@@ -215,6 +215,42 @@ func (fakeAPI) SearchPeople(context.Context, gen.SearchPeopleRequestObject) (gen
 	return gen.SearchPeople200JSONResponse{}, nil
 }
 
+func (fakeAPI) SendConnectionRequest(context.Context, gen.SendConnectionRequestRequestObject) (gen.SendConnectionRequestResponseObject, error) {
+	return gen.SendConnectionRequest201JSONResponse{}, nil
+}
+
+func (fakeAPI) AcceptConnectionRequest(context.Context, gen.AcceptConnectionRequestRequestObject) (gen.AcceptConnectionRequestResponseObject, error) {
+	return gen.AcceptConnectionRequest200JSONResponse{}, nil
+}
+
+func (fakeAPI) RejectConnectionRequest(context.Context, gen.RejectConnectionRequestRequestObject) (gen.RejectConnectionRequestResponseObject, error) {
+	return gen.RejectConnectionRequest204Response{}, nil
+}
+
+func (fakeAPI) CancelConnectionRequest(context.Context, gen.CancelConnectionRequestRequestObject) (gen.CancelConnectionRequestResponseObject, error) {
+	return gen.CancelConnectionRequest204Response{}, nil
+}
+
+func (fakeAPI) RemoveConnection(context.Context, gen.RemoveConnectionRequestObject) (gen.RemoveConnectionResponseObject, error) {
+	return gen.RemoveConnection204Response{}, nil
+}
+
+func (fakeAPI) ListMyConnections(context.Context, gen.ListMyConnectionsRequestObject) (gen.ListMyConnectionsResponseObject, error) {
+	return gen.ListMyConnections200JSONResponse{}, nil
+}
+
+func (fakeAPI) ListReceivedConnectionRequests(context.Context, gen.ListReceivedConnectionRequestsRequestObject) (gen.ListReceivedConnectionRequestsResponseObject, error) {
+	return gen.ListReceivedConnectionRequests200JSONResponse{}, nil
+}
+
+func (fakeAPI) ListSentConnectionRequests(context.Context, gen.ListSentConnectionRequestsRequestObject) (gen.ListSentConnectionRequestsResponseObject, error) {
+	return gen.ListSentConnectionRequests200JSONResponse{}, nil
+}
+
+func (fakeAPI) ListProfileConnections(context.Context, gen.ListProfileConnectionsRequestObject) (gen.ListProfileConnectionsResponseObject, error) {
+	return gen.ListProfileConnections200JSONResponse{}, nil
+}
+
 func (fakeAPI) SuggestInterestTags(context.Context, gen.SuggestInterestTagsRequestObject) (gen.SuggestInterestTagsResponseObject, error) {
 	return gen.SuggestInterestTags200JSONResponse{Items: []gen.Tag{}}, nil
 }
@@ -474,8 +510,8 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 
 func TestRoutes(t *testing.T) {
 	got := Routes()
-	if len(got) != 51 {
-		t.Errorf("Routes() returned %d routes, want the 51 operations in the contract: %v", len(got), got)
+	if len(got) != 60 {
+		t.Errorf("Routes() returned %d routes, want the 60 operations in the contract: %v", len(got), got)
 	}
 	seen := map[string]bool{}
 	for _, p := range got {

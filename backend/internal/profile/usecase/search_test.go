@@ -129,3 +129,48 @@ func TestSearchPeopleNotConfigured(t *testing.T) {
 		t.Error("err = nil, want an error")
 	}
 }
+
+// Each result carries the searcher's link with that person, read for the whole page in
+// one lookup (FR-7); without a lookup the own row is self and the rest none.
+func TestSearchPeopleFillsConnections(t *testing.T) {
+	const reqID = "00000000-0000-0000-0000-0000000000a1"
+	hits := func() []domain.PersonHit {
+		return []domain.PersonHit{{UserID: adaID}, {UserID: bobID}, {UserID: eveID}}
+	}
+	conns := &fakeConnections{byUser: map[string]domain.ConnectionRelation{
+		adaID: {Status: domain.ConnectionPendingSent, RequestID: sp(reqID)},
+		bobID: {Status: domain.ConnectionConnected},
+		eveID: {Status: domain.ConnectionSelf},
+	}}
+	searcher := &fakeSearcher{res: domain.PeopleResults{Hits: hits(), Total: 3}}
+	svc := New(nil, WithPeopleSearch(PeopleSearch{Searcher: searcher, Limiter: &fakeLimiter{}}), WithConnections(conns))
+	res, err := svc.SearchPeople(t.Context(), eveID, SearchInput{Q: sp("ada"), Page: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(conns.lists) != 1 || !reflect.DeepEqual(conns.lists[0], []string{adaID, bobID, eveID}) {
+		t.Errorf("Relations calls %v, want one with the whole page", conns.lists)
+	}
+	for _, h := range res.Hits {
+		if !reflect.DeepEqual(h.Connection, conns.byUser[h.UserID]) {
+			t.Errorf("%s: %+v, want %+v", h.UserID, h.Connection, conns.byUser[h.UserID])
+		}
+	}
+
+	searcher.res.Hits = hits()
+	svc = New(nil, WithPeopleSearch(PeopleSearch{Searcher: searcher, Limiter: &fakeLimiter{}}))
+	res, _ = svc.SearchPeople(t.Context(), eveID, SearchInput{Q: sp("ada"), Page: 1})
+	want := []domain.ConnectionStatus{domain.ConnectionNone, domain.ConnectionNone, domain.ConnectionSelf}
+	for i, h := range res.Hits {
+		if h.Connection.Status != want[i] || h.Connection.RequestID != nil {
+			t.Errorf("no lookup, %s: %+v, want %s", h.UserID, h.Connection, want[i])
+		}
+	}
+
+	conns.err = errors.New("boom")
+	searcher.res.Hits = hits()
+	svc = New(nil, WithPeopleSearch(PeopleSearch{Searcher: searcher, Limiter: &fakeLimiter{}}), WithConnections(conns))
+	if _, err := svc.SearchPeople(t.Context(), eveID, SearchInput{Q: sp("ada"), Page: 1}); !errors.Is(err, conns.err) {
+		t.Errorf("lookup error: %v, want it returned", err)
+	}
+}

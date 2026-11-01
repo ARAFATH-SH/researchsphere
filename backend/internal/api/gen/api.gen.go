@@ -24,15 +24,48 @@ const (
 	CookieAuthScopes cookieAuthContextKey = "cookieAuth.Scopes"
 )
 
+// Defines values for ConnectionConflictCode.
+const (
+	AlreadyConnected       ConnectionConflictCode = "already_connected"
+	RequestAlreadyPending  ConnectionConflictCode = "request_already_pending"
+	RequestPendingFromThem ConnectionConflictCode = "request_pending_from_them"
+)
+
+// Valid indicates whether the value is a known member of the ConnectionConflictCode enum.
+func (e ConnectionConflictCode) Valid() bool {
+	switch e {
+	case AlreadyConnected:
+		return true
+	case RequestAlreadyPending:
+		return true
+	case RequestPendingFromThem:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ConnectionStatus.
 const (
-	None ConnectionStatus = "none"
+	Connected       ConnectionStatus = "connected"
+	None            ConnectionStatus = "none"
+	PendingReceived ConnectionStatus = "pending_received"
+	PendingSent     ConnectionStatus = "pending_sent"
+	Self            ConnectionStatus = "self"
 )
 
 // Valid indicates whether the value is a known member of the ConnectionStatus enum.
 func (e ConnectionStatus) Valid() bool {
 	switch e {
+	case Connected:
+		return true
 	case None:
+		return true
+	case PendingReceived:
+		return true
+	case PendingSent:
+		return true
+	case Self:
 		return true
 	default:
 		return false
@@ -372,8 +405,97 @@ type ChangePasswordRequest struct {
 	NewPassword string `json:"newPassword"`
 }
 
-// ConnectionStatus The connection between the caller and the profile's owner (FR-4.5).
-// Placeholder: always `none` until connections are added (FR-7); more values come then.
+// Connection A connection (FR-7.4). The person fields describe the other user of the
+// connection; `connectionStatus` and `connectionRequestId` are the caller's own link
+// with that user, which on another user's list may be anything, `self` included.
+type Connection struct {
+	// ConnectedAt When the request was accepted.
+	ConnectedAt time.Time `json:"connectedAt"`
+
+	// ConnectionRequestId The pending request between the caller and this user when `connectionStatus`
+	// is `pending_sent` or `pending_received`; null otherwise.
+	ConnectionRequestId *openapi_types.UUID `json:"connectionRequestId"`
+
+	// ConnectionStatus The connection between the caller and another user (FR-4.5, FR-7), the owner of
+	// a profile or the person of a search result or connections list item: `none`,
+	// `pending_sent` (the caller sent a request that is still pending),
+	// `pending_received` (the other user sent the caller one), `connected`, or `self`
+	// when the other user is the caller. A rejected request reads as `none` to both
+	// sides (FR-7.6).
+	ConnectionStatus ConnectionStatus `json:"connectionStatus"`
+	FullName         string           `json:"fullName"`
+	Headline         *string          `json:"headline"`
+	Institution      *string          `json:"institution"`
+
+	// PhotoUrl The other user's profile photo as `/api/v1/media/{fileId}`; null when not set.
+	PhotoUrl *string            `json:"photoUrl"`
+	UserId   openapi_types.UUID `json:"userId"`
+}
+
+// ConnectionConflict The Error shape of a refused connection request (FR-7.2), with the pending
+// request's ID when the other user sent it.
+type ConnectionConflict struct {
+	Code    ConnectionConflictCode `json:"code"`
+	Message string                 `json:"message"`
+
+	// RequestId Only with `request_pending_from_them`.
+	RequestId *openapi_types.UUID `json:"requestId,omitempty"`
+}
+
+// ConnectionConflictCode defines model for ConnectionConflict.Code.
+type ConnectionConflictCode string
+
+// ConnectionPage defines model for ConnectionPage.
+type ConnectionPage struct {
+	Items []Connection `json:"items"`
+	Page  int          `json:"page"`
+
+	// PageSize Always 20.
+	PageSize int `json:"pageSize"`
+
+	// Total The number of connections on all pages.
+	Total int `json:"total"`
+}
+
+// ConnectionRequest A pending connection request (FR-7.4). The person fields describe the other user:
+// the sender in the received list, the receiver in the sent list.
+type ConnectionRequest struct {
+	CreatedAt   time.Time `json:"createdAt"`
+	FullName    string    `json:"fullName"`
+	Headline    *string   `json:"headline"`
+	Institution *string   `json:"institution"`
+
+	// PhotoUrl The other user's profile photo as `/api/v1/media/{fileId}`; null when not set.
+	PhotoUrl  *string            `json:"photoUrl"`
+	RequestId openapi_types.UUID `json:"requestId"`
+	UserId    openapi_types.UUID `json:"userId"`
+}
+
+// ConnectionRequestCreate defines model for ConnectionRequestCreate.
+type ConnectionRequestCreate struct {
+	// UserId The receiver's ID, a UUID. A value that is not a UUID names no user and gets
+	// 404 `not_found`.
+	UserId string `json:"userId"`
+}
+
+// ConnectionRequestPage defines model for ConnectionRequestPage.
+type ConnectionRequestPage struct {
+	Items []ConnectionRequest `json:"items"`
+	Page  int                 `json:"page"`
+
+	// PageSize Always 20.
+	PageSize int `json:"pageSize"`
+
+	// Total The number of requests on all pages.
+	Total int `json:"total"`
+}
+
+// ConnectionStatus The connection between the caller and another user (FR-4.5, FR-7), the owner of
+// a profile or the person of a search result or connections list item: `none`,
+// `pending_sent` (the caller sent a request that is still pending),
+// `pending_received` (the other user sent the caller one), `connected`, or `self`
+// when the other user is the caller. A rejected request reads as `none` to both
+// sides (FR-7.6).
 type ConnectionStatus string
 
 // Contact The owner's contact info with who may see each item (FR-4.7). `email` is the
@@ -790,9 +912,20 @@ type PeopleSearchPage struct {
 
 // PersonSearchResult defines model for PersonSearchResult.
 type PersonSearchResult struct {
-	FullName    string  `json:"fullName"`
-	Headline    *string `json:"headline"`
-	Institution *string `json:"institution"`
+	// ConnectionRequestId The pending request between the caller and this user when `connectionStatus`
+	// is `pending_sent` or `pending_received`; null otherwise.
+	ConnectionRequestId *openapi_types.UUID `json:"connectionRequestId"`
+
+	// ConnectionStatus The connection between the caller and another user (FR-4.5, FR-7), the owner of
+	// a profile or the person of a search result or connections list item: `none`,
+	// `pending_sent` (the caller sent a request that is still pending),
+	// `pending_received` (the other user sent the caller one), `connected`, or `self`
+	// when the other user is the caller. A rejected request reads as `none` to both
+	// sides (FR-7.6).
+	ConnectionStatus ConnectionStatus `json:"connectionStatus"`
+	FullName         string           `json:"fullName"`
+	Headline         *string          `json:"headline"`
+	Institution      *string          `json:"institution"`
 
 	// Interests Up to 3 of the user's research interests: the ones that match `q` or a
 	// selected interest first, then by name.
@@ -809,17 +942,29 @@ type PersonSearchResult struct {
 // PersonSearchResultMatchedOn The field of the result's best match.
 type PersonSearchResultMatchedOn string
 
-// Profile A researcher's profile (FR-4.1, FR-4.2, FR-4.4, FR-4.5, FR-4.6, FR-4.7, FR-5.5). The optional text fields are
-// always present and null when not set. `connectionStatus` is a placeholder for now;
-// later work fills it in.
+// Profile A researcher's profile (FR-4.1, FR-4.2, FR-4.4, FR-4.5, FR-4.6, FR-4.7, FR-5.5, FR-7). The optional text fields are
+// always present and null when not set.
 type Profile struct {
 	Bio *string `json:"bio"`
 
 	// City Example: Cambridge
 	City *string `json:"city"`
 
-	// ConnectionStatus The connection between the caller and the profile's owner (FR-4.5).
-	// Placeholder: always `none` until connections are added (FR-7); more values come then.
+	// ConnectionCount How many connections the user has (FR-7.4), counting only verified accounts
+	// that are not suspended; the `total` of `listProfileConnections`.
+	ConnectionCount int `json:"connectionCount"`
+
+	// ConnectionRequestId The pending request between the caller and the profile's owner when
+	// `connectionStatus` is `pending_sent` (the caller may cancel it) or
+	// `pending_received` (the caller may accept or reject it); null otherwise.
+	ConnectionRequestId *openapi_types.UUID `json:"connectionRequestId"`
+
+	// ConnectionStatus The connection between the caller and another user (FR-4.5, FR-7), the owner of
+	// a profile or the person of a search result or connections list item: `none`,
+	// `pending_sent` (the caller sent a request that is still pending),
+	// `pending_received` (the other user sent the caller one), `connected`, or `self`
+	// when the other user is the caller. A rejected request reads as `none` to both
+	// sides (FR-7.6).
 	ConnectionStatus ConnectionStatus `json:"connectionStatus"`
 
 	// Contact The contact info the viewer of a profile may see (FR-4.7). An item that is hidden
@@ -1176,6 +1321,12 @@ type YearMonth struct {
 	Year int `json:"year"`
 }
 
+// ConnectionListPage defines model for ConnectionListPage.
+type ConnectionListPage = int
+
+// ConnectionRequestID defines model for ConnectionRequestID.
+type ConnectionRequestID = string
+
 // EducationID defines model for EducationID.
 type EducationID = string
 
@@ -1223,6 +1374,9 @@ type Forbidden = Error
 
 // InternalError The shape of every error response (SRS 5.3).
 type InternalError = Error
+
+// InvalidConnectionPage The shape of every error response (SRS 5.3).
+type InvalidConnectionPage = Error
 
 // InvalidDOI The shape of every error response (SRS 5.3).
 type InvalidDOI = Error
@@ -1312,6 +1466,24 @@ type RefreshSessionParams struct {
 	RsRefresh *RefreshCookie `form:"rs_refresh,omitempty" json:"rs_refresh,omitempty"`
 }
 
+// ListMyConnectionsParams defines parameters for ListMyConnections.
+type ListMyConnectionsParams struct {
+	// Page The page to return, from 1, 20 items each. Defaults to 1.
+	Page *ConnectionListPage `form:"page,omitempty" json:"page,omitempty"`
+}
+
+// ListReceivedConnectionRequestsParams defines parameters for ListReceivedConnectionRequests.
+type ListReceivedConnectionRequestsParams struct {
+	// Page The page to return, from 1, 20 items each. Defaults to 1.
+	Page *ConnectionListPage `form:"page,omitempty" json:"page,omitempty"`
+}
+
+// ListSentConnectionRequestsParams defines parameters for ListSentConnectionRequests.
+type ListSentConnectionRequestsParams struct {
+	// Page The page to return, from 1, 20 items each. Defaults to 1.
+	Page *ConnectionListPage `form:"page,omitempty" json:"page,omitempty"`
+}
+
 // UploadMyCoverMultipartBody defines parameters for UploadMyCover.
 type UploadMyCoverMultipartBody struct {
 	File openapi_types.File `json:"file"`
@@ -1330,6 +1502,12 @@ type ListMyPublicationsParams struct {
 	// PageSize Publications per page, from 1. Defaults to 10. A larger value than 50 is reduced
 	// to 50, and the response says which size was used.
 	PageSize *PublicationListPageSize `form:"pageSize,omitempty" json:"pageSize,omitempty"`
+}
+
+// ListProfileConnectionsParams defines parameters for ListProfileConnections.
+type ListProfileConnectionsParams struct {
+	// Page The page to return, from 1, 20 items each. Defaults to 1.
+	Page *ConnectionListPage `form:"page,omitempty" json:"page,omitempty"`
 }
 
 // ListPublicationsParams defines parameters for ListPublications.
@@ -1414,6 +1592,9 @@ type ResendVerificationJSONRequestBody = ResendVerificationRequest
 
 // VerifyEmailJSONRequestBody defines body for VerifyEmail for application/json ContentType.
 type VerifyEmailJSONRequestBody = VerifyEmailRequest
+
+// SendConnectionRequestJSONRequestBody defines body for SendConnectionRequest for application/json ContentType.
+type SendConnectionRequestJSONRequestBody = ConnectionRequestCreate
 
 // UpdateMyProfileJSONRequestBody defines body for UpdateMyProfile for application/json ContentType.
 type UpdateMyProfileJSONRequestBody = ProfileUpdate
@@ -1507,6 +1688,30 @@ type ServerInterface interface {
 	// VerifyEmail Verify an email address with the token from the link (FR-1.3)
 	// (POST /auth/verify-email)
 	VerifyEmail(w http.ResponseWriter, r *http.Request)
+	// ListMyConnections List the logged-in user's connections (FR-7.4)
+	// (GET /connections)
+	ListMyConnections(w http.ResponseWriter, r *http.Request, params ListMyConnectionsParams)
+	// SendConnectionRequest Send a connection request (FR-7.1, FR-7.2, FR-7.6)
+	// (POST /connections/requests)
+	SendConnectionRequest(w http.ResponseWriter, r *http.Request)
+	// ListReceivedConnectionRequests List the pending requests sent to the logged-in user (FR-7.4)
+	// (GET /connections/requests/received)
+	ListReceivedConnectionRequests(w http.ResponseWriter, r *http.Request, params ListReceivedConnectionRequestsParams)
+	// ListSentConnectionRequests List the pending requests the logged-in user sent (FR-7.4)
+	// (GET /connections/requests/sent)
+	ListSentConnectionRequests(w http.ResponseWriter, r *http.Request, params ListSentConnectionRequestsParams)
+	// CancelConnectionRequest Cancel a pending request the logged-in user sent (FR-7.3)
+	// (DELETE /connections/requests/{requestId})
+	CancelConnectionRequest(w http.ResponseWriter, r *http.Request, requestId ConnectionRequestID)
+	// AcceptConnectionRequest Accept a pending request sent to the logged-in user (FR-7.3)
+	// (POST /connections/requests/{requestId}/accept)
+	AcceptConnectionRequest(w http.ResponseWriter, r *http.Request, requestId ConnectionRequestID)
+	// RejectConnectionRequest Reject a pending request sent to the logged-in user (FR-7.3, FR-7.6)
+	// (POST /connections/requests/{requestId}/reject)
+	RejectConnectionRequest(w http.ResponseWriter, r *http.Request, requestId ConnectionRequestID)
+	// RemoveConnection Remove a connection (FR-7.5)
+	// (DELETE /connections/{userId})
+	RemoveConnection(w http.ResponseWriter, r *http.Request, userId string)
 	// GetHealth Report whether the database, Redis and object storage respond
 	// (GET /health)
 	GetHealth(w http.ResponseWriter, r *http.Request)
@@ -1609,6 +1814,9 @@ type ServerInterface interface {
 	// GetProfile Return any user's profile to a logged-in user (FR-4.5)
 	// (GET /profiles/{userId})
 	GetProfile(w http.ResponseWriter, r *http.Request, userId string)
+	// ListProfileConnections List any user's connections to a logged-in user (FR-7.4)
+	// (GET /profiles/{userId}/connections)
+	ListProfileConnections(w http.ResponseWriter, r *http.Request, userId string, params ListProfileConnectionsParams)
 	// ListPublications List any user's confirmed publications to a logged-in user (FR-5.5)
 	// (GET /profiles/{userId}/publications)
 	ListPublications(w http.ResponseWriter, r *http.Request, userId string, params ListPublicationsParams)
@@ -1913,6 +2121,271 @@ func (siw *ServerInterfaceWrapper) VerifyEmail(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.VerifyEmail(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListMyConnections operation middleware
+func (siw *ServerInterfaceWrapper) ListMyConnections(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListMyConnectionsParams
+
+	// ------------- Optional query parameter "page" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "page", r.URL.Query(), &params.Page, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "page"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListMyConnections(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SendConnectionRequest operation middleware
+func (siw *ServerInterfaceWrapper) SendConnectionRequest(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SendConnectionRequest(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListReceivedConnectionRequests operation middleware
+func (siw *ServerInterfaceWrapper) ListReceivedConnectionRequests(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListReceivedConnectionRequestsParams
+
+	// ------------- Optional query parameter "page" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "page", r.URL.Query(), &params.Page, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "page"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListReceivedConnectionRequests(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListSentConnectionRequests operation middleware
+func (siw *ServerInterfaceWrapper) ListSentConnectionRequests(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListSentConnectionRequestsParams
+
+	// ------------- Optional query parameter "page" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "page", r.URL.Query(), &params.Page, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "page"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListSentConnectionRequests(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CancelConnectionRequest operation middleware
+func (siw *ServerInterfaceWrapper) CancelConnectionRequest(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "requestId" -------------
+	var requestId ConnectionRequestID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "requestId", r.PathValue("requestId"), &requestId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "requestId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CancelConnectionRequest(w, r, requestId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AcceptConnectionRequest operation middleware
+func (siw *ServerInterfaceWrapper) AcceptConnectionRequest(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "requestId" -------------
+	var requestId ConnectionRequestID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "requestId", r.PathValue("requestId"), &requestId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "requestId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AcceptConnectionRequest(w, r, requestId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RejectConnectionRequest operation middleware
+func (siw *ServerInterfaceWrapper) RejectConnectionRequest(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "requestId" -------------
+	var requestId ConnectionRequestID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "requestId", r.PathValue("requestId"), &requestId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "requestId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RejectConnectionRequest(w, r, requestId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RemoveConnection operation middleware
+func (siw *ServerInterfaceWrapper) RemoveConnection(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "userId" -------------
+	var userId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", r.PathValue("userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "userId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RemoveConnection(w, r, userId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2784,6 +3257,54 @@ func (siw *ServerInterfaceWrapper) GetProfile(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r)
 }
 
+// ListProfileConnections operation middleware
+func (siw *ServerInterfaceWrapper) ListProfileConnections(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "userId" -------------
+	var userId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", r.PathValue("userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "userId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListProfileConnectionsParams
+
+	// ------------- Optional query parameter "page" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "page", r.URL.Query(), &params.Page, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "page"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListProfileConnections(w, r, userId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListPublications operation middleware
 func (siw *ServerInterfaceWrapper) ListPublications(w http.ResponseWriter, r *http.Request) {
 
@@ -3231,11 +3752,20 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/profiles/me/publications/{publicationId}", wrapper.RemoveMyPublication)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/profiles/me/publications/{publicationId}", wrapper.UpdateMyPublication)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles/{userId}/publications", wrapper.ListPublications)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles/{userId}/connections", wrapper.ListProfileConnections)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/profiles/me/photo", wrapper.RemoveMyPhoto)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/profiles/me/photo", wrapper.UploadMyPhoto)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/profiles/me/cover", wrapper.RemoveMyCover)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/profiles/me/cover", wrapper.UploadMyCover)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/media/{fileId}", wrapper.GetMedia)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/connections", wrapper.ListMyConnections)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/connections/{userId}", wrapper.RemoveConnection)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/connections/requests", wrapper.SendConnectionRequest)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/connections/requests/received", wrapper.ListReceivedConnectionRequests)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/connections/requests/sent", wrapper.ListSentConnectionRequests)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/connections/requests/{requestId}", wrapper.CancelConnectionRequest)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/connections/requests/{requestId}/accept", wrapper.AcceptConnectionRequest)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/connections/requests/{requestId}/reject", wrapper.RejectConnectionRequest)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/search/people", wrapper.SearchPeople)
 
 	return m
@@ -3248,6 +3778,8 @@ type FileTooLargeJSONResponse Error
 type ForbiddenJSONResponse Error
 
 type InternalErrorJSONResponse Error
+
+type InvalidConnectionPageJSONResponse Error
 
 type InvalidDOIJSONResponse Error
 
@@ -4084,6 +4616,668 @@ func (response VerifyEmail400JSONResponse) VisitVerifyEmailResponse(w http.Respo
 type VerifyEmail500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response VerifyEmail500JSONResponse) VisitVerifyEmailResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMyConnectionsRequestObject struct {
+	Params ListMyConnectionsParams
+}
+
+type ListMyConnectionsResponseObject interface {
+	VisitListMyConnectionsResponse(w http.ResponseWriter) error
+}
+
+type ListMyConnections200JSONResponse ConnectionPage
+
+func (response ListMyConnections200JSONResponse) VisitListMyConnectionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMyConnections400JSONResponse struct {
+	InvalidConnectionPageJSONResponse
+}
+
+func (response ListMyConnections400JSONResponse) VisitListMyConnectionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMyConnections401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListMyConnections401JSONResponse) VisitListMyConnectionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMyConnections403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListMyConnections403JSONResponse) VisitListMyConnectionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMyConnections500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ListMyConnections500JSONResponse) VisitListMyConnectionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SendConnectionRequestRequestObject struct {
+	Body *SendConnectionRequestJSONRequestBody
+}
+
+type SendConnectionRequestResponseObject interface {
+	VisitSendConnectionRequestResponse(w http.ResponseWriter) error
+}
+
+type SendConnectionRequest201JSONResponse ConnectionRequest
+
+func (response SendConnectionRequest201JSONResponse) VisitSendConnectionRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SendConnectionRequest400JSONResponse Error
+
+func (response SendConnectionRequest400JSONResponse) VisitSendConnectionRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SendConnectionRequest401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response SendConnectionRequest401JSONResponse) VisitSendConnectionRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SendConnectionRequest403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response SendConnectionRequest403JSONResponse) VisitSendConnectionRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SendConnectionRequest404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response SendConnectionRequest404JSONResponse) VisitSendConnectionRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SendConnectionRequest409JSONResponse ConnectionConflict
+
+func (response SendConnectionRequest409JSONResponse) VisitSendConnectionRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SendConnectionRequest429ResponseHeaders struct {
+	RetryAfter int
+}
+
+type SendConnectionRequest429JSONResponse struct {
+	Body    Error
+	Headers SendConnectionRequest429ResponseHeaders
+}
+
+func (response SendConnectionRequest429JSONResponse) VisitSendConnectionRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SendConnectionRequest500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response SendConnectionRequest500JSONResponse) VisitSendConnectionRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListReceivedConnectionRequestsRequestObject struct {
+	Params ListReceivedConnectionRequestsParams
+}
+
+type ListReceivedConnectionRequestsResponseObject interface {
+	VisitListReceivedConnectionRequestsResponse(w http.ResponseWriter) error
+}
+
+type ListReceivedConnectionRequests200JSONResponse ConnectionRequestPage
+
+func (response ListReceivedConnectionRequests200JSONResponse) VisitListReceivedConnectionRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListReceivedConnectionRequests400JSONResponse struct {
+	InvalidConnectionPageJSONResponse
+}
+
+func (response ListReceivedConnectionRequests400JSONResponse) VisitListReceivedConnectionRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListReceivedConnectionRequests401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListReceivedConnectionRequests401JSONResponse) VisitListReceivedConnectionRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListReceivedConnectionRequests403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListReceivedConnectionRequests403JSONResponse) VisitListReceivedConnectionRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListReceivedConnectionRequests500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ListReceivedConnectionRequests500JSONResponse) VisitListReceivedConnectionRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSentConnectionRequestsRequestObject struct {
+	Params ListSentConnectionRequestsParams
+}
+
+type ListSentConnectionRequestsResponseObject interface {
+	VisitListSentConnectionRequestsResponse(w http.ResponseWriter) error
+}
+
+type ListSentConnectionRequests200JSONResponse ConnectionRequestPage
+
+func (response ListSentConnectionRequests200JSONResponse) VisitListSentConnectionRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSentConnectionRequests400JSONResponse struct {
+	InvalidConnectionPageJSONResponse
+}
+
+func (response ListSentConnectionRequests400JSONResponse) VisitListSentConnectionRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSentConnectionRequests401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListSentConnectionRequests401JSONResponse) VisitListSentConnectionRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSentConnectionRequests403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListSentConnectionRequests403JSONResponse) VisitListSentConnectionRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSentConnectionRequests500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ListSentConnectionRequests500JSONResponse) VisitListSentConnectionRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelConnectionRequestRequestObject struct {
+	RequestId ConnectionRequestID `json:"requestId"`
+}
+
+type CancelConnectionRequestResponseObject interface {
+	VisitCancelConnectionRequestResponse(w http.ResponseWriter) error
+}
+
+type CancelConnectionRequest204Response struct {
+}
+
+func (response CancelConnectionRequest204Response) VisitCancelConnectionRequestResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type CancelConnectionRequest401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CancelConnectionRequest401JSONResponse) VisitCancelConnectionRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelConnectionRequest403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CancelConnectionRequest403JSONResponse) VisitCancelConnectionRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelConnectionRequest404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CancelConnectionRequest404JSONResponse) VisitCancelConnectionRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelConnectionRequest500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response CancelConnectionRequest500JSONResponse) VisitCancelConnectionRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptConnectionRequestRequestObject struct {
+	RequestId ConnectionRequestID `json:"requestId"`
+}
+
+type AcceptConnectionRequestResponseObject interface {
+	VisitAcceptConnectionRequestResponse(w http.ResponseWriter) error
+}
+
+type AcceptConnectionRequest200JSONResponse Connection
+
+func (response AcceptConnectionRequest200JSONResponse) VisitAcceptConnectionRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptConnectionRequest401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response AcceptConnectionRequest401JSONResponse) VisitAcceptConnectionRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptConnectionRequest403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response AcceptConnectionRequest403JSONResponse) VisitAcceptConnectionRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptConnectionRequest404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response AcceptConnectionRequest404JSONResponse) VisitAcceptConnectionRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptConnectionRequest500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response AcceptConnectionRequest500JSONResponse) VisitAcceptConnectionRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectConnectionRequestRequestObject struct {
+	RequestId ConnectionRequestID `json:"requestId"`
+}
+
+type RejectConnectionRequestResponseObject interface {
+	VisitRejectConnectionRequestResponse(w http.ResponseWriter) error
+}
+
+type RejectConnectionRequest204Response struct {
+}
+
+func (response RejectConnectionRequest204Response) VisitRejectConnectionRequestResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RejectConnectionRequest401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RejectConnectionRequest401JSONResponse) VisitRejectConnectionRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectConnectionRequest403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response RejectConnectionRequest403JSONResponse) VisitRejectConnectionRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectConnectionRequest404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RejectConnectionRequest404JSONResponse) VisitRejectConnectionRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectConnectionRequest500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RejectConnectionRequest500JSONResponse) VisitRejectConnectionRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveConnectionRequestObject struct {
+	UserId string `json:"userId"`
+}
+
+type RemoveConnectionResponseObject interface {
+	VisitRemoveConnectionResponse(w http.ResponseWriter) error
+}
+
+type RemoveConnection204Response struct {
+}
+
+func (response RemoveConnection204Response) VisitRemoveConnectionResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RemoveConnection401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RemoveConnection401JSONResponse) VisitRemoveConnectionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveConnection403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response RemoveConnection403JSONResponse) VisitRemoveConnectionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveConnection404JSONResponse Error
+
+func (response RemoveConnection404JSONResponse) VisitRemoveConnectionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveConnection500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RemoveConnection500JSONResponse) VisitRemoveConnectionResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -7110,6 +8304,101 @@ func (response GetProfile500JSONResponse) VisitGetProfileResponse(w http.Respons
 	return err
 }
 
+type ListProfileConnectionsRequestObject struct {
+	UserId string `json:"userId"`
+	Params ListProfileConnectionsParams
+}
+
+type ListProfileConnectionsResponseObject interface {
+	VisitListProfileConnectionsResponse(w http.ResponseWriter) error
+}
+
+type ListProfileConnections200JSONResponse ConnectionPage
+
+func (response ListProfileConnections200JSONResponse) VisitListProfileConnectionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListProfileConnections400JSONResponse struct {
+	InvalidConnectionPageJSONResponse
+}
+
+func (response ListProfileConnections400JSONResponse) VisitListProfileConnectionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListProfileConnections401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListProfileConnections401JSONResponse) VisitListProfileConnectionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListProfileConnections403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListProfileConnections403JSONResponse) VisitListProfileConnectionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListProfileConnections404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListProfileConnections404JSONResponse) VisitListProfileConnectionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListProfileConnections500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ListProfileConnections500JSONResponse) VisitListProfileConnectionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListPublicationsRequestObject struct {
 	UserId string `json:"userId"`
 	Params ListPublicationsParams
@@ -7613,6 +8902,30 @@ type StrictServerInterface interface {
 	// VerifyEmail Verify an email address with the token from the link (FR-1.3)
 	// (POST /auth/verify-email)
 	VerifyEmail(ctx context.Context, request VerifyEmailRequestObject) (VerifyEmailResponseObject, error)
+	// ListMyConnections List the logged-in user's connections (FR-7.4)
+	// (GET /connections)
+	ListMyConnections(ctx context.Context, request ListMyConnectionsRequestObject) (ListMyConnectionsResponseObject, error)
+	// SendConnectionRequest Send a connection request (FR-7.1, FR-7.2, FR-7.6)
+	// (POST /connections/requests)
+	SendConnectionRequest(ctx context.Context, request SendConnectionRequestRequestObject) (SendConnectionRequestResponseObject, error)
+	// ListReceivedConnectionRequests List the pending requests sent to the logged-in user (FR-7.4)
+	// (GET /connections/requests/received)
+	ListReceivedConnectionRequests(ctx context.Context, request ListReceivedConnectionRequestsRequestObject) (ListReceivedConnectionRequestsResponseObject, error)
+	// ListSentConnectionRequests List the pending requests the logged-in user sent (FR-7.4)
+	// (GET /connections/requests/sent)
+	ListSentConnectionRequests(ctx context.Context, request ListSentConnectionRequestsRequestObject) (ListSentConnectionRequestsResponseObject, error)
+	// CancelConnectionRequest Cancel a pending request the logged-in user sent (FR-7.3)
+	// (DELETE /connections/requests/{requestId})
+	CancelConnectionRequest(ctx context.Context, request CancelConnectionRequestRequestObject) (CancelConnectionRequestResponseObject, error)
+	// AcceptConnectionRequest Accept a pending request sent to the logged-in user (FR-7.3)
+	// (POST /connections/requests/{requestId}/accept)
+	AcceptConnectionRequest(ctx context.Context, request AcceptConnectionRequestRequestObject) (AcceptConnectionRequestResponseObject, error)
+	// RejectConnectionRequest Reject a pending request sent to the logged-in user (FR-7.3, FR-7.6)
+	// (POST /connections/requests/{requestId}/reject)
+	RejectConnectionRequest(ctx context.Context, request RejectConnectionRequestRequestObject) (RejectConnectionRequestResponseObject, error)
+	// RemoveConnection Remove a connection (FR-7.5)
+	// (DELETE /connections/{userId})
+	RemoveConnection(ctx context.Context, request RemoveConnectionRequestObject) (RemoveConnectionResponseObject, error)
 	// GetHealth Report whether the database, Redis and object storage respond
 	// (GET /health)
 	GetHealth(ctx context.Context, request GetHealthRequestObject) (GetHealthResponseObject, error)
@@ -7715,6 +9028,9 @@ type StrictServerInterface interface {
 	// GetProfile Return any user's profile to a logged-in user (FR-4.5)
 	// (GET /profiles/{userId})
 	GetProfile(ctx context.Context, request GetProfileRequestObject) (GetProfileResponseObject, error)
+	// ListProfileConnections List any user's connections to a logged-in user (FR-7.4)
+	// (GET /profiles/{userId}/connections)
+	ListProfileConnections(ctx context.Context, request ListProfileConnectionsRequestObject) (ListProfileConnectionsResponseObject, error)
 	// ListPublications List any user's confirmed publications to a logged-in user (FR-5.5)
 	// (GET /profiles/{userId}/publications)
 	ListPublications(ctx context.Context, request ListPublicationsRequestObject) (ListPublicationsResponseObject, error)
@@ -8116,6 +9432,219 @@ func (sh *strictHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(VerifyEmailResponseObject); ok {
 		if err := validResponse.VisitVerifyEmailResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListMyConnections operation middleware
+func (sh *strictHandler) ListMyConnections(w http.ResponseWriter, r *http.Request, params ListMyConnectionsParams) {
+	var request ListMyConnectionsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListMyConnections(ctx, request.(ListMyConnectionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListMyConnections")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListMyConnectionsResponseObject); ok {
+		if err := validResponse.VisitListMyConnectionsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SendConnectionRequest operation middleware
+func (sh *strictHandler) SendConnectionRequest(w http.ResponseWriter, r *http.Request) {
+	var request SendConnectionRequestRequestObject
+
+	var body SendConnectionRequestJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SendConnectionRequest(ctx, request.(SendConnectionRequestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SendConnectionRequest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SendConnectionRequestResponseObject); ok {
+		if err := validResponse.VisitSendConnectionRequestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListReceivedConnectionRequests operation middleware
+func (sh *strictHandler) ListReceivedConnectionRequests(w http.ResponseWriter, r *http.Request, params ListReceivedConnectionRequestsParams) {
+	var request ListReceivedConnectionRequestsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListReceivedConnectionRequests(ctx, request.(ListReceivedConnectionRequestsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListReceivedConnectionRequests")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListReceivedConnectionRequestsResponseObject); ok {
+		if err := validResponse.VisitListReceivedConnectionRequestsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListSentConnectionRequests operation middleware
+func (sh *strictHandler) ListSentConnectionRequests(w http.ResponseWriter, r *http.Request, params ListSentConnectionRequestsParams) {
+	var request ListSentConnectionRequestsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListSentConnectionRequests(ctx, request.(ListSentConnectionRequestsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListSentConnectionRequests")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListSentConnectionRequestsResponseObject); ok {
+		if err := validResponse.VisitListSentConnectionRequestsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CancelConnectionRequest operation middleware
+func (sh *strictHandler) CancelConnectionRequest(w http.ResponseWriter, r *http.Request, requestId ConnectionRequestID) {
+	var request CancelConnectionRequestRequestObject
+
+	request.RequestId = requestId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CancelConnectionRequest(ctx, request.(CancelConnectionRequestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CancelConnectionRequest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CancelConnectionRequestResponseObject); ok {
+		if err := validResponse.VisitCancelConnectionRequestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AcceptConnectionRequest operation middleware
+func (sh *strictHandler) AcceptConnectionRequest(w http.ResponseWriter, r *http.Request, requestId ConnectionRequestID) {
+	var request AcceptConnectionRequestRequestObject
+
+	request.RequestId = requestId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AcceptConnectionRequest(ctx, request.(AcceptConnectionRequestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AcceptConnectionRequest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AcceptConnectionRequestResponseObject); ok {
+		if err := validResponse.VisitAcceptConnectionRequestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RejectConnectionRequest operation middleware
+func (sh *strictHandler) RejectConnectionRequest(w http.ResponseWriter, r *http.Request, requestId ConnectionRequestID) {
+	var request RejectConnectionRequestRequestObject
+
+	request.RequestId = requestId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RejectConnectionRequest(ctx, request.(RejectConnectionRequestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RejectConnectionRequest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RejectConnectionRequestResponseObject); ok {
+		if err := validResponse.VisitRejectConnectionRequestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RemoveConnection operation middleware
+func (sh *strictHandler) RemoveConnection(w http.ResponseWriter, r *http.Request, userId string) {
+	var request RemoveConnectionRequestObject
+
+	request.UserId = userId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RemoveConnection(ctx, request.(RemoveConnectionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RemoveConnection")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RemoveConnectionResponseObject); ok {
+		if err := validResponse.VisitRemoveConnectionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -9086,6 +10615,33 @@ func (sh *strictHandler) GetProfile(w http.ResponseWriter, r *http.Request, user
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetProfileResponseObject); ok {
 		if err := validResponse.VisitGetProfileResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListProfileConnections operation middleware
+func (sh *strictHandler) ListProfileConnections(w http.ResponseWriter, r *http.Request, userId string, params ListProfileConnectionsParams) {
+	var request ListProfileConnectionsRequestObject
+
+	request.UserId = userId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListProfileConnections(ctx, request.(ListProfileConnectionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListProfileConnections")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListProfileConnectionsResponseObject); ok {
+		if err := validResponse.VisitListProfileConnectionsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -1,9 +1,13 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
+
+import { sendConnectionRequest } from "@/features/social/api";
 
 import { type PeopleSearchPage, type PersonSearchResult, searchPeople } from "./api";
 import { SearchPage } from "./search-page";
 
 jest.mock("./api");
+jest.mock("@/features/social/api");
+jest.mock("@/features/social/pending-invitations");
 const mockSearchPeople = jest.mocked(searchPeople);
 const mockPush = jest.fn();
 let mockSearch = "";
@@ -20,6 +24,8 @@ const ada: PersonSearchResult = {
   photoUrl: null,
   interests: ["Machine learning", "Retinal analysis"],
   matchedOn: "name",
+  connectionStatus: "none",
+  connectionRequestId: null,
 };
 
 function resultPage(over: Partial<PeopleSearchPage> = {}): PeopleSearchPage {
@@ -71,9 +77,54 @@ describe("SearchPage", () => {
     expect(within(screen.getByRole("list", { name: "People" })).getByText("BUET")).toBeTruthy();
     expect(screen.getByText("Interests: Machine learning, Retinal analysis")).toBeTruthy();
     expect(screen.getByText("1 person · page 1 of 1")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /connect/i })).toBeNull();
+    expect(screen.getByRole("button", { name: "Connect with Ada Rahman" })).toBeTruthy();
     expect(screen.queryByRole("status")).toBeNull();
     expect(mockSearchPeople).toHaveBeenCalledWith({ q: "ada", institution: "", interests: [], page: 1 });
+  });
+
+  it("gives each row the button for the viewer's link, from the search result itself", async () => {
+    const row = (n: number, over: Partial<PersonSearchResult>): PersonSearchResult => ({
+      ...ada,
+      userId: `0b8f4c1e-0000-4000-8000-00000000001${n}`,
+      fullName: `Person ${n}`,
+      ...over,
+    });
+    mockSearchPeople.mockResolvedValue({
+      ok: true,
+      data: resultPage({
+        total: 5,
+        items: [
+          row(1, { connectionStatus: "none" }),
+          row(2, { connectionStatus: "pending_sent", connectionRequestId: "7a1d2c3e-0000-4000-8000-000000000002" }),
+          row(3, { connectionStatus: "pending_received", connectionRequestId: "7a1d2c3e-0000-4000-8000-000000000003" }),
+          row(4, { connectionStatus: "connected" }),
+          row(5, { connectionStatus: "self" }),
+        ],
+      }),
+    });
+    jest.mocked(sendConnectionRequest).mockResolvedValue({
+      ok: true,
+      data: {
+        requestId: "7a1d2c3e-0000-4000-8000-000000000001",
+        createdAt: "2026-11-01T10:00:00Z",
+        userId: row(1, {}).userId,
+        fullName: "Person 1",
+        headline: null,
+        institution: null,
+        photoUrl: null,
+      },
+    });
+    renderAt("q=person");
+    const rows = within(await screen.findByRole("list", { name: "People" })).getAllByRole("listitem");
+    const buttons = (li: HTMLElement) => within(li).queryAllByRole("button").map((b) => b.textContent);
+    expect(rows.map(buttons)).toEqual([["Connect"], ["Pending"], ["Accept", "Ignore"], [], []]);
+    expect(within(rows[0]).getByRole("button", { name: "Connect with Person 1" }).className).toContain("h-9");
+
+    await act(async () => fireEvent.click(within(rows[0]).getByRole("button", { name: "Connect with Person 1" })));
+    expect(sendConnectionRequest).toHaveBeenCalledWith(row(1, {}).userId);
+    expect(within(rows[0]).getByRole("button", { name: "Pending request to Person 1" })).toBeTruthy();
+    // One search request for the whole page, none per row.
+    expect(mockSearchPeople).toHaveBeenCalledTimes(1);
   });
 
   it("has only the People tab", async () => {
