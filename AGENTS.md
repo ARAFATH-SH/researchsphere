@@ -104,7 +104,10 @@ check, tests and a production build.
   reverse. depguard in `backend/.golangci.yml` enforces it, so `make lint` fails on a
   violation. A new module adds a `usecase-<module>` depguard rule that allows only
   `$gostd` and its own domain. Do not create empty layers: add `adapter/postgres` only when
-  the module has a domain interface that PostgreSQL implements.
+  the module has a domain interface that PostgreSQL implements. A module never imports
+  another: when one needs another's data, its domain declares an interface and `cmd/api`
+  implements it with the other module's usecase (example: `cmd/api/connections.go` gives
+  profiles their connection status from the `social` module).
 - **Frontend:** Next.js App Router, TypeScript in strict mode, Tailwind CSS, npm. The Node.js
   major version is pinned in `frontend/.nvmrc`. Layout of `frontend/src`:
 

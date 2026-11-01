@@ -238,8 +238,8 @@ func (h *Handler) GetProfile(ctx context.Context, req gen.GetProfileRequestObjec
 	return gen.GetProfile200JSONResponse(body), nil
 }
 
-// profileBody builds the response. The connection status is a placeholder until
-// connections (FR-7) exist. Every list is empty, never null, when there is nothing in it.
+// profileBody builds the response. Every list is empty, never null, when there is
+// nothing in it.
 func profileBody(p domain.Profile) (gen.Profile, error) {
 	var id openapi_types.UUID
 	if err := id.UnmarshalText([]byte(p.UserID)); err != nil {
@@ -269,27 +269,40 @@ func profileBody(p domain.Profile) (gen.Profile, error) {
 	if err != nil {
 		return gen.Profile{}, err
 	}
+	status := gen.ConnectionStatus(p.Connection.Status)
+	if !status.Valid() {
+		status = gen.None
+	}
+	var requestID *openapi_types.UUID
+	if r := p.Connection.RequestID; r != nil {
+		requestID = new(openapi_types.UUID)
+		if err := requestID.UnmarshalText([]byte(*r)); err != nil {
+			return gen.Profile{}, fmt.Errorf("connection request id: %w", err)
+		}
+	}
 	return gen.Profile{
-		UserId:           id,
-		FullName:         p.FullName,
-		Headline:         p.Headline,
-		Bio:              p.Bio,
-		Institution:      p.Institution,
-		Department:       p.Department,
-		JobTitle:         p.JobTitle,
-		Country:          p.Country,
-		City:             p.City,
-		OrcidId:          p.OrcidID,
-		Interests:        interests,
-		Skills:           skills,
-		Education:        education,
-		Experience:       experience,
-		Languages:        languages,
-		PublicationCount: p.PublicationCount,
-		ConnectionStatus: gen.None,
-		Contact:          contact,
-		PhotoUrl:         mediaURL(p.PhotoFileID),
-		CoverUrl:         mediaURL(p.CoverFileID),
+		UserId:              id,
+		FullName:            p.FullName,
+		Headline:            p.Headline,
+		Bio:                 p.Bio,
+		Institution:         p.Institution,
+		Department:          p.Department,
+		JobTitle:            p.JobTitle,
+		Country:             p.Country,
+		City:                p.City,
+		OrcidId:             p.OrcidID,
+		Interests:           interests,
+		Skills:              skills,
+		Education:           education,
+		Experience:          experience,
+		Languages:           languages,
+		PublicationCount:    p.PublicationCount,
+		ConnectionStatus:    status,
+		ConnectionRequestId: requestID,
+		ConnectionCount:     p.ConnectionCount,
+		Contact:             contact,
+		PhotoUrl:            mediaURL(p.PhotoFileID),
+		CoverUrl:            mediaURL(p.CoverFileID),
 	}, nil
 }
 

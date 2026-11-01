@@ -971,6 +971,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/profiles/{userId}/connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List any user's connections to a logged-in user (FR-7.4)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed,
+         *     events and recommendations" (SRS 2.3). Lists the user's connections in the order
+         *     of `listMyConnections`, leaving out suspended and unverified accounts. An unknown,
+         *     suspended or unverified account gets the same 404 `not_found`, as for the profile.
+         */
+        get: operations["listProfileConnections"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/profiles/me/photo": {
         parameters: {
             query?: never;
@@ -1050,6 +1073,197 @@ export interface paths {
         get: operations["getMedia"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the logged-in user's connections (FR-7.4)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed,
+         *     events and recommendations" (SRS 2.3). 20 per page, most recently connected
+         *     first. Suspended and unverified accounts are left out, and so is their count in
+         *     `total`.
+         */
+        get: operations["listMyConnections"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/connections/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a connection (FR-7.5)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Either user may remove it. Afterwards either may send a
+         *     new request.
+         */
+        delete: operations["removeConnection"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/connections/requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a connection request (FR-7.1, FR-7.2, FR-7.6)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Checks run in this order: a request to oneself
+         *     (`cannot_connect_to_self`), the daily limit (`rate_limited`), the receiver (an
+         *     unknown, suspended or unverified account gets 404 `not_found`, as for the
+         *     profile), then the existing requests and connections between the two, in either
+         *     direction (409). A rejected request does not block a new one (FR-7.6).
+         *
+         *     Each user may send 50 requests a day; only requests that were created count.
+         *     Two users who send each other a request at the same moment get one request: the
+         *     later one gets 409 `request_pending_from_them`.
+         */
+        post: operations["sendConnectionRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/connections/requests/received": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the pending requests sent to the logged-in user (FR-7.4)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed,
+         *     events and recommendations" (SRS 2.3). Only pending requests, 20 per page, newest
+         *     first; each item names the sender. Requests from suspended and unverified accounts
+         *     are left out.
+         */
+        get: operations["listReceivedConnectionRequests"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/connections/requests/sent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the pending requests the logged-in user sent (FR-7.4)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed,
+         *     events and recommendations" (SRS 2.3). Only pending requests, 20 per page, newest
+         *     first; each item names the receiver. A rejected request simply leaves this list,
+         *     as a cancelled one does (FR-7.6). Requests to suspended and unverified accounts are
+         *     left out.
+         */
+        get: operations["listSentConnectionRequests"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/connections/requests/{requestId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Cancel a pending request the logged-in user sent (FR-7.3)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Only the sender may cancel, and only while the request
+         *     is pending; anything else gets 404 `not_found`, which does not reveal whether the
+         *     request exists.
+         */
+        delete: operations["cancelConnectionRequest"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/connections/requests/{requestId}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Accept a pending request sent to the logged-in user (FR-7.3)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Only the receiver may accept, and only while the request
+         *     is pending and the sender is a verified account that is not suspended; anything
+         *     else gets 404 `not_found`, which does not reveal whether the request exists.
+         */
+        post: operations["acceptConnectionRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/connections/requests/{requestId}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reject a pending request sent to the logged-in user (FR-7.3, FR-7.6)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Only the receiver may reject, and only while the request
+         *     is pending and the sender is a verified account that is not suspended; anything
+         *     else gets 404 `not_found`. The sender is not told: the request leaves their sent
+         *     list and they may send a new one (FR-7.6).
+         */
+        post: operations["rejectConnectionRequest"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1225,9 +1439,8 @@ export interface components {
             total: number;
         };
         /**
-         * @description A researcher's profile (FR-4.1, FR-4.2, FR-4.4, FR-4.5, FR-4.6, FR-4.7, FR-5.5). The optional text fields are
-         *     always present and null when not set. `connectionStatus` is a placeholder for now;
-         *     later work fills it in.
+         * @description A researcher's profile (FR-4.1, FR-4.2, FR-4.4, FR-4.5, FR-4.6, FR-4.7, FR-5.5, FR-7). The optional text fields are
+         *     always present and null when not set.
          */
         Profile: {
             /** Format: uuid */
@@ -1277,6 +1490,18 @@ export interface components {
              */
             publicationCount: number;
             connectionStatus: components["schemas"]["ConnectionStatus"];
+            /**
+             * Format: uuid
+             * @description The pending request between the caller and the profile's owner when
+             *     `connectionStatus` is `pending_sent` (the caller may cancel it) or
+             *     `pending_received` (the caller may accept or reject it); null otherwise.
+             */
+            connectionRequestId: string | null;
+            /**
+             * @description How many connections the user has (FR-7.4), counting only verified accounts
+             *     that are not suspended; the `total` of `listProfileConnections`.
+             */
+            connectionCount: number;
             contact: components["schemas"]["PublicContact"];
             /**
              * @description The profile photo (FR-4.6) as `/api/v1/media/{fileId}`; null when not set.
@@ -1317,12 +1542,84 @@ export interface components {
         TagSuggestions: {
             items: components["schemas"]["Tag"][];
         };
+        ConnectionRequestCreate: {
+            /**
+             * @description The receiver's ID, a UUID. A value that is not a UUID names no user and gets
+             *     404 `not_found`.
+             */
+            userId: string;
+        };
         /**
-         * @description The connection between the caller and the profile's owner (FR-4.5).
-         *     Placeholder: always `none` until connections are added (FR-7); more values come then.
+         * @description A pending connection request (FR-7.4). The person fields describe the other user:
+         *     the sender in the received list, the receiver in the sent list.
+         */
+        ConnectionRequest: {
+            /** Format: uuid */
+            requestId: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: uuid */
+            userId: string;
+            fullName: string;
+            headline: string | null;
+            institution: string | null;
+            /** @description The other user's profile photo as `/api/v1/media/{fileId}`; null when not set. */
+            photoUrl: string | null;
+        };
+        /** @description A connection (FR-7.4). The person fields describe the other user. */
+        Connection: {
+            /**
+             * Format: date-time
+             * @description When the request was accepted.
+             */
+            connectedAt: string;
+            /** Format: uuid */
+            userId: string;
+            fullName: string;
+            headline: string | null;
+            institution: string | null;
+            /** @description The other user's profile photo as `/api/v1/media/{fileId}`; null when not set. */
+            photoUrl: string | null;
+        };
+        ConnectionPage: {
+            items: components["schemas"]["Connection"][];
+            page: number;
+            /** @description Always 20. */
+            pageSize: number;
+            /** @description The number of connections on all pages. */
+            total: number;
+        };
+        ConnectionRequestPage: {
+            items: components["schemas"]["ConnectionRequest"][];
+            page: number;
+            /** @description Always 20. */
+            pageSize: number;
+            /** @description The number of requests on all pages. */
+            total: number;
+        };
+        /**
+         * @description The Error shape of a refused connection request (FR-7.2), with the pending
+         *     request's ID when the other user sent it.
+         */
+        ConnectionConflict: {
+            /** @enum {string} */
+            code: "request_already_pending" | "request_pending_from_them" | "already_connected";
+            message: string;
+            /**
+             * Format: uuid
+             * @description Only with `request_pending_from_them`.
+             */
+            requestId?: string;
+        };
+        /**
+         * @description The connection between the caller and the profile's owner (FR-4.5, FR-7):
+         *     `none`, `pending_sent` (the caller sent a request that is still pending),
+         *     `pending_received` (the owner sent the caller one) or `connected`. Always `none`
+         *     on the caller's own profile. A rejected request reads as `none` to both sides
+         *     (FR-7.6).
          * @enum {string}
          */
-        ConnectionStatus: "none";
+        ConnectionStatus: "none" | "pending_sent" | "pending_received" | "connected";
         /**
          * @description The profile fields a user edits (FR-4.1). Every value is trimmed first. Lengths
          *     count characters after trimming.
@@ -1821,6 +2118,15 @@ export interface components {
         };
     };
     responses: {
+        /** @description `page` is not a whole number of at least 1 (`bad_request`). */
+        InvalidConnectionPage: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
         /**
          * @description The user's role does not permit the action (FR-3.2). The body is always
          *     `{"code":"forbidden","message":"You do not have permission to do this."}`, with no
@@ -2083,6 +2389,14 @@ export interface components {
         };
     };
     parameters: {
+        /** @description The page to return, from 1, 20 items each. Defaults to 1. */
+        ConnectionListPage: number;
+        /**
+         * @description The request's ID, a UUID. It is declared as a plain string so that the login check
+         *     runs before it is read (FR-3.1); a value that is not a UUID names no request and
+         *     gets 404 `not_found`.
+         */
+        ConnectionRequestID: string;
         /**
          * @description The stored file's ID, a UUID. It is declared as a plain string so that the login
          *     check runs before it is read (FR-3.1); a value that is not a UUID names no file and
@@ -4011,6 +4325,41 @@ export interface operations {
             500: components["responses"]["InternalError"];
         };
     };
+    listProfileConnections: {
+        parameters: {
+            query?: {
+                /** @description The page to return, from 1, 20 items each. Defaults to 1. */
+                page?: components["parameters"]["ConnectionListPage"];
+            };
+            header?: never;
+            path: {
+                /**
+                 * @description The user's ID, a UUID. It is declared as a plain string so that the login check
+                 *     runs before it is read (FR-3.1); a value that is not a UUID names no user and
+                 *     gets 404 `not_found`.
+                 */
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the user's connections. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionPage"];
+                };
+            };
+            400: components["responses"]["InvalidConnectionPage"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
     uploadMyPhoto: {
         parameters: {
             query?: never;
@@ -4116,6 +4465,279 @@ export interface operations {
                     Location: string;
                     /** @description Always `private, max-age=300`. */
                     "Cache-Control": string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listMyConnections: {
+        parameters: {
+            query?: {
+                /** @description The page to return, from 1, 20 items each. Defaults to 1. */
+                page?: components["parameters"]["ConnectionListPage"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the caller's connections. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionPage"];
+                };
+            };
+            400: components["responses"]["InvalidConnectionPage"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    removeConnection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The other user's ID, a UUID. It is declared as a plain string so that the login
+                 *     check runs before it is read (FR-3.1); a value that is not a UUID gets 404
+                 *     `not_found`.
+                 */
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The connection is removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The caller is not connected with this user (`not_found`). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    sendConnectionRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectionRequestCreate"];
+            };
+        };
+        responses: {
+            /** @description The request is sent; the item is as it appears in the sent list. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionRequest"];
+                };
+            };
+            /**
+             * @description `userId` is the caller's own ID (`cannot_connect_to_self`), or the body is not
+             *     valid (`bad_request`).
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /**
+             * @description A request or connection already exists between the two (FR-7.2):
+             *     `request_already_pending` (the caller's earlier request is still pending),
+             *     `request_pending_from_them` (the other user has sent the caller a request that
+             *     is still pending; `requestId` names it, so the caller can accept it instead) or
+             *     `already_connected`.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionConflict"];
+                };
+            };
+            /** @description The user has sent 50 requests in the current day (`rate_limited`). */
+            429: {
+                headers: {
+                    /** @description Seconds until the day ends and requests are accepted again. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listReceivedConnectionRequests: {
+        parameters: {
+            query?: {
+                /** @description The page to return, from 1, 20 items each. Defaults to 1. */
+                page?: components["parameters"]["ConnectionListPage"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of received requests. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionRequestPage"];
+                };
+            };
+            400: components["responses"]["InvalidConnectionPage"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listSentConnectionRequests: {
+        parameters: {
+            query?: {
+                /** @description The page to return, from 1, 20 items each. Defaults to 1. */
+                page?: components["parameters"]["ConnectionListPage"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of sent requests. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionRequestPage"];
+                };
+            };
+            400: components["responses"]["InvalidConnectionPage"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    cancelConnectionRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The request's ID, a UUID. It is declared as a plain string so that the login check
+                 *     runs before it is read (FR-3.1); a value that is not a UUID names no request and
+                 *     gets 404 `not_found`.
+                 */
+                requestId: components["parameters"]["ConnectionRequestID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The request is cancelled. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    acceptConnectionRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The request's ID, a UUID. It is declared as a plain string so that the login check
+                 *     runs before it is read (FR-3.1); a value that is not a UUID names no request and
+                 *     gets 404 `not_found`.
+                 */
+                requestId: components["parameters"]["ConnectionRequestID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The two users are connected; the item names the sender. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Connection"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    rejectConnectionRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The request's ID, a UUID. It is declared as a plain string so that the login check
+                 *     runs before it is read (FR-3.1); a value that is not a UUID names no request and
+                 *     gets 404 `not_found`.
+                 */
+                requestId: components["parameters"]["ConnectionRequestID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The request is rejected. */
+            204: {
+                headers: {
                     [name: string]: unknown;
                 };
                 content?: never;

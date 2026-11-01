@@ -21,6 +21,7 @@ type Service struct {
 	lookup DOILookup
 	orcid  ORCIDImport
 	search PeopleSearch
+	conns  domain.ConnectionLookup // nil until WithConnections
 }
 
 // Option configures a Service.
@@ -28,12 +29,19 @@ type Option func(*Service)
 
 // New returns a Service. Without WithDOILookup, DOI lookups fail with
 // domain.ErrMetadataUnavailable; without WithORCIDImport, so do ORCID lists and imports.
+// Without WithConnections, every profile reads as not connected, with no connections.
 func New(store domain.Store, opts ...Option) *Service {
 	s := &Service{store: store, now: time.Now}
 	for _, o := range opts {
 		o(s)
 	}
 	return s
+}
+
+// WithConnections makes profiles show the viewer's connection status and the owner's
+// number of connections (FR-7).
+func WithConnections(l domain.ConnectionLookup) Option {
+	return func(s *Service) { s.conns = l }
 }
 
 // GetOwn returns the caller's profile. An account without a profile row gets an empty
@@ -99,7 +107,8 @@ func profileOf(a domain.Account) domain.Profile {
 }
 
 // withDetails fills the profile's interests, skills, education and experience entries,
-// languages, the contact info viewerID may see and the number of confirmed publications.
+// languages, the contact info viewerID may see, the number of confirmed publications, and
+// viewerID's connection status with the owner and the owner's number of connections.
 func (s *Service) withDetails(ctx context.Context, p domain.Profile, viewerID string) (domain.Profile, error) {
 	var err error
 	if p.Interests, err = s.store.ListTags(ctx, p.UserID, domain.KindInterest); err != nil {
@@ -124,6 +133,18 @@ func (s *Service) withDetails(ctx context.Context, p domain.Profile, viewerID st
 	}
 	p.Contact = VisibleTo(viewerID, c)
 	if p.PublicationCount, err = s.store.CountConfirmedPublications(ctx, p.UserID); err != nil {
+		return domain.Profile{}, err
+	}
+	p.Connection = domain.ConnectionRelation{Status: domain.ConnectionNone}
+	if s.conns == nil {
+		return p, nil
+	}
+	if viewerID != p.UserID {
+		if p.Connection, err = s.conns.Relation(ctx, viewerID, p.UserID); err != nil {
+			return domain.Profile{}, err
+		}
+	}
+	if p.ConnectionCount, err = s.conns.Count(ctx, p.UserID); err != nil {
 		return domain.Profile{}, err
 	}
 	return p, nil

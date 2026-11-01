@@ -44,6 +44,38 @@ type Profile struct {
 	// PublicationCount is how many publications the user has confirmed (FR-5.5). The
 	// usecase fills it when it reads a profile.
 	PublicationCount int
+	// Connection is the link between the viewer and the owner (FR-7), ConnectionCount the
+	// owner's number of connections. The usecase fills both when it reads a profile.
+	Connection      ConnectionRelation
+	ConnectionCount int
+}
+
+// ConnectionStatus is the link between a profile's viewer and its owner, seen from the
+// viewer (FR-7). The values match the contract's ConnectionStatus.
+type ConnectionStatus string
+
+// Connection statuses. A rejected request reads as ConnectionNone to both (FR-7.6).
+const (
+	ConnectionNone            ConnectionStatus = "none"
+	ConnectionPendingSent     ConnectionStatus = "pending_sent"
+	ConnectionPendingReceived ConnectionStatus = "pending_received"
+	ConnectionConnected       ConnectionStatus = "connected"
+)
+
+// ConnectionRelation is the viewer's ConnectionStatus with the owner and, while a request
+// is pending, its ID.
+type ConnectionRelation struct {
+	Status    ConnectionStatus
+	RequestID *string
+}
+
+// ConnectionLookup reads connections, which the social module owns; cmd/api supplies it.
+type ConnectionLookup interface {
+	// Relation returns the link between viewerID and ownerID as the viewer sees it,
+	// ConnectionNone on the viewer's own profile.
+	Relation(ctx context.Context, viewerID, ownerID string) (ConnectionRelation, error)
+	// Count returns how many connections the user has, counting only visible users.
+	Count(ctx context.Context, userID string) (int, error)
 }
 
 // Visibility says who may see a contact item (FR-4.7). Slice 13 adds "connections only".

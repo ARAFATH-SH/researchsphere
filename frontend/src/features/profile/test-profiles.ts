@@ -25,6 +25,8 @@ export function emptyProfile(userId: string, fullName: string): Profile {
     languages: [],
     publicationCount: 0,
     connectionStatus: "none",
+    connectionRequestId: null,
+    connectionCount: 0,
     contact: { links: [] },
     photoUrl: null,
     coverUrl: null,

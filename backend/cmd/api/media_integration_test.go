@@ -42,6 +42,10 @@ import (
 	profilepg "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/postgres"
 	profileredis "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/redis"
 	profileusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/usecase"
+	socialhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/social/adapter/http"
+	socialpg "github.com/ARAFATH-SH/researchsphere/backend/internal/social/adapter/postgres"
+	socialredis "github.com/ARAFATH-SH/researchsphere/backend/internal/social/adapter/redis"
+	socialusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/social/usecase"
 )
 
 type mediaEnv struct {
@@ -90,10 +94,13 @@ func newMediaEnvWithSources(t *testing.T, openAlexURL, orcidURL string) mediaEnv
 	up := pingerFunc(func(context.Context) error { return nil })
 	lookups := profileredis.New(rdb)
 	t.Cleanup(func() { _ = lookups.Close() })
+	connectLimiter := socialredis.New(rdb)
+	t.Cleanup(func() { _ = connectLimiter.Close() })
+	social := socialusecase.New(socialpg.NewStore(pool), connectLimiter, socialusecase.NopNotifier{}, logger)
 	profileStore := profilepg.NewStore(pool)
 	profileOpts := []profileusecase.Option{profileusecase.WithPeopleSearch(profileusecase.PeopleSearch{
 		Searcher: profileStore, Limiter: lookups.SearchLimiter(), Logger: logger,
-	})}
+	}), profileusecase.WithConnections(connectionLookup{social: social})}
 	if orcidURL != "" {
 		profileOpts = append(profileOpts, profileusecase.WithORCIDImport(profileusecase.ORCIDImport{
 			Source:  orcid.New(orcid.Config{BaseURL: orcidURL, Timeout: time.Second, RetryDelay: time.Millisecond}),
@@ -113,6 +120,7 @@ func newMediaEnvWithSources(t *testing.T, openAlexURL, orcidURL string) mediaEnv
 	router := newRouter(logger, up, up, up, authhttp.NewHandler(okAuth{}, authhttp.CookieConfig{}),
 		profilehttp.NewHandler(profileusecase.New(profileStore, profileOpts...)),
 		mediahttp.NewHandler(images),
+		socialhttp.NewHandler(social),
 		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
 	return mediaEnv{router: router, pool: pool, files: files, rdb: rdb}
 }

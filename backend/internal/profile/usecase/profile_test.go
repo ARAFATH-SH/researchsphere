@@ -13,6 +13,7 @@ import (
 // and no links.
 func withContact(p domain.Profile) domain.Profile {
 	p.Contact = domain.VisibleContact{Links: []domain.Link{}}
+	p.Connection = domain.ConnectionRelation{Status: domain.ConnectionNone}
 	return p
 }
 

@@ -16,6 +16,7 @@ import (
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpserver"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpx"
 	profilehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/http"
+	socialhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/social/adapter/http"
 )
 
 // Every module's adapter type is called Handler; the aliases give the embedded fields
@@ -25,6 +26,7 @@ type (
 	authHandler    = authhttp.Handler
 	profileHandler = profilehttp.Handler
 	mediaHandler   = mediahttp.Handler
+	socialHandler  = socialhttp.Handler
 )
 
 // handlers implements every operation in the contract by embedding each module's HTTP
@@ -34,6 +36,7 @@ type handlers struct {
 	*authHandler
 	*profileHandler
 	*mediaHandler
+	*socialHandler
 }
 
 var _ gen.StrictServerInterface = handlers{}
@@ -108,6 +111,18 @@ var platformGuards = map[string]authz.Action{
 
 	// Researcher search (FR-6) is the row "View profiles, search, ...".
 	"GET /api/v1/search/people": authz.ViewContent,
+
+	// Connections (FR-7): sending and answering requests and removing a connection are
+	// the row "Edit own profile, connect, ..."; the lists are viewing content.
+	"POST /api/v1/connections/requests":                    authz.ActAsMember,
+	"POST /api/v1/connections/requests/{requestId}/accept": authz.ActAsMember,
+	"POST /api/v1/connections/requests/{requestId}/reject": authz.ActAsMember,
+	"DELETE /api/v1/connections/requests/{requestId}":      authz.ActAsMember,
+	"DELETE /api/v1/connections/{userId}":                  authz.ActAsMember,
+	"GET /api/v1/connections":                              authz.ViewContent,
+	"GET /api/v1/connections/requests/received":            authz.ViewContent,
+	"GET /api/v1/connections/requests/sent":                authz.ViewContent,
+	"GET /api/v1/profiles/{userId}/connections":            authz.ViewContent,
 }
 
 // multipartOverhead is what a multipart body may hold besides the file: boundaries, part
@@ -158,7 +173,7 @@ func guardPlatform(next http.Handler) http.Handler {
 // Tests pass fakes; run passes the real PostgreSQL, Redis and SMTP adapters. requireAuth
 // guards the operations the contract secures (httpx.RequireAuth); guardPlatform runs
 // inside it, and limitBody inside that.
-func newRouter(logger *slog.Logger, db, redis, storage healthdomain.Pinger, auth *authhttp.Handler, profile *profilehttp.Handler, media *mediahttp.Handler, requireAuth func(http.Handler) http.Handler) http.Handler {
+func newRouter(logger *slog.Logger, db, redis, storage healthdomain.Pinger, auth *authhttp.Handler, profile *profilehttp.Handler, media *mediahttp.Handler, social *socialhttp.Handler, requireAuth func(http.Handler) http.Handler) http.Handler {
 	checker := healthusecase.New(healthusecase.DefaultTimeout,
 		healthdomain.Dependency{Name: "database", Pinger: db},
 		healthdomain.Dependency{Name: "redis", Pinger: redis},
@@ -169,5 +184,6 @@ func newRouter(logger *slog.Logger, db, redis, storage healthdomain.Pinger, auth
 		authHandler:    auth,
 		profileHandler: profile,
 		mediaHandler:   media,
+		socialHandler:  social,
 	}, func(next http.Handler) http.Handler { return requireAuth(guardPlatform(limitBody(next))) })
 }
