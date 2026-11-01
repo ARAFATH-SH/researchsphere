@@ -3,14 +3,15 @@ import type { ComponentType } from "react";
 import { HomeIcon, MeIcon, MessagingIcon, NetworkIcon, NotificationsIcon, PostIcon, ProjectsIcon } from "./icons";
 
 // action tabs start something rather than open a page, so they are never the current tab.
-export type Tab = { href: string; label: string; Icon: ComponentType; action?: boolean };
+// countLabel is what a screen reader hears after the badge's number; "unread" by default.
+export type Tab = { href: string; label: string; Icon: ComponentType; action?: boolean; countLabel?: string };
 
 // The signed-in top bar tabs, in order (docs/ui-guidelines.md, Signed-in pages). Pages
 // that later slices build (Messaging) may 404 until then. Events and the admin console are
 // in the Me menu.
 export const tabs: Tab[] = [
   { href: "/home", label: "Home", Icon: HomeIcon },
-  { href: "/connections", label: "My Network", Icon: NetworkIcon },
+  { href: "/network", label: "My Network", Icon: NetworkIcon, countLabel: "pending invitations" },
   { href: "/projects", label: "Projects", Icon: ProjectsIcon },
   { href: "/messaging", label: "Messaging", Icon: MessagingIcon },
   { href: "/notifications", label: "Notifications", Icon: NotificationsIcon },
@@ -21,7 +22,7 @@ export const tabs: Tab[] = [
 // written.
 export const phoneTabs: Tab[] = [
   { href: "/home", label: "Home", Icon: HomeIcon },
-  { href: "/connections", label: "Network", Icon: NetworkIcon },
+  { href: "/network", label: "Network", Icon: NetworkIcon, countLabel: "pending invitations" },
   { href: "/home", label: "Post", Icon: PostIcon, action: true },
   { href: "/notifications", label: "Alerts", Icon: NotificationsIcon },
   { href: "/projects", label: "Projects", Icon: ProjectsIcon },

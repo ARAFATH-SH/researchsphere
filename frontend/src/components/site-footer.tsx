@@ -20,7 +20,7 @@ const columns = [
   {
     title: "For researchers",
     links: [
-      { href: "/connections", label: "Find collaborators" },
+      { href: "/network", label: "Find collaborators" },
       { href: "/projects", label: "Research projects" },
       { href: "/events", label: "Events & venues" },
       // The workspace belongs to a project, so there is no page to link to yet.
@@ -61,10 +61,11 @@ const columnClass = "flex flex-col gap-1.5 border-l border-rs-nav-border px-4 ma
 export type FooterVariant = "full" | "compact" | "none";
 
 // footerFor is the one place that says which footer a signed-in page has (design/screens):
-// the home feed puts the compact footer in its right column, messaging and the editor
-// workspace fill the screen and have none, and every other page ends with the full footer.
+// the home feed and My Network put the compact footer in their right column, messaging and
+// the editor workspace fill the screen and have none, and every other page ends with the
+// full footer.
 export function footerFor(pathname: string): FooterVariant {
-  if (pathname === "/home") return "compact";
+  if (pathname === "/home" || pathname === "/network") return "compact";
   if (pathname === "/messaging" || pathname.startsWith("/messaging/") || pathname.endsWith("/workspace")) {
     return "none";
   }

@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { Avatar } from "@/components/avatar";
 import { emptyCard, homeCard } from "@/features/home/cards";
+import { ConnectButton } from "@/features/social/connect-button";
 
 import type { PeopleSearch, PeopleSearchPage, PersonSearchResult } from "./api";
 import { maxPage, searchHref } from "./search-params";
@@ -21,7 +22,8 @@ function lastPage({ total, pageSize }: PeopleSearchPage): number {
 }
 
 // SearchResults is the card of one page of people (FR-6.1): a count line, a row per
-// person and the page links.
+// person with its connect button (FR-7.1, from the result's connectionStatus, so a page
+// needs no request per row) and the page links.
 export function SearchResults({ search, result }: { search: PeopleSearch; result: PeopleSearchPage }) {
   const last = lastPage(result);
   const people = result.total === 1 ? "1 person" : `${result.total} people`;
@@ -58,6 +60,15 @@ function PersonRow({ person }: { person: PersonSearchResult }) {
         {person.interests.length > 0 && (
           <span className="text-rs-caption text-rs-heading">Interests: {person.interests.join(", ")}</span>
         )}
+      </div>
+      <div className="shrink-0">
+        <ConnectButton
+          userId={person.userId}
+          name={person.fullName}
+          status={person.connectionStatus}
+          requestId={person.connectionRequestId}
+          size="row"
+        />
       </div>
     </li>
   );

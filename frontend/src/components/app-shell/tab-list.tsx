@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { useSession } from "@/features/auth/session";
+import { usePendingInvitations } from "@/features/social/pending-invitations";
 
 import { MeMenu } from "./me-menu";
 import { isActive, phoneTabs, type Tab, tabs, topLabel } from "./tabs";
@@ -12,16 +13,18 @@ import { isActive, phoneTabs, type Tab, tabs, topLabel } from "./tabs";
 // at 480px and narrower (docs/ui-guidelines.md, Signed-in pages).
 export type TabListVariant = "top" | "phone";
 
-// Counts are unread numbers by tab href, shown as a badge. Nothing supplies them until the
-// messaging and notification slices.
+// Counts are numbers by tab href, shown as a badge: for now the pending invitations on My
+// Network; unread messages and notifications come with their slices.
 export type TabCounts = Partial<Record<string, number>>;
 
 type TabListProps = { pathname: string; variant: TabListVariant; counts?: TabCounts };
 
-// CurrentTabList marks the tab of the current page. usePathname is only known at request
-// time, so AppShell renders this inside <Suspense> with a plain TabList as the fallback.
-export function CurrentTabList({ variant, counts }: { variant: TabListVariant; counts?: TabCounts }) {
-  return <TabList pathname={usePathname() ?? ""} variant={variant} counts={counts} />;
+// CurrentTabList marks the tab of the current page and shows the pending invitations on My
+// Network. usePathname is only known at request time, so AppShell renders this inside
+// <Suspense> with a plain TabList as the fallback.
+export function CurrentTabList({ variant }: { variant: TabListVariant }) {
+  const pending = usePendingInvitations();
+  return <TabList pathname={usePathname() ?? ""} variant={variant} counts={{ "/network": pending }} />;
 }
 
 // TabList shows the tabs with icons and labels; the one for pathname is current.
@@ -97,8 +100,8 @@ function PhoneTabs({ pathname, counts }: { pathname: string; counts: TabCounts }
   );
 }
 
-// Badge is the red unread count on a tab. The number is hidden from screen readers, which
-// hear ", N unread" after the label instead.
+// Badge is the red count on a tab. The number is hidden from screen readers, which hear
+// ", N unread" (or the tab's countLabel) after the label instead.
 export function Badge({ tab, counts, place }: { tab: Tab; counts: TabCounts; place: string }) {
   const count = counts[tab.href];
   if (!count || tab.action) return null;
@@ -110,7 +113,9 @@ export function Badge({ tab, counts, place }: { tab: Tab; counts: TabCounts; pla
       >
         {count}
       </span>
-      <span className="sr-only">, {count} unread</span>
+      <span className="sr-only">
+        , {count} {tab.countLabel ?? "unread"}
+      </span>
     </>
   );
 }

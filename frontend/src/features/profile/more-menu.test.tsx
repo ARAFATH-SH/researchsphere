@@ -6,8 +6,12 @@ import {
   waitFor,
 } from "@testing-library/react";
 
+import { removeConnection } from "@/features/social/api";
+
 import { MoreMenu } from "./more-menu";
 import { bobID } from "./test-profiles";
+
+jest.mock("@/features/social/api");
 
 const writeText = jest.fn<Promise<void>, [string]>();
 beforeAll(() => {
@@ -75,5 +79,32 @@ describe("MoreMenu", () => {
         "Couldn't copy the link",
       ),
     );
+  });
+
+  it("offers Remove connection only when connected", () => {
+    render(<MoreMenu userId={bobID} />);
+    fireEvent.click(menuButton());
+    expect(screen.getAllByRole("menuitem").map((i) => i.textContent)).toEqual(["Copy profile link"]);
+  });
+
+  it("asks inside the menu, keeps the connection on Cancel and says when removing fails", async () => {
+    jest.mocked(removeConnection).mockResolvedValue({ ok: false, code: "network_error", message: "Offline." });
+    const onRemoved = jest.fn();
+    render(<MoreMenu userId={bobID} connected={{ name: "Bob Babbage", onRemoved }} />);
+    fireEvent.click(menuButton());
+    fireEvent.click(screen.getByRole("menuitem", { name: "Remove connection" }));
+    const remove = screen.getByRole("button", { name: "Remove" });
+    expect(document.activeElement).toBe(remove);
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByRole("menuitem", { name: "Remove connection" })).toBeTruthy();
+    expect(removeConnection).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("menuitem", { name: "Remove connection" }));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Remove" })));
+    expect(removeConnection).toHaveBeenCalledWith(bobID);
+    expect(screen.getByRole("alert").textContent).toBe("Couldn't remove the connection. Try again.");
+    expect(onRemoved).not.toHaveBeenCalled();
+    expect(screen.getByRole("menu")).toBeTruthy();
   });
 });

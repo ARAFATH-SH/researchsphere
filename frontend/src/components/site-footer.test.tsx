@@ -27,7 +27,7 @@ describe("SiteFooter", () => {
       ["Accessibility", "#"],
     ]);
     expect(column("For researchers")).toEqual([
-      ["Find collaborators", "/connections"],
+      ["Find collaborators", "/network"],
       ["Research projects", "/projects"],
       ["Events & venues", "/events"],
       ["LaTeX workspace", "#"],
