@@ -13,13 +13,16 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/postgres"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/social/adapter/postgres/sqlcgen"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/social/domain"
 )
 
-// Store reads and writes connection requests through the shared pool.
+// Store reads and writes connection requests through the shared pool. Every query
+// outside readTx runs in the transaction the context carries (platform/postgres.Transactor),
+// so a change and its notification commit together.
 type Store struct {
-	q *sqlcgen.Queries
+	pool *pgxpool.Pool
 	// readTx runs a list query and its count in one read-only snapshot, so the total
 	// matches the page.
 	readTx func(ctx context.Context, fn func(*sqlcgen.Queries) error) error
@@ -30,10 +33,15 @@ var _ domain.Store = (*Store)(nil)
 // NewStore returns a Store that uses pool.
 func NewStore(pool *pgxpool.Pool) *Store {
 	q := sqlcgen.New(pool)
-	return &Store{q: q, readTx: func(ctx context.Context, fn func(*sqlcgen.Queries) error) error {
+	return &Store{pool: pool, readTx: func(ctx context.Context, fn func(*sqlcgen.Queries) error) error {
 		return pgx.BeginTxFunc(ctx, pool, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly},
 			func(tx pgx.Tx) error { return fn(q.WithTx(tx)) })
 	}}
+}
+
+// q returns the queries on the context's transaction, or on the pool.
+func (s *Store) q(ctx context.Context) *sqlcgen.Queries {
+	return sqlcgen.New(postgres.Conn(ctx, s.pool))
 }
 
 // UserVisible is false for a value that is not a UUID.
@@ -42,7 +50,7 @@ func (s *Store) UserVisible(ctx context.Context, userID string) (bool, error) {
 	if !ok {
 		return false, nil
 	}
-	v, err := s.q.UserVisible(ctx, id)
+	v, err := s.q(ctx).UserVisible(ctx, id)
 	if err != nil {
 		return false, fmt.Errorf("check user: %w", err)
 	}
@@ -55,7 +63,7 @@ func (s *Store) FindPerson(ctx context.Context, userID string) (domain.Person, e
 	if !ok {
 		return domain.Person{}, domain.ErrNotFound
 	}
-	row, err := s.q.FindPerson(ctx, id)
+	row, err := s.q(ctx).FindPerson(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Person{}, domain.ErrNotFound
 	}
@@ -75,7 +83,7 @@ func (s *Store) CreateRequest(ctx context.Context, requesterID, receiverID strin
 	if !ok1 || !ok2 {
 		return domain.Request{}, false, fmt.Errorf("create connection request: %w", domain.ErrNotFound)
 	}
-	row, err := s.q.CreateRequest(ctx, sqlcgen.CreateRequestParams{RequesterID: from, ReceiverID: to})
+	row, err := s.q(ctx).CreateRequest(ctx, sqlcgen.CreateRequestParams{RequesterID: from, ReceiverID: to})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Request{}, false, nil
 	}
@@ -93,7 +101,7 @@ func (s *Store) FindLiveLink(ctx context.Context, a, b string) (domain.LiveLink,
 	if !ok1 || !ok2 {
 		return domain.LiveLink{}, false, nil
 	}
-	row, err := s.q.FindLiveLink(ctx, sqlcgen.FindLiveLinkParams{A: ua, B: ub})
+	row, err := s.q(ctx).FindLiveLink(ctx, sqlcgen.FindLiveLinkParams{A: ua, B: ub})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.LiveLink{}, false, nil
 	}
@@ -119,7 +127,7 @@ func (s *Store) ListLiveLinks(ctx context.Context, viewerID string, otherIDs []s
 	if len(ids) == 0 {
 		return nil, nil
 	}
-	rows, err := s.q.ListLiveLinks(ctx, sqlcgen.ListLiveLinksParams{OtherIds: ids, ViewerID: viewer})
+	rows, err := s.q(ctx).ListLiveLinks(ctx, sqlcgen.ListLiveLinksParams{OtherIds: ids, ViewerID: viewer})
 	if err != nil {
 		return nil, fmt.Errorf("list connection links: %w", err)
 	}
@@ -154,7 +162,7 @@ func (s *Store) answer(ctx context.Context, requestID, receiverID string, status
 	if !ok1 || !ok2 {
 		return sqlcgen.AnswerRequestRow{}, domain.ErrNotFound
 	}
-	row, err := s.q.AnswerRequest(ctx, sqlcgen.AnswerRequestParams{Status: status, ID: id, ReceiverID: to})
+	row, err := s.q(ctx).AnswerRequest(ctx, sqlcgen.AnswerRequestParams{Status: status, ID: id, ReceiverID: to})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return sqlcgen.AnswerRequestRow{}, domain.ErrNotFound
 	}
@@ -172,7 +180,7 @@ func (s *Store) CancelRequest(ctx context.Context, requestID, requesterID string
 	if !ok1 || !ok2 {
 		return domain.ErrNotFound
 	}
-	n, err := s.q.CancelRequest(ctx, sqlcgen.CancelRequestParams{ID: id, RequesterID: from})
+	n, err := s.q(ctx).CancelRequest(ctx, sqlcgen.CancelRequestParams{ID: id, RequesterID: from})
 	if err != nil {
 		return fmt.Errorf("cancel connection request: %w", err)
 	}
@@ -189,7 +197,7 @@ func (s *Store) RemoveConnection(ctx context.Context, userID, otherID string) er
 	if !ok1 || !ok2 {
 		return domain.ErrNotFound
 	}
-	n, err := s.q.RemoveConnection(ctx, sqlcgen.RemoveConnectionParams{UserID: a, OtherID: b})
+	n, err := s.q(ctx).RemoveConnection(ctx, sqlcgen.RemoveConnectionParams{UserID: a, OtherID: b})
 	if err != nil {
 		return fmt.Errorf("remove connection: %w", err)
 	}
@@ -283,7 +291,7 @@ func (s *Store) CountConnections(ctx context.Context, userID string) (int, error
 	if !ok {
 		return 0, nil
 	}
-	n, err := s.q.CountConnections(ctx, id)
+	n, err := s.q(ctx).CountConnections(ctx, id)
 	if err != nil {
 		return 0, fmt.Errorf("count connections: %w", err)
 	}

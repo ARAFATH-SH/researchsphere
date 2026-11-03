@@ -12,6 +12,7 @@ import (
 	mediahttp "github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/http"
 	mediadomain "github.com/ARAFATH-SH/researchsphere/backend/internal/media/domain"
 	mediausecase "github.com/ARAFATH-SH/researchsphere/backend/internal/media/usecase"
+	notificationhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/notification/adapter/http"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/authz"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpserver"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpx"
@@ -22,11 +23,12 @@ import (
 // Every module's adapter type is called Handler; the aliases give the embedded fields
 // different names.
 type (
-	healthHandler  = healthhttp.Handler
-	authHandler    = authhttp.Handler
-	profileHandler = profilehttp.Handler
-	mediaHandler   = mediahttp.Handler
-	socialHandler  = socialhttp.Handler
+	healthHandler       = healthhttp.Handler
+	authHandler         = authhttp.Handler
+	profileHandler      = profilehttp.Handler
+	mediaHandler        = mediahttp.Handler
+	socialHandler       = socialhttp.Handler
+	notificationHandler = notificationhttp.Handler
 )
 
 // handlers implements every operation in the contract by embedding each module's HTTP
@@ -37,6 +39,7 @@ type handlers struct {
 	*profileHandler
 	*mediaHandler
 	*socialHandler
+	*notificationHandler
 }
 
 var _ gen.StrictServerInterface = handlers{}
@@ -123,6 +126,14 @@ var platformGuards = map[string]authz.Action{
 	"GET /api/v1/connections/requests/received":            authz.ViewContent,
 	"GET /api/v1/connections/requests/sent":                authz.ViewContent,
 	"GET /api/v1/profiles/{userId}/connections":            authz.ViewContent,
+
+	// Notifications (FR-9.4 to FR-9.6): SRS 2.3 has no row of their own; reading and
+	// clearing one's own notifications is closest to "View profiles, ...". The usecase
+	// shows each user only their own. No rate limit: the client polls the count.
+	"GET /api/v1/notifications":                        authz.ViewContent,
+	"GET /api/v1/notifications/unread-count":           authz.ViewContent,
+	"POST /api/v1/notifications/{notificationId}/read": authz.ViewContent,
+	"POST /api/v1/notifications/read-all":              authz.ViewContent,
 }
 
 // multipartOverhead is what a multipart body may hold besides the file: boundaries, part
@@ -173,17 +184,18 @@ func guardPlatform(next http.Handler) http.Handler {
 // Tests pass fakes; run passes the real PostgreSQL, Redis and SMTP adapters. requireAuth
 // guards the operations the contract secures (httpx.RequireAuth); guardPlatform runs
 // inside it, and limitBody inside that.
-func newRouter(logger *slog.Logger, db, redis, storage healthdomain.Pinger, auth *authhttp.Handler, profile *profilehttp.Handler, media *mediahttp.Handler, social *socialhttp.Handler, requireAuth func(http.Handler) http.Handler) http.Handler {
+func newRouter(logger *slog.Logger, db, redis, storage healthdomain.Pinger, auth *authhttp.Handler, profile *profilehttp.Handler, media *mediahttp.Handler, social *socialhttp.Handler, notifications *notificationhttp.Handler, requireAuth func(http.Handler) http.Handler) http.Handler {
 	checker := healthusecase.New(healthusecase.DefaultTimeout,
 		healthdomain.Dependency{Name: "database", Pinger: db},
 		healthdomain.Dependency{Name: "redis", Pinger: redis},
 		healthdomain.Dependency{Name: "storage", Pinger: storage},
 	)
 	return httpserver.NewRouter(logger, handlers{
-		healthHandler:  healthhttp.NewHandler(checker, logger),
-		authHandler:    auth,
-		profileHandler: profile,
-		mediaHandler:   media,
-		socialHandler:  social,
+		healthHandler:       healthhttp.NewHandler(checker, logger),
+		authHandler:         auth,
+		profileHandler:      profile,
+		mediaHandler:        media,
+		socialHandler:       social,
+		notificationHandler: notifications,
 	}, func(next http.Handler) http.Handler { return requireAuth(guardPlatform(limitBody(next))) })
 }

@@ -83,7 +83,7 @@ generate: ## Regenerate Go code (oapi-codegen, sqlc) and TypeScript types
 	cd backend && go generate ./...
 	cd frontend && npm run generate
 
-GENERATED := backend/internal/api backend/internal/auth/adapter/postgres/sqlcgen backend/internal/profile/adapter/postgres/sqlcgen backend/internal/media/adapter/postgres/sqlcgen frontend/src/lib/api
+GENERATED := backend/internal/api backend/internal/auth/adapter/postgres/sqlcgen backend/internal/profile/adapter/postgres/sqlcgen backend/internal/media/adapter/postgres/sqlcgen backend/internal/notification/adapter/postgres/sqlcgen frontend/src/lib/api
 
 check-generated: generate ## Fail if generated code is out of date
 	@if [[ -n "$$(git status --porcelain -- $(GENERATED))" ]]; then \

@@ -17,6 +17,7 @@ import (
 	authdomain "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/domain"
 	authusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/usecase"
 	mediahttp "github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/http"
+	notificationhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/notification/adapter/http"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/accesstoken"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpx"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/storage"
@@ -140,6 +141,7 @@ func testRouter() http.Handler {
 		}))),
 		mediahttp.NewHandler(okMedia{}),
 		socialhttp.NewHandler(okSocial{}),
+		notificationhttp.NewHandler(okNotifications{}),
 		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
 }
 
@@ -166,6 +168,7 @@ func TestHealthReportsStorageDown(t *testing.T) {
 		profilehttp.NewHandler(profileusecase.New(okProfiles{})),
 		mediahttp.NewHandler(okMedia{}),
 		socialhttp.NewHandler(okSocial{}),
+		notificationhttp.NewHandler(okNotifications{}),
 		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
 
 	rec := httptest.NewRecorder()

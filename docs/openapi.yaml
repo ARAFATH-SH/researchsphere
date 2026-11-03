@@ -2191,6 +2191,135 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /notifications:
+    get:
+      operationId: listNotifications
+      summary: List the logged-in user's notifications, newest first (FR-9.5)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed,
+        events and recommendations" (SRS 2.3). Only the caller's own notifications, newest
+        first (then by ID), paged by cursor: pass the previous page's `nextCursor` to get
+        the next one. Notifications whose actor is suspended or not verified are left out;
+        those of a deleted account are gone. Each item links to the page it is about.
+      tags: [notifications]
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          description: |
+            `nextCursor` from the previous page; leave it out for the first page. A value
+            the server did not issue gets 400 `bad_request`.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: |
+            Items to return, from 1. Defaults to 20. A larger value than 50 is reduced to
+            50; a value below 1 gets 400 `bad_request`.
+          schema:
+            type: integer
+            minimum: 1
+            default: 20
+      responses:
+        "200":
+          description: One page of notifications.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationPage"
+        "400":
+          description: "`cursor` or `limit` is not valid (`bad_request`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /notifications/unread-count:
+    get:
+      operationId: getUnreadNotificationCount
+      summary: Count the logged-in user's unread notifications (FR-9.4)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed,
+        events and recommendations" (SRS 2.3). Counts the unread items the list would
+        show, so the badge matches it. The web client asks every 60 seconds; this
+        operation has no rate limit of its own.
+      tags: [notifications]
+      responses:
+        "200":
+          description: The number of unread notifications.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UnreadNotificationCount"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /notifications/{notificationId}/read:
+    post:
+      operationId: markNotificationRead
+      summary: Mark one of the logged-in user's notifications as read (FR-9.6)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed,
+        events and recommendations" (SRS 2.3). Marking a notification that is already read
+        succeeds and keeps its first read time. Another user's notification, one the list
+        leaves out, or an unknown ID gets 404 `not_found`.
+      tags: [notifications]
+      parameters:
+        - name: notificationId
+          in: path
+          required: true
+          description: |
+            The notification's ID, a UUID. It is declared as a plain string so that the
+            login check runs before it is read (FR-3.1); a value that is not a UUID names no
+            notification and gets 404 `not_found`.
+          schema:
+            type: string
+      responses:
+        "204":
+          description: The notification is read.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /notifications/read-all:
+    post:
+      operationId: markAllNotificationsRead
+      summary: Mark all of the logged-in user's notifications as read (FR-9.6)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed,
+        events and recommendations" (SRS 2.3). Marks every unread notification the list
+        would show and says how many there were.
+      tags: [notifications]
+      responses:
+        "200":
+          description: How many notifications were marked.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationsMarked"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /search/people:
     get:
       operationId: searchPeople
@@ -2973,6 +3102,88 @@ components:
         when the other user is the caller. A rejected request reads as `none` to both
         sides (FR-7.6).
       enum: [none, pending_sent, pending_received, connected, self]
+
+    NotificationType:
+      type: string
+      description: |
+        What happened (FR-9.1). `connection_request_received`: the actor sent the caller a
+        connection request. `connection_request_accepted`: the actor accepted the caller's
+        request. Later slices add the project, comment and like types.
+      enum: [connection_request_received, connection_request_accepted]
+
+    NotificationActor:
+      type: object
+      description: The user who caused the notification.
+      required: [userId, fullName, photoUrl]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        fullName:
+          type: string
+        photoUrl:
+          type: string
+          nullable: true
+          description: The actor's profile photo as `/api/v1/media/{fileId}`; null when not set.
+
+    Notification:
+      type: object
+      required: [id, type, createdAt, read, link, actor]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          $ref: "#/components/schemas/NotificationType"
+        createdAt:
+          type: string
+          format: date-time
+        read:
+          type: boolean
+        link:
+          type: string
+          description: |
+            The web client path of the item it is about (FR-9.5):
+            `/network` for a received request, `/profile/{actorId}` for an accepted one.
+        actor:
+          $ref: "#/components/schemas/NotificationActor"
+        requestId:
+          type: string
+          format: uuid
+          description: Only for `connection_request_received`, the connection request.
+        requestPending:
+          type: boolean
+          description: |
+            Only for `connection_request_received`: true while the request is still
+            pending, so the client can offer Accept and Ignore.
+
+    NotificationPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Notification"
+        nextCursor:
+          type: string
+          nullable: true
+          description: Pass as `cursor` to get the next page; null on the last page.
+
+    UnreadNotificationCount:
+      type: object
+      required: [count]
+      properties:
+        count:
+          type: integer
+
+    NotificationsMarked:
+      type: object
+      required: [marked]
+      properties:
+        marked:
+          type: integer
+          description: How many unread notifications were marked as read.
 
     ProfileUpdate:
       type: object

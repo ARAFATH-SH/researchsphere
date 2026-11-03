@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -20,16 +21,19 @@ type env struct {
 	store    *fakeStore
 	limiter  *fakeLimiter
 	notifier *fakeNotifier
+	tx       *fakeTx
 	logs     *bytes.Buffer
 }
 
 func newEnv() env {
-	e := env{store: newFakeStore(), limiter: newFakeLimiter(), notifier: &fakeNotifier{}, logs: &bytes.Buffer{}}
+	e := env{store: newFakeStore(), limiter: newFakeLimiter(), logs: &bytes.Buffer{}}
+	e.tx = &fakeTx{store: e.store}
+	e.notifier = &fakeNotifier{tx: e.tx}
 	for _, u := range []string{"ada", "bob", "cy"} {
 		e.store.addUser(u, false)
 	}
 	e.store.addUser("sam", true)
-	e.svc = New(e.store, e.limiter, e.notifier, slog.New(slog.NewTextHandler(e.logs, nil)))
+	e.svc = New(e.store, e.tx, e.limiter, e.notifier, slog.New(slog.NewTextHandler(e.logs, nil)))
 	return e
 }
 
@@ -217,16 +221,90 @@ func TestSendStoreError(t *testing.T) {
 	}
 }
 
-// A failing notifier is logged and does not fail the request or the acceptance.
-func TestNotifierErrorIsLogged(t *testing.T) {
+// A failing notifier rolls back the change it reports, so a change is never stored
+// without its notification (FR-9.1).
+func TestNotifierErrorRollsBack(t *testing.T) {
+	queueDown := errors.New("queue down")
+
+	t.Run("send", func(t *testing.T) {
+		e := newEnv()
+		e.notifier.err = queueDown
+		if _, err := e.svc.Send(ctx, "ada", "bob"); !errors.Is(err, queueDown) {
+			t.Fatalf("Send: %v, want the notifier error", err)
+		}
+		if len(e.store.rows) != 0 || e.limiter.used["ada"] != 0 {
+			t.Errorf("a request whose notification failed was stored (%d rows) or counted (%d)", len(e.store.rows), e.limiter.used["ada"])
+		}
+	})
+
+	t.Run("accept, reject and cancel", func(t *testing.T) {
+		e := newEnv()
+		r := e.send(t, "ada", "bob")
+		e.notifier.err = queueDown
+		if _, err := e.svc.Accept(ctx, "bob", r.ID); !errors.Is(err, queueDown) {
+			t.Errorf("Accept: %v, want the notifier error", err)
+		}
+		if err := e.svc.Reject(ctx, "bob", r.ID); !errors.Is(err, queueDown) {
+			t.Errorf("Reject: %v, want the notifier error", err)
+		}
+		if err := e.svc.Cancel(ctx, "ada", r.ID); !errors.Is(err, queueDown) {
+			t.Errorf("Cancel: %v, want the notifier error", err)
+		}
+		if rel := e.relation(t, "bob", "ada"); rel.Status != domain.StatusPendingReceived {
+			t.Errorf("bob sees %+v, want the request still pending after every change rolled back", rel)
+		}
+		if e.tx.rollbacks != 3 {
+			t.Errorf("rolled back %d times, want 3", e.tx.rollbacks)
+		}
+	})
+}
+
+// Every notifier call runs inside the transaction of the change it reports.
+func TestNotifierRunsInsideTransaction(t *testing.T) {
 	e := newEnv()
-	e.notifier.err = errors.New("queue down")
 	r := e.send(t, "ada", "bob")
 	if _, err := e.svc.Accept(ctx, "bob", r.ID); err != nil {
-		t.Fatalf("Accept: %v", err)
+		t.Fatal(err)
 	}
-	if n := strings.Count(e.logs.String(), "queue down"); n != 2 {
-		t.Errorf("logged the notifier error %d times, want 2: %s", n, e.logs)
+	r2 := e.send(t, "cy", "bob")
+	if err := e.svc.Reject(ctx, "bob", r2.ID); err != nil {
+		t.Fatal(err)
+	}
+	r3 := e.send(t, "cy", "ada")
+	if err := e.svc.Cancel(ctx, "cy", r3.ID); err != nil {
+		t.Fatal(err)
+	}
+	if e.notifier.outsideTx != 0 {
+		t.Errorf("%d notifier calls ran outside a transaction", e.notifier.outsideTx)
+	}
+}
+
+// Rejecting or cancelling a request withdraws its notification; nothing else is said
+// (FR-7.6). A refused reject or cancel withdraws nothing.
+func TestRejectAndCancelWithdraw(t *testing.T) {
+	e := newEnv()
+	r := e.send(t, "ada", "bob")
+	if err := e.svc.Reject(ctx, "bob", r.ID); err != nil {
+		t.Fatal(err)
+	}
+	r2 := e.send(t, "ada", "bob")
+	if err := e.svc.Cancel(ctx, "ada", r2.ID); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{r.ID, r2.ID}; !slices.Equal(e.notifier.withdrawn, want) {
+		t.Errorf("withdrawn %v, want %v", e.notifier.withdrawn, want)
+	}
+	if len(e.notifier.accepted) != 0 {
+		t.Errorf("a rejection was reported as %+v", e.notifier.accepted)
+	}
+	if err := e.svc.Reject(ctx, "bob", r.ID); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("second Reject: %v, want ErrNotFound", err)
+	}
+	if err := e.svc.Cancel(ctx, "bob", r2.ID); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("Cancel by the receiver: %v, want ErrNotFound", err)
+	}
+	if len(e.notifier.withdrawn) != 2 {
+		t.Errorf("a refused change withdrew a notification: %v", e.notifier.withdrawn)
 	}
 }
 
@@ -578,12 +656,5 @@ func TestListsRefuseBadPage(t *testing.T) {
 		if _, err := e.svc.ListSent(ctx, "ada", p); !errors.Is(err, domain.ErrInvalidPage) {
 			t.Errorf("ListSent page %d: %v", p, err)
 		}
-	}
-}
-
-func TestNopNotifier(t *testing.T) {
-	var n domain.Notifier = NopNotifier{}
-	if n.RequestSent(ctx, domain.Request{}) != nil || n.RequestAccepted(ctx, domain.Request{}) != nil {
-		t.Error("NopNotifier returned an error")
 	}
 }

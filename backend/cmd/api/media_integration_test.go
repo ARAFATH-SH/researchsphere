@@ -32,8 +32,12 @@ import (
 	mediapg "github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/postgres"
 	mediaredis "github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/redis"
 	mediausecase "github.com/ARAFATH-SH/researchsphere/backend/internal/media/usecase"
+	notificationhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/notification/adapter/http"
+	notificationpg "github.com/ARAFATH-SH/researchsphere/backend/internal/notification/adapter/postgres"
+	notificationusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/notification/usecase"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/accesstoken"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpx"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/postgres"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/storage"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/testenv"
 	profilehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/http"
@@ -45,6 +49,7 @@ import (
 	socialhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/social/adapter/http"
 	socialpg "github.com/ARAFATH-SH/researchsphere/backend/internal/social/adapter/postgres"
 	socialredis "github.com/ARAFATH-SH/researchsphere/backend/internal/social/adapter/redis"
+	socialdomain "github.com/ARAFATH-SH/researchsphere/backend/internal/social/domain"
 	socialusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/social/usecase"
 )
 
@@ -76,10 +81,20 @@ func newMediaEnvWithSources(t *testing.T, openAlexURL, orcidURL string) mediaEnv
 	return newMediaEnvOnPool(t, testenv.DB(t), openAlexURL, orcidURL)
 }
 
+// envOptions change how newMediaEnvOnPool wires the modules.
+type envOptions struct {
+	// wrapNotifier, when set, wraps the connection notifier the social usecase calls.
+	wrapNotifier func(socialdomain.Notifier) socialdomain.Notifier
+}
+
 // newMediaEnvOnPool is newMediaEnvWithSources on a given pool to the test database, such
 // as one that counts its queries.
-func newMediaEnvOnPool(t *testing.T, pool *pgxpool.Pool, openAlexURL, orcidURL string) mediaEnv {
+func newMediaEnvOnPool(t *testing.T, pool *pgxpool.Pool, openAlexURL, orcidURL string, opts ...envOptions) mediaEnv {
 	t.Helper()
+	var opt envOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
 	for _, k := range []string{"S3_ENDPOINT", "S3_BUCKET"} {
 		if os.Getenv(k) == "" {
 			t.Fatalf("%s is not set", k)
@@ -102,7 +117,12 @@ func newMediaEnvOnPool(t *testing.T, pool *pgxpool.Pool, openAlexURL, orcidURL s
 	t.Cleanup(func() { _ = lookups.Close() })
 	connectLimiter := socialredis.New(rdb)
 	t.Cleanup(func() { _ = connectLimiter.Close() })
-	social := socialusecase.New(socialpg.NewStore(pool), connectLimiter, socialusecase.NopNotifier{}, logger)
+	notifications := notificationusecase.New(notificationpg.NewStore(pool))
+	var notifier socialdomain.Notifier = connectionNotifier{notifications: notifications}
+	if opt.wrapNotifier != nil {
+		notifier = opt.wrapNotifier(notifier)
+	}
+	social := socialusecase.New(socialpg.NewStore(pool), postgres.NewTransactor(pool), connectLimiter, notifier, logger)
 	profileStore := profilepg.NewStore(pool)
 	profileOpts := []profileusecase.Option{profileusecase.WithPeopleSearch(profileusecase.PeopleSearch{
 		Searcher: profileStore, Limiter: lookups.SearchLimiter(), Logger: logger,
@@ -127,6 +147,7 @@ func newMediaEnvOnPool(t *testing.T, pool *pgxpool.Pool, openAlexURL, orcidURL s
 		profilehttp.NewHandler(profileusecase.New(profileStore, profileOpts...)),
 		mediahttp.NewHandler(images),
 		socialhttp.NewHandler(social),
+		notificationhttp.NewHandler(notifications),
 		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
 	return mediaEnv{router: router, pool: pool, files: files, rdb: rdb}
 }

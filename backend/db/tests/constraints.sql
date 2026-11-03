@@ -695,6 +695,36 @@ SELECT pg_temp.expect_ok('Connection: a new request is allowed after a rejection
        VALUES ('00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000003')$s$);
 
 -- ---------------------------------------------------------------------------
+-- Notification (FR-9.1, migration 000014)
+-- ---------------------------------------------------------------------------
+
+SELECT pg_temp.expect_error('Notification: an actor is required',
+    $s$INSERT INTO notifications (user_id, type, entity_id)
+       VALUES ('00000000-0000-0000-0000-000000000002', 'connection_request_received', '00000000-0000-0000-0000-0000000000d1')$s$, '23502');
+SELECT pg_temp.expect_error('Notification: an item is required',
+    $s$INSERT INTO notifications (user_id, type, actor_id)
+       VALUES ('00000000-0000-0000-0000-000000000002', 'connection_request_received', '00000000-0000-0000-0000-000000000001')$s$, '23502');
+INSERT INTO notifications (user_id, type, actor_id, entity_id) VALUES
+    ('00000000-0000-0000-0000-000000000002', 'connection_request_received',
+     '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-0000000000d1');
+SELECT pg_temp.expect_error('Notification: one connection request notification per pair',
+    $s$INSERT INTO notifications (user_id, type, actor_id, entity_id)
+       VALUES ('00000000-0000-0000-0000-000000000002', 'connection_request_received',
+               '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-0000000000d2')$s$, '23505');
+SELECT pg_temp.expect_ok('Notification: the same pair may also have an accepted notification',
+    $s$INSERT INTO notifications (user_id, type, actor_id, entity_id)
+       VALUES ('00000000-0000-0000-0000-000000000002', 'connection_request_accepted',
+               '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-0000000000d1')$s$);
+SELECT pg_temp.expect_ok('Notification: the other direction is another pair',
+    $s$INSERT INTO notifications (user_id, type, actor_id, entity_id)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'connection_request_received',
+               '00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-0000000000d1')$s$);
+SELECT pg_temp.expect_ok('Notification: other types are not limited per pair',
+    $s$INSERT INTO notifications (user_id, type, actor_id, entity_id)
+       VALUES ('00000000-0000-0000-0000-000000000002', 'post_like', '00000000-0000-0000-0000-000000000001', gen_random_uuid()),
+              ('00000000-0000-0000-0000-000000000002', 'post_like', '00000000-0000-0000-0000-000000000001', gen_random_uuid())$s$);
+
+-- ---------------------------------------------------------------------------
 -- Post, like, comment (FR-8, FR-15.2)
 -- ---------------------------------------------------------------------------
 
@@ -889,9 +919,9 @@ INSERT INTO post_likes (post_id, user_id) VALUES
 INSERT INTO post_comments (post_id, author_id, body) VALUES
     ('00000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-000000000003', 'Cy comment'),
     ('00000000-0000-0000-0000-0000000000e3', '00000000-0000-0000-0000-000000000002', 'Bob on Cy post');
-INSERT INTO notifications (user_id, type, actor_id) VALUES
-    ('00000000-0000-0000-0000-000000000003', 'post_comment',       '00000000-0000-0000-0000-000000000002'),
-    ('00000000-0000-0000-0000-000000000002', 'connection_request', '00000000-0000-0000-0000-000000000003');
+INSERT INTO notifications (user_id, type, actor_id, entity_id) VALUES
+    ('00000000-0000-0000-0000-000000000003', 'post_comment',                '00000000-0000-0000-0000-000000000002', gen_random_uuid()),
+    ('00000000-0000-0000-0000-000000000002', 'connection_request_received', '00000000-0000-0000-0000-000000000003', gen_random_uuid());
 
 DELETE FROM users WHERE id = '00000000-0000-0000-0000-000000000003';
 

@@ -107,7 +107,13 @@ check, tests and a production build.
   the module has a domain interface that PostgreSQL implements. A module never imports
   another: when one needs another's data, its domain declares an interface and `cmd/api`
   implements it with the other module's usecase (example: `cmd/api/connections.go` gives
-  profiles their connection status from the `social` module).
+  profiles their connection status from the `social` module). When two modules must write
+  together (a connection change and its notification), the usecase calls `InTx` on a
+  `Transactor` its domain declares, `cmd/api` passes `postgres.NewTransactor(pool)`, and
+  each store runs its queries on `postgres.Conn(ctx, pool)` (`internal/platform/postgres`),
+  which is the context's transaction when there is one. Example: the `social` usecase
+  stores a request and calls its `Notifier`, which `cmd/api/notifications.go` implements
+  with the `notification` usecase, in one transaction.
 - **Frontend:** Next.js App Router, TypeScript in strict mode, Tailwind CSS, npm. The Node.js
   major version is pinned in `frontend/.nvmrc`. Layout of `frontend/src`:
 

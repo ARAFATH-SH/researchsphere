@@ -139,14 +139,25 @@ type RequestLimiter interface {
 	Record(ctx context.Context, userID string, window time.Duration) error
 }
 
-// Notifier hears about connection events, so that slice 14 can notify the other user
-// (FR-9.1). It is called after the change is stored; an error is logged and does not
-// undo or fail the change.
+// Notifier hears about connection events, so the other user can be notified (FR-9.1).
+// It is called inside the transaction of the change it reports (Transactor): an error
+// rolls the change back, so a change is never stored without its notification, nor a
+// notification without its change.
 type Notifier interface {
 	// RequestSent is called when req has been sent to req.ReceiverID.
 	RequestSent(ctx context.Context, req Request) error
 	// RequestAccepted is called when req.ReceiverID has accepted req.
 	RequestAccepted(ctx context.Context, req Request) error
+	// RequestWithdrawn is called when request requestID has been cancelled by its sender
+	// or rejected by its receiver, so what was said about it can be taken back. The
+	// sender is never told about a rejection (FR-7.6).
+	RequestWithdrawn(ctx context.Context, requestID string) error
+}
+
+// Transactor runs fn in one database transaction that the Store and the Notifier both
+// use; it commits when fn returns nil and rolls back otherwise.
+type Transactor interface {
+	InTx(ctx context.Context, fn func(ctx context.Context) error) error
 }
 
 // Errors of the social module.
