@@ -20,7 +20,7 @@ TEST_REDIS_URL    ?= redis://localhost:6379/15
 MIGRATIONS_DIR := backend/db/migrations
 
 .DEFAULT_GOAL := help
-.PHONY: help up down logs ps psql check migrate migrate-down migrate-new admin unadmin api web web-clean generate check-generated test test-prepare test-db test-go test-integration test-web lint lint-go lint-web
+.PHONY: help up down logs ps psql check migrate migrate-down migrate-new admin unadmin api web stop web-clean generate check-generated test test-prepare test-db test-go test-integration test-web lint lint-go lint-web
 
 help: ## List the available commands
 	@grep -hE '^[a-zA-Z_-]+:.*## ' $(firstword $(MAKEFILE_LIST)) | awk 'BEGIN {FS = ":.*## "} {printf "  make %-16s %s\n", $$1, $$2}'
@@ -75,6 +75,9 @@ api: ## Run the API server (needs make up; settings from .env)
 
 web: ## Run the web client dev server on port 3000 (needs npm ci in frontend/)
 	cd frontend && npm run dev
+
+stop: ## Stop this project's API (port 8080) and Next.js dev servers (3000-3002); leaves Docker running
+	@scripts/stop-dev.sh
 
 web-clean: ## Delete the web client build cache (frontend/.next); stop make web first
 	rm -rf frontend/.next

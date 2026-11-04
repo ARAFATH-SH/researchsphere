@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 
 import { useSession } from "@/features/auth/session";
+import { refreshBadges } from "@/features/notification/badges";
 
 import {
   acceptConnectionRequest,
@@ -12,10 +13,8 @@ import {
   type SendResult,
 } from "./api";
 import { ConnectButton, rateLimitedMessage } from "./connect-button";
-import { refreshPendingInvitations } from "./pending-invitations";
-
 jest.mock("./api");
-jest.mock("./pending-invitations");
+jest.mock("@/features/notification/badges");
 jest.mock("@/features/auth/session");
 
 const adaID = "0b8f4c1e-0000-4000-8000-000000000001";
@@ -27,14 +26,13 @@ const mockSend = jest.mocked(sendConnectionRequest);
 const mockCancel = jest.mocked(cancelConnectionRequest);
 const mockAccept = jest.mocked(acceptConnectionRequest);
 const mockReject = jest.mocked(rejectConnectionRequest);
-const mockRefresh = jest.mocked(refreshPendingInvitations);
+const mockRefresh = jest.mocked(refreshBadges);
 
 beforeEach(() => {
   jest.mocked(useSession).mockReturnValue({
     status: "signedIn",
     user: { id: adaID, email: "ada@example.org", fullName: "Ada Lovelace", role: "researcher" },
   });
-  mockRefresh.mockResolvedValue();
 });
 afterEach(() => jest.resetAllMocks());
 

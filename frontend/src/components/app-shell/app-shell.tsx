@@ -4,6 +4,7 @@ import { type ReactNode, Suspense } from "react";
 import { Container } from "@/components/Container";
 import { Logo } from "@/components/logo";
 import { CurrentSiteFooter } from "@/components/site-footer";
+import { BadgePoller } from "@/features/notification/badge-poller";
 
 import { MessagingIcon } from "./icons";
 import { MeMenu } from "./me-menu";
@@ -14,9 +15,11 @@ import { CurrentTabList, TabList, type TabListVariant } from "./tab-list";
 // top bar with the logo, search and icon tabs, whose tabs move to a 56px bottom bar from 481
 // to 640px. At 480px and narrower a phone top bar (avatar, search, messages) and a 64px
 // bottom bar replace it. The full site footer follows the page where footerFor says so.
+// BadgePoller keeps the tab badges current while someone is signed in (FR-9.4).
 export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="flex flex-1 flex-col max-[640px]:pb-14 max-[480px]:pt-14 max-[480px]:pb-16">
+      <BadgePoller />
       <header className="sticky top-0 z-50 h-[52px] border-b border-rs-nav-border bg-rs-surface font-rs-ui text-rs-nav-text max-[480px]:hidden">
         <Container className="flex h-[52px] items-center gap-2">
           <Logo href="/home" markOnly />

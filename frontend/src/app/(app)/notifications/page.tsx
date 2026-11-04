@@ -1,11 +1,5 @@
-import { ComingSoon } from "@/components/coming-soon";
+import { NotificationsPage } from "@/features/notification/notifications-page";
 
 export default function Page() {
-  return (
-    <ComingSoon
-      title="Notifications"
-      purpose="Read and clear notifications."
-      requirements={["FR-9"]}
-    />
-  );
+  return <NotificationsPage />;
 }

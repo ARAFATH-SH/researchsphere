@@ -8,6 +8,7 @@ import { SearchPage } from "./search-page";
 jest.mock("./api");
 jest.mock("@/features/social/api");
 jest.mock("@/features/social/pending-invitations");
+jest.mock("@/features/notification/badges");
 const mockSearchPeople = jest.mocked(searchPeople);
 const mockPush = jest.fn();
 let mockSearch = "";
