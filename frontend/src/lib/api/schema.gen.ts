@@ -1624,6 +1624,13 @@ export interface components {
              * @example The requested resource does not exist.
              */
             message: string;
+            /**
+             * @description On `bad_request`, the body field or parameter that broke the contract, when
+             *     one did. A nested field is a dotted path and a list item has its index, such as
+             *     `items[2].name`. The submitted value is never repeated.
+             * @example clientId
+             */
+            field?: string;
         };
         Health: {
             /** @enum {string} */

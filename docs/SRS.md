@@ -427,7 +427,7 @@ Every page except the workspace shall be usable at a width of 768 pixels.
 
 - The client and the API server exchange JSON over HTTPS, under the path /api/v1.
 - The API is described in one OpenAPI 3 document, which is the contract between client and server.
-- Every error response has the same shape: a short code and a readable message.
+- Every error response has the same shape: a short code and a readable message. A request that breaks the API contract also names the field or parameter at fault, without repeating the value sent.
 - Lists are paginated with a page size the server caps at 50.
 - Real-time editing uses a secure WebSocket connection to the sync server, opened with the user's access token.
 

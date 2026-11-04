@@ -230,12 +230,14 @@ func equal(a, b []any) bool {
 	return true
 }
 
-// A missing ID decodes to the zero UUID, which must not reach the usecase.
-func TestSendRefusesMissingIDs(t *testing.T) {
+// The decoder refuses a missing ID; a zero UUID is well formed but names nothing, so it
+// must not reach the usecase as a client ID.
+func TestSendRefusesZeroIDs(t *testing.T) {
+	const zero = "00000000-0000-0000-0000-000000000000"
 	for _, tc := range []struct{ name, path, body string }{
-		{"no userId", directPath, `{"body":"hi","clientId":"` + clientID + `"}`},
-		{"no clientId, direct", directPath, `{"userId":"` + otherID + `","body":"hi"}`},
-		{"no clientId", "/api/v1/conversations/" + convID + "/messages", `{"body":"hi"}`},
+		{"zero userId", directPath, `{"userId":"` + zero + `","body":"hi","clientId":"` + clientID + `"}`},
+		{"zero clientId, direct", directPath, `{"userId":"` + otherID + `","body":"hi","clientId":"` + zero + `"}`},
+		{"zero clientId", "/api/v1/conversations/" + convID + "/messages", `{"body":"hi","clientId":"` + zero + `"}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			svc := &fakeService{}
@@ -362,8 +364,9 @@ func TestMarkRead(t *testing.T) {
 	if rec.Code != http.StatusNoContent || !equal(svc.args, []any{caller, convID, msgID}) {
 		t.Errorf("got %d, args %v", rec.Code, svc.args)
 	}
-	if rec := send(t, &fakeService{}, http.MethodPost, path, `{}`, caller); rec.Code != http.StatusBadRequest {
-		t.Errorf("no messageId: %d", rec.Code)
+	zero := `{"messageId":"00000000-0000-0000-0000-000000000000"}`
+	if rec := send(t, &fakeService{}, http.MethodPost, path, zero, caller); rec.Code != http.StatusBadRequest {
+		t.Errorf("zero messageId: %d", rec.Code)
 	}
 }
 

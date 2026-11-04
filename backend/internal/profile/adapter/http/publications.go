@@ -104,7 +104,7 @@ func (h *Handler) AddMyPublication(ctx context.Context, req gen.AddMyPublication
 		return gen.AddMyPublication400JSONResponse{InvalidPublicationJSONResponse: badPublicationRequest}, nil
 	}
 	b := req.Body
-	year := b.Year // a missing year arrives as 0, which is out of range
+	year := b.Year
 	res, err := h.svc.AddPublication(ctx, id, usecase.PublicationInput{
 		Title:    b.Title,
 		Year:     &year,

@@ -138,7 +138,8 @@ check, tests and a production build.
   `design/screens/` is the source of truth for look and spacing; restyled pages use the `rs-*`
   tokens. `cd frontend && npm run ui:compare -- <route> <design-file>` (dev only, needs
   `make web`) screenshots a route beside its design and prints the pixel difference.
-- **API:** JSON under `/api/v1`. Errors have the shape `{"code": "...", "message": "..."}`.
+- **API:** JSON under `/api/v1`. Errors have the shape `{"code": "...", "message": "..."}`;
+  a `bad_request` about one body field or parameter adds `"field"`, and never repeats the value.
   Lists are paginated and the server caps the page size at 50 (a conversation's messages cap at 100).
 - **SQL:** each module's queries are in `internal/<module>/adapter/postgres/queries.sql`; sqlc
   generates `sqlcgen/` beside it (`backend/sqlc.yaml`, run by `make generate`). Repository tests

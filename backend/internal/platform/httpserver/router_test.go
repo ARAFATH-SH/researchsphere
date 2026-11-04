@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +21,8 @@ import (
 )
 
 const panicText = "boom: secret internal detail"
+
+const testUserID = "7f3a1c2e-9999-4e8b-b7c1-2d3e4f5a6b7c"
 
 // fakeAPI answers every operation in the contract with a fixed success, so these tests
 // exercise the router and middleware without any module.
@@ -349,11 +354,12 @@ func decodeError(t *testing.T, rec *httptest.ResponseRecorder) (code, message st
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("body %q is not JSON: %v", rec.Body, err)
 	}
-	if len(body) != 2 {
-		t.Errorf("body has keys %v, want exactly code and message", body)
-	}
 	code, _ = body["code"].(string)
 	message, _ = body["message"].(string)
+	delete(body, "field") // optional
+	if len(body) != 2 {
+		t.Errorf("body has keys %v, want code, message and at most field", body)
+	}
 	if code == "" || message == "" {
 		t.Errorf("body %v lacks a code or message", body)
 	}
@@ -406,7 +412,7 @@ func TestUnknownBodyFieldIsRefused(t *testing.T) {
 		{"known fields", `{"email":"ada@example.org","password":"secret"}`, http.StatusOK, ""},
 		{"unknown field", `{"email":"ada@example.org","password":"secret","orcidId":"x"}`,
 			http.StatusBadRequest, `The request has an unknown field "orcidId".`},
-		{"not JSON", `{`, http.StatusBadRequest, "The request is not valid."},
+		{"not JSON", `{`, http.StatusBadRequest, "The request body is not valid JSON."},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -426,6 +432,134 @@ func TestUnknownBodyFieldIsRefused(t *testing.T) {
 				t.Errorf("got %q %q, want bad_request %q", code, message, tt.wantMessage)
 			}
 		})
+	}
+}
+
+// postJSON posts a JSON body with a session and returns the decoded answer too.
+func postJSON(t *testing.T, router http.Handler, path, body string) (*httptest.ResponseRecorder, map[string]any) {
+	t.Helper()
+	token, _, err := testSigner.Sign(testUserID, "researcher", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, path, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Cookie", httpx.AccessCookie+"="+token)
+	router.ServeHTTP(rec, req)
+	var got map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("body %q: %v", rec.Body, err)
+	}
+	return rec, got
+}
+
+func TestBodyErrorsNameTheField(t *testing.T) {
+	const (
+		user   = "7f3a1c2e-1111-4e8b-b7c1-2d3e4f5a6b7c"
+		client = "7f3a1c2e-5555-4e8b-b7c1-2d3e4f5a6b7c"
+	)
+	tests := []struct {
+		name, body, message string
+		field               any // nil when no field is at fault
+	}{
+		{"bad format", `{"userId":"` + user + `","body":"hi","clientId":"c1"}`, "clientId must be a UUID.", "clientId"},
+		{"wrong type", `{"userId":"` + user + `","body":5,"clientId":"` + client + `"}`, "body must be a string.", "body"},
+		{"missing required", `{"userId":"` + user + `","clientId":"` + client + `"}`, "body is required.", "body"},
+		{"unknown field", `{"userId":"` + user + `","body":"hi","clientId":"` + client + `","x":1}`, `The request has an unknown field "x".`, "x"},
+		{"malformed JSON", `{"userId":`, "The request body is not valid JSON.", nil},
+		{"more than one value", `{} {}`, "The request body is not valid JSON.", nil},
+		{"not an object", `[1]`, "The request body must be a JSON object.", nil},
+		{"empty", ``, "The request body is required.", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			router, _ := newTestRouter(t)
+			rec, got := postJSON(t, router, "/api/v1/messages/direct", tt.body)
+			if rec.Code != http.StatusBadRequest || got["code"] != "bad_request" || got["message"] != tt.message || got["field"] != tt.field {
+				t.Errorf("got %d %v; want message %q, field %v", rec.Code, got, tt.message, tt.field)
+			}
+			if _, present := got["field"]; present != (tt.field != nil) {
+				t.Errorf("field present = %v in %v", present, got)
+			}
+		})
+	}
+}
+
+func TestParameterErrorsNameTheParameter(t *testing.T) {
+	router, _ := newTestRouter(t)
+	token, _, err := testSigner.Sign(testUserID, "researcher", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/api/v1/conversations?limit=abc", "/api/v1/notifications?limit=1.5", "/api/v1/conversations/x/messages?limit=abc"} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil)
+		req.Header.Set("Cookie", httpx.AccessCookie+"="+token)
+		router.ServeHTTP(rec, req)
+		var got map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		if rec.Code != http.StatusBadRequest || got["code"] != "bad_request" || got["field"] != "limit" || got["message"] != "limit must be a whole number." {
+			t.Errorf("%s: %d %v", path, rec.Code, got)
+		}
+	}
+}
+
+func TestParamError(t *testing.T) {
+	_, parseInt := strconv.Atoi("x")
+	_, parseBool := strconv.ParseBool("x")
+	tests := []struct {
+		name string
+		err  error
+		want string // the sentence, empty for no FieldError
+	}{
+		{"required", &gen.RequiredParamError{ParamName: "q"}, "q is required."},
+		{"whole number", &gen.InvalidParamFormatError{ParamName: "page", Err: fmt.Errorf("binding: %w", parseInt)}, "page must be a whole number."},
+		{"boolean", &gen.InvalidParamFormatError{ParamName: "all", Err: parseBool}, "all must be true or false."},
+		{"anything else", &gen.InvalidParamFormatError{ParamName: "at", Err: errors.New("bad secret-value")}, "at is not valid."},
+		{"another kind of error", errors.New("bad"), ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := paramError(tt.err)
+			if (got == nil) != (tt.want == "") || (got != nil && got.Error() != tt.want) {
+				t.Errorf("got %v, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// What a client sent reaches neither the answer nor the logs.
+func TestBadRequestsNeverRepeatTheValue(t *testing.T) {
+	const secret = "hunter2secret"
+	router, logs := newTestRouter(t)
+	bodies := []string{
+		`{"userId":"` + secret + `","body":"hi","clientId":"c1"}`,
+		`{"userId":5,"body":"` + secret + `"}`,
+		`{"body":"` + secret,
+		secret,
+	}
+	for _, body := range bodies {
+		rec, got := postJSON(t, router, "/api/v1/messages/direct", body)
+		if rec.Code != http.StatusBadRequest || strings.Contains(rec.Body.String(), secret) {
+			t.Errorf("%s: answer %d %v", body, rec.Code, got)
+		}
+	}
+	token, _, err := testSigner.Sign(testUserID, "researcher", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/conversations?limit=1"+secret, nil)
+	req.Header.Set("Cookie", httpx.AccessCookie+"="+token)
+	router.ServeHTTP(rec, req)
+	if strings.Contains(rec.Body.String(), secret) {
+		t.Errorf("parameter: %s", rec.Body)
+	}
+	if strings.Contains(logs.String(), secret) {
+		t.Errorf("logs repeat the value: %s", logs)
 	}
 }
 

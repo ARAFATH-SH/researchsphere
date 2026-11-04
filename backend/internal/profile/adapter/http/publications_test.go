@@ -107,11 +107,21 @@ func TestAddMyPublication(t *testing.T) {
 		})
 	}
 
-	t.Run("a missing year reaches the usecase as 0, which it refuses", func(t *testing.T) {
+	t.Run("a year of 0 reaches the usecase, which refuses it; optional fields stay nil", func(t *testing.T) {
 		svc := &fakeService{publication: notes}
-		send(t, svc, http.MethodPost, publicationsPath, `{"title":"Notes"}`, callerID)
+		send(t, svc, http.MethodPost, publicationsPath, `{"title":"Notes","year":0}`, callerID)
 		if svc.publicationIn.Year == nil || *svc.publicationIn.Year != 0 || svc.publicationIn.Venue != nil || svc.publicationIn.DOI != nil {
 			t.Errorf("input = %+v, want year 0 and nil optional fields", svc.publicationIn)
+		}
+	})
+
+	t.Run("a missing year stops at the decoder", func(t *testing.T) {
+		svc := &fakeService{publication: notes}
+		if rec := send(t, svc, http.MethodPost, publicationsPath, `{"title":"Notes"}`, callerID); rec.Code != http.StatusBadRequest {
+			t.Errorf("status = %d, want 400", rec.Code)
+		}
+		if svc.userID != "" {
+			t.Errorf("the usecase was called for %q", svc.userID)
 		}
 	})
 

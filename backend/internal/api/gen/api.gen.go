@@ -719,6 +719,14 @@ type Error struct {
 	// Example: not_found
 	Code string `json:"code"`
 
+	// Field On `bad_request`, the body field or parameter that broke the contract, when
+	// one did. A nested field is a dotted path and a list item has its index, such as
+	// `items[2].name`. The submitted value is never repeated.
+	//
+	//
+	// Example: clientId
+	Field *string `json:"field,omitempty"`
+
 	// Message Readable explanation for the user.
 	//
 	// Example: The requested resource does not exist.

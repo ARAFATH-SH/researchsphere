@@ -2949,6 +2949,13 @@ components:
           type: string
           description: Readable explanation for the user.
           example: The requested resource does not exist.
+        field:
+          type: string
+          description: |
+            On `bad_request`, the body field or parameter that broke the contract, when
+            one did. A nested field is a dotted path and a list item has its index, such as
+            `items[2].name`. The submitted value is never repeated.
+          example: clientId
 
     Health:
       type: object
