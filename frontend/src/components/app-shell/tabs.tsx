@@ -14,7 +14,7 @@ export const tabs: Tab[] = [
   { href: "/network", label: "My Network", Icon: NetworkIcon, countLabel: "pending invitations" },
   { href: "/projects", label: "Projects", Icon: ProjectsIcon },
   { href: "/messaging", label: "Messaging", Icon: MessagingIcon },
-  { href: "/notifications", label: "Notifications", Icon: NotificationsIcon },
+  { href: "/notifications", label: "Notifications", Icon: NotificationsIcon, countLabel: "unread notifications" },
   { href: "/profile", label: "Me", Icon: MeIcon },
 ];
 
@@ -24,7 +24,7 @@ export const phoneTabs: Tab[] = [
   { href: "/home", label: "Home", Icon: HomeIcon },
   { href: "/network", label: "Network", Icon: NetworkIcon, countLabel: "pending invitations" },
   { href: "/home", label: "Post", Icon: PostIcon, action: true },
-  { href: "/notifications", label: "Alerts", Icon: NotificationsIcon },
+  { href: "/notifications", label: "Alerts", Icon: NotificationsIcon, countLabel: "unread notifications" },
   { href: "/projects", label: "Projects", Icon: ProjectsIcon },
 ];
 

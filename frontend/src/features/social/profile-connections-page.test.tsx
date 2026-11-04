@@ -5,6 +5,7 @@ import { ProfileConnectionsPage } from "./profile-connections-page";
 
 jest.mock("./api");
 jest.mock("./pending-invitations");
+jest.mock("@/features/notification/badges");
 jest.mock("@/features/auth/session", () => ({
   useSession: () => ({
     status: "signedIn",

@@ -22,6 +22,7 @@ jest.mock("@/features/auth/session", () => ({
 }));
 jest.mock("@/features/social/api");
 jest.mock("@/features/social/pending-invitations");
+jest.mock("@/features/notification/badges");
 afterEach(() => jest.resetAllMocks());
 
 // makeEditControls returns every EditControls member as a mock, with overrides applied.

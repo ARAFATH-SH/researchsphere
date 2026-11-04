@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { useSession } from "@/features/auth/session";
+import { refreshBadges } from "@/features/notification/badges";
 
 import {
   acceptConnectionRequest,
@@ -11,7 +12,6 @@ import {
   rejectConnectionRequest,
   sendConnectionRequest,
 } from "./api";
-import { refreshPendingInvitations } from "./pending-invitations";
 
 // Link is the caller's connection with one user: its status and, while it is pending,
 // the request's ID.
@@ -33,18 +33,26 @@ type ConnectButtonProps = {
 
 export const rateLimitedMessage = "You've sent a lot of requests today. Try again tomorrow.";
 
-const shape = {
+const shape: Record<ConnectButtonSize, string> = {
   profile: "h-10 px-5",
   row: "h-9 px-4",
 };
 const pill =
   "inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-rs-pill border text-rs-body font-medium transition-colors focus-visible:shadow-focus focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60";
-const look = {
+const look: Record<PillKind, string> = {
   filled: "border-rs-accent-strong bg-rs-accent-strong text-rs-surface hover:border-rs-accent-hover hover:bg-rs-accent-hover",
   outline: "border-rs-accent-strong bg-rs-surface text-rs-accent-strong hover:bg-rs-accent-soft",
   danger: "border-rs-danger bg-rs-surface text-rs-danger hover:bg-rs-danger-soft",
   quiet: "border-transparent bg-transparent text-rs-text-muted hover:bg-rs-subtle hover:text-rs-text",
 };
+
+// PillKind is a connection button's look; pillClass gives its classes, so other rows that
+// answer a request (the notifications list) look the same.
+export type PillKind = "filled" | "outline" | "danger" | "quiet";
+
+export function pillClass(kind: PillKind, size: ConnectButtonSize): string {
+  return `${pill} ${shape[size]} ${look[kind]}`;
+}
 
 type Message = { text: string; error: boolean };
 
@@ -84,7 +92,8 @@ export function ConnectButton({ userId, name, status, requestId, size, onChange 
   }
 
   function refreshBadge() {
-    if (me) void refreshPendingInvitations(me);
+    // Ignoring a request also deletes its notification, so both badges may change.
+    if (me) refreshBadges(me);
   }
 
   async function connect() {
@@ -144,7 +153,7 @@ export function ConnectButton({ userId, name, status, requestId, size, onChange 
     setConfirming(false);
   }
 
-  const cls = (kind: keyof typeof look) => `${pill} ${shape[size]} ${look[kind]}`;
+  const cls = (kind: PillKind) => pillClass(kind, size);
   let buttons = null;
   if (link.status === "none") {
     buttons = (

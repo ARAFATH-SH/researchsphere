@@ -1270,6 +1270,98 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the logged-in user's notifications, newest first (FR-9.5)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed,
+         *     events and recommendations" (SRS 2.3). Only the caller's own notifications, newest
+         *     first (then by ID), paged by cursor: pass the previous page's `nextCursor` to get
+         *     the next one. Notifications whose actor is suspended or not verified are left out;
+         *     those of a deleted account are gone. Each item links to the page it is about.
+         */
+        get: operations["listNotifications"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notifications/unread-count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Count the logged-in user's unread notifications (FR-9.4)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed,
+         *     events and recommendations" (SRS 2.3). Counts the unread items the list would
+         *     show, so the badge matches it. The web client asks every 60 seconds; this
+         *     operation has no rate limit of its own.
+         */
+        get: operations["getUnreadNotificationCount"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notifications/{notificationId}/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark one of the logged-in user's notifications as read (FR-9.6)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed,
+         *     events and recommendations" (SRS 2.3). Marking a notification that is already read
+         *     succeeds and keeps its first read time. Another user's notification, one the list
+         *     leaves out, or an unknown ID gets 404 `not_found`.
+         */
+        post: operations["markNotificationRead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notifications/read-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark all of the logged-in user's notifications as read (FR-9.6)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed,
+         *     events and recommendations" (SRS 2.3). Marks every unread notification the list
+         *     would show and says how many there were.
+         */
+        post: operations["markAllNotificationsRead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/search/people": {
         parameters: {
             query?: never;
@@ -1632,6 +1724,57 @@ export interface components {
          * @enum {string}
          */
         ConnectionStatus: "none" | "pending_sent" | "pending_received" | "connected" | "self";
+        /**
+         * @description What happened (FR-9.1). `connection_request_received`: the actor sent the caller a
+         *     connection request. `connection_request_accepted`: the actor accepted the caller's
+         *     request. Later slices add the project, comment and like types.
+         * @enum {string}
+         */
+        NotificationType: "connection_request_received" | "connection_request_accepted";
+        /** @description The user who caused the notification. */
+        NotificationActor: {
+            /** Format: uuid */
+            userId: string;
+            fullName: string;
+            /** @description The actor's profile photo as `/api/v1/media/{fileId}`; null when not set. */
+            photoUrl: string | null;
+        };
+        Notification: {
+            /** Format: uuid */
+            id: string;
+            type: components["schemas"]["NotificationType"];
+            /** Format: date-time */
+            createdAt: string;
+            read: boolean;
+            /**
+             * @description The web client path of the item it is about (FR-9.5):
+             *     `/network` for a received request, `/profile/{actorId}` for an accepted one.
+             */
+            link: string;
+            actor: components["schemas"]["NotificationActor"];
+            /**
+             * Format: uuid
+             * @description Only for `connection_request_received`, the connection request.
+             */
+            requestId?: string;
+            /**
+             * @description Only for `connection_request_received`: true while the request is still
+             *     pending, so the client can offer Accept and Ignore.
+             */
+            requestPending?: boolean;
+        };
+        NotificationPage: {
+            items: components["schemas"]["Notification"][];
+            /** @description Pass as `cursor` to get the next page; null on the last page. */
+            nextCursor: string | null;
+        };
+        UnreadNotificationCount: {
+            count: number;
+        };
+        NotificationsMarked: {
+            /** @description How many unread notifications were marked as read. */
+            marked: number;
+        };
         /**
          * @description The profile fields a user edits (FR-4.1). Every value is trimmed first. Lengths
          *     count characters after trimming.
@@ -4764,6 +4907,124 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listNotifications: {
+        parameters: {
+            query?: {
+                /**
+                 * @description `nextCursor` from the previous page; leave it out for the first page. A value
+                 *     the server did not issue gets 400 `bad_request`.
+                 */
+                cursor?: string;
+                /**
+                 * @description Items to return, from 1. Defaults to 20. A larger value than 50 is reduced to
+                 *     50; a value below 1 gets 400 `bad_request`.
+                 */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of notifications. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationPage"];
+                };
+            };
+            /** @description `cursor` or `limit` is not valid (`bad_request`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getUnreadNotificationCount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The number of unread notifications. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnreadNotificationCount"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    markNotificationRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The notification's ID, a UUID. It is declared as a plain string so that the
+                 *     login check runs before it is read (FR-3.1); a value that is not a UUID names no
+                 *     notification and gets 404 `not_found`.
+                 */
+                notificationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The notification is read. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    markAllNotificationsRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description How many notifications were marked. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationsMarked"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             500: components["responses"]["InternalError"];
         };
     };

@@ -247,6 +247,22 @@ func (fakeAPI) ListSentConnectionRequests(context.Context, gen.ListSentConnectio
 	return gen.ListSentConnectionRequests200JSONResponse{}, nil
 }
 
+func (fakeAPI) ListNotifications(context.Context, gen.ListNotificationsRequestObject) (gen.ListNotificationsResponseObject, error) {
+	return gen.ListNotifications200JSONResponse{}, nil
+}
+
+func (fakeAPI) GetUnreadNotificationCount(context.Context, gen.GetUnreadNotificationCountRequestObject) (gen.GetUnreadNotificationCountResponseObject, error) {
+	return gen.GetUnreadNotificationCount200JSONResponse{}, nil
+}
+
+func (fakeAPI) MarkNotificationRead(context.Context, gen.MarkNotificationReadRequestObject) (gen.MarkNotificationReadResponseObject, error) {
+	return gen.MarkNotificationRead204Response{}, nil
+}
+
+func (fakeAPI) MarkAllNotificationsRead(context.Context, gen.MarkAllNotificationsReadRequestObject) (gen.MarkAllNotificationsReadResponseObject, error) {
+	return gen.MarkAllNotificationsRead200JSONResponse{}, nil
+}
+
 func (fakeAPI) ListProfileConnections(context.Context, gen.ListProfileConnectionsRequestObject) (gen.ListProfileConnectionsResponseObject, error) {
 	return gen.ListProfileConnections200JSONResponse{}, nil
 }
@@ -510,8 +526,8 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 
 func TestRoutes(t *testing.T) {
 	got := Routes()
-	if len(got) != 60 {
-		t.Errorf("Routes() returned %d routes, want the 60 operations in the contract: %v", len(got), got)
+	if len(got) != 64 {
+		t.Errorf("Routes() returned %d routes, want the 64 operations in the contract: %v", len(got), got)
 	}
 	seen := map[string]bool{}
 	for _, p := range got {
@@ -520,7 +536,7 @@ func TestRoutes(t *testing.T) {
 		}
 		seen[p] = true
 	}
-	for _, want := range []string{"GET /api/v1/health", "GET /api/v1/auth/me", "DELETE /api/v1/account", "GET /api/v1/media/{fileId}"} {
+	for _, want := range []string{"GET /api/v1/health", "GET /api/v1/auth/me", "DELETE /api/v1/account", "GET /api/v1/media/{fileId}", "GET /api/v1/notifications/unread-count"} {
 		if !seen[want] {
 			t.Errorf("Routes() lacks %q", want)
 		}

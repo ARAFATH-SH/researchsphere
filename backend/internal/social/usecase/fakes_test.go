@@ -270,18 +270,64 @@ func (l *fakeLimiter) Record(_ context.Context, userID string, window time.Durat
 	return nil
 }
 
-// fakeNotifier remembers what it heard. A test sets err to make it fail.
+// fakeTx is a domain.Transactor over a fakeStore: when fn fails it puts the store's rows
+// back as they were, as a rollback would. A nested call joins the outer one.
+type fakeTx struct {
+	store     *fakeStore
+	depth     int
+	rollbacks int
+}
+
+func (x *fakeTx) InTx(ctx context.Context, fn func(context.Context) error) error {
+	if x.depth > 0 {
+		return fn(ctx)
+	}
+	rows := make([]*fakeRow, len(x.store.rows))
+	for i, r := range x.store.rows {
+		c := *r
+		rows[i] = &c
+	}
+	next := x.store.next
+	x.depth++
+	err := fn(ctx)
+	x.depth--
+	if err != nil {
+		x.store.rows, x.store.next = rows, next
+		x.rollbacks++
+	}
+	return err
+}
+
+// fakeNotifier remembers what it heard and counts calls made outside a transaction. A
+// test sets err to make it fail.
 type fakeNotifier struct {
+	tx             *fakeTx
 	sent, accepted []domain.Request
+	withdrawn      []string
+	outsideTx      int
 	err            error
 }
 
+func (n *fakeNotifier) heard() {
+	if n.tx == nil || n.tx.depth == 0 {
+		n.outsideTx++
+	}
+}
+
 func (n *fakeNotifier) RequestSent(_ context.Context, r domain.Request) error {
+	n.heard()
 	n.sent = append(n.sent, r)
 	return n.err
 }
 
 func (n *fakeNotifier) RequestAccepted(_ context.Context, r domain.Request) error {
+	n.heard()
 	n.accepted = append(n.accepted, r)
+	return n.err
+}
+
+func (n *fakeNotifier) RequestWithdrawn(_ context.Context, requestID string) error {
+	n.heard()
+	n.withdrawn = append(n.withdrawn, requestID)
 	return n.err
 }

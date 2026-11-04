@@ -20,6 +20,7 @@ import { setPendingInvitations } from "./pending-invitations";
 
 jest.mock("./api");
 jest.mock("./pending-invitations");
+jest.mock("@/features/notification/badges");
 jest.mock("@/features/auth/session");
 jest.mock("@/features/home/recommendations", () => ({
   Recommendations: () => <p>Recommendations are coming soon.</p>,

@@ -28,25 +28,18 @@ const (
 // Service handles connection requests and connections.
 type Service struct {
 	store    domain.Store
+	tx       domain.Transactor
 	limiter  domain.RequestLimiter
 	notifier domain.Notifier
 	logger   *slog.Logger
 }
 
-// New returns a Service. notifier hears about sent and accepted requests; pass
-// NopNotifier{} until notifications exist (slice 14).
-func New(store domain.Store, limiter domain.RequestLimiter, notifier domain.Notifier, logger *slog.Logger) *Service {
-	return &Service{store: store, limiter: limiter, notifier: notifier, logger: logger}
+// New returns a Service. notifier hears about sent, accepted, cancelled and rejected
+// requests inside the transaction tx opens for each change, so the change and its
+// notification are stored together or not at all (FR-9.1).
+func New(store domain.Store, tx domain.Transactor, limiter domain.RequestLimiter, notifier domain.Notifier, logger *slog.Logger) *Service {
+	return &Service{store: store, tx: tx, limiter: limiter, notifier: notifier, logger: logger}
 }
-
-// NopNotifier is a domain.Notifier that does nothing.
-type NopNotifier struct{}
-
-// RequestSent does nothing.
-func (NopNotifier) RequestSent(context.Context, domain.Request) error { return nil }
-
-// RequestAccepted does nothing.
-func (NopNotifier) RequestAccepted(context.Context, domain.Request) error { return nil }
 
 // Send sends a connection request from requesterID to receiverID (FR-7.1). Checks run in
 // this order: ErrSelf, *RateLimitedError, ErrNotFound for a receiver who is unknown,
@@ -74,10 +67,6 @@ func (s *Service) Send(ctx context.Context, requesterID, receiverID string) (dom
 	if err := s.limiter.Record(ctx, requesterID, RequestWindow); err != nil {
 		s.logger.WarnContext(ctx, "connection request rate limit not recorded", slog.Any("error", err))
 	}
-	if err := s.notifier.RequestSent(ctx, req); err != nil {
-		s.logger.ErrorContext(ctx, "connection request notification failed",
-			slog.String("request_id", req.ID), slog.Any("error", err))
-	}
 	other, err := s.store.FindPerson(ctx, receiverID)
 	if err != nil {
 		return domain.PendingRequest{}, err
@@ -85,12 +74,26 @@ func (s *Service) Send(ctx context.Context, requesterID, receiverID string) (dom
 	return domain.PendingRequest{ID: req.ID, CreatedAt: req.CreatedAt, Other: other}, nil
 }
 
-// create stores the request, or explains with the link that refused it. The database
-// decides between two requests sent at the same moment; when the refusing link is gone
-// before it can be read, it tries again.
+// create stores the request and its notification in one transaction, or explains with
+// the link that refused it. The database decides between two requests sent at the same
+// moment; when the refusing link is gone before it can be read, it tries again.
 func (s *Service) create(ctx context.Context, requesterID, receiverID string) (domain.Request, error) {
 	for range sendAttempts {
-		req, created, err := s.store.CreateRequest(ctx, requesterID, receiverID)
+		var (
+			req     domain.Request
+			created bool
+		)
+		err := s.tx.InTx(ctx, func(ctx context.Context) error {
+			var err error
+			req, created, err = s.store.CreateRequest(ctx, requesterID, receiverID)
+			if err != nil || !created {
+				return err
+			}
+			if err := s.notifier.RequestSent(ctx, req); err != nil {
+				return fmt.Errorf("notify connection request %s: %w", req.ID, err)
+			}
+			return nil
+		})
 		if err != nil {
 			return domain.Request{}, err
 		}
@@ -134,13 +137,23 @@ func (s *Service) checkLimit(ctx context.Context, userID string) error {
 // connection, naming the sender. Anything else is ErrNotFound, so the answer does not
 // reveal whether the request exists.
 func (s *Service) Accept(ctx context.Context, receiverID, requestID string) (domain.Connection, error) {
-	req, at, err := s.store.AcceptRequest(ctx, requestID, receiverID)
+	var (
+		req domain.Request
+		at  time.Time
+	)
+	err := s.tx.InTx(ctx, func(ctx context.Context) error {
+		var err error
+		req, at, err = s.store.AcceptRequest(ctx, requestID, receiverID)
+		if err != nil {
+			return err
+		}
+		if err := s.notifier.RequestAccepted(ctx, req); err != nil {
+			return fmt.Errorf("notify accepted connection request %s: %w", req.ID, err)
+		}
+		return nil
+	})
 	if err != nil {
 		return domain.Connection{}, err
-	}
-	if err := s.notifier.RequestAccepted(ctx, req); err != nil {
-		s.logger.ErrorContext(ctx, "connection accepted notification failed",
-			slog.String("request_id", req.ID), slog.Any("error", err))
 	}
 	other, err := s.store.FindPerson(ctx, req.RequesterID)
 	if err != nil {
@@ -151,13 +164,32 @@ func (s *Service) Accept(ctx context.Context, receiverID, requestID string) (dom
 
 // Reject rejects a pending request that receiverID received (FR-7.3). The sender is not
 // told: the request leaves their sent list and they may send another (FR-7.6).
+// Its notification is withdrawn in the same transaction.
 func (s *Service) Reject(ctx context.Context, receiverID, requestID string) error {
-	return s.store.RejectRequest(ctx, requestID, receiverID)
+	return s.withdraw(ctx, requestID, func(ctx context.Context) error {
+		return s.store.RejectRequest(ctx, requestID, receiverID)
+	})
 }
 
-// Cancel withdraws a pending request that requesterID sent (FR-7.3).
+// Cancel withdraws a pending request that requesterID sent (FR-7.3), and its
+// notification in the same transaction.
 func (s *Service) Cancel(ctx context.Context, requesterID, requestID string) error {
-	return s.store.CancelRequest(ctx, requestID, requesterID)
+	return s.withdraw(ctx, requestID, func(ctx context.Context) error {
+		return s.store.CancelRequest(ctx, requestID, requesterID)
+	})
+}
+
+// withdraw runs change and, when it succeeds, tells the notifier, in one transaction.
+func (s *Service) withdraw(ctx context.Context, requestID string, change func(context.Context) error) error {
+	return s.tx.InTx(ctx, func(ctx context.Context) error {
+		if err := change(ctx); err != nil {
+			return err
+		}
+		if err := s.notifier.RequestWithdrawn(ctx, requestID); err != nil {
+			return fmt.Errorf("withdraw notification of connection request %s: %w", requestID, err)
+		}
+		return nil
+	})
 }
 
 // Remove ends the connection between userID and otherID; either side may (FR-7.5).

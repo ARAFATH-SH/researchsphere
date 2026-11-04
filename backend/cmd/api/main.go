@@ -28,6 +28,9 @@ import (
 	mediapg "github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/postgres"
 	mediaredis "github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/redis"
 	mediausecase "github.com/ARAFATH-SH/researchsphere/backend/internal/media/usecase"
+	notificationhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/notification/adapter/http"
+	notificationpg "github.com/ARAFATH-SH/researchsphere/backend/internal/notification/adapter/postgres"
+	notificationusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/notification/usecase"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/accesstoken"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/config"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpserver"
@@ -105,8 +108,10 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 
 	connectLimiter := socialredis.New(rdb)
 	defer func() { _ = connectLimiter.Close() }()
-	// Notifications come in slice 14 (FR-9.1); until then nobody hears about requests.
-	social := socialusecase.New(socialpg.NewStore(pool), connectLimiter, socialusecase.NopNotifier{}, logger)
+	notifications := notificationusecase.New(notificationpg.NewStore(pool))
+	// A connection change and its notification are written in one transaction (FR-9.1).
+	social := socialusecase.New(socialpg.NewStore(pool), postgres.NewTransactor(pool), connectLimiter,
+		connectionNotifier{notifications: notifications}, logger)
 
 	lookups := profileredis.New(rdb)
 	defer func() { _ = lookups.Close() }()
@@ -148,6 +153,7 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 		profilehttp.NewHandler(profiles),
 		mediahttp.NewHandler(images),
 		socialhttp.NewHandler(social),
+		notificationhttp.NewHandler(notifications),
 		httpx.RequireAuth(tokens, time.Now))
 
 	var lc net.ListenConfig

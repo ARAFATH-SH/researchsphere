@@ -17,7 +17,7 @@ describe("TabList", () => {
 
   it("shows the Alerts badge in the phone bar but none on Post", () => {
     render(<TabList pathname="/home" variant="phone" counts={{ "/notifications": 3, "/home": 9 }} />);
-    expect(screen.getByRole("link", { name: /^Alerts\s*, 3 unread$/ })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /^Alerts\s*, 3 unread notifications$/ })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Post" })).toBeTruthy();
   });
 
