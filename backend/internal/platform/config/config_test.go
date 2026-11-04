@@ -404,3 +404,34 @@ func TestLoadORCIDSettings(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadMessageLimits(t *testing.T) {
+	base := map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL}
+	cfg, err := Load(env(base))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MessagesPerMinute != 30 || cfg.MessagesPerDay != 1000 || cfg.RequestsPerMinute != 5 || cfg.RequestsPerDay != 20 {
+		t.Errorf("defaults = %d, %d, %d, %d", cfg.MessagesPerMinute, cfg.MessagesPerDay, cfg.RequestsPerMinute, cfg.RequestsPerDay)
+	}
+
+	set := map[string]string{
+		"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL, "MESSAGE_LIMIT_PER_MINUTE": "1", "MESSAGE_LIMIT_PER_DAY": "2",
+		"MESSAGE_REQUEST_LIMIT_PER_MINUTE": "3", "MESSAGE_REQUEST_LIMIT_PER_DAY": " 4 ",
+	}
+	if cfg, err = Load(env(set)); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MessagesPerMinute != 1 || cfg.MessagesPerDay != 2 || cfg.RequestsPerMinute != 3 || cfg.RequestsPerDay != 4 {
+		t.Errorf("set = %d, %d, %d, %d", cfg.MessagesPerMinute, cfg.MessagesPerDay, cfg.RequestsPerMinute, cfg.RequestsPerDay)
+	}
+
+	for _, name := range []string{"MESSAGE_LIMIT_PER_MINUTE", "MESSAGE_LIMIT_PER_DAY", "MESSAGE_REQUEST_LIMIT_PER_MINUTE", "MESSAGE_REQUEST_LIMIT_PER_DAY"} {
+		for _, bad := range []string{"0", "-1", "many"} {
+			v := map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL, name: bad}
+			if _, err := Load(env(v)); err == nil || !strings.Contains(err.Error(), name) {
+				t.Errorf("%s=%s: error = %v", name, bad, err)
+			}
+		}
+	}
+}

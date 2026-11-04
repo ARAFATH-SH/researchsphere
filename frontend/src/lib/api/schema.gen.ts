@@ -1362,6 +1362,214 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/messages/direct": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a message to a user, finding or creating the direct conversation (FR-16.1, FR-16.2, FR-16.10)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Two users have exactly one direct conversation. When none
+         *     exists it is created: `active` when the two are connected (FR-16.1), otherwise a
+         *     `request` that the receiver must accept (FR-16.2).
+         *
+         *     Checks run in this order: oneself (`cannot_message_self`), the body (`invalid_body`),
+         *     `clientId` (a value already used by the sender returns the original message with
+         *     200, whatever the conversation's state is now, and uses no quota), the message
+         *     limits (`rate_limited`), the receiver (404 `not_found` for unknown, suspended or
+         *     not verified), the request limits (`rate_limited`, only when this message would
+         *     create a request), then the conversation's state (`request_pending`,
+         *     `conversation_closed`). A pending request refuses both members until the receiver
+         *     accepts it; if they have connected meanwhile it becomes `active` and the message
+         *     is sent. A `declined` conversation stays closed, also after the two connect.
+         */
+        post: operations["sendDirectMessage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/messages/unread-count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Count unread messages and pending message requests (FR-16.3)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed,
+         *     events and recommendations" (SRS 2.3). `total` counts messages from others after
+         *     the caller's read marker in active conversations. `requests` counts the requests
+         *     the `requests` box shows. Messages create no notification; this is their badge.
+         */
+        get: operations["getMessageUnreadCount"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/conversations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the logged-in user's conversations, newest activity first (FR-16.1 to FR-16.3)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed,
+         *     events and recommendations" (SRS 2.3). `inbox` holds active conversations and the
+         *     requests the caller sent; `requests` holds requests sent to the caller, leaving out
+         *     those whose sender is now suspended or not verified, since they cannot be answered.
+         *     A declined conversation is in neither box. A conversation whose other member is
+         *     suspended or not verified stays in the inbox, read-only: `otherMember.available` is
+         *     false. Ordered by last activity, then by ID, paged by cursor.
+         */
+        get: operations["listConversations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/conversations/{conversationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get one of the logged-in user's conversations (FR-16.1, NFR-14)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed,
+         *     events and recommendations" (SRS 2.3). Anyone who is not a member gets 404
+         *     `not_found`, the same answer as for an unknown ID (NFR-14); administrators have no
+         *     extra access.
+         */
+        get: operations["getConversation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/conversations/{conversationId}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a conversation's messages, newest first (FR-16.1, FR-16.3, NFR-14)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed,
+         *     events and recommendations" (SRS 2.3). Anyone who is not a member gets 404
+         *     `not_found` (NFR-14). `otherLastReadMessageId` is the other member's read marker,
+         *     so the client can show "Seen" under the caller's latest message at or before it.
+         */
+        get: operations["listMessages"];
+        put?: never;
+        /**
+         * Send a message in a conversation (FR-16.1, FR-16.2, FR-16.10, NFR-14)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Checks run in this order: the body (`invalid_body`),
+         *     membership (404 `not_found`, NFR-14), `clientId` (a value already used by the sender
+         *     returns the original message with 200), the message limits (`rate_limited`), the
+         *     other member (404 `not_found` when suspended or not verified), then the
+         *     conversation's state (`request_pending`, `conversation_closed`), as for
+         *     `POST /messages/direct`.
+         */
+        post: operations["sendMessage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/conversations/{conversationId}/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move the logged-in user's read marker forward (FR-16.3, NFR-14)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). The marker only moves forward: a message at or before it
+         *     succeeds and changes nothing. A message that is not in this conversation, or a
+         *     caller who is not a member, gets 404 `not_found`.
+         */
+        post: operations["markConversationRead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/conversations/{conversationId}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Accept a message request (FR-16.2)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Only the receiver of a pending request may; the
+         *     conversation becomes `active`. The sender, a non-member, a conversation that is not
+         *     a pending request, or a sender who is now suspended or not verified all get the
+         *     same 404 `not_found`.
+         */
+        post: operations["acceptMessageRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/conversations/{conversationId}/decline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Decline a message request (FR-16.2)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Under the same conditions as accepting, the conversation
+         *     becomes `declined`: it leaves both boxes and nobody can send in it again, also if
+         *     the two connect later (409 `conversation_closed`).
+         */
+        post: operations["declineMessageRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/search/people": {
         parameters: {
             query?: never;
@@ -1767,6 +1975,116 @@ export interface components {
             items: components["schemas"]["Notification"][];
             /** @description Pass as `cursor` to get the next page; null on the last page. */
             nextCursor: string | null;
+        };
+        SendDirectMessageRequest: {
+            /**
+             * Format: uuid
+             * @description The receiver.
+             */
+            userId: string;
+            /** @description 1 to 5,000 characters after trimming; line breaks are kept. */
+            body: string;
+            /**
+             * Format: uuid
+             * @description Made by the client for each new message and sent again on a retry, so a retry stores nothing new.
+             */
+            clientId: string;
+        };
+        SendMessageRequest: {
+            /** @description 1 to 5,000 characters after trimming; line breaks are kept. */
+            body: string;
+            /**
+             * Format: uuid
+             * @description Made by the client for each new message and sent again on a retry, so a retry stores nothing new.
+             */
+            clientId: string;
+        };
+        MarkConversationReadRequest: {
+            /**
+             * Format: uuid
+             * @description The latest message the caller has read.
+             */
+            messageId: string;
+        };
+        /**
+         * @description `active`: both members can send. `request`: waiting for the receiver to accept.
+         *     `declined`: closed for good.
+         * @enum {string}
+         */
+        ConversationState: "active" | "request" | "declined";
+        Message: {
+            /**
+             * Format: uuid
+             * @description A UUIDv7; within a conversation, a later message has a greater ID.
+             */
+            id: string;
+            /** Format: uuid */
+            conversationId: string;
+            /** Format: uuid */
+            senderId: string;
+            body: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        SentMessage: {
+            message: components["schemas"]["Message"];
+            conversationState: components["schemas"]["ConversationState"];
+        };
+        /** @description The other member of a direct conversation. */
+        ConversationMember: {
+            /** Format: uuid */
+            userId: string;
+            fullName: string;
+            /** @description The member's profile photo as `/api/v1/media/{fileId}`; null when not set. */
+            photoUrl: string | null;
+            headline: string | null;
+            /** @description False when the member is suspended or not verified; the conversation is then read-only. */
+            available: boolean;
+        };
+        MessagePreview: {
+            /** Format: uuid */
+            senderId: string;
+            /** @description The first 120 characters of the message. */
+            body: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        Conversation: {
+            /** Format: uuid */
+            id: string;
+            state: components["schemas"]["ConversationState"];
+            otherMember: components["schemas"]["ConversationMember"];
+            lastMessage: components["schemas"]["MessagePreview"] | null;
+            /** @description Messages from the other member after the caller's read marker. */
+            unreadCount: number;
+            /**
+             * Format: uuid
+             * @description Who sent the request; null when the conversation never was one.
+             */
+            requestedBy: string | null;
+            /** Format: date-time */
+            lastMessageAt: string;
+        };
+        ConversationPage: {
+            items: components["schemas"]["Conversation"][];
+            /** @description Pass as `cursor` to get the next page; null on the last page. */
+            nextCursor: string | null;
+        };
+        MessagePage: {
+            items: components["schemas"]["Message"][];
+            /** @description Pass as `before` to get older messages; null on the last page. */
+            nextBefore: string | null;
+            /**
+             * Format: uuid
+             * @description The other member's read marker; null until they have read a message.
+             */
+            otherLastReadMessageId: string | null;
+        };
+        MessageUnreadCount: {
+            /** @description Unread messages in active conversations. */
+            total: number;
+            /** @description Pending message requests to the caller. */
+            requests: number;
         };
         UnreadNotificationCount: {
             count: number;
@@ -2280,6 +2598,46 @@ export interface components {
         };
     };
     responses: {
+        /**
+         * @description `cannot_message_self`, `invalid_body` (empty after trimming, over 5,000 characters,
+         *     or holding a NUL character), or `bad_request` for a body that is not JSON or a
+         *     missing or malformed `userId` or `clientId`.
+         */
+        InvalidMessage: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /**
+         * @description `request_pending`: the receiver has not accepted the request yet.
+         *     `conversation_closed`: the request was declined.
+         */
+        MessageRefused: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /**
+         * @description The user has sent too many messages or message requests (`rate_limited`). The
+         *     defaults are 30 messages a minute and 1,000 a day, and 5 new requests a minute and
+         *     20 a day (FR-16.10).
+         */
+        MessageRateLimited: {
+            headers: {
+                /** @description Seconds until sending is accepted again. */
+                "Retry-After": number;
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
         /** @description `page` is not a whole number of at least 1 (`bad_request`). */
         InvalidConnectionPage: {
             headers: {
@@ -2551,6 +2909,12 @@ export interface components {
         };
     };
     parameters: {
+        /**
+         * @description The conversation's ID, a UUID. It is declared as a plain string so that the login
+         *     check runs before it is read (FR-3.1); a value that is not a UUID names no
+         *     conversation and gets 404 `not_found`.
+         */
+        ConversationId: string;
         /** @description The page to return, from 1, 20 items each. Defaults to 1. */
         ConnectionListPage: number;
         /**
@@ -5025,6 +5389,347 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    sendDirectMessage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendDirectMessageRequest"];
+            };
+        };
+        responses: {
+            /** @description This `clientId` was already used; the original message. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SentMessage"];
+                };
+            };
+            /** @description The message is stored. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SentMessage"];
+                };
+            };
+            400: components["responses"]["InvalidMessage"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["MessageRefused"];
+            429: components["responses"]["MessageRateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getMessageUnreadCount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The two counts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageUnreadCount"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listConversations: {
+        parameters: {
+            query?: {
+                /** @description Which box to list; `inbox` when left out. Any other value gets 400 `bad_request`. */
+                box?: string;
+                /**
+                 * @description `nextCursor` from the previous page; leave it out for the first page. A value
+                 *     the server did not issue gets 400 `bad_request`.
+                 */
+                cursor?: string;
+                /**
+                 * @description Items to return, from 1. Defaults to 20. A larger value than 50 is reduced to
+                 *     50; a value below 1 gets 400 `bad_request`.
+                 */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of conversations. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationPage"];
+                };
+            };
+            /** @description `box`, `cursor` or `limit` is not valid (`bad_request`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getConversation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The conversation's ID, a UUID. It is declared as a plain string so that the login
+                 *     check runs before it is read (FR-3.1); a value that is not a UUID names no
+                 *     conversation and gets 404 `not_found`.
+                 */
+                conversationId: components["parameters"]["ConversationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The conversation. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conversation"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listMessages: {
+        parameters: {
+            query?: {
+                /**
+                 * @description `nextBefore` from the previous page; leave it out for the newest messages. A
+                 *     value that is not a UUID gets 400 `bad_request`.
+                 */
+                before?: string;
+                /**
+                 * @description Items to return, from 1. Defaults to 30. A larger value than 100 is reduced to
+                 *     100; a value below 1 gets 400 `bad_request`.
+                 */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /**
+                 * @description The conversation's ID, a UUID. It is declared as a plain string so that the login
+                 *     check runs before it is read (FR-3.1); a value that is not a UUID names no
+                 *     conversation and gets 404 `not_found`.
+                 */
+                conversationId: components["parameters"]["ConversationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of messages. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessagePage"];
+                };
+            };
+            /** @description `before` or `limit` is not valid (`bad_request`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    sendMessage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The conversation's ID, a UUID. It is declared as a plain string so that the login
+                 *     check runs before it is read (FR-3.1); a value that is not a UUID names no
+                 *     conversation and gets 404 `not_found`.
+                 */
+                conversationId: components["parameters"]["ConversationId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendMessageRequest"];
+            };
+        };
+        responses: {
+            /** @description This `clientId` was already used; the original message. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SentMessage"];
+                };
+            };
+            /** @description The message is stored. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SentMessage"];
+                };
+            };
+            400: components["responses"]["InvalidMessage"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["MessageRefused"];
+            429: components["responses"]["MessageRateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    markConversationRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The conversation's ID, a UUID. It is declared as a plain string so that the login
+                 *     check runs before it is read (FR-3.1); a value that is not a UUID names no
+                 *     conversation and gets 404 `not_found`.
+                 */
+                conversationId: components["parameters"]["ConversationId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarkConversationReadRequest"];
+            };
+        };
+        responses: {
+            /** @description The marker is at or after the message. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request body is not valid (`bad_request`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    acceptMessageRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The conversation's ID, a UUID. It is declared as a plain string so that the login
+                 *     check runs before it is read (FR-3.1); a value that is not a UUID names no
+                 *     conversation and gets 404 `not_found`.
+                 */
+                conversationId: components["parameters"]["ConversationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The conversation, now active. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conversation"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    declineMessageRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The conversation's ID, a UUID. It is declared as a plain string so that the login
+                 *     check runs before it is read (FR-3.1); a value that is not a UUID names no
+                 *     conversation and gets 404 `not_found`.
+                 */
+                conversationId: components["parameters"]["ConversationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The conversation, now declined. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conversation"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             500: components["responses"]["InternalError"];
         };
     };

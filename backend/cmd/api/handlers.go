@@ -12,6 +12,7 @@ import (
 	mediahttp "github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/http"
 	mediadomain "github.com/ARAFATH-SH/researchsphere/backend/internal/media/domain"
 	mediausecase "github.com/ARAFATH-SH/researchsphere/backend/internal/media/usecase"
+	messaginghttp "github.com/ARAFATH-SH/researchsphere/backend/internal/messaging/adapter/http"
 	notificationhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/notification/adapter/http"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/authz"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpserver"
@@ -29,6 +30,7 @@ type (
 	mediaHandler        = mediahttp.Handler
 	socialHandler       = socialhttp.Handler
 	notificationHandler = notificationhttp.Handler
+	messagingHandler    = messaginghttp.Handler
 )
 
 // handlers implements every operation in the contract by embedding each module's HTTP
@@ -40,6 +42,7 @@ type handlers struct {
 	*mediaHandler
 	*socialHandler
 	*notificationHandler
+	*messagingHandler
 }
 
 var _ gen.StrictServerInterface = handlers{}
@@ -134,6 +137,19 @@ var platformGuards = map[string]authz.Action{
 	"GET /api/v1/notifications/unread-count":           authz.ViewContent,
 	"POST /api/v1/notifications/{notificationId}/read": authz.ViewContent,
 	"POST /api/v1/notifications/read-all":              authz.ViewContent,
+
+	// Messaging (FR-16): SRS 2.3 has no row for it. Reading one's own conversations is
+	// closest to "View ...", writing to "Edit own profile, connect, ...". Membership is
+	// checked on every operation by the usecase (NFR-14); no role gets more access.
+	"POST /api/v1/messages/direct":                         authz.ActAsMember,
+	"GET /api/v1/messages/unread-count":                    authz.ViewContent,
+	"GET /api/v1/conversations":                            authz.ViewContent,
+	"GET /api/v1/conversations/{conversationId}":           authz.ViewContent,
+	"GET /api/v1/conversations/{conversationId}/messages":  authz.ViewContent,
+	"POST /api/v1/conversations/{conversationId}/messages": authz.ActAsMember,
+	"POST /api/v1/conversations/{conversationId}/read":     authz.ActAsMember,
+	"POST /api/v1/conversations/{conversationId}/accept":   authz.ActAsMember,
+	"POST /api/v1/conversations/{conversationId}/decline":  authz.ActAsMember,
 }
 
 // multipartOverhead is what a multipart body may hold besides the file: boundaries, part
@@ -184,7 +200,7 @@ func guardPlatform(next http.Handler) http.Handler {
 // Tests pass fakes; run passes the real PostgreSQL, Redis and SMTP adapters. requireAuth
 // guards the operations the contract secures (httpx.RequireAuth); guardPlatform runs
 // inside it, and limitBody inside that.
-func newRouter(logger *slog.Logger, db, redis, storage healthdomain.Pinger, auth *authhttp.Handler, profile *profilehttp.Handler, media *mediahttp.Handler, social *socialhttp.Handler, notifications *notificationhttp.Handler, requireAuth func(http.Handler) http.Handler) http.Handler {
+func newRouter(logger *slog.Logger, db, redis, storage healthdomain.Pinger, auth *authhttp.Handler, profile *profilehttp.Handler, media *mediahttp.Handler, social *socialhttp.Handler, notifications *notificationhttp.Handler, messaging *messaginghttp.Handler, requireAuth func(http.Handler) http.Handler) http.Handler {
 	checker := healthusecase.New(healthusecase.DefaultTimeout,
 		healthdomain.Dependency{Name: "database", Pinger: db},
 		healthdomain.Dependency{Name: "redis", Pinger: redis},
@@ -197,5 +213,6 @@ func newRouter(logger *slog.Logger, db, redis, storage healthdomain.Pinger, auth
 		mediaHandler:        media,
 		socialHandler:       social,
 		notificationHandler: notifications,
+		messagingHandler:    messaging,
 	}, func(next http.Handler) http.Handler { return requireAuth(guardPlatform(limitBody(next))) })
 }

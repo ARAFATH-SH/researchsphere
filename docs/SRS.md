@@ -231,6 +231,22 @@ The 15 functional requirements of the proposal are grouped by module below. In e
 | FR-9.6 | let a user mark one notification or all notifications as read | Must |
 | FR-9.7 | create a notification for a post's author when another user likes it | Could |
 
+**FR-16 Messaging**
+
+| ID | The system shall | Priority |
+| --- | --- | --- |
+| FR-16.1 | let two connected users chat one to one in a conversation of their own, delivered in real time | Must |
+| FR-16.2 | let a user send one message request to a user who is not a connection, which the receiver can accept or decline; nobody can send more until it is accepted, and a declined conversation stays closed | Must |
+| FR-16.3 | show unread counts and seen receipts | Must |
+| FR-16.4 | show a typing indicator and online status | Should |
+| FR-16.5 | let a user edit or delete the user's own message, showing an "edited" label | Should |
+| FR-16.6 | let a user create a group conversation of up to 50 members, whose creator manages the members | Should |
+| FR-16.7 | allow attachments of up to 25 MB, with a file type check and a malware scan | Should |
+| FR-16.8 | let a user search the user's own conversations | Should |
+| FR-16.9 | let a user block another user and report a conversation or message | Must |
+| FR-16.10 | limit how many messages and message requests a user can send, showing a notice at the limit: by default 30 messages a minute and 1,000 a day, and 5 new requests a minute and 20 a day | Must |
+| FR-16.11 | send an email digest of unread messages, which the user can turn off | Could |
+
 ### 3.4 Projects and workspace
 
 **FR-10 Research projects**
@@ -417,7 +433,7 @@ Every page except the workspace shall be usable at a width of 768 pixels.
 
 ## 6. Non-Functional Requirements
 
-NFR-1 to NFR-7 come from the proposal. NFR-8 to NFR-13 are added here.
+NFR-1 to NFR-7 come from the proposal. NFR-8 to NFR-14 are added here.
 
 | ID | Category | Requirement | Priority |
 | --- | --- | --- | --- |
@@ -439,10 +455,11 @@ NFR-1 to NFR-7 come from the proposal. NFR-8 to NFR-13 are added here.
 | NFR-11.2 | Maintainability | The API server's business logic shall have automated tests covering at least 70% of its lines | Should |
 | NFR-12 | Capacity | The deployment shall support 10 files being edited at once, each by 6 editors | Should |
 | NFR-13 | Security | Uploaded files shall be kept in private object storage, served only through short-lived presigned URLs after a permission check, and encrypted at rest | Must |
+| NFR-14 | Security | Every read and write of a conversation or message shall check on the server that the user is a member; anyone else, an administrator included, shall get the same "not found" answer as for a conversation that does not exist | Must |
 
 ## 7. Data Requirements
 
-The database holds the 20 kinds of record below. The rules below are enforced by the database itself, so that a fault in the application cannot break them.
+The database holds the 23 kinds of record below. The rules below are enforced by the database itself, so that a fault in the application cannot break them.
 
 | Entity | Main attributes | Rules |
 | --- | --- | --- |
@@ -466,17 +483,20 @@ The database holds the 20 kinds of record below. The rules below are enforced by
 | Embedding | Owner (profile, project, post or venue), model, text hash, vector | One per owner; deleted with its owner |
 | Notification | Receiver, type, actor, item, read time | Deleted with its receiver |
 | Assistant request | User, project, kind, accepted or not | The suggestion text is not stored |
+| Conversation | Kind (direct or group), state (active, request or declined), who requested it, the pair of users, last message time | One direct conversation per pair of users; a request names who requested it |
+| Conversation member | Conversation, user, joined time, read marker and its time | One row per user per conversation; the read marker is a message of the same conversation |
+| Message | Conversation, sender, text, client ID, times | 1 to 5,000 characters, trimmed; a client ID is used once per sender |
 
 **Retention**
 
 - Deleting an account removes the user's personal data at once (FR-2.8). Publications shared with a co-author stay for that co-author.
+- Deleting an account deletes the user's direct conversations with all their messages, also the other member's copy.
 - The compile log and PDF are kept for the latest compile of each project only.
 
 ## 8. Out of Scope and Open Questions
 
 ### 8.1 Out of scope for version 1.0
 
-- Real-time chat and direct messages.
 - Research groups and communities.
 - Dataset hosting and file sharing outside a project's figures.
 - Sharing or reposting another user's post.

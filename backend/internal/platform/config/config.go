@@ -29,6 +29,11 @@ const (
 	DefaultOpenAlexBaseURL = "https://api.openalex.org"
 	// ORCID public API (FR-5.3); tests point it at a fake server.
 	DefaultORCIDBaseURL = "https://pub.orcid.org"
+	// Send limits per user (FR-16.10).
+	DefaultMessagesPerMinute = 30
+	DefaultMessagesPerDay    = 1000
+	DefaultRequestsPerMinute = 5
+	DefaultRequestsPerDay    = 20
 )
 
 // MinJWTSecretLen is the shortest JWT_SECRET accepted, in bytes: HS256 needs a key at
@@ -63,6 +68,11 @@ type Config struct {
 	OpenAlexMailto  string
 	// The ORCID public API, for importing works (FR-5.3).
 	ORCIDBaseURL string
+	// Send limits per user (FR-16.10): messages, and new message requests.
+	MessagesPerMinute int
+	MessagesPerDay    int
+	RequestsPerMinute int
+	RequestsPerDay    int
 }
 
 // Load reads the settings through getenv (os.Getenv in main). Errors name the
@@ -164,6 +174,21 @@ func Load(getenv func(string) string) (Config, error) {
 		errs = append(errs, err)
 	}
 
+	for _, l := range []struct {
+		name string
+		def  int
+		dst  *int
+	}{
+		{"MESSAGE_LIMIT_PER_MINUTE", DefaultMessagesPerMinute, &cfg.MessagesPerMinute},
+		{"MESSAGE_LIMIT_PER_DAY", DefaultMessagesPerDay, &cfg.MessagesPerDay},
+		{"MESSAGE_REQUEST_LIMIT_PER_MINUTE", DefaultRequestsPerMinute, &cfg.RequestsPerMinute},
+		{"MESSAGE_REQUEST_LIMIT_PER_DAY", DefaultRequestsPerDay, &cfg.RequestsPerDay},
+	} {
+		if *l.dst, err = parsePositive(l.name, getenv(l.name), l.def); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
 	if len(errs) > 0 {
 		return Config{}, errors.Join(errs...)
 	}
@@ -217,6 +242,18 @@ func parsePort(name, raw string, def int) (int, error) {
 		return 0, fmt.Errorf("%s must be a number from 1 to 65535, got %q", name, raw)
 	}
 	return port, nil
+}
+
+func parsePositive(name, raw string, def int) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return def, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 {
+		return 0, fmt.Errorf("%s must be a whole number of at least 1, got %q", name, raw)
+	}
+	return n, nil
 }
 
 // checkBaseURL accepts an absolute http or https URL with a host and no query or fragment.

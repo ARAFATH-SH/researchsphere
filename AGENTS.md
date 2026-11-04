@@ -86,7 +86,7 @@ check, tests and a production build.
 ## Conventions
 
 - **Go:** one application (modular monolith). Modules live in `backend/internal/<module>`: health,
-  then auth, profile, media, social, project, event and notification. Return errors, do not panic.
+  then auth, profile, media, social, project, event, notification and messaging. Return errors, do not panic.
   Table-driven tests beside the code they test. Each module is split into layers (clean
   architecture); `backend/internal/health` is the example to copy:
 
@@ -124,7 +124,7 @@ check, tests and a production build.
   | `components/` | Shared components used by several features (header, footer, placeholders) |
   | `lib/api/` | `client.ts`, the one API client (openapi-fetch), and `schema.gen.ts`, generated from `docs/openapi.yaml` (do not edit; run `make generate`) |
   | `lib/` | Other helpers that belong to no feature |
-  | `features/<module>/` | Code for one feature, named after the backend module (health, auth, profile, social, project, event, notification); created when the module has code |
+  | `features/<module>/` | Code for one feature, named after the backend module (health, auth, profile, social, project, event, notification, messaging); created when the module has code |
   | `features/search/` | The search page, which spans modules: its People tab uses the profile module's search API; Projects and Posts tabs join it with their slices |
 
   Every API call goes through `lib/api/client.ts`, never a hand-written `fetch`. The browser
@@ -139,7 +139,7 @@ check, tests and a production build.
   tokens. `cd frontend && npm run ui:compare -- <route> <design-file>` (dev only, needs
   `make web`) screenshots a route beside its design and prints the pixel difference.
 - **API:** JSON under `/api/v1`. Errors have the shape `{"code": "...", "message": "..."}`.
-  Lists are paginated and the server caps the page size at 50.
+  Lists are paginated and the server caps the page size at 50 (a conversation's messages cap at 100).
 - **SQL:** each module's queries are in `internal/<module>/adapter/postgres/queries.sql`; sqlc
   generates `sqlcgen/` beside it (`backend/sqlc.yaml`, run by `make generate`). Repository tests
   that need the database carry the build tag `integration`.

@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 
+	messagingdomain "github.com/ARAFATH-SH/researchsphere/backend/internal/messaging/domain"
 	profiledomain "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/domain"
+	socialdomain "github.com/ARAFATH-SH/researchsphere/backend/internal/social/domain"
 	socialusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/social/usecase"
 )
 
@@ -41,4 +43,22 @@ func (c connectionLookup) Relations(ctx context.Context, viewerID string, userID
 		out[id] = profiledomain.ConnectionRelation{Status: profiledomain.ConnectionStatus(r.Status), RequestID: r.RequestID}
 	}
 	return out, nil
+}
+
+// connectionChecker tells the messaging module whether two users are connected (FR-16.1),
+// from the social module. The two depend on each other at startup (social's notifier
+// activates message requests), so main creates this first and sets social once it exists.
+type connectionChecker struct {
+	social *socialusecase.Service
+}
+
+var _ messagingdomain.Connections = (*connectionChecker)(nil)
+
+// Connected reports whether a and b have an accepted connection.
+func (c *connectionChecker) Connected(ctx context.Context, a, b string) (bool, error) {
+	r, err := c.social.Relation(ctx, a, b)
+	if err != nil {
+		return false, err
+	}
+	return r.Status == socialdomain.StatusConnected, nil
 }

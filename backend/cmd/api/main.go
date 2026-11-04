@@ -28,6 +28,10 @@ import (
 	mediapg "github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/postgres"
 	mediaredis "github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/redis"
 	mediausecase "github.com/ARAFATH-SH/researchsphere/backend/internal/media/usecase"
+	messaginghttp "github.com/ARAFATH-SH/researchsphere/backend/internal/messaging/adapter/http"
+	messagingpg "github.com/ARAFATH-SH/researchsphere/backend/internal/messaging/adapter/postgres"
+	messagingredis "github.com/ARAFATH-SH/researchsphere/backend/internal/messaging/adapter/redis"
+	messagingusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/messaging/usecase"
 	notificationhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/notification/adapter/http"
 	notificationpg "github.com/ARAFATH-SH/researchsphere/backend/internal/notification/adapter/postgres"
 	notificationusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/notification/usecase"
@@ -109,9 +113,20 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 	connectLimiter := socialredis.New(rdb)
 	defer func() { _ = connectLimiter.Close() }()
 	notifications := notificationusecase.New(notificationpg.NewStore(pool))
+	messageLimiter := messagingredis.New(rdb)
+	defer func() { _ = messageLimiter.Close() }()
+	// Messaging asks social who is connected, and social tells messaging about new
+	// connections, so the checker gets social once that exists.
+	connected := &connectionChecker{}
+	messaging := messagingusecase.New(messagingpg.NewStore(pool), postgres.NewTransactor(pool), connected, messageLimiter,
+		messagingusecase.NopPublisher{}, messagingusecase.Limits{
+			MessagesPerMinute: cfg.MessagesPerMinute, MessagesPerDay: cfg.MessagesPerDay,
+			RequestsPerMinute: cfg.RequestsPerMinute, RequestsPerDay: cfg.RequestsPerDay,
+		}, logger)
 	// A connection change and its notification are written in one transaction (FR-9.1).
 	social := socialusecase.New(socialpg.NewStore(pool), postgres.NewTransactor(pool), connectLimiter,
-		connectionNotifier{notifications: notifications}, logger)
+		connectionNotifier{notifications: notifications, messaging: messaging}, logger)
+	connected.social = social
 
 	lookups := profileredis.New(rdb)
 	defer func() { _ = lookups.Close() }()
@@ -154,6 +169,7 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 		mediahttp.NewHandler(images),
 		socialhttp.NewHandler(social),
 		notificationhttp.NewHandler(notifications),
+		messaginghttp.NewHandler(messaging),
 		httpx.RequireAuth(tokens, time.Now))
 
 	var lc net.ListenConfig

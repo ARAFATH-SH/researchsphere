@@ -72,6 +72,27 @@ func (e ConnectionStatus) Valid() bool {
 	}
 }
 
+// Defines values for ConversationState.
+const (
+	Active   ConversationState = "active"
+	Declined ConversationState = "declined"
+	Request  ConversationState = "request"
+)
+
+// Valid indicates whether the value is a known member of the ConversationState enum.
+func (e ConversationState) Valid() bool {
+	switch e {
+	case Active:
+		return true
+	case Declined:
+		return true
+	case Request:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for EmploymentType.
 const (
 	Contract          EmploymentType = "contract"
@@ -565,6 +586,50 @@ type ContactUpdate struct {
 	PhoneVisibility Visibility `json:"phoneVisibility"`
 }
 
+// Conversation defines model for Conversation.
+type Conversation struct {
+	Id            openapi_types.UUID `json:"id"`
+	LastMessage   *MessagePreview    `json:"lastMessage"`
+	LastMessageAt time.Time          `json:"lastMessageAt"`
+
+	// OtherMember The other member of a direct conversation.
+	OtherMember ConversationMember `json:"otherMember"`
+
+	// RequestedBy Who sent the request; null when the conversation never was one.
+	RequestedBy *openapi_types.UUID `json:"requestedBy"`
+
+	// State `active`: both members can send. `request`: waiting for the receiver to accept.
+	// `declined`: closed for good.
+	State ConversationState `json:"state"`
+
+	// UnreadCount Messages from the other member after the caller's read marker.
+	UnreadCount int `json:"unreadCount"`
+}
+
+// ConversationMember The other member of a direct conversation.
+type ConversationMember struct {
+	// Available False when the member is suspended or not verified; the conversation is then read-only.
+	Available bool    `json:"available"`
+	FullName  string  `json:"fullName"`
+	Headline  *string `json:"headline"`
+
+	// PhotoUrl The member's profile photo as `/api/v1/media/{fileId}`; null when not set.
+	PhotoUrl *string            `json:"photoUrl"`
+	UserId   openapi_types.UUID `json:"userId"`
+}
+
+// ConversationPage defines model for ConversationPage.
+type ConversationPage struct {
+	Items []Conversation `json:"items"`
+
+	// NextCursor Pass as `cursor` to get the next page; null on the last page.
+	NextCursor *string `json:"nextCursor"`
+}
+
+// ConversationState `active`: both members can send. `request`: waiting for the receiver to accept.
+// `declined`: closed for good.
+type ConversationState string
+
 // CurrentUser defines model for CurrentUser.
 type CurrentUser struct {
 	Email    string             `json:"email"`
@@ -796,6 +861,51 @@ type LoginRequest struct {
 	// Email Example: ada@example.org
 	Email    string `json:"email"`
 	Password string `json:"password"`
+}
+
+// MarkConversationReadRequest defines model for MarkConversationReadRequest.
+type MarkConversationReadRequest struct {
+	// MessageId The latest message the caller has read.
+	MessageId openapi_types.UUID `json:"messageId"`
+}
+
+// Message defines model for Message.
+type Message struct {
+	Body           string             `json:"body"`
+	ConversationId openapi_types.UUID `json:"conversationId"`
+	CreatedAt      time.Time          `json:"createdAt"`
+
+	// Id A UUIDv7; within a conversation, a later message has a greater ID.
+	Id       openapi_types.UUID `json:"id"`
+	SenderId openapi_types.UUID `json:"senderId"`
+}
+
+// MessagePage defines model for MessagePage.
+type MessagePage struct {
+	Items []Message `json:"items"`
+
+	// NextBefore Pass as `before` to get older messages; null on the last page.
+	NextBefore *string `json:"nextBefore"`
+
+	// OtherLastReadMessageId The other member's read marker; null until they have read a message.
+	OtherLastReadMessageId *openapi_types.UUID `json:"otherLastReadMessageId"`
+}
+
+// MessagePreview defines model for MessagePreview.
+type MessagePreview struct {
+	// Body The first 120 characters of the message.
+	Body      string             `json:"body"`
+	CreatedAt time.Time          `json:"createdAt"`
+	SenderId  openapi_types.UUID `json:"senderId"`
+}
+
+// MessageUnreadCount defines model for MessageUnreadCount.
+type MessageUnreadCount struct {
+	// Requests Pending message requests to the caller.
+	Requests int `json:"requests"`
+
+	// Total Unread messages in active conversations.
+	Total int `json:"total"`
 }
 
 // Notification defines model for Notification.
@@ -1344,6 +1454,35 @@ type SearchFacet struct {
 	Name  string `json:"name"`
 }
 
+// SendDirectMessageRequest defines model for SendDirectMessageRequest.
+type SendDirectMessageRequest struct {
+	// Body 1 to 5,000 characters after trimming; line breaks are kept.
+	Body string `json:"body"`
+
+	// ClientId Made by the client for each new message and sent again on a retry, so a retry stores nothing new.
+	ClientId openapi_types.UUID `json:"clientId"`
+
+	// UserId The receiver.
+	UserId openapi_types.UUID `json:"userId"`
+}
+
+// SendMessageRequest defines model for SendMessageRequest.
+type SendMessageRequest struct {
+	// Body 1 to 5,000 characters after trimming; line breaks are kept.
+	Body string `json:"body"`
+
+	// ClientId Made by the client for each new message and sent again on a retry, so a retry stores nothing new.
+	ClientId openapi_types.UUID `json:"clientId"`
+}
+
+// SentMessage defines model for SentMessage.
+type SentMessage struct {
+	// ConversationState `active`: both members can send. `request`: waiting for the receiver to accept.
+	// `declined`: closed for good.
+	ConversationState ConversationState `json:"conversationState"`
+	Message           Message           `json:"message"`
+}
+
 // Tag A research interest or skill (FR-4.2). Tags are shared by all users; names that
 // differ only in letter case are the same tag, and the name keeps the spelling it was
 // first created with.
@@ -1402,6 +1541,9 @@ type ConnectionListPage = int
 
 // ConnectionRequestID defines model for ConnectionRequestID.
 type ConnectionRequestID = string
+
+// ConversationId defines model for ConversationId.
+type ConversationId = string
 
 // EducationID defines model for EducationID.
 type EducationID = string
@@ -1469,11 +1611,20 @@ type InvalidImage = Error
 // InvalidLanguage The shape of every error response (SRS 5.3).
 type InvalidLanguage = Error
 
+// InvalidMessage The shape of every error response (SRS 5.3).
+type InvalidMessage = Error
+
 // InvalidPublication The shape of every error response (SRS 5.3).
 type InvalidPublication = Error
 
 // LookupRateLimited The shape of every error response (SRS 5.3).
 type LookupRateLimited = Error
+
+// MessageRateLimited The shape of every error response (SRS 5.3).
+type MessageRateLimited = Error
+
+// MessageRefused The shape of every error response (SRS 5.3).
+type MessageRefused = Error
 
 // MetadataUnavailable The shape of every error response (SRS 5.3).
 type MetadataUnavailable = Error
@@ -1558,6 +1709,31 @@ type ListReceivedConnectionRequestsParams struct {
 type ListSentConnectionRequestsParams struct {
 	// Page The page to return, from 1, 20 items each. Defaults to 1.
 	Page *ConnectionListPage `form:"page,omitempty" json:"page,omitempty"`
+}
+
+// ListConversationsParams defines parameters for ListConversations.
+type ListConversationsParams struct {
+	// Box Which box to list; `inbox` when left out. Any other value gets 400 `bad_request`.
+	Box *string `form:"box,omitempty" json:"box,omitempty"`
+
+	// Cursor `nextCursor` from the previous page; leave it out for the first page. A value
+	// the server did not issue gets 400 `bad_request`.
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Items to return, from 1. Defaults to 20. A larger value than 50 is reduced to
+	// 50; a value below 1 gets 400 `bad_request`.
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListMessagesParams defines parameters for ListMessages.
+type ListMessagesParams struct {
+	// Before `nextBefore` from the previous page; leave it out for the newest messages. A
+	// value that is not a UUID gets 400 `bad_request`.
+	Before *string `form:"before,omitempty" json:"before,omitempty"`
+
+	// Limit Items to return, from 1. Defaults to 30. A larger value than 100 is reduced to
+	// 100; a value below 1 gets 400 `bad_request`.
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // ListNotificationsParams defines parameters for ListNotifications.
@@ -1683,6 +1859,15 @@ type VerifyEmailJSONRequestBody = VerifyEmailRequest
 // SendConnectionRequestJSONRequestBody defines body for SendConnectionRequest for application/json ContentType.
 type SendConnectionRequestJSONRequestBody = ConnectionRequestCreate
 
+// SendMessageJSONRequestBody defines body for SendMessage for application/json ContentType.
+type SendMessageJSONRequestBody = SendMessageRequest
+
+// MarkConversationReadJSONRequestBody defines body for MarkConversationRead for application/json ContentType.
+type MarkConversationReadJSONRequestBody = MarkConversationReadRequest
+
+// SendDirectMessageJSONRequestBody defines body for SendDirectMessage for application/json ContentType.
+type SendDirectMessageJSONRequestBody = SendDirectMessageRequest
+
 // UpdateMyProfileJSONRequestBody defines body for UpdateMyProfile for application/json ContentType.
 type UpdateMyProfileJSONRequestBody = ProfileUpdate
 
@@ -1799,12 +1984,39 @@ type ServerInterface interface {
 	// RemoveConnection Remove a connection (FR-7.5)
 	// (DELETE /connections/{userId})
 	RemoveConnection(w http.ResponseWriter, r *http.Request, userId string)
+	// ListConversations List the logged-in user's conversations, newest activity first (FR-16.1 to FR-16.3)
+	// (GET /conversations)
+	ListConversations(w http.ResponseWriter, r *http.Request, params ListConversationsParams)
+	// GetConversation Get one of the logged-in user's conversations (FR-16.1, NFR-14)
+	// (GET /conversations/{conversationId})
+	GetConversation(w http.ResponseWriter, r *http.Request, conversationId ConversationId)
+	// AcceptMessageRequest Accept a message request (FR-16.2)
+	// (POST /conversations/{conversationId}/accept)
+	AcceptMessageRequest(w http.ResponseWriter, r *http.Request, conversationId ConversationId)
+	// DeclineMessageRequest Decline a message request (FR-16.2)
+	// (POST /conversations/{conversationId}/decline)
+	DeclineMessageRequest(w http.ResponseWriter, r *http.Request, conversationId ConversationId)
+	// ListMessages List a conversation's messages, newest first (FR-16.1, FR-16.3, NFR-14)
+	// (GET /conversations/{conversationId}/messages)
+	ListMessages(w http.ResponseWriter, r *http.Request, conversationId ConversationId, params ListMessagesParams)
+	// SendMessage Send a message in a conversation (FR-16.1, FR-16.2, FR-16.10, NFR-14)
+	// (POST /conversations/{conversationId}/messages)
+	SendMessage(w http.ResponseWriter, r *http.Request, conversationId ConversationId)
+	// MarkConversationRead Move the logged-in user's read marker forward (FR-16.3, NFR-14)
+	// (POST /conversations/{conversationId}/read)
+	MarkConversationRead(w http.ResponseWriter, r *http.Request, conversationId ConversationId)
 	// GetHealth Report whether the database, Redis and object storage respond
 	// (GET /health)
 	GetHealth(w http.ResponseWriter, r *http.Request)
 	// GetMedia Redirect to a stored file after a permission check (NFR-13)
 	// (GET /media/{fileId})
 	GetMedia(w http.ResponseWriter, r *http.Request, fileId FileID)
+	// SendDirectMessage Send a message to a user, finding or creating the direct conversation (FR-16.1, FR-16.2, FR-16.10)
+	// (POST /messages/direct)
+	SendDirectMessage(w http.ResponseWriter, r *http.Request)
+	// GetMessageUnreadCount Count unread messages and pending message requests (FR-16.3)
+	// (GET /messages/unread-count)
+	GetMessageUnreadCount(w http.ResponseWriter, r *http.Request)
 	// ListNotifications List the logged-in user's notifications, newest first (FR-9.5)
 	// (GET /notifications)
 	ListNotifications(w http.ResponseWriter, r *http.Request, params ListNotificationsParams)
@@ -2494,6 +2706,292 @@ func (siw *ServerInterfaceWrapper) RemoveConnection(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// ListConversations operation middleware
+func (siw *ServerInterfaceWrapper) ListConversations(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListConversationsParams
+
+	// ------------- Optional query parameter "box" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "box", r.URL.Query(), &params.Box, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "box"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "box", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListConversations(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetConversation operation middleware
+func (siw *ServerInterfaceWrapper) GetConversation(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "conversationId" -------------
+	var conversationId ConversationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "conversationId", r.PathValue("conversationId"), &conversationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "conversationId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetConversation(w, r, conversationId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AcceptMessageRequest operation middleware
+func (siw *ServerInterfaceWrapper) AcceptMessageRequest(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "conversationId" -------------
+	var conversationId ConversationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "conversationId", r.PathValue("conversationId"), &conversationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "conversationId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AcceptMessageRequest(w, r, conversationId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeclineMessageRequest operation middleware
+func (siw *ServerInterfaceWrapper) DeclineMessageRequest(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "conversationId" -------------
+	var conversationId ConversationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "conversationId", r.PathValue("conversationId"), &conversationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "conversationId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeclineMessageRequest(w, r, conversationId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListMessages operation middleware
+func (siw *ServerInterfaceWrapper) ListMessages(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "conversationId" -------------
+	var conversationId ConversationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "conversationId", r.PathValue("conversationId"), &conversationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "conversationId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListMessagesParams
+
+	// ------------- Optional query parameter "before" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "before", r.URL.Query(), &params.Before, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "before"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "before", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListMessages(w, r, conversationId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SendMessage operation middleware
+func (siw *ServerInterfaceWrapper) SendMessage(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "conversationId" -------------
+	var conversationId ConversationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "conversationId", r.PathValue("conversationId"), &conversationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "conversationId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SendMessage(w, r, conversationId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// MarkConversationRead operation middleware
+func (siw *ServerInterfaceWrapper) MarkConversationRead(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "conversationId" -------------
+	var conversationId ConversationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "conversationId", r.PathValue("conversationId"), &conversationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "conversationId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.MarkConversationRead(w, r, conversationId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetHealth operation middleware
 func (siw *ServerInterfaceWrapper) GetHealth(w http.ResponseWriter, r *http.Request) {
 
@@ -2531,6 +3029,46 @@ func (siw *ServerInterfaceWrapper) GetMedia(w http.ResponseWriter, r *http.Reque
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetMedia(w, r, fileId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SendDirectMessage operation middleware
+func (siw *ServerInterfaceWrapper) SendDirectMessage(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SendDirectMessage(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetMessageUnreadCount operation middleware
+func (siw *ServerInterfaceWrapper) GetMessageUnreadCount(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMessageUnreadCount(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3993,6 +4531,15 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/notifications/unread-count", wrapper.GetUnreadNotificationCount)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/notifications/{notificationId}/read", wrapper.MarkNotificationRead)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/notifications/read-all", wrapper.MarkAllNotificationsRead)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/messages/direct", wrapper.SendDirectMessage)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/messages/unread-count", wrapper.GetMessageUnreadCount)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/conversations", wrapper.ListConversations)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/conversations/{conversationId}", wrapper.GetConversation)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/conversations/{conversationId}/messages", wrapper.ListMessages)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/conversations/{conversationId}/messages", wrapper.SendMessage)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/conversations/{conversationId}/read", wrapper.MarkConversationRead)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/conversations/{conversationId}/accept", wrapper.AcceptMessageRequest)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/conversations/{conversationId}/decline", wrapper.DeclineMessageRequest)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/search/people", wrapper.SearchPeople)
 
 	return m
@@ -4018,6 +4565,8 @@ type InvalidImageJSONResponse Error
 
 type InvalidLanguageJSONResponse Error
 
+type InvalidMessageJSONResponse Error
+
 type InvalidPublicationJSONResponse Error
 
 type LookupRateLimitedResponseHeaders struct {
@@ -4028,6 +4577,17 @@ type LookupRateLimitedJSONResponse struct {
 
 	Headers LookupRateLimitedResponseHeaders
 }
+
+type MessageRateLimitedResponseHeaders struct {
+	RetryAfter int
+}
+type MessageRateLimitedJSONResponse struct {
+	Body Error
+
+	Headers MessageRateLimitedResponseHeaders
+}
+
+type MessageRefusedJSONResponse Error
 
 type MetadataUnavailableJSONResponse Error
 
@@ -5516,6 +6076,634 @@ func (response RemoveConnection500JSONResponse) VisitRemoveConnectionResponse(w 
 	return err
 }
 
+type ListConversationsRequestObject struct {
+	Params ListConversationsParams
+}
+
+type ListConversationsResponseObject interface {
+	VisitListConversationsResponse(w http.ResponseWriter) error
+}
+
+type ListConversations200JSONResponse ConversationPage
+
+func (response ListConversations200JSONResponse) VisitListConversationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListConversations400JSONResponse Error
+
+func (response ListConversations400JSONResponse) VisitListConversationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListConversations401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListConversations401JSONResponse) VisitListConversationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListConversations403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListConversations403JSONResponse) VisitListConversationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListConversations500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ListConversations500JSONResponse) VisitListConversationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetConversationRequestObject struct {
+	ConversationId ConversationId `json:"conversationId"`
+}
+
+type GetConversationResponseObject interface {
+	VisitGetConversationResponse(w http.ResponseWriter) error
+}
+
+type GetConversation200JSONResponse Conversation
+
+func (response GetConversation200JSONResponse) VisitGetConversationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetConversation401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetConversation401JSONResponse) VisitGetConversationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetConversation403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetConversation403JSONResponse) VisitGetConversationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetConversation404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetConversation404JSONResponse) VisitGetConversationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetConversation500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response GetConversation500JSONResponse) VisitGetConversationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptMessageRequestRequestObject struct {
+	ConversationId ConversationId `json:"conversationId"`
+}
+
+type AcceptMessageRequestResponseObject interface {
+	VisitAcceptMessageRequestResponse(w http.ResponseWriter) error
+}
+
+type AcceptMessageRequest200JSONResponse Conversation
+
+func (response AcceptMessageRequest200JSONResponse) VisitAcceptMessageRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptMessageRequest401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response AcceptMessageRequest401JSONResponse) VisitAcceptMessageRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptMessageRequest403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response AcceptMessageRequest403JSONResponse) VisitAcceptMessageRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptMessageRequest404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response AcceptMessageRequest404JSONResponse) VisitAcceptMessageRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptMessageRequest500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response AcceptMessageRequest500JSONResponse) VisitAcceptMessageRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeclineMessageRequestRequestObject struct {
+	ConversationId ConversationId `json:"conversationId"`
+}
+
+type DeclineMessageRequestResponseObject interface {
+	VisitDeclineMessageRequestResponse(w http.ResponseWriter) error
+}
+
+type DeclineMessageRequest200JSONResponse Conversation
+
+func (response DeclineMessageRequest200JSONResponse) VisitDeclineMessageRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeclineMessageRequest401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response DeclineMessageRequest401JSONResponse) VisitDeclineMessageRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeclineMessageRequest403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response DeclineMessageRequest403JSONResponse) VisitDeclineMessageRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeclineMessageRequest404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DeclineMessageRequest404JSONResponse) VisitDeclineMessageRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeclineMessageRequest500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response DeclineMessageRequest500JSONResponse) VisitDeclineMessageRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMessagesRequestObject struct {
+	ConversationId ConversationId `json:"conversationId"`
+	Params         ListMessagesParams
+}
+
+type ListMessagesResponseObject interface {
+	VisitListMessagesResponse(w http.ResponseWriter) error
+}
+
+type ListMessages200JSONResponse MessagePage
+
+func (response ListMessages200JSONResponse) VisitListMessagesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMessages400JSONResponse Error
+
+func (response ListMessages400JSONResponse) VisitListMessagesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMessages401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListMessages401JSONResponse) VisitListMessagesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMessages403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListMessages403JSONResponse) VisitListMessagesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMessages404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListMessages404JSONResponse) VisitListMessagesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMessages500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ListMessages500JSONResponse) VisitListMessagesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SendMessageRequestObject struct {
+	ConversationId ConversationId `json:"conversationId"`
+	Body           *SendMessageJSONRequestBody
+}
+
+type SendMessageResponseObject interface {
+	VisitSendMessageResponse(w http.ResponseWriter) error
+}
+
+type SendMessage200JSONResponse SentMessage
+
+func (response SendMessage200JSONResponse) VisitSendMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SendMessage201JSONResponse SentMessage
+
+func (response SendMessage201JSONResponse) VisitSendMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SendMessage400JSONResponse struct{ InvalidMessageJSONResponse }
+
+func (response SendMessage400JSONResponse) VisitSendMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SendMessage401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response SendMessage401JSONResponse) VisitSendMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SendMessage403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response SendMessage403JSONResponse) VisitSendMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SendMessage404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response SendMessage404JSONResponse) VisitSendMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SendMessage409JSONResponse struct{ MessageRefusedJSONResponse }
+
+func (response SendMessage409JSONResponse) VisitSendMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SendMessage429JSONResponse struct{ MessageRateLimitedJSONResponse }
+
+func (response SendMessage429JSONResponse) VisitSendMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SendMessage500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response SendMessage500JSONResponse) VisitSendMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MarkConversationReadRequestObject struct {
+	ConversationId ConversationId `json:"conversationId"`
+	Body           *MarkConversationReadJSONRequestBody
+}
+
+type MarkConversationReadResponseObject interface {
+	VisitMarkConversationReadResponse(w http.ResponseWriter) error
+}
+
+type MarkConversationRead204Response struct {
+}
+
+func (response MarkConversationRead204Response) VisitMarkConversationReadResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type MarkConversationRead400JSONResponse Error
+
+func (response MarkConversationRead400JSONResponse) VisitMarkConversationReadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MarkConversationRead401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response MarkConversationRead401JSONResponse) VisitMarkConversationReadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MarkConversationRead403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response MarkConversationRead403JSONResponse) VisitMarkConversationReadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MarkConversationRead404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response MarkConversationRead404JSONResponse) VisitMarkConversationReadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MarkConversationRead500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response MarkConversationRead500JSONResponse) VisitMarkConversationReadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetHealthRequestObject struct {
 }
 
@@ -5634,6 +6822,204 @@ func (response GetMedia404JSONResponse) VisitGetMediaResponse(w http.ResponseWri
 type GetMedia500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response GetMedia500JSONResponse) VisitGetMediaResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SendDirectMessageRequestObject struct {
+	Body *SendDirectMessageJSONRequestBody
+}
+
+type SendDirectMessageResponseObject interface {
+	VisitSendDirectMessageResponse(w http.ResponseWriter) error
+}
+
+type SendDirectMessage200JSONResponse SentMessage
+
+func (response SendDirectMessage200JSONResponse) VisitSendDirectMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SendDirectMessage201JSONResponse SentMessage
+
+func (response SendDirectMessage201JSONResponse) VisitSendDirectMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SendDirectMessage400JSONResponse struct{ InvalidMessageJSONResponse }
+
+func (response SendDirectMessage400JSONResponse) VisitSendDirectMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SendDirectMessage401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response SendDirectMessage401JSONResponse) VisitSendDirectMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SendDirectMessage403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response SendDirectMessage403JSONResponse) VisitSendDirectMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SendDirectMessage404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response SendDirectMessage404JSONResponse) VisitSendDirectMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SendDirectMessage409JSONResponse struct{ MessageRefusedJSONResponse }
+
+func (response SendDirectMessage409JSONResponse) VisitSendDirectMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SendDirectMessage429JSONResponse struct{ MessageRateLimitedJSONResponse }
+
+func (response SendDirectMessage429JSONResponse) VisitSendDirectMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SendDirectMessage500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response SendDirectMessage500JSONResponse) VisitSendDirectMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMessageUnreadCountRequestObject struct {
+}
+
+type GetMessageUnreadCountResponseObject interface {
+	VisitGetMessageUnreadCountResponse(w http.ResponseWriter) error
+}
+
+type GetMessageUnreadCount200JSONResponse MessageUnreadCount
+
+func (response GetMessageUnreadCount200JSONResponse) VisitGetMessageUnreadCountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMessageUnreadCount401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetMessageUnreadCount401JSONResponse) VisitGetMessageUnreadCountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMessageUnreadCount403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetMessageUnreadCount403JSONResponse) VisitGetMessageUnreadCountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMessageUnreadCount500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response GetMessageUnreadCount500JSONResponse) VisitGetMessageUnreadCountResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -9429,12 +10815,39 @@ type StrictServerInterface interface {
 	// RemoveConnection Remove a connection (FR-7.5)
 	// (DELETE /connections/{userId})
 	RemoveConnection(ctx context.Context, request RemoveConnectionRequestObject) (RemoveConnectionResponseObject, error)
+	// ListConversations List the logged-in user's conversations, newest activity first (FR-16.1 to FR-16.3)
+	// (GET /conversations)
+	ListConversations(ctx context.Context, request ListConversationsRequestObject) (ListConversationsResponseObject, error)
+	// GetConversation Get one of the logged-in user's conversations (FR-16.1, NFR-14)
+	// (GET /conversations/{conversationId})
+	GetConversation(ctx context.Context, request GetConversationRequestObject) (GetConversationResponseObject, error)
+	// AcceptMessageRequest Accept a message request (FR-16.2)
+	// (POST /conversations/{conversationId}/accept)
+	AcceptMessageRequest(ctx context.Context, request AcceptMessageRequestRequestObject) (AcceptMessageRequestResponseObject, error)
+	// DeclineMessageRequest Decline a message request (FR-16.2)
+	// (POST /conversations/{conversationId}/decline)
+	DeclineMessageRequest(ctx context.Context, request DeclineMessageRequestRequestObject) (DeclineMessageRequestResponseObject, error)
+	// ListMessages List a conversation's messages, newest first (FR-16.1, FR-16.3, NFR-14)
+	// (GET /conversations/{conversationId}/messages)
+	ListMessages(ctx context.Context, request ListMessagesRequestObject) (ListMessagesResponseObject, error)
+	// SendMessage Send a message in a conversation (FR-16.1, FR-16.2, FR-16.10, NFR-14)
+	// (POST /conversations/{conversationId}/messages)
+	SendMessage(ctx context.Context, request SendMessageRequestObject) (SendMessageResponseObject, error)
+	// MarkConversationRead Move the logged-in user's read marker forward (FR-16.3, NFR-14)
+	// (POST /conversations/{conversationId}/read)
+	MarkConversationRead(ctx context.Context, request MarkConversationReadRequestObject) (MarkConversationReadResponseObject, error)
 	// GetHealth Report whether the database, Redis and object storage respond
 	// (GET /health)
 	GetHealth(ctx context.Context, request GetHealthRequestObject) (GetHealthResponseObject, error)
 	// GetMedia Redirect to a stored file after a permission check (NFR-13)
 	// (GET /media/{fileId})
 	GetMedia(ctx context.Context, request GetMediaRequestObject) (GetMediaResponseObject, error)
+	// SendDirectMessage Send a message to a user, finding or creating the direct conversation (FR-16.1, FR-16.2, FR-16.10)
+	// (POST /messages/direct)
+	SendDirectMessage(ctx context.Context, request SendDirectMessageRequestObject) (SendDirectMessageResponseObject, error)
+	// GetMessageUnreadCount Count unread messages and pending message requests (FR-16.3)
+	// (GET /messages/unread-count)
+	GetMessageUnreadCount(ctx context.Context, request GetMessageUnreadCountRequestObject) (GetMessageUnreadCountResponseObject, error)
 	// ListNotifications List the logged-in user's notifications, newest first (FR-9.5)
 	// (GET /notifications)
 	ListNotifications(ctx context.Context, request ListNotificationsRequestObject) (ListNotificationsResponseObject, error)
@@ -10167,6 +11580,203 @@ func (sh *strictHandler) RemoveConnection(w http.ResponseWriter, r *http.Request
 	}
 }
 
+// ListConversations operation middleware
+func (sh *strictHandler) ListConversations(w http.ResponseWriter, r *http.Request, params ListConversationsParams) {
+	var request ListConversationsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListConversations(ctx, request.(ListConversationsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListConversations")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListConversationsResponseObject); ok {
+		if err := validResponse.VisitListConversationsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetConversation operation middleware
+func (sh *strictHandler) GetConversation(w http.ResponseWriter, r *http.Request, conversationId ConversationId) {
+	var request GetConversationRequestObject
+
+	request.ConversationId = conversationId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetConversation(ctx, request.(GetConversationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetConversation")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetConversationResponseObject); ok {
+		if err := validResponse.VisitGetConversationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AcceptMessageRequest operation middleware
+func (sh *strictHandler) AcceptMessageRequest(w http.ResponseWriter, r *http.Request, conversationId ConversationId) {
+	var request AcceptMessageRequestRequestObject
+
+	request.ConversationId = conversationId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AcceptMessageRequest(ctx, request.(AcceptMessageRequestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AcceptMessageRequest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AcceptMessageRequestResponseObject); ok {
+		if err := validResponse.VisitAcceptMessageRequestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeclineMessageRequest operation middleware
+func (sh *strictHandler) DeclineMessageRequest(w http.ResponseWriter, r *http.Request, conversationId ConversationId) {
+	var request DeclineMessageRequestRequestObject
+
+	request.ConversationId = conversationId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeclineMessageRequest(ctx, request.(DeclineMessageRequestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeclineMessageRequest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeclineMessageRequestResponseObject); ok {
+		if err := validResponse.VisitDeclineMessageRequestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListMessages operation middleware
+func (sh *strictHandler) ListMessages(w http.ResponseWriter, r *http.Request, conversationId ConversationId, params ListMessagesParams) {
+	var request ListMessagesRequestObject
+
+	request.ConversationId = conversationId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListMessages(ctx, request.(ListMessagesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListMessages")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListMessagesResponseObject); ok {
+		if err := validResponse.VisitListMessagesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SendMessage operation middleware
+func (sh *strictHandler) SendMessage(w http.ResponseWriter, r *http.Request, conversationId ConversationId) {
+	var request SendMessageRequestObject
+
+	request.ConversationId = conversationId
+
+	var body SendMessageJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SendMessage(ctx, request.(SendMessageRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SendMessage")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SendMessageResponseObject); ok {
+		if err := validResponse.VisitSendMessageResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// MarkConversationRead operation middleware
+func (sh *strictHandler) MarkConversationRead(w http.ResponseWriter, r *http.Request, conversationId ConversationId) {
+	var request MarkConversationReadRequestObject
+
+	request.ConversationId = conversationId
+
+	var body MarkConversationReadJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.MarkConversationRead(ctx, request.(MarkConversationReadRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "MarkConversationRead")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(MarkConversationReadResponseObject); ok {
+		if err := validResponse.VisitMarkConversationReadResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetHealth operation middleware
 func (sh *strictHandler) GetHealth(w http.ResponseWriter, r *http.Request) {
 	var request GetHealthRequestObject
@@ -10210,6 +11820,61 @@ func (sh *strictHandler) GetMedia(w http.ResponseWriter, r *http.Request, fileId
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetMediaResponseObject); ok {
 		if err := validResponse.VisitGetMediaResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SendDirectMessage operation middleware
+func (sh *strictHandler) SendDirectMessage(w http.ResponseWriter, r *http.Request) {
+	var request SendDirectMessageRequestObject
+
+	var body SendDirectMessageJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SendDirectMessage(ctx, request.(SendDirectMessageRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SendDirectMessage")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SendDirectMessageResponseObject); ok {
+		if err := validResponse.VisitSendDirectMessageResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetMessageUnreadCount operation middleware
+func (sh *strictHandler) GetMessageUnreadCount(w http.ResponseWriter, r *http.Request) {
+	var request GetMessageUnreadCountRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetMessageUnreadCount(ctx, request.(GetMessageUnreadCountRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetMessageUnreadCount")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetMessageUnreadCountResponseObject); ok {
+		if err := validResponse.VisitGetMessageUnreadCountResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -263,6 +263,42 @@ func (fakeAPI) MarkAllNotificationsRead(context.Context, gen.MarkAllNotification
 	return gen.MarkAllNotificationsRead200JSONResponse{}, nil
 }
 
+func (fakeAPI) SendDirectMessage(context.Context, gen.SendDirectMessageRequestObject) (gen.SendDirectMessageResponseObject, error) {
+	return gen.SendDirectMessage201JSONResponse{}, nil
+}
+
+func (fakeAPI) SendMessage(context.Context, gen.SendMessageRequestObject) (gen.SendMessageResponseObject, error) {
+	return gen.SendMessage201JSONResponse{}, nil
+}
+
+func (fakeAPI) GetMessageUnreadCount(context.Context, gen.GetMessageUnreadCountRequestObject) (gen.GetMessageUnreadCountResponseObject, error) {
+	return gen.GetMessageUnreadCount200JSONResponse{}, nil
+}
+
+func (fakeAPI) ListConversations(context.Context, gen.ListConversationsRequestObject) (gen.ListConversationsResponseObject, error) {
+	return gen.ListConversations200JSONResponse{}, nil
+}
+
+func (fakeAPI) GetConversation(context.Context, gen.GetConversationRequestObject) (gen.GetConversationResponseObject, error) {
+	return gen.GetConversation200JSONResponse{}, nil
+}
+
+func (fakeAPI) ListMessages(context.Context, gen.ListMessagesRequestObject) (gen.ListMessagesResponseObject, error) {
+	return gen.ListMessages200JSONResponse{}, nil
+}
+
+func (fakeAPI) MarkConversationRead(context.Context, gen.MarkConversationReadRequestObject) (gen.MarkConversationReadResponseObject, error) {
+	return gen.MarkConversationRead204Response{}, nil
+}
+
+func (fakeAPI) AcceptMessageRequest(context.Context, gen.AcceptMessageRequestRequestObject) (gen.AcceptMessageRequestResponseObject, error) {
+	return gen.AcceptMessageRequest200JSONResponse{}, nil
+}
+
+func (fakeAPI) DeclineMessageRequest(context.Context, gen.DeclineMessageRequestRequestObject) (gen.DeclineMessageRequestResponseObject, error) {
+	return gen.DeclineMessageRequest200JSONResponse{}, nil
+}
+
 func (fakeAPI) ListProfileConnections(context.Context, gen.ListProfileConnectionsRequestObject) (gen.ListProfileConnectionsResponseObject, error) {
 	return gen.ListProfileConnections200JSONResponse{}, nil
 }
@@ -526,8 +562,8 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 
 func TestRoutes(t *testing.T) {
 	got := Routes()
-	if len(got) != 64 {
-		t.Errorf("Routes() returned %d routes, want the 64 operations in the contract: %v", len(got), got)
+	if len(got) != 73 {
+		t.Errorf("Routes() returned %d routes, want the 73 operations in the contract: %v", len(got), got)
 	}
 	seen := map[string]bool{}
 	for _, p := range got {

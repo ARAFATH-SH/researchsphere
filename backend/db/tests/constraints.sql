@@ -878,6 +878,82 @@ SELECT pg_temp.expect_error('Embedding: vector must have 768 dimensions',
        VALUES ('00000000-0000-0000-0000-000000000201', 'test-model', 'h1', '[1,2,3]')$s$, '22000');
 
 -- ---------------------------------------------------------------------------
+-- Messaging (FR-16.1, FR-16.2, NFR-14). Users 1 and 2 have one conversation.
+-- ---------------------------------------------------------------------------
+
+INSERT INTO conversations (id, state, user_low, user_high) VALUES
+    ('00000000-0000-0000-0000-0000000000f1', 'active',
+     '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002');
+INSERT INTO conversation_members (conversation_id, user_id) VALUES
+    ('00000000-0000-0000-0000-0000000000f1', '00000000-0000-0000-0000-000000000001'),
+    ('00000000-0000-0000-0000-0000000000f1', '00000000-0000-0000-0000-000000000002');
+INSERT INTO messages (id, conversation_id, sender_id, body, client_id) VALUES
+    ('00000000-0000-7000-8000-0000000000f2', '00000000-0000-0000-0000-0000000000f1',
+     '00000000-0000-0000-0000-000000000001', 'hello', '00000000-0000-0000-0000-0000000000f3');
+
+SELECT pg_temp.expect_error('Conversation: one per pair',
+    $s$INSERT INTO conversations (state, user_low, user_high) VALUES ('active',
+       '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002')$s$, '23505');
+SELECT pg_temp.expect_error('Conversation: a pair is stored low before high',
+    $s$INSERT INTO conversations (state, user_low, user_high) VALUES ('active',
+       '00000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000002')$s$, '23514');
+SELECT pg_temp.expect_error('Conversation: no self-conversation',
+    $s$INSERT INTO conversations (state, user_low, user_high) VALUES ('active',
+       '00000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000003')$s$, '23514');
+SELECT pg_temp.expect_error('Conversation: a direct one names its pair',
+    $s$INSERT INTO conversations (state) VALUES ('active')$s$, '23514');
+SELECT pg_temp.expect_error('Conversation: a group names no pair',
+    $s$INSERT INTO conversations (kind, state, user_low, user_high) VALUES ('group', 'active',
+       '00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000003')$s$, '23514');
+SELECT pg_temp.expect_ok('Conversation: the schema allows a group (slice 14B)',
+    $s$INSERT INTO conversations (id, kind, state) VALUES ('00000000-0000-0000-0000-0000000000f4', 'group', 'active')$s$);
+SELECT pg_temp.expect_error('Conversation: unknown kind',
+    $s$INSERT INTO conversations (kind, state) VALUES ('channel', 'active')$s$, '23514');
+SELECT pg_temp.expect_error('Conversation: unknown state',
+    $s$UPDATE conversations SET state = 'archived' WHERE id = '00000000-0000-0000-0000-0000000000f1'$s$, '23514');
+SELECT pg_temp.expect_error('Conversation: a request names who requested it',
+    $s$UPDATE conversations SET state = 'request' WHERE id = '00000000-0000-0000-0000-0000000000f1'$s$, '23514');
+SELECT pg_temp.expect_error('Member: once per conversation',
+    $s$INSERT INTO conversation_members (conversation_id, user_id) VALUES
+       ('00000000-0000-0000-0000-0000000000f1', '00000000-0000-0000-0000-000000000001')$s$, '23505');
+SELECT pg_temp.expect_error('Message: empty body',
+    $s$INSERT INTO messages (conversation_id, sender_id, body, client_id) VALUES ('00000000-0000-0000-0000-0000000000f1',
+       '00000000-0000-0000-0000-000000000001', '', gen_random_uuid())$s$, '23514');
+SELECT pg_temp.expect_error('Message: 5,001 characters',
+    $s$INSERT INTO messages (conversation_id, sender_id, body, client_id) VALUES ('00000000-0000-0000-0000-0000000000f1',
+       '00000000-0000-0000-0000-000000000001', repeat('a', 5001), gen_random_uuid())$s$, '23514');
+SELECT pg_temp.expect_error('Message: not trimmed',
+    $s$INSERT INTO messages (conversation_id, sender_id, body, client_id) VALUES ('00000000-0000-0000-0000-0000000000f1',
+       '00000000-0000-0000-0000-000000000001', E'hi\n', gen_random_uuid())$s$, '23514');
+SELECT pg_temp.expect_ok('Message: 5,000 characters, multi-line',
+    $s$INSERT INTO messages (conversation_id, sender_id, body, client_id) VALUES ('00000000-0000-0000-0000-0000000000f1',
+       '00000000-0000-0000-0000-000000000001', repeat(E'a\nb', 1666) || 'cc', gen_random_uuid())$s$);
+SELECT pg_temp.expect_error('Message: a client ID once per sender',
+    $s$INSERT INTO messages (conversation_id, sender_id, body, client_id) VALUES ('00000000-0000-0000-0000-0000000000f1',
+       '00000000-0000-0000-0000-000000000001', 'again', '00000000-0000-0000-0000-0000000000f3')$s$, '23505');
+SELECT pg_temp.expect_ok('Message: another sender may use the same client ID',
+    $s$INSERT INTO messages (conversation_id, sender_id, body, client_id) VALUES ('00000000-0000-0000-0000-0000000000f1',
+       '00000000-0000-0000-0000-000000000002', 'mine', '00000000-0000-0000-0000-0000000000f3')$s$);
+SELECT pg_temp.expect_true('Message: IDs are UUIDv7 values', $q$
+    SELECT substr(uuid_v7()::text, 15, 1) = '7' AND substr(uuid_v7()::text, 20, 1) IN ('8', '9', 'a', 'b')$q$);
+SELECT pg_temp.expect_true('Message: a later ID sorts after an earlier one', $q$
+    SELECT bool_and(previous < id) FROM (
+        SELECT id, lag(id) OVER (ORDER BY n) AS previous
+        FROM (SELECT n, uuid_v7() AS id, pg_sleep(0.002) FROM generate_series(1, 4) n) made) ordered$q$);
+INSERT INTO conversation_members (conversation_id, user_id) VALUES
+    ('00000000-0000-0000-0000-0000000000f4', '00000000-0000-0000-0000-000000000002');
+SELECT pg_temp.expect_error('Read marker: must be a message of its own conversation (NFR-14)',
+    $s$UPDATE conversation_members SET last_read_message_id = '00000000-0000-7000-8000-0000000000f2'
+       WHERE conversation_id = '00000000-0000-0000-0000-0000000000f4'$s$, '23503');
+SELECT pg_temp.expect_ok('Read marker: can point at a message of its conversation',
+    $s$UPDATE conversation_members SET last_read_message_id = '00000000-0000-7000-8000-0000000000f2'
+       WHERE conversation_id = '00000000-0000-0000-0000-0000000000f1'$s$);
+DELETE FROM messages WHERE id = '00000000-0000-7000-8000-0000000000f2';
+SELECT pg_temp.expect_true('Read marker: deleting its message clears it, not the member', $q$
+    SELECT count(*) = 2 AND count(last_read_message_id) = 0 FROM conversation_members
+    WHERE conversation_id = '00000000-0000-0000-0000-0000000000f1'$q$);
+
+-- ---------------------------------------------------------------------------
 -- Account deletion (FR-2.8, SRS 7 Retention): user 3 owns no project.
 -- ---------------------------------------------------------------------------
 
@@ -922,6 +998,14 @@ INSERT INTO post_comments (post_id, author_id, body) VALUES
 INSERT INTO notifications (user_id, type, actor_id, entity_id) VALUES
     ('00000000-0000-0000-0000-000000000003', 'post_comment',                '00000000-0000-0000-0000-000000000002', gen_random_uuid()),
     ('00000000-0000-0000-0000-000000000002', 'connection_request_received', '00000000-0000-0000-0000-000000000003', gen_random_uuid());
+INSERT INTO conversations (id, state, requested_by, user_low, user_high) VALUES
+    ('00000000-0000-0000-0000-0000000000f5', 'request', '00000000-0000-0000-0000-000000000003',
+     '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000003');
+INSERT INTO conversation_members (conversation_id, user_id) VALUES
+    ('00000000-0000-0000-0000-0000000000f5', '00000000-0000-0000-0000-000000000001'),
+    ('00000000-0000-0000-0000-0000000000f5', '00000000-0000-0000-0000-000000000003');
+INSERT INTO messages (conversation_id, sender_id, body, client_id) VALUES
+    ('00000000-0000-0000-0000-0000000000f5', '00000000-0000-0000-0000-000000000003', 'may I?', gen_random_uuid());
 
 DELETE FROM users WHERE id = '00000000-0000-0000-0000-000000000003';
 
@@ -955,6 +1039,12 @@ SELECT pg_temp.expect_true('Deletion: profile and post embeddings removed (FR-2.
 SELECT pg_temp.expect_true('Deletion: notifications to and from the user removed', $q$
     SELECT NOT EXISTS (SELECT 1 FROM notifications
                        WHERE '00000000-0000-0000-0000-000000000003' IN (user_id, actor_id))$q$);
+SELECT pg_temp.expect_true('Deletion: direct conversations, their members and messages removed (FR-2.8)', $q$
+    SELECT NOT EXISTS (SELECT 1 FROM conversations WHERE id = '00000000-0000-0000-0000-0000000000f5')
+       AND NOT EXISTS (SELECT 1 FROM conversation_members WHERE conversation_id = '00000000-0000-0000-0000-0000000000f5')
+       AND NOT EXISTS (SELECT 1 FROM messages WHERE conversation_id = '00000000-0000-0000-0000-0000000000f5')$q$);
+SELECT pg_temp.expect_true('Deletion: the other member keeps their other conversations', $q$
+    SELECT EXISTS (SELECT 1 FROM conversations WHERE id = '00000000-0000-0000-0000-0000000000f1')$q$);
 SELECT pg_temp.expect_true('Deletion: a publication shared with a co-author stays for the co-author', $q$
     SELECT EXISTS (SELECT 1 FROM user_publications
                    WHERE publication_id = '00000000-0000-0000-0000-0000000000c1'

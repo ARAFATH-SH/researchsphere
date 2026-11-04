@@ -32,6 +32,10 @@ import (
 	mediapg "github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/postgres"
 	mediaredis "github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/redis"
 	mediausecase "github.com/ARAFATH-SH/researchsphere/backend/internal/media/usecase"
+	messaginghttp "github.com/ARAFATH-SH/researchsphere/backend/internal/messaging/adapter/http"
+	messagingpg "github.com/ARAFATH-SH/researchsphere/backend/internal/messaging/adapter/postgres"
+	messagingredis "github.com/ARAFATH-SH/researchsphere/backend/internal/messaging/adapter/redis"
+	messagingusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/messaging/usecase"
 	notificationhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/notification/adapter/http"
 	notificationpg "github.com/ARAFATH-SH/researchsphere/backend/internal/notification/adapter/postgres"
 	notificationusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/notification/usecase"
@@ -85,6 +89,8 @@ func newMediaEnvWithSources(t *testing.T, openAlexURL, orcidURL string) mediaEnv
 type envOptions struct {
 	// wrapNotifier, when set, wraps the connection notifier the social usecase calls.
 	wrapNotifier func(socialdomain.Notifier) socialdomain.Notifier
+	// messageLimits, when set, replaces the production send limits (FR-16.10).
+	messageLimits *messagingusecase.Limits
 }
 
 // newMediaEnvOnPool is newMediaEnvWithSources on a given pool to the test database, such
@@ -118,11 +124,21 @@ func newMediaEnvOnPool(t *testing.T, pool *pgxpool.Pool, openAlexURL, orcidURL s
 	connectLimiter := socialredis.New(rdb)
 	t.Cleanup(func() { _ = connectLimiter.Close() })
 	notifications := notificationusecase.New(notificationpg.NewStore(pool))
-	var notifier socialdomain.Notifier = connectionNotifier{notifications: notifications}
+	messageLimiter := messagingredis.New(rdb)
+	t.Cleanup(func() { _ = messageLimiter.Close() })
+	limits := messagingusecase.Limits{MessagesPerMinute: 30, MessagesPerDay: 1000, RequestsPerMinute: 5, RequestsPerDay: 20}
+	if opt.messageLimits != nil {
+		limits = *opt.messageLimits
+	}
+	connected := &connectionChecker{}
+	messaging := messagingusecase.New(messagingpg.NewStore(pool), postgres.NewTransactor(pool), connected, messageLimiter,
+		messagingusecase.NopPublisher{}, limits, logger)
+	var notifier socialdomain.Notifier = connectionNotifier{notifications: notifications, messaging: messaging}
 	if opt.wrapNotifier != nil {
 		notifier = opt.wrapNotifier(notifier)
 	}
 	social := socialusecase.New(socialpg.NewStore(pool), postgres.NewTransactor(pool), connectLimiter, notifier, logger)
+	connected.social = social
 	profileStore := profilepg.NewStore(pool)
 	profileOpts := []profileusecase.Option{profileusecase.WithPeopleSearch(profileusecase.PeopleSearch{
 		Searcher: profileStore, Limiter: lookups.SearchLimiter(), Logger: logger,
@@ -148,6 +164,7 @@ func newMediaEnvOnPool(t *testing.T, pool *pgxpool.Pool, openAlexURL, orcidURL s
 		mediahttp.NewHandler(images),
 		socialhttp.NewHandler(social),
 		notificationhttp.NewHandler(notifications),
+		messaginghttp.NewHandler(messaging),
 		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
 	return mediaEnv{router: router, pool: pool, files: files, rdb: rdb}
 }
