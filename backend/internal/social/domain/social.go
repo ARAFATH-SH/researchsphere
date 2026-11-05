@@ -205,6 +205,9 @@ type Notifier interface {
 	// Blocked is called when blockerID has blocked blockedID, so what the rest of the
 	// platform holds between the two can be taken back (FR-16.9).
 	Blocked(ctx context.Context, blockerID, blockedID string) error
+	// Unblocked is called, after the block has gone, when blockerID ended a block of
+	// blockedID. It runs in no transaction and returns nothing to roll back.
+	Unblocked(ctx context.Context, blockerID, blockedID string)
 }
 
 // Transactor runs fn in one database transaction that the Store and the Notifier both

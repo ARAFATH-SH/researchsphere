@@ -13,6 +13,9 @@ compatibility:
   # combinations of schemes, which this API does not use.
   enable-auth-scopes-on-context: true
 output-options:
+  # The real-time events are named by no operation (OpenAPI cannot describe what follows the
+  # upgrade), so without this their schemas would be dropped from the Go code.
+  skip-prune: true
   # Read JSON request bodies with decodeJSONBody (decode.go), which refuses unknown
   # fields, instead of a plain json.Decoder that ignores them.
   user-templates:

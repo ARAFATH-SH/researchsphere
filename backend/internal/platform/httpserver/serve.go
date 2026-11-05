@@ -14,8 +14,9 @@ import (
 const ShutdownTimeout = 10 * time.Second
 
 // Serve answers requests on ln until ctx is cancelled, then waits up to ShutdownTimeout
-// for requests in flight.
-func Serve(ctx context.Context, ln net.Listener, handler http.Handler, logger *slog.Logger) error {
+// for requests in flight. http.Server.Shutdown does not know about upgraded connections, so
+// onShutdown, when given, closes them first, within the same time.
+func Serve(ctx context.Context, ln net.Listener, handler http.Handler, logger *slog.Logger, onShutdown ...func(context.Context)) error {
 	srv := &http.Server{
 		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
@@ -40,6 +41,9 @@ func Serve(ctx context.Context, ln net.Listener, handler http.Handler, logger *s
 	logger.Info("shutting down")
 	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), ShutdownTimeout)
 	defer cancel()
+	for _, f := range onShutdown {
+		f(shutdownCtx)
+	}
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("shutdown: %w", err)
 	}

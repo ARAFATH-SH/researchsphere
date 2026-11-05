@@ -262,7 +262,7 @@ func (h *Handler) ListMessages(ctx context.Context, req gen.ListMessagesRequestO
 	}
 	items := make([]gen.Message, len(p.Items))
 	for i, m := range p.Items {
-		if items[i], err = messageBody(m); err != nil {
+		if items[i], err = MessageBody(m); err != nil {
 			return nil, err
 		}
 	}
@@ -354,14 +354,15 @@ func (h *Handler) GetMessageUnreadCount(ctx context.Context, _ gen.GetMessageUnr
 }
 
 func sentBody(s domain.Sent) (gen.SentMessage, error) {
-	m, err := messageBody(s.Message)
+	m, err := MessageBody(s.Message)
 	if err != nil {
 		return gen.SentMessage{}, err
 	}
 	return gen.SentMessage{Message: m, ConversationState: gen.ConversationState(s.State)}, nil
 }
 
-func messageBody(m domain.Message) (gen.Message, error) {
+// MessageBody is a message as the API shows it, also in a real-time event.
+func MessageBody(m domain.Message) (gen.Message, error) {
 	id, err := uuid(m.ID)
 	if err != nil {
 		return gen.Message{}, err

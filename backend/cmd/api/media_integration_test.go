@@ -58,6 +58,8 @@ import (
 	profilepg "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/postgres"
 	profileredis "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/redis"
 	profileusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/usecase"
+	realtimehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/realtime/adapter/http"
+	realtimeusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/realtime/usecase"
 	socialhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/social/adapter/http"
 	socialpg "github.com/ARAFATH-SH/researchsphere/backend/internal/social/adapter/postgres"
 	socialredis "github.com/ARAFATH-SH/researchsphere/backend/internal/social/adapter/redis"
@@ -73,6 +75,9 @@ type mediaEnv struct {
 	auth       *authusecase.Service
 	moderation *moderationusecase.Service
 	standings  *moderationusecase.Standings
+	hub        *realtimeusecase.Hub
+	events     *realtimeEvents
+	opt        envOptions
 }
 
 func newMediaEnv(t *testing.T) mediaEnv {
@@ -125,8 +130,6 @@ func newMediaEnvOnPool(t *testing.T, pool *pgxpool.Pool, openAlexURL, orcidURL s
 		}
 	}
 	rdb := testenv.Redis(t)
-	limiter := mediaredis.New(rdb)
-	t.Cleanup(func() { _ = limiter.Close() })
 	files, err := storage.NewS3(storage.Config{
 		Endpoint: os.Getenv("S3_ENDPOINT"), Region: os.Getenv("S3_REGION"), Bucket: os.Getenv("S3_BUCKET"),
 		AccessKey: os.Getenv("S3_ACCESS_KEY"), SecretKey: os.Getenv("S3_SECRET_KEY"), UseSSL: os.Getenv("S3_USE_SSL") == "true",
@@ -134,6 +137,15 @@ func newMediaEnvOnPool(t *testing.T, pool *pgxpool.Pool, openAlexURL, orcidURL s
 	if err != nil {
 		t.Fatal(err)
 	}
+	return wireEnv(t, pool, rdb, files, openAlexURL, orcidURL, opt)
+}
+
+// wireEnv builds one API instance on the given stores. A second call gives a second instance
+// of the same deployment, with sockets of its own.
+func wireEnv(t *testing.T, pool *pgxpool.Pool, rdb *goredis.Client, files *storage.S3, openAlexURL, orcidURL string, opt envOptions) mediaEnv {
+	t.Helper()
+	limiter := mediaredis.New(rdb)
+	t.Cleanup(func() { _ = limiter.Close() })
 	logger := slog.New(slog.DiscardHandler)
 	images := mediausecase.NewImages(mediapg.NewStore(pool), files, imaging.Codec{}, limiter, logger)
 	up := pingerFunc(func(context.Context) error { return nil })
@@ -141,7 +153,6 @@ func newMediaEnvOnPool(t *testing.T, pool *pgxpool.Pool, openAlexURL, orcidURL s
 	t.Cleanup(func() { _ = lookups.Close() })
 	connectLimiter := socialredis.New(rdb)
 	t.Cleanup(func() { _ = connectLimiter.Close() })
-	notifications := notificationusecase.New(notificationpg.NewStore(pool))
 	messageLimiter := messagingredis.New(rdb)
 	t.Cleanup(func() { _ = messageLimiter.Close() })
 	limits := messagingusecase.Limits{MessagesPerMinute: 30, MessagesPerDay: 1000, RequestsPerMinute: 5, RequestsPerDay: 20}
@@ -154,10 +165,29 @@ func newMediaEnvOnPool(t *testing.T, pool *pgxpool.Pool, openAlexURL, orcidURL s
 	}
 	moderationStore := moderationpg.NewStore(pool)
 	standings := moderationusecase.NewStandings(moderationStore, now)
+	realtimeConfig := realtimeusecase.DefaultConfig()
+	realtimeConfig.OfflineGrace = 50 * time.Millisecond
+	realtime := newRealtime(rdb, standings, realtimeConfig, logger)
+	hubCtx, stopHub := context.WithCancel(context.Background())
+	hubDone := make(chan struct{})
+	go func() {
+		defer close(hubDone)
+		realtime.hub.Run(hubCtx)
+	}()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		realtime.hub.Shutdown(ctx)
+		stopHub()
+		<-hubDone
+		realtime.close()
+	})
+	notifications := notificationusecase.New(notificationpg.NewStore(pool), notificationusecase.WithPublisher(realtime.events))
 	connected := &connectionChecker{}
 	messaging := messagingusecase.New(messagingpg.NewStore(pool), postgres.NewTransactor(pool), connected, connected, messagingActors{standings: standings}, messageLimiter,
-		messagingusecase.NopPublisher{}, limits, logger)
-	var notifier socialdomain.Notifier = connectionNotifier{notifications: notifications, messaging: messaging}
+		realtime.events, limits, logger)
+	realtime.bind(messaging, notifications)
+	var notifier socialdomain.Notifier = connectionNotifier{notifications: notifications, messaging: messaging, events: realtime.events}
 	if opt.wrapNotifier != nil {
 		notifier = opt.wrapNotifier(notifier)
 	}
@@ -186,12 +216,12 @@ func newMediaEnvOnPool(t *testing.T, pool *pgxpool.Pool, openAlexURL, orcidURL s
 	attempts := authredis.New(rdb)
 	t.Cleanup(func() { _ = attempts.Close() })
 	auth := authusecase.New(authpg.NewStore(pool), argon2.New(argon2.DefaultParams), noAuthMail{},
-		accesstoken.New([]byte(testSecret), accessTTL), attempts, authusecase.Config{AppBaseURL: "http://localhost:3000"}, now, logger)
+		accesstoken.New([]byte(testSecret), accessTTL), attempts, authusecase.Config{AppBaseURL: "http://localhost:3000", Sessions: realtime.events}, now, logger)
 	var mail textMailer = noText{}
 	if opt.mail != nil {
 		mail = opt.mail
 	}
-	moderation := moderationusecase.New(moderationStore, postgres.NewTransactor(pool), moderationAccounts{auth: auth},
+	moderation := moderationusecase.New(moderationStore, postgres.NewTransactor(pool), moderationAccounts{auth: auth, events: realtime.events},
 		moderationReports{messaging: messaging}, moderationNotifier{notifications: notifications},
 		moderationMailer{mailer: mail}, now, logger)
 	authAPI := authhttp.NewHandler(okAuth{}, authhttp.CookieConfig{})
@@ -205,8 +235,9 @@ func newMediaEnvOnPool(t *testing.T, pool *pgxpool.Pool, openAlexURL, orcidURL s
 		notificationhttp.NewHandler(notifications),
 		messaginghttp.NewHandler(messaging),
 		moderationhttp.NewHandler(moderation),
+		realtimehttp.NewHandler(realtime.hub, testOrigin, logger),
 		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
-	return mediaEnv{router: router, pool: pool, files: files, rdb: rdb, auth: auth, moderation: moderation, standings: standings}
+	return mediaEnv{router: router, pool: pool, files: files, rdb: rdb, auth: auth, moderation: moderation, standings: standings, hub: realtime.hub, events: realtime.events, opt: opt}
 }
 
 // noAuthMail and noText send nothing.

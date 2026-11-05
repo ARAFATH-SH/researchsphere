@@ -1125,3 +1125,41 @@ type failingActors struct{ err error }
 func (f failingActors) Standing(context.Context, string) (domain.Standing, error) {
 	return domain.Standing{}, f.err
 }
+
+func TestPublisherHearsOfChangesInOtherModules(t *testing.T) {
+	h := newHarness()
+	ctx := t.Context()
+	if err := h.svc.ConnectionMade(ctx, "ada", "bob"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.svc.DeclineRequests(ctx, "ada", "cy"); err != nil {
+		t.Fatal(err)
+	}
+	h.svc.Unblocked(ctx, "ada", "dee")
+	want := []string{"pair ada bob", "pair ada cy", "pair ada dee"}
+	if !slices.Equal(h.pub.events, want) {
+		t.Errorf("events = %v, want %v", h.pub.events, want)
+	}
+}
+
+// Typing follows canMessage (FR-16.4): a member, active, available, no block either way.
+func TestTypingPeer(t *testing.T) {
+	h := newHarness()
+	h.connect("ada", "bob")
+	ctx := t.Context()
+	id := h.direct(t, "ada", "bob", "hello").Message.ConversationID
+
+	if other, ok, err := h.svc.TypingPeer(ctx, "ada", id); err != nil || !ok || other != "bob" {
+		t.Errorf("member: %q %v %v", other, ok, err)
+	}
+	if _, ok, err := h.svc.TypingPeer(ctx, "eve", id); err != nil || ok {
+		t.Errorf("not a member: %v %v", ok, err)
+	}
+	if _, ok, err := h.svc.TypingPeer(ctx, "ada", "unknown"); err != nil || ok {
+		t.Errorf("unknown conversation: %v %v", ok, err)
+	}
+	h.store.hidden["bob"] = true
+	if _, ok, err := h.svc.TypingPeer(ctx, "ada", id); err != nil || ok {
+		t.Errorf("other member suspended: %v %v", ok, err)
+	}
+}

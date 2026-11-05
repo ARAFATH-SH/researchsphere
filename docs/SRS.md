@@ -105,7 +105,7 @@ The server enforces both tables (FR-3.2). An administrator has no extra rights i
 
 - **Client:** current versions of Chrome and Firefox on a desktop or laptop. The workspace needs a screen at least 1280 pixels wide.
 - **Server:** Linux with Docker. PostgreSQL 16 with the pgvector extension, and Redis.
-- **Network:** HTTPS for all pages and API calls, secure WebSocket for real-time editing.
+- **Network:** HTTPS for all pages and API calls, secure WebSocket for real-time editing and messaging.
 
 ### 2.5 Constraints
 
@@ -233,22 +233,6 @@ The 15 functional requirements of the proposal are grouped by module below. In e
 | FR-9.6 | let a user mark one notification or all notifications as read | Must |
 | FR-9.7 | create a notification for a post's author when another user likes it | Could |
 
-**FR-16 Messaging**
-
-| ID | The system shall | Priority |
-| --- | --- | --- |
-| FR-16.1 | let two connected users chat one to one in a conversation of their own, delivered in real time | Must |
-| FR-16.2 | let a user send one message request to a user who is not a connection, which the receiver can accept or decline; nobody can send more until it is accepted, and a declined conversation stays closed | Must |
-| FR-16.3 | show unread counts and seen receipts | Must |
-| FR-16.4 | show a typing indicator and online status | Should |
-| FR-16.5 | let a user edit or delete the user's own message, showing an "edited" label | Should |
-| FR-16.6 | let a user create a group conversation of up to 50 members, whose creator manages the members | Should |
-| FR-16.7 | allow attachments of up to 25 MB, with a file type check and a malware scan | Should |
-| FR-16.8 | let a user search the user's own conversations | Should |
-| FR-16.9 | let a user block another user and report a conversation or message | Must |
-| FR-16.10 | limit how many messages and message requests a user can send, showing a notice at the limit: by default 30 messages a minute and 1,000 a day, and 5 new requests a minute and 20 a day | Must |
-| FR-16.11 | send an email digest of unread messages, which the user can turn off | Could |
-
 ### 3.4 Projects and workspace
 
 **FR-10 Research projects**
@@ -325,6 +309,26 @@ The 15 functional requirements of the proposal are grouped by module below. In e
 | FR-15.8 | record every moderation action with the administrator, user, action, reason, internal note, report and time, in the transaction of the action; email the user the reason and never the note; and, when the action names a report, resolve it as action taken | Should |
 | FR-15.9 | show an administrator a user's moderation history, newest first, with linked reports | Should |
 | FR-15.10 | refuse every moderation action on an administrator, oneself included | Should |
+
+### 3.6 Messaging
+
+Messaging lets researchers reach each other directly. Connected users chat at once; anyone else first sends a message request.
+
+**FR-16 Messaging**
+
+| ID | The system shall | Priority |
+| --- | --- | --- |
+| FR-16.1 | let two connected users start a one-to-one conversation and exchange text messages that reach the other user within 1 second while both are online | Must |
+| FR-16.2 | let a user send a message request to someone they are not connected to; nothing more can be sent until the receiver accepts, and a declined request closes the conversation | Must |
+| FR-16.3 | show the unread count per conversation and in total, and show the sender when a message has been seen | Must |
+| FR-16.4 | show when the other person is typing and whether they are online | Should |
+| FR-16.5 | let a user edit or delete their own message; an edited message is labeled as edited | Should |
+| FR-16.6 | let a user create a group conversation of up to 50 members, name it, and let its creator add and remove members | Should |
+| FR-16.7 | let a user attach files (PDF, images and office documents) of up to 25 MB to a message; each file is checked by type and scanned for malware before others can download it | Should |
+| FR-16.8 | let a user search the text of their own conversations | Should |
+| FR-16.9 | let a user block another user, after which neither can message the other, and report a conversation or message to administrators | Must |
+| FR-16.10 | limit how many messages and message requests a user can send per minute and per day | Must |
+| FR-16.11 | email a digest of messages left unread for 24 hours; the user can turn the digest off | Could |
 
 ## 4. AI Requirements
 
@@ -438,6 +442,7 @@ Every page except the workspace shall be usable at a width of 768 pixels.
 - Every error response has the same shape: a short code and a readable message. A request that breaks the API contract also names the field or parameter at fault, without repeating the value sent.
 - Lists are paginated with a page size the server caps at 50.
 - Real-time editing uses a secure WebSocket connection to the sync server, opened with the user's access token.
+- Real-time messaging uses a secure WebSocket connection to the API server, opened with the user's access token.
 
 ## 6. Non-Functional Requirements
 

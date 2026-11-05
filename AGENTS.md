@@ -10,6 +10,8 @@ recommendations. One developer builds it in 30 slices over 12 weeks.
   refer to it. When code and the SRS disagree, stop and ask which one changes.
 - `docs/openapi.yaml` is the API contract (added in slice 4). Change it before a handler.
 - `docs/decisions.md` lists decisions already made. Do not reopen one without asking.
+- `docs/realtime.md` is the WebSocket contract: events, payloads, close codes and what a client
+  must do after a reconnect. OpenAPI covers only the upgrade.
 
 ## Layout
 
@@ -86,7 +88,7 @@ check, tests and a production build.
 ## Conventions
 
 - **Go:** one application (modular monolith). Modules live in `backend/internal/<module>`: health,
-  then auth, profile, media, social, project, event, notification, messaging and moderation. Return errors, do not panic.
+  then auth, profile, media, social, project, event, notification, messaging, moderation and realtime. Return errors, do not panic.
   Table-driven tests beside the code they test. Each module is split into layers (clean
   architecture); `backend/internal/health` is the example to copy:
 
@@ -114,7 +116,12 @@ check, tests and a production build.
   each store runs its queries on `postgres.Conn(ctx, pool)` (`internal/platform/postgres`),
   which is the context's transaction when there is one. Example: the `social` usecase
   stores a request and calls its `Notifier`, which `cmd/api/notifications.go` implements
-  with the `notification` usecase, in one transaction.
+  with the `notification` usecase, in one transaction. Real-time events are published after
+  the commit: a `cmd/api` publisher wraps its work in `postgres.AfterCommit`, which waits for
+  the transaction the context carries, drops the work on a rollback and runs at once outside a
+  transaction, so a usecase may call its `Publisher` even inside another module's transaction
+  (`cmd/api/realtime.go`). `internal/realtime/adapter/http` is the only code that imports the
+  WebSocket library.
 - **Frontend:** Next.js App Router, TypeScript in strict mode, Tailwind CSS, npm. The Node.js
   major version is pinned in `frontend/.nvmrc`. Layout of `frontend/src`:
 

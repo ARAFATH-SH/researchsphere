@@ -60,7 +60,7 @@ func (h *Handler) ListNotifications(ctx context.Context, req gen.ListNotificatio
 	}
 	items := make([]gen.Notification, len(p.Items))
 	for i, it := range p.Items {
-		n, err := notificationBody(it)
+		n, err := NotificationBody(it)
 		if err != nil {
 			return nil, err
 		}
@@ -111,7 +111,8 @@ func (h *Handler) MarkAllNotificationsRead(ctx context.Context, _ gen.MarkAllNot
 	return gen.MarkAllNotificationsRead200JSONResponse{Marked: n}, nil
 }
 
-func notificationBody(it domain.Item) (gen.Notification, error) {
+// NotificationBody is a notification as the API shows it, also in a real-time event.
+func NotificationBody(it domain.Item) (gen.Notification, error) {
 	nid, err := uuid(it.ID)
 	if err != nil {
 		return gen.Notification{}, err

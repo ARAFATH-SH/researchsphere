@@ -87,6 +87,7 @@ func (s *Service) ChangePassword(ctx context.Context, in ChangePasswordInput) er
 		return err
 	}
 	s.logger.InfoContext(ctx, "password changed", slog.String("user_id", creds.ID), slog.Bool("kept_current_session", kept != ""))
+	s.sessionsEnded(ctx, creds.ID)
 	lock.reset(ctx)
 	return nil
 }

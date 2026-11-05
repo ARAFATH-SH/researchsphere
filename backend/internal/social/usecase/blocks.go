@@ -44,7 +44,11 @@ func (s *Service) Block(ctx context.Context, blockerID, blockedID string) error 
 // Unblock ends blockerID's block of blockedID, if there is one (FR-16.9). Nothing the block
 // removed comes back.
 func (s *Service) Unblock(ctx context.Context, blockerID, blockedID string) error {
-	return s.store.RemoveBlock(ctx, blockerID, blockedID)
+	if err := s.store.RemoveBlock(ctx, blockerID, blockedID); err != nil {
+		return err
+	}
+	s.notifier.Unblocked(ctx, blockerID, blockedID)
+	return nil
 }
 
 // ListBlocks returns one page of the people userID has blocked (FR-16.9).

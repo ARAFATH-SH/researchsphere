@@ -131,6 +131,7 @@ func (s *Service) ResetPassword(ctx context.Context, token, newPassword string) 
 		return err
 	}
 	s.logger.InfoContext(ctx, "password reset", slog.String("user_id", userID))
+	s.sessionsEnded(ctx, userID)
 	s.clearFailedLogins(ctx, userID)
 	return nil
 }

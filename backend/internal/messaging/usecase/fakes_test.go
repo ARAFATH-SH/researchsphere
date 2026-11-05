@@ -325,8 +325,8 @@ func (f *fakeLimiter) Record(_ context.Context, name, userID string, _ time.Dura
 // fakePublisher records what it hears, one string per event.
 type fakePublisher struct{ events []string }
 
-func (f *fakePublisher) MessageSent(_ context.Context, m domain.Message, to []string) {
-	f.events = append(f.events, fmt.Sprintf("sent %s to %v", m.ID, to))
+func (f *fakePublisher) MessageSent(_ context.Context, s domain.Sent, to []string) {
+	f.events = append(f.events, fmt.Sprintf("sent %s to %v", s.Message.ID, to))
 }
 
 func (f *fakePublisher) ReadMoved(_ context.Context, _, readerID, messageID string, to []string) {
@@ -339,6 +339,25 @@ func (f *fakePublisher) RequestAccepted(_ context.Context, id string, to []strin
 
 func (f *fakePublisher) RequestDeclined(_ context.Context, id string, to []string) {
 	f.events = append(f.events, fmt.Sprintf("declined %s to %v", id, to))
+}
+
+func (f *fakePublisher) PairChanged(_ context.Context, a, b string) {
+	f.events = append(f.events, fmt.Sprintf("pair %s %s", a, b))
+}
+
+func (f *fakeStore) ActivePeers(context.Context, string) ([]string, error) { return nil, nil }
+
+func (f *fakeStore) VisiblePeers(context.Context, string, []string) ([]string, error) {
+	return nil, nil
+}
+
+func (f *fakeStore) Partners(context.Context, string) ([]domain.Partner, error) { return nil, nil }
+
+func (f *fakeStore) DirectID(_ context.Context, a, b string) (string, bool, error) {
+	if c := f.pair(a, b); c != nil {
+		return c.id, true, nil
+	}
+	return "", false, nil
 }
 
 func (f *fakeStore) DeclineRequests(_ context.Context, a, b string) error {

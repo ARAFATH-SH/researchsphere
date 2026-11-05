@@ -119,7 +119,7 @@ func (h *Handler) GetMessageReport(ctx context.Context, req gen.GetMessageReport
 	}
 	messages := make([]gen.Message, len(d.Messages))
 	for i, m := range d.Messages {
-		if messages[i], err = messageBody(m); err != nil {
+		if messages[i], err = MessageBody(m); err != nil {
 			return nil, err
 		}
 	}

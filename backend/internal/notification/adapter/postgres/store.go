@@ -6,9 +6,11 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -36,7 +38,7 @@ func (s *Store) q(ctx context.Context) *sqlcgen.Queries {
 
 // Put needs UUIDs for the recipient, subject and any actor: they come from another module's
 // stored rows, so anything else is a programming error. An empty actor is NULL.
-func (s *Store) Put(ctx context.Context, n domain.Notification) error {
+func (s *Store) Put(ctx context.Context, n domain.Notification) (string, error) {
 	user, ok1 := parseUUID(n.RecipientID)
 	actor, ok2 := pgtype.UUID{}, true
 	if n.ActorID != "" {
@@ -44,28 +46,51 @@ func (s *Store) Put(ctx context.Context, n domain.Notification) error {
 	}
 	subject, ok3 := parseUUID(n.SubjectID)
 	if !ok1 || !ok2 || !ok3 {
-		return fmt.Errorf("store notification: recipient %q, actor %q or subject %q is not a UUID", n.RecipientID, n.ActorID, n.SubjectID)
+		return "", fmt.Errorf("store notification: recipient %q, actor %q or subject %q is not a UUID", n.RecipientID, n.ActorID, n.SubjectID)
 	}
-	if err := s.q(ctx).PutNotification(ctx, sqlcgen.PutNotificationParams{
+	id, err := s.q(ctx).PutNotification(ctx, sqlcgen.PutNotificationParams{
 		UserID: user, ActorID: actor, Type: sqlcgen.NotificationType(n.Type), EntityID: subject,
-	}); err != nil {
-		return fmt.Errorf("store notification: %w", err)
+	})
+	if err != nil {
+		return "", fmt.Errorf("store notification: %w", err)
 	}
-	return nil
+	return id.String(), nil
 }
 
 // DeleteBySubject deletes nothing for a subject that is not a UUID.
-func (s *Store) DeleteBySubject(ctx context.Context, t domain.Type, subjectID string) error {
+func (s *Store) DeleteBySubject(ctx context.Context, t domain.Type, subjectID string) ([]string, error) {
 	subject, ok := parseUUID(subjectID)
 	if !ok {
-		return nil
+		return nil, nil
 	}
-	if err := s.q(ctx).DeleteNotificationsBySubject(ctx, sqlcgen.DeleteNotificationsBySubjectParams{
+	rows, err := s.q(ctx).DeleteNotificationsBySubject(ctx, sqlcgen.DeleteNotificationsBySubjectParams{
 		Type: sqlcgen.NotificationType(t), EntityID: subject,
-	}); err != nil {
-		return fmt.Errorf("delete notifications: %w", err)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("delete notifications: %w", err)
 	}
-	return nil
+	recipients := make([]string, len(rows))
+	for i, r := range rows {
+		recipients[i] = r.String()
+	}
+	return recipients, nil
+}
+
+// Find answers ErrNotFound for an ID that is not a UUID.
+func (s *Store) Find(ctx context.Context, recipientID, id string) (domain.Item, error) {
+	user, ok1 := parseUUID(recipientID)
+	nid, ok2 := parseUUID(id)
+	if !ok1 || !ok2 {
+		return domain.Item{}, domain.ErrNotFound
+	}
+	r, err := s.q(ctx).FindNotification(ctx, sqlcgen.FindNotificationParams{ID: nid, UserID: user})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Item{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.Item{}, fmt.Errorf("find notification: %w", err)
+	}
+	return item(recipientID, sqlcgen.ListNotificationsRow(r)), nil
 }
 
 // List finds nothing for a recipient that is not a UUID. The cursor's ID was checked
@@ -91,21 +116,26 @@ func (s *Store) List(ctx context.Context, recipientID string, after *domain.Curs
 	}
 	items := make([]domain.Item, len(rows))
 	for i, r := range rows {
-		pending := r.RequestPending
-		items[i] = domain.Item{
-			Notification: domain.Notification{
-				ID: r.ID.String(), RecipientID: recipientID,
-				Type: domain.Type(r.Type), SubjectID: r.EntityID.String(),
-				CreatedAt: r.CreatedAt.Time, ReadAt: timePtr(r.ReadAt),
-			},
-			RequestPending: &pending,
-		}
-		if r.ActorID.Valid {
-			items[i].ActorID = r.ActorID.String()
-			items[i].Actor = &domain.Actor{UserID: items[i].ActorID, FullName: r.FullName, PhotoFileID: uuidPtr(r.PhotoFileID)}
-		}
+		items[i] = item(recipientID, r)
 	}
 	return items, nil
+}
+
+func item(recipientID string, r sqlcgen.ListNotificationsRow) domain.Item {
+	pending := r.RequestPending
+	it := domain.Item{
+		Notification: domain.Notification{
+			ID: r.ID.String(), RecipientID: recipientID,
+			Type: domain.Type(r.Type), SubjectID: r.EntityID.String(),
+			CreatedAt: r.CreatedAt.Time, ReadAt: timePtr(r.ReadAt),
+		},
+		RequestPending: &pending,
+	}
+	if r.ActorID.Valid {
+		it.ActorID = r.ActorID.String()
+		it.Actor = &domain.Actor{UserID: it.ActorID, FullName: r.FullName, PhotoFileID: uuidPtr(r.PhotoFileID)}
+	}
+	return it
 }
 
 // CountUnread is 0 for a recipient that is not a UUID.

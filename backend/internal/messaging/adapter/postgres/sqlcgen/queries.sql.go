@@ -28,6 +28,40 @@ func (q *Queries) ActivateRequest(ctx context.Context, arg ActivateRequestParams
 	return err
 }
 
+const activePeers = `-- name: ActivePeers :many
+SELECT o.user_id
+FROM conversation_members me
+JOIN conversations c ON c.id = me.conversation_id AND c.state = 'active'
+JOIN conversation_members o ON o.conversation_id = c.id AND o.user_id <> me.user_id
+WHERE me.user_id = $1
+  AND NOT EXISTS (
+      SELECT 1 FROM blocks b
+      WHERE (b.blocker_id = me.user_id AND b.blocked_id = o.user_id)
+         OR (b.blocker_id = o.user_id AND b.blocked_id = me.user_id))
+`
+
+// Who may see the user's presence (FR-16.4): the other member of each active conversation,
+// with no block either way.
+func (q *Queries) ActivePeers(ctx context.Context, userID pgtype.UUID) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, activePeers, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var user_id pgtype.UUID
+		if err := rows.Scan(&user_id); err != nil {
+			return nil, err
+		}
+		items = append(items, user_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const addMember = `-- name: AddMember :exec
 INSERT INTO conversation_members (conversation_id, user_id) VALUES ($1, $2)
 `
@@ -182,6 +216,23 @@ func (q *Queries) DirectExists(ctx context.Context, arg DirectExistsParams) (boo
 	var present bool
 	err := row.Scan(&present)
 	return present, err
+}
+
+const directID = `-- name: DirectID :one
+SELECT id FROM conversations
+WHERE user_low = LEAST($1::uuid, $2::uuid) AND user_high = GREATEST($1::uuid, $2::uuid)
+`
+
+type DirectIDParams struct {
+	A pgtype.UUID
+	B pgtype.UUID
+}
+
+func (q *Queries) DirectID(ctx context.Context, arg DirectIDParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, directID, arg.A, arg.B)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
 }
 
 const findConversation = `-- name: FindConversation :one
@@ -667,6 +718,39 @@ func (q *Queries) ListMessages(ctx context.Context, arg ListMessagesParams) ([]L
 	return items, nil
 }
 
+const listPartners = `-- name: ListPartners :many
+SELECT o.conversation_id, o.user_id
+FROM conversation_members me
+JOIN conversation_members o ON o.conversation_id = me.conversation_id AND o.user_id <> me.user_id
+WHERE me.user_id = $1
+`
+
+type ListPartnersRow struct {
+	ConversationID pgtype.UUID
+	UserID         pgtype.UUID
+}
+
+// Every conversation of the user, in any state, with its other member.
+func (q *Queries) ListPartners(ctx context.Context, userID pgtype.UUID) ([]ListPartnersRow, error) {
+	rows, err := q.db.Query(ctx, listPartners, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPartnersRow
+	for rows.Next() {
+		var i ListPartnersRow
+		if err := rows.Scan(&i.ConversationID, &i.UserID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listReportedMessages = `-- name: ListReportedMessages :many
 SELECT m.id, m.conversation_id, m.sender_id, m.body, m.client_id, m.created_at
 FROM message_reports r
@@ -956,4 +1040,42 @@ func (q *Queries) UserVisible(ctx context.Context, id pgtype.UUID) (bool, error)
 	var visible bool
 	err := row.Scan(&visible)
 	return visible, err
+}
+
+const visiblePeers = `-- name: VisiblePeers :many
+SELECT o.user_id
+FROM conversation_members me
+JOIN conversations c ON c.id = me.conversation_id AND c.state = 'active'
+JOIN conversation_members o ON o.conversation_id = c.id AND o.user_id <> me.user_id
+WHERE me.user_id = $1 AND o.user_id = ANY($2::uuid[])
+  AND NOT EXISTS (
+      SELECT 1 FROM blocks b
+      WHERE (b.blocker_id = me.user_id AND b.blocked_id = o.user_id)
+         OR (b.blocker_id = o.user_id AND b.blocked_id = me.user_id))
+`
+
+type VisiblePeersParams struct {
+	UserID pgtype.UUID
+	Ids    []pgtype.UUID
+}
+
+// ActivePeers narrowed to the IDs asked about.
+func (q *Queries) VisiblePeers(ctx context.Context, arg VisiblePeersParams) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, visiblePeers, arg.UserID, arg.Ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var user_id pgtype.UUID
+		if err := rows.Scan(&user_id); err != nil {
+			return nil, err
+		}
+		items = append(items, user_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

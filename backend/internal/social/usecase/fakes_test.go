@@ -393,6 +393,8 @@ func (n *fakeNotifier) Blocked(_ context.Context, blockerID, blockedID string) e
 	return n.err
 }
 
+func (n *fakeNotifier) Unblocked(context.Context, string, string) {}
+
 func (n *fakeNotifier) RequestWithdrawn(_ context.Context, requestID string) error {
 	n.heard()
 	n.withdrawn = append(n.withdrawn, requestID)

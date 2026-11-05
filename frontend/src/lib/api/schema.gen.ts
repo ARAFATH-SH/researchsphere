@@ -1982,6 +1982,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ws": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Open the real-time connection (FR-16.1, FR-16.3, FR-16.4, FR-9.4)
+         * @description Upgrades to WebSocket. OpenAPI cannot describe what follows the upgrade, so
+         *     `docs/realtime.md` is the full contract: the events and their payloads, close codes,
+         *     limits and what a client must do after a reconnect. The payloads are the `Realtime*`
+         *     schemas below.
+         *
+         *     Needs the access cookie and the platform action "View profiles, search, feed, events
+         *     and recommendations" (SRS 2.3). The `Origin` header must be the origin of the web
+         *     client (`APP_BASE_URL`); a request without one is refused. When the upgrade answers
+         *     101 the user's event channel is already live, so a client that refetches after it
+         *     misses nothing. The socket only pushes events and carries typing: sending messages,
+         *     read markers, accept, decline, block and report stay REST.
+         */
+        get: operations["openWebSocket"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/presence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read who is online (FR-16.4)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed, events
+         *     and recommendations" (SRS 2.3). A person's status is shown only to someone who shares
+         *     an active conversation with them, with no block either way. Everyone else reads
+         *     `online: false`, the same answer as for someone who is offline, so the reply says
+         *     nothing about who may be seen. Every ID asked for is answered, once.
+         */
+        get: operations["getPresence"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2720,6 +2774,76 @@ export interface components {
         NotificationsMarked: {
             /** @description How many unread notifications were marked as read. */
             marked: number;
+        };
+        PresenceStatus: {
+            /** Format: uuid */
+            userId: string;
+            /** @description True when the user has at least one open socket and the caller may see it. */
+            online: boolean;
+        };
+        PresenceList: {
+            items: components["schemas"]["PresenceStatus"][];
+        };
+        /**
+         * @description The `type` of a server event. `docs/realtime.md` gives each one's `data`.
+         * @enum {string}
+         */
+        RealtimeEventType: "message.created" | "conversation.read" | "conversation.updated" | "unread.changed" | "typing" | "presence" | "notification.created" | "notifications.unread";
+        /**
+         * @description One server-to-client WebSocket frame, as JSON text. `data` is `RealtimeMessageCreated`,
+         *     `RealtimeConversationRead`, `RealtimeConversationUpdated`, `MessageUnreadCount`,
+         *     `RealtimeTyping`, `PresenceStatus`, `Notification` or `UnreadNotificationCount`,
+         *     by `type`.
+         */
+        RealtimeEvent: {
+            type: components["schemas"]["RealtimeEventType"];
+            data: Record<string, never>;
+        };
+        RealtimeMessageCreated: {
+            message: components["schemas"]["Message"];
+            conversationState: components["schemas"]["ConversationState"];
+            /**
+             * Format: uuid
+             * @description The sender's `clientId`, only in the copy sent to the sender's own sockets, so the
+             *     sending tab can match it. The other member never gets it.
+             */
+            clientId?: string;
+        };
+        /** @description The other member moved their read marker (FR-16.3). */
+        RealtimeConversationRead: {
+            /** Format: uuid */
+            conversationId: string;
+            /** Format: uuid */
+            messageId: string;
+        };
+        /**
+         * @description The conversation's state or `canMessage` changed for the recipient, who gets their own
+         *     view of it. It never says why, so a blocked person is not told about a block.
+         */
+        RealtimeConversationUpdated: {
+            /** Format: uuid */
+            conversationId: string;
+            state: components["schemas"]["ConversationState"];
+            canMessage: boolean;
+        };
+        RealtimeTyping: {
+            /** Format: uuid */
+            conversationId: string;
+            /** Format: uuid */
+            userId: string;
+            isTyping: boolean;
+        };
+        /**
+         * @description One client-to-server WebSocket frame, as JSON text, at most 4 KB. Anything else is
+         *     ignored.
+         */
+        RealtimeClientEvent: {
+            /** @enum {string} */
+            type: "typing.start" | "typing.stop";
+            data: {
+                /** Format: uuid */
+                conversationId: string;
+            };
         };
         /**
          * @description The profile fields a user edits (FR-4.1). Every value is trimmed first. Lengths
@@ -7093,6 +7217,98 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             429: components["responses"]["SearchRateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    openWebSocket: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The connection is now a WebSocket. */
+            101: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            /**
+             * @description `forbidden`: the user's role does not permit the action (FR-3.2).
+             *     `origin_not_allowed`: the `Origin` header is missing or is not the web client's.
+             *     `account_suspended`: the caller's account was suspended after this session began,
+             *     with `reason` and `until`.
+             */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The request is not a WebSocket upgrade (`upgrade_required`). */
+            426: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description Real-time delivery is down (`realtime_unavailable`). REST keeps working. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getPresence: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Comma-separated user IDs, 1 to 50. It is required: it is declared as an optional
+                 *     string only so that the login check runs before it is read (FR-3.1). A missing,
+                 *     empty or longer list, or a value that is not a UUID, gets 400 `bad_request` with
+                 *     `field`.
+                 */
+                userIds?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The status of each ID. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PresenceList"];
+                };
+            };
+            /** @description `userIds` is not valid (`bad_request`, with `field`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             500: components["responses"]["InternalError"];
         };
     };

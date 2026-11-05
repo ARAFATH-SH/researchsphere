@@ -19,6 +19,7 @@ import (
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpserver"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpx"
 	profilehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/http"
+	realtimehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/realtime/adapter/http"
 	socialhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/social/adapter/http"
 )
 
@@ -33,6 +34,7 @@ type (
 	notificationHandler = notificationhttp.Handler
 	messagingHandler    = messaginghttp.Handler
 	moderationHandler   = moderationhttp.Handler
+	realtimeHandler     = realtimehttp.Handler
 )
 
 // handlers implements every operation in the contract by embedding each module's HTTP
@@ -46,6 +48,7 @@ type handlers struct {
 	*notificationHandler
 	*messagingHandler
 	*moderationHandler
+	*realtimeHandler
 }
 
 var _ gen.StrictServerInterface = handlers{}
@@ -178,6 +181,12 @@ var platformGuards = map[string]authz.Action{
 	"POST /api/v1/blocks":            authz.ActAsMember,
 	"DELETE /api/v1/blocks/{userId}": authz.ActAsMember,
 	"GET /api/v1/blocks":             authz.ViewContent,
+
+	// Real-time (FR-16.1, FR-16.4): the socket only pushes the user's own events, and typing
+	// and presence follow the rules of the usecase, so both are the row "View ...". Writing
+	// stays on the REST routes above.
+	"GET /api/v1/ws":       authz.ViewContent,
+	"GET /api/v1/presence": authz.ViewContent,
 }
 
 // multipartOverhead is what a multipart body may hold besides the file: boundaries, part
@@ -228,7 +237,7 @@ func guardPlatform(next http.Handler) http.Handler {
 // Tests pass fakes; run passes the real PostgreSQL, Redis and SMTP adapters. requireAuth
 // guards the operations the contract secures (httpx.RequireAuth); guardPlatform runs
 // inside it, and limitBody inside that.
-func newRouter(logger *slog.Logger, db, redis, storage healthdomain.Pinger, auth *authhttp.Handler, profile *profilehttp.Handler, media *mediahttp.Handler, social *socialhttp.Handler, notifications *notificationhttp.Handler, messaging *messaginghttp.Handler, moderation *moderationhttp.Handler, requireAuth func(http.Handler) http.Handler) http.Handler {
+func newRouter(logger *slog.Logger, db, redis, storage healthdomain.Pinger, auth *authhttp.Handler, profile *profilehttp.Handler, media *mediahttp.Handler, social *socialhttp.Handler, notifications *notificationhttp.Handler, messaging *messaginghttp.Handler, moderation *moderationhttp.Handler, realtime *realtimehttp.Handler, requireAuth func(http.Handler) http.Handler) http.Handler {
 	checker := healthusecase.New(healthusecase.DefaultTimeout,
 		healthdomain.Dependency{Name: "database", Pinger: db},
 		healthdomain.Dependency{Name: "redis", Pinger: redis},
@@ -243,5 +252,6 @@ func newRouter(logger *slog.Logger, db, redis, storage healthdomain.Pinger, auth
 		notificationHandler: notifications,
 		messagingHandler:    messaging,
 		moderationHandler:   moderation,
+		realtimeHandler:     realtime,
 	}, func(next http.Handler) http.Handler { return requireAuth(guardPlatform(limitBody(next))) })
 }

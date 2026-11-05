@@ -28,6 +28,14 @@ const testUserID = "7f3a1c2e-9999-4e8b-b7c1-2d3e4f5a6b7c"
 // exercise the router and middleware without any module.
 type fakeAPI struct{}
 
+func (fakeAPI) OpenWebSocket(context.Context, gen.OpenWebSocketRequestObject) (gen.OpenWebSocketResponseObject, error) {
+	return gen.OpenWebSocket101Response{}, nil
+}
+
+func (fakeAPI) GetPresence(context.Context, gen.GetPresenceRequestObject) (gen.GetPresenceResponseObject, error) {
+	return gen.GetPresence200JSONResponse{Items: []gen.PresenceStatus{}}, nil
+}
+
 func (fakeAPI) GetHealth(context.Context, gen.GetHealthRequestObject) (gen.GetHealthResponseObject, error) {
 	return gen.GetHealth200JSONResponse{Status: gen.HealthStatusOk, Database: gen.HealthDatabaseOk, Redis: gen.HealthRedisOk}, nil
 }
@@ -760,8 +768,8 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 
 func TestRoutes(t *testing.T) {
 	got := Routes()
-	if len(got) != 89 {
-		t.Errorf("Routes() returned %d routes, want the 89 operations in the contract: %v", len(got), got)
+	if len(got) != 91 {
+		t.Errorf("Routes() returned %d routes, want the 91 operations in the contract: %v", len(got), got)
 	}
 	seen := map[string]bool{}
 	for _, p := range got {

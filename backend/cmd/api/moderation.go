@@ -18,7 +18,8 @@ import (
 // moderationAccounts gives the moderation module the auth module's accounts. Neither imports
 // the other; this is the only place that joins them.
 type moderationAccounts struct {
-	auth *authusecase.Service
+	auth   *authusecase.Service
+	events *realtimeEvents
 }
 
 var _ moderationdomain.Accounts = moderationAccounts{}
@@ -47,11 +48,19 @@ func moderationAccount(u authdomain.User, err error) (moderationdomain.Account, 
 }
 
 func (a moderationAccounts) Suspend(ctx context.Context, userID string, at time.Time, until *time.Time, reason string) error {
-	return a.auth.Suspend(ctx, userID, at, until, reason)
+	if err := a.auth.Suspend(ctx, userID, at, until, reason); err != nil {
+		return err
+	}
+	a.events.accountSuspended(ctx, userID)
+	return nil
 }
 
 func (a moderationAccounts) Restore(ctx context.Context, userID string) error {
-	return a.auth.Restore(ctx, userID)
+	if err := a.auth.Restore(ctx, userID); err != nil {
+		return err
+	}
+	a.events.accountRestored(ctx, userID)
+	return nil
 }
 
 // moderationReports resolves the messaging module's reports for an action, in its transaction.

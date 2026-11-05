@@ -132,3 +132,10 @@ type Mailer interface {
 	SendVerification(ctx context.Context, msg VerificationEmail) error
 	SendPasswordReset(ctx context.Context, msg PasswordResetEmail) error
 }
+
+// SessionListener hears when a user's sessions end, after the commit. It cannot fail the change.
+// Access tokens name no session, so it hears only the user: every socket of that user closes,
+// and those of the sessions that remain refresh and reconnect (docs/decisions.md).
+type SessionListener interface {
+	SessionsEnded(ctx context.Context, userID string)
+}

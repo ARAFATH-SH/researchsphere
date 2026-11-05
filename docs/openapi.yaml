@@ -3370,6 +3370,95 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /ws:
+    get:
+      operationId: openWebSocket
+      summary: Open the real-time connection (FR-16.1, FR-16.3, FR-16.4, FR-9.4)
+      description: |
+        Upgrades to WebSocket. OpenAPI cannot describe what follows the upgrade, so
+        `docs/realtime.md` is the full contract: the events and their payloads, close codes,
+        limits and what a client must do after a reconnect. The payloads are the `Realtime*`
+        schemas below.
+
+        Needs the access cookie and the platform action "View profiles, search, feed, events
+        and recommendations" (SRS 2.3). The `Origin` header must be the origin of the web
+        client (`APP_BASE_URL`); a request without one is refused. When the upgrade answers
+        101 the user's event channel is already live, so a client that refetches after it
+        misses nothing. The socket only pushes events and carries typing: sending messages,
+        read markers, accept, decline, block and report stay REST.
+      tags: [realtime]
+      responses:
+        "101":
+          description: The connection is now a WebSocket.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: |
+            `forbidden`: the user's role does not permit the action (FR-3.2).
+            `origin_not_allowed`: the `Origin` header is missing or is not the web client's.
+            `account_suspended`: the caller's account was suspended after this session began,
+            with `reason` and `until`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "426":
+          description: The request is not a WebSocket upgrade (`upgrade_required`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          description: Real-time delivery is down (`realtime_unavailable`). REST keeps working.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /presence:
+    get:
+      operationId: getPresence
+      summary: Read who is online (FR-16.4)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed, events
+        and recommendations" (SRS 2.3). A person's status is shown only to someone who shares
+        an active conversation with them, with no block either way. Everyone else reads
+        `online: false`, the same answer as for someone who is offline, so the reply says
+        nothing about who may be seen. Every ID asked for is answered, once.
+      tags: [realtime]
+      parameters:
+        - name: userIds
+          in: query
+          required: false
+          description: |
+            Comma-separated user IDs, 1 to 50. It is required: it is declared as an optional
+            string only so that the login check runs before it is read (FR-3.1). A missing,
+            empty or longer list, or a value that is not a UUID, gets 400 `bad_request` with
+            `field`.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The status of each ID.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PresenceList"
+        "400":
+          description: "`userIds` is not valid (`bad_request`, with `field`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
   securitySchemes:
     cookieAuth:
@@ -4788,6 +4877,126 @@ components:
         marked:
           type: integer
           description: How many unread notifications were marked as read.
+
+    PresenceStatus:
+      type: object
+      required: [userId, online]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        online:
+          type: boolean
+          description: True when the user has at least one open socket and the caller may see it.
+
+    PresenceList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PresenceStatus"
+
+    RealtimeEventType:
+      type: string
+      description: The `type` of a server event. `docs/realtime.md` gives each one's `data`.
+      enum:
+        - message.created
+        - conversation.read
+        - conversation.updated
+        - unread.changed
+        - typing
+        - presence
+        - notification.created
+        - notifications.unread
+
+    RealtimeEvent:
+      type: object
+      description: |
+        One server-to-client WebSocket frame, as JSON text. `data` is `RealtimeMessageCreated`,
+        `RealtimeConversationRead`, `RealtimeConversationUpdated`, `MessageUnreadCount`,
+        `RealtimeTyping`, `PresenceStatus`, `Notification` or `UnreadNotificationCount`,
+        by `type`.
+      required: [type, data]
+      properties:
+        type:
+          $ref: "#/components/schemas/RealtimeEventType"
+        data:
+          type: object
+
+    RealtimeMessageCreated:
+      type: object
+      required: [message, conversationState]
+      properties:
+        message:
+          $ref: "#/components/schemas/Message"
+        conversationState:
+          $ref: "#/components/schemas/ConversationState"
+        clientId:
+          type: string
+          format: uuid
+          description: |
+            The sender's `clientId`, only in the copy sent to the sender's own sockets, so the
+            sending tab can match it. The other member never gets it.
+
+    RealtimeConversationRead:
+      type: object
+      description: The other member moved their read marker (FR-16.3).
+      required: [conversationId, messageId]
+      properties:
+        conversationId:
+          type: string
+          format: uuid
+        messageId:
+          type: string
+          format: uuid
+
+    RealtimeConversationUpdated:
+      type: object
+      description: |
+        The conversation's state or `canMessage` changed for the recipient, who gets their own
+        view of it. It never says why, so a blocked person is not told about a block.
+      required: [conversationId, state, canMessage]
+      properties:
+        conversationId:
+          type: string
+          format: uuid
+        state:
+          $ref: "#/components/schemas/ConversationState"
+        canMessage:
+          type: boolean
+
+    RealtimeTyping:
+      type: object
+      required: [conversationId, userId, isTyping]
+      properties:
+        conversationId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        isTyping:
+          type: boolean
+
+    RealtimeClientEvent:
+      type: object
+      description: |
+        One client-to-server WebSocket frame, as JSON text, at most 4 KB. Anything else is
+        ignored.
+      required: [type, data]
+      properties:
+        type:
+          type: string
+          enum: [typing.start, typing.stop]
+        data:
+          type: object
+          required: [conversationId]
+          properties:
+            conversationId:
+              type: string
+              format: uuid
 
     ProfileUpdate:
       type: object

@@ -22,6 +22,8 @@ type Config struct {
 	// AppBaseURL is where the web client runs, such as https://researchsphere.example.
 	// Verification links point to its /verify-email page, reset links to /reset-password.
 	AppBaseURL string
+	// Sessions, when set, hears when sessions end, so open sockets can close.
+	Sessions domain.SessionListener
 }
 
 // Service registers users, verifies their email addresses and logs them in.

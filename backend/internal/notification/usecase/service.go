@@ -21,18 +21,48 @@ const (
 
 // Service creates and reads notifications.
 type Service struct {
-	store domain.Store
+	store     domain.Store
+	publisher domain.Publisher
+}
+
+type nopPublisher struct{}
+
+func (nopPublisher) Created(context.Context, string, string) {}
+
+func (nopPublisher) UnreadChanged(context.Context, string) {}
+
+// Option changes a Service.
+type Option func(*Service)
+
+// WithPublisher tells p about changes. Without it nobody is told.
+func WithPublisher(p domain.Publisher) Option {
+	return func(s *Service) { s.publisher = p }
 }
 
 // New returns a Service.
-func New(store domain.Store) *Service {
-	return &Service{store: store}
+func New(store domain.Store, opts ...Option) *Service {
+	s := &Service{store: store, publisher: nopPublisher{}}
+	for _, o := range opts {
+		o(s)
+	}
+	return s
+}
+
+// put stores n and reports it.
+func (s *Service) put(ctx context.Context, n domain.Notification) error {
+	id, err := s.store.Put(ctx, n)
+	if err != nil {
+		return err
+	}
+	s.publisher.Created(ctx, id, n.RecipientID)
+	s.publisher.UnreadChanged(ctx, n.RecipientID)
+	return nil
 }
 
 // ConnectionRequestSent tells receiverID that requesterID sent them request requestID
 // (FR-9.1). A second request between the same two users replaces the first notification.
 func (s *Service) ConnectionRequestSent(ctx context.Context, requestID, requesterID, receiverID string) error {
-	return s.store.Put(ctx, domain.Notification{
+	return s.put(ctx, domain.Notification{
 		RecipientID: receiverID, ActorID: requesterID,
 		Type: domain.TypeConnectionRequestReceived, SubjectID: requestID,
 	})
@@ -41,7 +71,7 @@ func (s *Service) ConnectionRequestSent(ctx context.Context, requestID, requeste
 // ConnectionRequestAccepted tells requesterID, who sent request requestID, that
 // receiverID accepted it (FR-9.1).
 func (s *Service) ConnectionRequestAccepted(ctx context.Context, requestID, requesterID, receiverID string) error {
-	return s.store.Put(ctx, domain.Notification{
+	return s.put(ctx, domain.Notification{
 		RecipientID: requesterID, ActorID: receiverID,
 		Type: domain.TypeConnectionRequestAccepted, SubjectID: requestID,
 	})
@@ -50,21 +80,33 @@ func (s *Service) ConnectionRequestAccepted(ctx context.Context, requestID, requ
 // AccountWarned tells userID that an administrator warned them (FR-15.5). It is a system
 // notification: the recipient never learns which administrator it was.
 func (s *Service) AccountWarned(ctx context.Context, warningID, userID string) error {
-	return s.store.Put(ctx, domain.Notification{RecipientID: userID, Type: domain.TypeAccountWarning, SubjectID: warningID})
+	return s.put(ctx, domain.Notification{RecipientID: userID, Type: domain.TypeAccountWarning, SubjectID: warningID})
 }
 
 // ConnectionRequestWithdrawn removes the notification of request requestID after the
 // sender cancelled it or the receiver rejected it, so no stale Accept remains. Nobody is
 // told about a rejection (FR-7.6).
 func (s *Service) ConnectionRequestWithdrawn(ctx context.Context, requestID string) error {
-	return s.store.DeleteBySubject(ctx, domain.TypeConnectionRequestReceived, requestID)
+	recipients, err := s.store.DeleteBySubject(ctx, domain.TypeConnectionRequestReceived, requestID)
+	if err != nil {
+		return err
+	}
+	for _, r := range recipients {
+		s.publisher.UnreadChanged(ctx, r)
+	}
+	return nil
 }
 
 // RemoveBetween removes everything a and b were told about each other, once one has blocked
 // the other (FR-16.9): pending requests, and accepted ones, which name a person the
 // recipient can no longer open.
 func (s *Service) RemoveBetween(ctx context.Context, a, b string) error {
-	return s.store.DeleteBetween(ctx, a, b)
+	if err := s.store.DeleteBetween(ctx, a, b); err != nil {
+		return err
+	}
+	s.publisher.UnreadChanged(ctx, a)
+	s.publisher.UnreadChanged(ctx, b)
+	return nil
 }
 
 // List returns one page of recipientID's notifications, newest first (FR-9.5). A nil
@@ -99,16 +141,37 @@ func (s *Service) List(ctx context.Context, recipientID, cursor string, limitPar
 		next = &c
 	}
 	for i := range items {
-		spec, ok := domain.Registry[items[i].Type]
-		if !ok {
-			return domain.Page{}, fmt.Errorf("notification %s: type %q has no registry entry", items[i].ID, items[i].Type)
-		}
-		items[i].Link = spec.Link(items[i].Notification)
-		if items[i].Type != domain.TypeConnectionRequestReceived {
-			items[i].RequestPending = nil
+		if err := complete(&items[i]); err != nil {
+			return domain.Page{}, err
 		}
 	}
 	return domain.Page{Items: items, NextCursor: next}, nil
+}
+
+// complete fills in what the store does not know.
+func complete(it *domain.Item) error {
+	spec, ok := domain.Registry[it.Type]
+	if !ok {
+		return fmt.Errorf("notification %s: type %q has no registry entry", it.ID, it.Type)
+	}
+	it.Link = spec.Link(it.Notification)
+	if it.Type != domain.TypeConnectionRequestReceived {
+		it.RequestPending = nil
+	}
+	return nil
+}
+
+// Get returns one of recipientID's notifications, as the list shows it. ErrNotFound for
+// another user's, a hidden one or an unknown ID.
+func (s *Service) Get(ctx context.Context, recipientID, id string) (domain.Item, error) {
+	it, err := s.store.Find(ctx, recipientID, id)
+	if err != nil {
+		return domain.Item{}, err
+	}
+	if err := complete(&it); err != nil {
+		return domain.Item{}, err
+	}
+	return it, nil
 }
 
 // UnreadCount returns how many of recipientID's notifications are unread (FR-9.4).
@@ -126,13 +189,19 @@ func (s *Service) MarkRead(ctx context.Context, recipientID, id string) error {
 	if !found {
 		return domain.ErrNotFound
 	}
+	s.publisher.UnreadChanged(ctx, recipientID)
 	return nil
 }
 
 // MarkAllRead marks all of recipientID's unread notifications read and returns how many
 // there were (FR-9.6).
 func (s *Service) MarkAllRead(ctx context.Context, recipientID string) (int, error) {
-	return s.store.MarkAllRead(ctx, recipientID)
+	n, err := s.store.MarkAllRead(ctx, recipientID)
+	if err != nil {
+		return 0, err
+	}
+	s.publisher.UnreadChanged(ctx, recipientID)
+	return n, nil
 }
 
 // EncodeCursor turns a position into the opaque value the client sends back.

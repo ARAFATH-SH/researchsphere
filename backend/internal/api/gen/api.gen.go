@@ -444,6 +444,60 @@ func (e PublicationSource) Valid() bool {
 	}
 }
 
+// Defines values for RealtimeClientEventType.
+const (
+	TypingStart RealtimeClientEventType = "typing.start"
+	TypingStop  RealtimeClientEventType = "typing.stop"
+)
+
+// Valid indicates whether the value is a known member of the RealtimeClientEventType enum.
+func (e RealtimeClientEventType) Valid() bool {
+	switch e {
+	case TypingStart:
+		return true
+	case TypingStop:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RealtimeEventType.
+const (
+	ConversationRead    RealtimeEventType = "conversation.read"
+	ConversationUpdated RealtimeEventType = "conversation.updated"
+	MessageCreated      RealtimeEventType = "message.created"
+	NotificationCreated RealtimeEventType = "notification.created"
+	NotificationsUnread RealtimeEventType = "notifications.unread"
+	Presence            RealtimeEventType = "presence"
+	Typing              RealtimeEventType = "typing"
+	UnreadChanged       RealtimeEventType = "unread.changed"
+)
+
+// Valid indicates whether the value is a known member of the RealtimeEventType enum.
+func (e RealtimeEventType) Valid() bool {
+	switch e {
+	case ConversationRead:
+		return true
+	case ConversationUpdated:
+		return true
+	case MessageCreated:
+		return true
+	case NotificationCreated:
+		return true
+	case NotificationsUnread:
+		return true
+	case Presence:
+		return true
+	case Typing:
+		return true
+	case UnreadChanged:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ReportReason.
 const (
 	ReportReasonHarassment    ReportReason = "harassment"
@@ -1466,6 +1520,18 @@ type PersonSearchResult struct {
 // PersonSearchResultMatchedOn The field of the result's best match.
 type PersonSearchResultMatchedOn string
 
+// PresenceList defines model for PresenceList.
+type PresenceList struct {
+	Items []PresenceStatus `json:"items"`
+}
+
+// PresenceStatus defines model for PresenceStatus.
+type PresenceStatus struct {
+	// Online True when the user has at least one open socket and the caller may see it.
+	Online bool               `json:"online"`
+	UserId openapi_types.UUID `json:"userId"`
+}
+
 // Profile A researcher's profile (FR-4.1, FR-4.2, FR-4.4, FR-4.5, FR-4.6, FR-4.7, FR-5.5, FR-7). The optional text fields are
 // always present and null when not set.
 type Profile struct {
@@ -1765,6 +1831,68 @@ type PublicationUpdate struct {
 	Url      nullable.Nullable[string] `json:"url,omitempty"`
 	Venue    nullable.Nullable[string] `json:"venue,omitempty"`
 	Year     nullable.Nullable[int]    `json:"year,omitempty"`
+}
+
+// RealtimeClientEvent One client-to-server WebSocket frame, as JSON text, at most 4 KB. Anything else is
+// ignored.
+type RealtimeClientEvent struct {
+	Data struct {
+		ConversationId openapi_types.UUID `json:"conversationId"`
+	} `json:"data"`
+	Type RealtimeClientEventType `json:"type"`
+}
+
+// RealtimeClientEventType defines model for RealtimeClientEvent.Type.
+type RealtimeClientEventType string
+
+// RealtimeConversationRead The other member moved their read marker (FR-16.3).
+type RealtimeConversationRead struct {
+	ConversationId openapi_types.UUID `json:"conversationId"`
+	MessageId      openapi_types.UUID `json:"messageId"`
+}
+
+// RealtimeConversationUpdated The conversation's state or `canMessage` changed for the recipient, who gets their own
+// view of it. It never says why, so a blocked person is not told about a block.
+type RealtimeConversationUpdated struct {
+	CanMessage     bool               `json:"canMessage"`
+	ConversationId openapi_types.UUID `json:"conversationId"`
+
+	// State `active`: both members can send. `request`: waiting for the receiver to accept.
+	// `declined`: closed for good.
+	State ConversationState `json:"state"`
+}
+
+// RealtimeEvent One server-to-client WebSocket frame, as JSON text. `data` is `RealtimeMessageCreated`,
+// `RealtimeConversationRead`, `RealtimeConversationUpdated`, `MessageUnreadCount`,
+// `RealtimeTyping`, `PresenceStatus`, `Notification` or `UnreadNotificationCount`,
+// by `type`.
+type RealtimeEvent struct {
+	Data map[string]interface{} `json:"data"`
+
+	// Type The `type` of a server event. `docs/realtime.md` gives each one's `data`.
+	Type RealtimeEventType `json:"type"`
+}
+
+// RealtimeEventType The `type` of a server event. `docs/realtime.md` gives each one's `data`.
+type RealtimeEventType string
+
+// RealtimeMessageCreated defines model for RealtimeMessageCreated.
+type RealtimeMessageCreated struct {
+	// ClientId The sender's `clientId`, only in the copy sent to the sender's own sockets, so the
+	// sending tab can match it. The other member never gets it.
+	ClientId *openapi_types.UUID `json:"clientId,omitempty"`
+
+	// ConversationState `active`: both members can send. `request`: waiting for the receiver to accept.
+	// `declined`: closed for good.
+	ConversationState ConversationState `json:"conversationState"`
+	Message           Message           `json:"message"`
+}
+
+// RealtimeTyping defines model for RealtimeTyping.
+type RealtimeTyping struct {
+	ConversationId openapi_types.UUID `json:"conversationId"`
+	IsTyping       bool               `json:"isTyping"`
+	UserId         openapi_types.UUID `json:"userId"`
 }
 
 // RegisterRequest defines model for RegisterRequest.
@@ -2234,6 +2362,15 @@ type ListNotificationsParams struct {
 	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// GetPresenceParams defines parameters for GetPresence.
+type GetPresenceParams struct {
+	// UserIds Comma-separated user IDs, 1 to 50. It is required: it is declared as an optional
+	// string only so that the login check runs before it is read (FR-3.1). A missing,
+	// empty or longer list, or a value that is not a UUID, gets 400 `bad_request` with
+	// `field`.
+	UserIds *string `form:"userIds,omitempty" json:"userIds,omitempty"`
+}
+
 // UploadMyCoverMultipartBody defines parameters for UploadMyCover.
 type UploadMyCoverMultipartBody struct {
 	File openapi_types.File `json:"file"`
@@ -2588,6 +2725,9 @@ type ServerInterface interface {
 	// MarkNotificationRead Mark one of the logged-in user's notifications as read (FR-9.6)
 	// (POST /notifications/{notificationId}/read)
 	MarkNotificationRead(w http.ResponseWriter, r *http.Request, notificationId string)
+	// GetPresence Read who is online (FR-16.4)
+	// (GET /presence)
+	GetPresence(w http.ResponseWriter, r *http.Request, params GetPresenceParams)
 	// GetMyProfile Return the logged-in user's profile (FR-4.1)
 	// (GET /profiles/me)
 	GetMyProfile(w http.ResponseWriter, r *http.Request)
@@ -2702,6 +2842,9 @@ type ServerInterface interface {
 	// SuggestSkillTags Suggest existing skill tags while the user types (FR-4.3)
 	// (GET /tags/skills)
 	SuggestSkillTags(w http.ResponseWriter, r *http.Request, params SuggestSkillTagsParams)
+	// OpenWebSocket Open the real-time connection (FR-16.1, FR-16.3, FR-16.4, FR-9.4)
+	// (GET /ws)
+	OpenWebSocket(w http.ResponseWriter, r *http.Request)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -4308,6 +4451,45 @@ func (siw *ServerInterfaceWrapper) MarkNotificationRead(w http.ResponseWriter, r
 	handler.ServeHTTP(w, r)
 }
 
+// GetPresence operation middleware
+func (siw *ServerInterfaceWrapper) GetPresence(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetPresenceParams
+
+	// ------------- Optional query parameter "userIds" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "userIds", r.URL.Query(), &params.UserIds, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "userIds"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "userIds", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPresence(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetMyProfile operation middleware
 func (siw *ServerInterfaceWrapper) GetMyProfile(w http.ResponseWriter, r *http.Request) {
 
@@ -5454,6 +5636,26 @@ func (siw *ServerInterfaceWrapper) SuggestSkillTags(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// OpenWebSocket operation middleware
+func (siw *ServerInterfaceWrapper) OpenWebSocket(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.OpenWebSocket(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -5663,6 +5865,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/conversations/{conversationId}/decline", wrapper.DeclineMessageRequest)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/conversations/{conversationId}/reports", wrapper.ReportConversation)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/search/people", wrapper.SearchPeople)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/ws", wrapper.OpenWebSocket)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/presence", wrapper.GetPresence)
 
 	return m
 }
@@ -9907,6 +10111,84 @@ func (response MarkNotificationRead500JSONResponse) VisitMarkNotificationReadRes
 	return err
 }
 
+type GetPresenceRequestObject struct {
+	Params GetPresenceParams
+}
+
+type GetPresenceResponseObject interface {
+	VisitGetPresenceResponse(w http.ResponseWriter) error
+}
+
+type GetPresence200JSONResponse PresenceList
+
+func (response GetPresence200JSONResponse) VisitGetPresenceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPresence400JSONResponse Error
+
+func (response GetPresence400JSONResponse) VisitGetPresenceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPresence401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetPresence401JSONResponse) VisitGetPresenceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPresence403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetPresence403JSONResponse) VisitGetPresenceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPresence500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response GetPresence500JSONResponse) VisitGetPresenceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetMyProfileRequestObject struct {
 }
 
@@ -13353,6 +13635,91 @@ func (response SuggestSkillTags500JSONResponse) VisitSuggestSkillTagsResponse(w 
 	return err
 }
 
+type OpenWebSocketRequestObject struct {
+}
+
+type OpenWebSocketResponseObject interface {
+	VisitOpenWebSocketResponse(w http.ResponseWriter) error
+}
+
+type OpenWebSocket101Response struct {
+}
+
+func (response OpenWebSocket101Response) VisitOpenWebSocketResponse(w http.ResponseWriter) error {
+	w.WriteHeader(101)
+	return nil
+}
+
+type OpenWebSocket401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response OpenWebSocket401JSONResponse) VisitOpenWebSocketResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type OpenWebSocket403JSONResponse Error
+
+func (response OpenWebSocket403JSONResponse) VisitOpenWebSocketResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type OpenWebSocket426JSONResponse Error
+
+func (response OpenWebSocket426JSONResponse) VisitOpenWebSocketResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(426)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type OpenWebSocket500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response OpenWebSocket500JSONResponse) VisitOpenWebSocketResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type OpenWebSocket503JSONResponse Error
+
+func (response OpenWebSocket503JSONResponse) VisitOpenWebSocketResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// DeleteAccount Delete the logged-in user's account after entering the password (FR-2.8, FR-2.9)
@@ -13508,6 +13875,9 @@ type StrictServerInterface interface {
 	// MarkNotificationRead Mark one of the logged-in user's notifications as read (FR-9.6)
 	// (POST /notifications/{notificationId}/read)
 	MarkNotificationRead(ctx context.Context, request MarkNotificationReadRequestObject) (MarkNotificationReadResponseObject, error)
+	// GetPresence Read who is online (FR-16.4)
+	// (GET /presence)
+	GetPresence(ctx context.Context, request GetPresenceRequestObject) (GetPresenceResponseObject, error)
 	// GetMyProfile Return the logged-in user's profile (FR-4.1)
 	// (GET /profiles/me)
 	GetMyProfile(ctx context.Context, request GetMyProfileRequestObject) (GetMyProfileResponseObject, error)
@@ -13622,6 +13992,9 @@ type StrictServerInterface interface {
 	// SuggestSkillTags Suggest existing skill tags while the user types (FR-4.3)
 	// (GET /tags/skills)
 	SuggestSkillTags(ctx context.Context, request SuggestSkillTagsRequestObject) (SuggestSkillTagsResponseObject, error)
+	// OpenWebSocket Open the real-time connection (FR-16.1, FR-16.3, FR-16.4, FR-9.4)
+	// (GET /ws)
+	OpenWebSocket(ctx context.Context, request OpenWebSocketRequestObject) (OpenWebSocketResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error)
@@ -15100,6 +15473,32 @@ func (sh *strictHandler) MarkNotificationRead(w http.ResponseWriter, r *http.Req
 	}
 }
 
+// GetPresence operation middleware
+func (sh *strictHandler) GetPresence(w http.ResponseWriter, r *http.Request, params GetPresenceParams) {
+	var request GetPresenceRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetPresence(ctx, request.(GetPresenceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetPresence")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetPresenceResponseObject); ok {
+		if err := validResponse.VisitGetPresenceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetMyProfile operation middleware
 func (sh *strictHandler) GetMyProfile(w http.ResponseWriter, r *http.Request) {
 	var request GetMyProfileRequestObject
@@ -16171,6 +16570,30 @@ func (sh *strictHandler) SuggestSkillTags(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SuggestSkillTagsResponseObject); ok {
 		if err := validResponse.VisitSuggestSkillTagsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// OpenWebSocket operation middleware
+func (sh *strictHandler) OpenWebSocket(w http.ResponseWriter, r *http.Request) {
+	var request OpenWebSocketRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.OpenWebSocket(ctx, request.(OpenWebSocketRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "OpenWebSocket")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(OpenWebSocketResponseObject); ok {
+		if err := validResponse.VisitOpenWebSocketResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

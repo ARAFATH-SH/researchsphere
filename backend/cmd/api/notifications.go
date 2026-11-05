@@ -16,6 +16,7 @@ import (
 type connectionNotifier struct {
 	notifications *notificationusecase.Service
 	messaging     *messagingusecase.Service
+	events        *realtimeEvents
 }
 
 var _ socialdomain.Notifier = connectionNotifier{}
@@ -44,5 +45,14 @@ func (n connectionNotifier) Blocked(ctx context.Context, blockerID, blockedID st
 	if err := n.notifications.RemoveBetween(ctx, blockerID, blockedID); err != nil {
 		return err
 	}
-	return n.messaging.DeclineRequests(ctx, blockerID, blockedID)
+	if err := n.messaging.DeclineRequests(ctx, blockerID, blockedID); err != nil {
+		return err
+	}
+	n.events.hidePresence(ctx, blockerID, blockedID)
+	return nil
+}
+
+// Unblocked reports that the two may be able to message each other again.
+func (n connectionNotifier) Unblocked(ctx context.Context, blockerID, blockedID string) {
+	n.messaging.Unblocked(ctx, blockerID, blockedID)
 }

@@ -74,6 +74,7 @@ func (s *Service) DeleteAccount(ctx context.Context, in DeleteAccountInput) erro
 	}
 	s.logger.InfoContext(ctx, "account deleted", slog.String("user_id", creds.ID),
 		slog.Int64("projects_deleted", projects), slog.Int64("publications_deleted", publications))
+	s.sessionsEnded(ctx, creds.ID)
 	lock.reset(ctx)
 	return nil
 }

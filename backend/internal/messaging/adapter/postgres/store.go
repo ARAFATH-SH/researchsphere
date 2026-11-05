@@ -385,6 +385,80 @@ func timeOf(t pgtype.Timestamptz) time.Time {
 	return t.Time
 }
 
+// ActivePeers finds nothing for a user who is not a UUID.
+func (s *Store) ActivePeers(ctx context.Context, userID string) ([]string, error) {
+	user, ok := parseUUID(userID)
+	if !ok {
+		return nil, nil
+	}
+	rows, err := s.q(ctx).ActivePeers(ctx, user)
+	if err != nil {
+		return nil, fmt.Errorf("list active peers: %w", err)
+	}
+	return uuidStrings(rows), nil
+}
+
+// VisiblePeers leaves out IDs that are not UUIDs.
+func (s *Store) VisiblePeers(ctx context.Context, viewerID string, ids []string) ([]string, error) {
+	viewer, ok := parseUUID(viewerID)
+	if !ok {
+		return nil, nil
+	}
+	parsed := make([]pgtype.UUID, 0, len(ids))
+	for _, id := range ids {
+		if u, ok := parseUUID(id); ok {
+			parsed = append(parsed, u)
+		}
+	}
+	rows, err := s.q(ctx).VisiblePeers(ctx, sqlcgen.VisiblePeersParams{UserID: viewer, Ids: parsed})
+	if err != nil {
+		return nil, fmt.Errorf("list visible peers: %w", err)
+	}
+	return uuidStrings(rows), nil
+}
+
+// Partners finds nothing for a user who is not a UUID.
+func (s *Store) Partners(ctx context.Context, userID string) ([]domain.Partner, error) {
+	user, ok := parseUUID(userID)
+	if !ok {
+		return nil, nil
+	}
+	rows, err := s.q(ctx).ListPartners(ctx, user)
+	if err != nil {
+		return nil, fmt.Errorf("list partners: %w", err)
+	}
+	out := make([]domain.Partner, len(rows))
+	for i, r := range rows {
+		out[i] = domain.Partner{ConversationID: r.ConversationID.String(), UserID: r.UserID.String()}
+	}
+	return out, nil
+}
+
+// DirectID finds nothing for IDs that are not UUIDs.
+func (s *Store) DirectID(ctx context.Context, a, b string) (string, bool, error) {
+	ua, ok1 := parseUUID(a)
+	ub, ok2 := parseUUID(b)
+	if !ok1 || !ok2 {
+		return "", false, nil
+	}
+	id, err := s.q(ctx).DirectID(ctx, sqlcgen.DirectIDParams{A: ua, B: ub})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("find direct conversation: %w", err)
+	}
+	return id.String(), true, nil
+}
+
+func uuidStrings(ids []pgtype.UUID) []string {
+	out := make([]string, len(ids))
+	for i, id := range ids {
+		out[i] = id.String()
+	}
+	return out
+}
+
 func parseUUID(s string) (pgtype.UUID, bool) {
 	var id pgtype.UUID
 	if err := id.Scan(s); err != nil {

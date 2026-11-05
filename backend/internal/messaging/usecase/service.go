@@ -52,13 +52,13 @@ const day = 24 * time.Hour
 // back, so a conversation created for the losing send is not left empty.
 var errDuplicate = errors.New("messaging: client ID already used")
 
-// NopPublisher hears nothing. cmd/api uses it until real-time delivery (slice 14A.3).
+// NopPublisher hears nothing.
 type NopPublisher struct{}
 
 var _ domain.Publisher = NopPublisher{}
 
 // MessageSent does nothing.
-func (NopPublisher) MessageSent(context.Context, domain.Message, []string) {}
+func (NopPublisher) MessageSent(context.Context, domain.Sent, []string) {}
 
 // ReadMoved does nothing.
 func (NopPublisher) ReadMoved(context.Context, string, string, string, []string) {}
@@ -68,6 +68,9 @@ func (NopPublisher) RequestAccepted(context.Context, string, []string) {}
 
 // RequestDeclined does nothing.
 func (NopPublisher) RequestDeclined(context.Context, string, []string) {}
+
+// PairChanged does nothing.
+func (NopPublisher) PairChanged(context.Context, string, string) {}
 
 // Service handles conversations and messages.
 type Service struct {
@@ -371,7 +374,7 @@ func (s *Service) finish(ctx context.Context, sent domain.Sent, err error, recip
 	if newRequest {
 		s.record(ctx, senderID, s.requests)
 	}
-	s.publisher.MessageSent(ctx, sent.Message, []string{recipientID})
+	s.publisher.MessageSent(ctx, sent, []string{recipientID})
 	return sent, nil
 }
 
@@ -421,15 +424,63 @@ func NormalizeBody(body string) (string, error) {
 
 // ConnectionMade turns a pending request between a and b into an active conversation, when
 // there is one. A declined conversation stays closed. It runs inside the transaction that
-// stores the connection, so it cannot publish yet (docs/decisions.md).
+// stores the connection; the publisher waits for its commit.
 func (s *Service) ConnectionMade(ctx context.Context, a, b string) error {
-	return s.store.ActivateRequest(ctx, a, b)
+	if err := s.store.ActivateRequest(ctx, a, b); err != nil {
+		return err
+	}
+	s.publisher.PairChanged(ctx, a, b)
+	return nil
 }
 
 // DeclineRequests closes a pending request between a and b after a block (FR-16.9). It runs
-// inside the block's transaction, so it cannot publish yet, like ConnectionMade.
+// inside the block's transaction; the publisher waits for its commit. Any block changes
+// canMessage, so it reports one with or without a request.
 func (s *Service) DeclineRequests(ctx context.Context, a, b string) error {
-	return s.store.DeclineRequests(ctx, a, b)
+	if err := s.store.DeclineRequests(ctx, a, b); err != nil {
+		return err
+	}
+	s.publisher.PairChanged(ctx, a, b)
+	return nil
+}
+
+// Unblocked reports that a block between a and b ended: canMessage may be true again.
+func (s *Service) Unblocked(ctx context.Context, a, b string) {
+	s.publisher.PairChanged(ctx, a, b)
+}
+
+// ConversationBetween returns a and b's conversation; found is false when there is none.
+func (s *Service) ConversationBetween(ctx context.Context, a, b string) (string, bool, error) {
+	return s.store.DirectID(ctx, a, b)
+}
+
+// TypingPeer returns the other member when userID may tell them about typing now: userID is a
+// member, the conversation is active, the other member is available and neither blocked the
+// other (FR-16.4). Anything else, an unknown ID included, is ok false.
+func (s *Service) TypingPeer(ctx context.Context, userID, id string) (string, bool, error) {
+	it, err := s.store.FindItem(ctx, id, userID)
+	if errors.Is(err, domain.ErrNotFound) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return it.OtherID, it.CanMessage(), nil
+}
+
+// ActivePeers returns who may see the user's presence (FR-16.4).
+func (s *Service) ActivePeers(ctx context.Context, userID string) ([]string, error) {
+	return s.store.ActivePeers(ctx, userID)
+}
+
+// VisiblePeers returns which of ids viewerID may see, by the rule of ActivePeers.
+func (s *Service) VisiblePeers(ctx context.Context, viewerID string, ids []string) ([]string, error) {
+	return s.store.VisiblePeers(ctx, viewerID, ids)
+}
+
+// Partners returns every conversation of the user with its other member.
+func (s *Service) Partners(ctx context.Context, userID string) ([]domain.Partner, error) {
+	return s.store.Partners(ctx, userID)
 }
 
 // List returns one page of userID's conversations in box, newest activity first. An empty

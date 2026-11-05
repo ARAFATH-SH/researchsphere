@@ -92,6 +92,12 @@ linters:
           allow:
             - $gostd
             - github.com/ARAFATH-SH/researchsphere/backend/internal/messaging/domain
+        usecase-realtime:
+          files: ["**/internal/realtime/usecase/**"]
+          list-mode: strict
+          allow:
+            - $gostd
+            - github.com/ARAFATH-SH/researchsphere/backend/internal/realtime/domain
         # The image codec sees only bytes and the media domain: no HTTP, database or
         # storage, so a decoding bug cannot reach anything else (FR-4.6).
         adapter-imaging:

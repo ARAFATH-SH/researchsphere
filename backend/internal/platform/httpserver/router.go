@@ -3,6 +3,7 @@
 package httpserver
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -28,7 +29,7 @@ func NewRouter(logger *slog.Logger, si gen.StrictServerInterface, auth func(http
 func newRouter(logger *slog.Logger, si gen.StrictServerInterface, auth func(http.Handler) http.Handler, extra func(*http.ServeMux)) http.Handler {
 	mux := http.NewServeMux()
 
-	strict := gen.NewStrictHandlerWithOptions(si, nil, gen.StrictHTTPServerOptions{
+	strict := gen.NewStrictHandlerWithOptions(si, []gen.StrictMiddlewareFunc{withRequest}, gen.StrictHTTPServerOptions{
 		RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
 			logger.WarnContext(r.Context(), "bad request", slog.Any("error", err))
 			writeBodyError(w, err)
@@ -64,6 +65,14 @@ func newRouter(logger *slog.Logger, si gen.StrictServerInterface, auth func(http
 	handler = httpx.AccessLog(logger)(handler)
 	handler = httpx.RequestID(handler)
 	return handler
+}
+
+// withRequest gives a strict handler the HTTP request, which the generated request object
+// leaves out; a WebSocket upgrade needs its headers.
+func withRequest(f gen.StrictHandlerFunc, _ string) gen.StrictHandlerFunc {
+	return func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error) {
+		return f(httpx.WithRequest(ctx, r), w, r, request)
+	}
 }
 
 // writeBodyError answers a JSON body that the generated handlers could not decode, naming

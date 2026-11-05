@@ -277,6 +277,10 @@ func (n failingNotifier) RequestWithdrawn(ctx context.Context, id string) error 
 	return n.after(n.next.RequestWithdrawn(ctx, id))
 }
 
+func (n failingNotifier) Unblocked(ctx context.Context, blockerID, blockedID string) {
+	n.next.Unblocked(ctx, blockerID, blockedID)
+}
+
 func (n failingNotifier) Blocked(ctx context.Context, blockerID, blockedID string) error {
 	return n.after(n.next.Blocked(ctx, blockerID, blockedID))
 }

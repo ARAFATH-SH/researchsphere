@@ -79,11 +79,13 @@ func (s *Service) Refresh(ctx context.Context, token string) (RefreshResult, err
 	if reused != nil {
 		s.logger.WarnContext(ctx, "refresh token reused; session ended",
 			slog.String("session_id", reused.ID), slog.String("user_id", reused.UserID))
+		s.sessionsEnded(ctx, reused.UserID)
 		return RefreshResult{}, domain.ErrSessionInvalid
 	}
 	if suspended != nil {
 		s.logger.InfoContext(ctx, "account suspended; session ended",
 			slog.String("session_id", suspended.ID), slog.String("user_id", suspended.UserID))
+		s.sessionsEnded(ctx, suspended.UserID)
 		return RefreshResult{}, domain.ErrSessionInvalid
 	}
 	return res, nil
@@ -121,5 +123,13 @@ func (s *Service) Logout(ctx context.Context, token string) error {
 		return fmt.Errorf("revoke session: %w", err)
 	}
 	s.logger.InfoContext(ctx, "user logged out", slog.String("session_id", sess.ID), slog.String("user_id", sess.UserID))
+	s.sessionsEnded(ctx, sess.UserID)
 	return nil
+}
+
+// sessionsEnded tells the listener, if there is one.
+func (s *Service) sessionsEnded(ctx context.Context, userID string) {
+	if s.cfg.Sessions != nil {
+		s.cfg.Sessions.SessionsEnded(ctx, userID)
+	}
 }

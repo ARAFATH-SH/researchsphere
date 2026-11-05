@@ -26,9 +26,36 @@ type TokenVerifier interface {
 }
 
 type (
-	userIDKey struct{}
-	roleKey   struct{}
+	userIDKey      struct{}
+	roleKey        struct{}
+	tokenExpiryKey struct{}
+	requestKey     struct{}
 )
+
+// WithTokenExpiry returns a context that carries when the caller's access token expires.
+func WithTokenExpiry(ctx context.Context, at time.Time) context.Context {
+	return context.WithValue(ctx, tokenExpiryKey{}, at)
+}
+
+// TokenExpiry returns when the caller's access token expires, which RequireAuth stored in the
+// context.
+func TokenExpiry(ctx context.Context) (time.Time, bool) {
+	at, ok := ctx.Value(tokenExpiryKey{}).(time.Time)
+	return at, ok
+}
+
+// WithRequest returns a context that carries the HTTP request. The router puts it there for
+// the one operation that needs more than the generated request object: a WebSocket upgrade
+// reads the headers.
+func WithRequest(ctx context.Context, r *http.Request) context.Context {
+	return context.WithValue(ctx, requestKey{}, r)
+}
+
+// Request returns the HTTP request WithRequest stored.
+func Request(ctx context.Context) (*http.Request, bool) {
+	r, ok := ctx.Value(requestKey{}).(*http.Request)
+	return r, ok
+}
 
 // WithUserID returns a context that carries the logged-in user's ID.
 func WithUserID(ctx context.Context, userID string) context.Context {
@@ -77,6 +104,7 @@ func RequireAuth(v TokenVerifier, now func() time.Time) func(http.Handler) http.
 			}
 			ctx := WithUserID(r.Context(), claims.UserID)
 			ctx = WithRole(ctx, authz.Role(claims.Role))
+			ctx = WithTokenExpiry(ctx, claims.ExpiresAt)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

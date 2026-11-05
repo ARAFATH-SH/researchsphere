@@ -52,6 +52,8 @@ import (
 	profilepg "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/postgres"
 	profileredis "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/redis"
 	profileusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/usecase"
+	realtimehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/realtime/adapter/http"
+	realtimeusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/realtime/usecase"
 	socialhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/social/adapter/http"
 	socialpg "github.com/ARAFATH-SH/researchsphere/backend/internal/social/adapter/postgres"
 	socialredis "github.com/ARAFATH-SH/researchsphere/backend/internal/social/adapter/redis"
@@ -115,25 +117,30 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 
 	connectLimiter := socialredis.New(rdb)
 	defer func() { _ = connectLimiter.Close() }()
-	notifications := notificationusecase.New(notificationpg.NewStore(pool))
 	// Messaging and social ask what a user may do now; moderation needs messaging, so this part
 	// stands on its own.
 	moderationStore := moderationpg.NewStore(pool)
 	standings := moderationusecase.NewStandings(moderationStore, time.Now)
+	// Real-time delivery hears from most modules and reads from some; bind closes the loop.
+	realtime := newRealtime(rdb, standings, realtimeusecase.DefaultConfig(), logger)
+	defer realtime.close()
+	go realtime.hub.Run(ctx)
+	notifications := notificationusecase.New(notificationpg.NewStore(pool), notificationusecase.WithPublisher(realtime.events))
 	messageLimiter := messagingredis.New(rdb)
 	defer func() { _ = messageLimiter.Close() }()
 	// Messaging asks social who is connected or blocked, and social tells messaging about
 	// new connections and blocks, so the checker gets social once that exists.
 	connected := &connectionChecker{}
 	messaging := messagingusecase.New(messagingpg.NewStore(pool), postgres.NewTransactor(pool), connected, connected, messagingActors{standings: standings}, messageLimiter,
-		messagingusecase.NopPublisher{}, messagingusecase.Limits{
+		realtime.events, messagingusecase.Limits{
 			MessagesPerMinute: cfg.MessagesPerMinute, MessagesPerDay: cfg.MessagesPerDay,
 			RequestsPerMinute: cfg.RequestsPerMinute, RequestsPerDay: cfg.RequestsPerDay,
 		}, logger)
 	// A connection change and its notification are written in one transaction (FR-9.1).
 	social := socialusecase.New(socialpg.NewStore(pool), postgres.NewTransactor(pool), connectLimiter,
-		connectionNotifier{notifications: notifications, messaging: messaging}, socialActors{standings: standings}, logger)
+		connectionNotifier{notifications: notifications, messaging: messaging, events: realtime.events}, socialActors{standings: standings}, logger)
 	connected.social = social
+	realtime.bind(messaging, notifications)
 
 	lookups := profileredis.New(rdb)
 	defer func() { _ = lookups.Close() }()
@@ -167,11 +174,11 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 		mailer,
 		tokens,
 		attempts,
-		authusecase.Config{AppBaseURL: cfg.AppBaseURL},
+		authusecase.Config{AppBaseURL: cfg.AppBaseURL, Sessions: realtime.events},
 		time.Now,
 		logger,
 	)
-	moderation := moderationusecase.New(moderationStore, postgres.NewTransactor(pool), moderationAccounts{auth: auth},
+	moderation := moderationusecase.New(moderationStore, postgres.NewTransactor(pool), moderationAccounts{auth: auth, events: realtime.events},
 		moderationReports{messaging: messaging}, moderationNotifier{notifications: notifications},
 		moderationMailer{mailer: mailer}, time.Now, logger)
 	handler := newRouter(logger, healthpg.NewPinger(pool), healthredis.NewPinger(rdb), files,
@@ -182,6 +189,7 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 		notificationhttp.NewHandler(notifications),
 		messaginghttp.NewHandler(messaging),
 		moderationhttp.NewHandler(moderation),
+		realtimehttp.NewHandler(realtime.hub, cfg.AppBaseURL, logger),
 		httpx.RequireAuth(tokens, time.Now))
 
 	var lc net.ListenConfig
@@ -189,5 +197,5 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 	if err != nil {
 		return fmt.Errorf("listen on port %d: %w", cfg.Port, err)
 	}
-	return httpserver.Serve(ctx, ln, handler, logger)
+	return httpserver.Serve(ctx, ln, handler, logger, realtime.hub.Shutdown)
 }

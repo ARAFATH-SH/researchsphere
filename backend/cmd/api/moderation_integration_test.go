@@ -543,7 +543,7 @@ func TestStandingWaitsForAnActionAndTheReverse(t *testing.T) {
 	e := newModEnv(t)
 	ada := e.newProfileUser(t)
 	tx := postgres.NewTransactor(e.pool)
-	accounts := moderationAccounts{auth: e.auth}
+	accounts := moderationAccounts{auth: e.auth, events: e.events}
 	ctx := t.Context()
 
 	t.Run("a check waits for an action in progress, and sees it", func(t *testing.T) {

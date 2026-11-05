@@ -235,3 +235,39 @@ INSERT INTO message_report_views (report_id, admin_id) VALUES (@report_id, @admi
 UPDATE message_reports
 SET resolved_at = now(), resolved_by = @admin_id, outcome = @outcome, resolution_note = sqlc.narg('note')
 WHERE id = @id AND resolved_at IS NULL;
+
+-- name: ActivePeers :many
+-- Who may see the user's presence (FR-16.4): the other member of each active conversation,
+-- with no block either way.
+SELECT o.user_id
+FROM conversation_members me
+JOIN conversations c ON c.id = me.conversation_id AND c.state = 'active'
+JOIN conversation_members o ON o.conversation_id = c.id AND o.user_id <> me.user_id
+WHERE me.user_id = @user_id
+  AND NOT EXISTS (
+      SELECT 1 FROM blocks b
+      WHERE (b.blocker_id = me.user_id AND b.blocked_id = o.user_id)
+         OR (b.blocker_id = o.user_id AND b.blocked_id = me.user_id));
+
+-- name: VisiblePeers :many
+-- ActivePeers narrowed to the IDs asked about.
+SELECT o.user_id
+FROM conversation_members me
+JOIN conversations c ON c.id = me.conversation_id AND c.state = 'active'
+JOIN conversation_members o ON o.conversation_id = c.id AND o.user_id <> me.user_id
+WHERE me.user_id = @user_id AND o.user_id = ANY(@ids::uuid[])
+  AND NOT EXISTS (
+      SELECT 1 FROM blocks b
+      WHERE (b.blocker_id = me.user_id AND b.blocked_id = o.user_id)
+         OR (b.blocker_id = o.user_id AND b.blocked_id = me.user_id));
+
+-- name: ListPartners :many
+-- Every conversation of the user, in any state, with its other member.
+SELECT o.conversation_id, o.user_id
+FROM conversation_members me
+JOIN conversation_members o ON o.conversation_id = me.conversation_id AND o.user_id <> me.user_id
+WHERE me.user_id = @user_id;
+
+-- name: DirectID :one
+SELECT id FROM conversations
+WHERE user_low = LEAST(@a::uuid, @b::uuid) AND user_high = GREATEST(@a::uuid, @b::uuid);

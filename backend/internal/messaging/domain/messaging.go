@@ -115,6 +115,12 @@ type UnreadCounts struct {
 	Requests int // pending requests to the user
 }
 
+// Partner is a conversation and its other member.
+type Partner struct {
+	ConversationID string
+	UserID         string
+}
+
 // Store reads and writes conversations and messages. Every method runs in the transaction
 // the context carries, if any. Methods that take an ID treat a value that is not a UUID as
 // a missing row.
@@ -166,6 +172,16 @@ type Store interface {
 	// DeclineRequests moves a and b's conversation from StateRequest to StateDeclined, and
 	// changes nothing in any other state.
 	DeclineRequests(ctx context.Context, a, b string) error
+	// ActivePeers returns who may see the user's presence: the other member of each active
+	// conversation, with no block either way (FR-16.4).
+	ActivePeers(ctx context.Context, userID string) ([]string, error)
+	// VisiblePeers returns which of ids are among viewerID's ActivePeers. IDs that are not
+	// UUIDs are not.
+	VisiblePeers(ctx context.Context, viewerID string, ids []string) ([]string, error)
+	// Partners returns every conversation of the user, in any state, with its other member.
+	Partners(ctx context.Context, userID string) ([]Partner, error)
+	// DirectID returns a and b's conversation; found is false when there is none.
+	DirectID(ctx context.Context, a, b string) (id string, found bool, err error)
 	ReportStore
 }
 
@@ -214,14 +230,18 @@ type Limiter interface {
 	Record(ctx context.Context, name, userID string, length time.Duration) error
 }
 
-// Publisher hears about changes other members should see. It is called after the change
-// has committed and cannot fail it. The to lists name the members to tell. Real-time
-// delivery (slice 14A.3) will implement it.
+// Publisher hears about changes other members should see. It cannot fail the change, and
+// nobody hears before the commit: most calls come after it, and PairChanged comes inside
+// another module's transaction, where the implementation waits for the commit. The to lists
+// name the members to tell. cmd/api implements it with the realtime module.
 type Publisher interface {
-	MessageSent(ctx context.Context, m Message, to []string)
+	MessageSent(ctx context.Context, sent Sent, to []string)
 	ReadMoved(ctx context.Context, conversationID, readerID, messageID string, to []string)
 	RequestAccepted(ctx context.Context, conversationID string, to []string)
 	RequestDeclined(ctx context.Context, conversationID string, to []string)
+	// PairChanged says what a and b's conversation allows may have changed: they connected,
+	// or one blocked or unblocked the other. It does nothing when they have no conversation.
+	PairChanged(ctx context.Context, a, b string)
 }
 
 // Transactor runs fn in one database transaction; it commits when fn returns nil and

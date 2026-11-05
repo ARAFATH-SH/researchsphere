@@ -26,6 +26,7 @@ import (
 	profilehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/http"
 	profiledomain "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/domain"
 	profileusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/usecase"
+	realtimehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/realtime/adapter/http"
 	socialhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/social/adapter/http"
 )
 
@@ -146,6 +147,7 @@ func testRouter() http.Handler {
 		notificationhttp.NewHandler(okNotifications{}),
 		messaginghttp.NewHandler(okMessaging{}),
 		moderationhttp.NewHandler(okModeration{}),
+		realtimehttp.NewHandler(okRealtime{}, "http://localhost:3000", slog.New(slog.DiscardHandler)),
 		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
 }
 
@@ -175,6 +177,7 @@ func TestHealthReportsStorageDown(t *testing.T) {
 		notificationhttp.NewHandler(okNotifications{}),
 		messaginghttp.NewHandler(okMessaging{}),
 		moderationhttp.NewHandler(okModeration{}),
+		realtimehttp.NewHandler(okRealtime{}, "http://localhost:3000", slog.New(slog.DiscardHandler)),
 		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
 
 	rec := httptest.NewRecorder()
