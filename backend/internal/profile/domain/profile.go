@@ -48,6 +48,8 @@ type Profile struct {
 	// owner's number of connections. The usecase fills both when it reads a profile.
 	Connection      ConnectionRelation
 	ConnectionCount int
+	// BlockedByMe is true when the viewer has blocked the owner (FR-16.9).
+	BlockedByMe bool
 }
 
 // ConnectionStatus is the link between a viewer and another user, the owner of a profile
@@ -80,8 +82,17 @@ type ConnectionLookup interface {
 	// Relations returns the viewer's link with each of userIDs, in one lookup for the
 	// whole list, with an entry for every ID.
 	Relations(ctx context.Context, viewerID string, userIDs []string) (map[string]ConnectionRelation, error)
-	// Count returns how many connections the user has, counting only visible users.
-	Count(ctx context.Context, userID string) (int, error)
+	// Count returns how many connections the user has as viewerID sees them, counting only
+	// visible users and leaving out anyone who has blocked viewerID.
+	Count(ctx context.Context, viewerID, userID string) (int, error)
+	// Block reads who has blocked whom between viewerID and ownerID (FR-16.9).
+	Block(ctx context.Context, viewerID, ownerID string) (BlockState, error)
+}
+
+// BlockState says who has blocked whom between a viewer and a profile's owner (FR-16.9).
+type BlockState struct {
+	ByViewer bool // the viewer has blocked the owner
+	ByOwner  bool // the owner has blocked the viewer
 }
 
 // Visibility says who may see a contact item (FR-4.7). Slice 13 adds "connections only".

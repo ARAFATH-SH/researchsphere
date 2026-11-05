@@ -82,6 +82,7 @@ func TestSearchPeopleValidation(t *testing.T) {
 				}
 				return
 			}
+			tt.want.ViewerID = adaID
 			if !reflect.DeepEqual(*searcher.got, tt.want) {
 				t.Errorf("query = %+v, want %+v", *searcher.got, tt.want)
 			}

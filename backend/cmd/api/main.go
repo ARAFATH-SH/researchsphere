@@ -115,10 +115,10 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 	notifications := notificationusecase.New(notificationpg.NewStore(pool))
 	messageLimiter := messagingredis.New(rdb)
 	defer func() { _ = messageLimiter.Close() }()
-	// Messaging asks social who is connected, and social tells messaging about new
-	// connections, so the checker gets social once that exists.
+	// Messaging asks social who is connected or blocked, and social tells messaging about
+	// new connections and blocks, so the checker gets social once that exists.
 	connected := &connectionChecker{}
-	messaging := messagingusecase.New(messagingpg.NewStore(pool), postgres.NewTransactor(pool), connected, messageLimiter,
+	messaging := messagingusecase.New(messagingpg.NewStore(pool), postgres.NewTransactor(pool), connected, connected, messageLimiter,
 		messagingusecase.NopPublisher{}, messagingusecase.Limits{
 			MessagesPerMinute: cfg.MessagesPerMinute, MessagesPerDay: cfg.MessagesPerDay,
 			RequestsPerMinute: cfg.RequestsPerMinute, RequestsPerDay: cfg.RequestsPerDay,

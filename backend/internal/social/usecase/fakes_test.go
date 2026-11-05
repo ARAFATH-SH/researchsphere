@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/social/domain"
@@ -31,6 +32,9 @@ type fakeStore struct {
 	// creates counts CreateRequest calls, linkLists ListLiveLinks calls.
 	creates   int
 	linkLists int
+	// blocks holds blocker|blocked; locks counts LockPair calls.
+	blocks map[string]time.Time
+	locks  int
 }
 
 var _ domain.Store = (*fakeStore)(nil)
@@ -199,7 +203,7 @@ func page[T any](items []T, limit, offset int) []T {
 	return items[offset:min(len(items), offset+limit)]
 }
 
-func (s *fakeStore) ListConnections(_ context.Context, userID string, limit, offset int) ([]domain.Connection, int, error) {
+func (s *fakeStore) ListConnections(_ context.Context, viewerID, userID string, limit, offset int) ([]domain.Connection, int, error) {
 	if s.err != nil {
 		return nil, 0, s.err
 	}
@@ -209,7 +213,7 @@ func (s *fakeStore) ListConnections(_ context.Context, userID string, limit, off
 		if r.receiver == userID {
 			other = r.requester
 		}
-		if r.status == "accepted" && (r.requester == userID || r.receiver == userID) && s.visible[other] {
+		if r.status == "accepted" && (r.requester == userID || r.receiver == userID) && s.visible[other] && !s.blocked(other, viewerID) {
 			all = append(all, domain.Connection{ConnectedAt: r.respondedAt, Other: s.people[other]})
 		}
 	}
@@ -241,9 +245,65 @@ func (s *fakeStore) ListSent(_ context.Context, userID string, limit, offset int
 	return s.listPending(userID, false, limit, offset)
 }
 
-func (s *fakeStore) CountConnections(ctx context.Context, userID string) (int, error) {
-	_, n, err := s.ListConnections(ctx, userID, 0, 0)
+func (s *fakeStore) CountConnections(ctx context.Context, viewerID, userID string) (int, error) {
+	_, n, err := s.ListConnections(ctx, viewerID, userID, 0, 0)
 	return n, err
+}
+
+func (s *fakeStore) blocked(blocker, blocked string) bool {
+	_, ok := s.blocks[blocker+"|"+blocked]
+	return ok
+}
+
+func (s *fakeStore) LockPair(context.Context, string, string) error {
+	s.locks++
+	return s.err
+}
+
+func (s *fakeStore) BlockBetween(_ context.Context, me, other string) (domain.BlockState, error) {
+	return domain.BlockState{ByMe: s.blocked(me, other), ByThem: s.blocked(other, me)}, s.err
+}
+
+func (s *fakeStore) AddBlock(_ context.Context, blockerID, blockedID string) (bool, error) {
+	if s.err != nil {
+		return false, s.err
+	}
+	if s.blocked(blockerID, blockedID) {
+		return false, nil
+	}
+	if s.blocks == nil {
+		s.blocks = map[string]time.Time{}
+	}
+	s.blocks[blockerID+"|"+blockedID] = s.tick()
+	return true, nil
+}
+
+func (s *fakeStore) RemoveBlock(_ context.Context, blockerID, blockedID string) error {
+	delete(s.blocks, blockerID+"|"+blockedID)
+	return s.err
+}
+
+func (s *fakeStore) RemoveLiveLink(_ context.Context, a, b string) error {
+	if s.err != nil {
+		return s.err
+	}
+	s.rows = slices.DeleteFunc(s.rows, func(r *fakeRow) bool { return r == s.live(a, b) })
+	return nil
+}
+
+func (s *fakeStore) ListBlocks(_ context.Context, userID string, limit, offset int) ([]domain.BlockedPerson, int, error) {
+	if s.err != nil {
+		return nil, 0, s.err
+	}
+	var all []domain.BlockedPerson
+	for key, at := range s.blocks {
+		blocker, blocked, _ := strings.Cut(key, "|")
+		if blocker == userID && s.visible[blocked] {
+			all = append(all, domain.BlockedPerson{BlockedAt: at, Other: s.people[blocked]})
+		}
+	}
+	slices.SortFunc(all, func(a, b domain.BlockedPerson) int { return a.BlockedAt.Compare(b.BlockedAt) })
+	return page(all, limit, offset), len(all), nil
 }
 
 // fakeLimiter counts requests per user. A test sets err to make it fail, or used and
@@ -304,6 +364,7 @@ type fakeNotifier struct {
 	tx             *fakeTx
 	sent, accepted []domain.Request
 	withdrawn      []string
+	blocked        []string
 	outsideTx      int
 	err            error
 }
@@ -323,6 +384,12 @@ func (n *fakeNotifier) RequestSent(_ context.Context, r domain.Request) error {
 func (n *fakeNotifier) RequestAccepted(_ context.Context, r domain.Request) error {
 	n.heard()
 	n.accepted = append(n.accepted, r)
+	return n.err
+}
+
+func (n *fakeNotifier) Blocked(_ context.Context, blockerID, blockedID string) error {
+	n.heard()
+	n.blocked = append(n.blocked, blockerID+"|"+blockedID)
 	return n.err
 }
 

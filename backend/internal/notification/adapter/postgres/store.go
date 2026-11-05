@@ -129,6 +129,19 @@ func (s *Store) MarkRead(ctx context.Context, id, recipientID string) (bool, err
 	return n > 0, nil
 }
 
+// DeleteBetween does nothing for a value that is not a UUID.
+func (s *Store) DeleteBetween(ctx context.Context, a, b string) error {
+	ua, ok1 := parseUUID(a)
+	ub, ok2 := parseUUID(b)
+	if !ok1 || !ok2 {
+		return nil
+	}
+	if err := s.q(ctx).DeleteNotificationsBetween(ctx, sqlcgen.DeleteNotificationsBetweenParams{A: ua, B: ub}); err != nil {
+		return fmt.Errorf("delete notifications between users: %w", err)
+	}
+	return nil
+}
+
 // MarkAllRead marks nothing for a recipient that is not a UUID.
 func (s *Store) MarkAllRead(ctx context.Context, recipientID string) (int, error) {
 	user, ok := parseUUID(recipientID)

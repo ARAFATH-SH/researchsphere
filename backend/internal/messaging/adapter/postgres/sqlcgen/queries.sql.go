@@ -81,6 +81,17 @@ func (q *Queries) CountPendingRequests(ctx context.Context, userID pgtype.UUID) 
 	return count, err
 }
 
+const countReports = `-- name: CountReports :one
+SELECT count(*) FROM message_reports r WHERE (r.resolved_at IS NULL) = $1::boolean
+`
+
+func (q *Queries) CountReports(ctx context.Context, open bool) (int64, error) {
+	row := q.db.QueryRow(ctx, countReports, open)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countUnreadMessages = `-- name: CountUnreadMessages :one
 SELECT count(*)
 FROM conversation_members me
@@ -134,6 +145,24 @@ func (q *Queries) CreateDirect(ctx context.Context, arg CreateDirectParams) (Cre
 		&i.LastMessageAt,
 	)
 	return i, err
+}
+
+const declineRequestBetween = `-- name: DeclineRequestBetween :exec
+UPDATE conversations
+SET state = 'declined'
+WHERE user_low = LEAST($1::uuid, $2::uuid) AND user_high = GREATEST($1::uuid, $2::uuid)
+  AND state = 'request'
+`
+
+type DeclineRequestBetweenParams struct {
+	A pgtype.UUID
+	B pgtype.UUID
+}
+
+// A block closes a pending request between the two, whoever sent it (FR-16.9).
+func (q *Queries) DeclineRequestBetween(ctx context.Context, arg DeclineRequestBetweenParams) error {
+	_, err := q.db.Exec(ctx, declineRequestBetween, arg.A, arg.B)
+	return err
 }
 
 const directExists = `-- name: DirectExists :one
@@ -198,7 +227,9 @@ SELECT c.id, c.state, c.requested_by, c.last_message_at,
        COALESCE(p.full_name, '')::text AS full_name, p.headline, p.photo_file_id,
        (u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL)::boolean AS other_available,
        lm.sender_id AS last_sender_id, COALESCE(lm.preview, '')::text AS last_preview, lm.created_at AS last_created_at,
-       unread.n AS unread_count
+       unread.n AS unread_count,
+       EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = me.user_id AND b.blocked_id = o.user_id)::boolean AS blocked_by_me,
+       EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = o.user_id AND b.blocked_id = me.user_id)::boolean AS blocked_me
 FROM conversation_members me
 JOIN conversations c ON c.id = me.conversation_id
 JOIN conversation_members o ON o.conversation_id = c.id AND o.user_id <> me.user_id
@@ -238,6 +269,8 @@ type FindItemRow struct {
 	LastPreview    string
 	LastCreatedAt  pgtype.Timestamptz
 	UnreadCount    int64
+	BlockedByMe    bool
+	BlockedMe      bool
 }
 
 func (q *Queries) FindItem(ctx context.Context, arg FindItemParams) (FindItemRow, error) {
@@ -258,6 +291,80 @@ func (q *Queries) FindItem(ctx context.Context, arg FindItemParams) (FindItemRow
 		&i.LastPreview,
 		&i.LastCreatedAt,
 		&i.UnreadCount,
+		&i.BlockedByMe,
+		&i.BlockedMe,
+	)
+	return i, err
+}
+
+const findMessageSender = `-- name: FindMessageSender :one
+SELECT sender_id FROM messages WHERE conversation_id = $1 AND id = $2
+`
+
+type FindMessageSenderParams struct {
+	ConversationID pgtype.UUID
+	ID             pgtype.UUID
+}
+
+func (q *Queries) FindMessageSender(ctx context.Context, arg FindMessageSenderParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, findMessageSender, arg.ConversationID, arg.ID)
+	var sender_id pgtype.UUID
+	err := row.Scan(&sender_id)
+	return sender_id, err
+}
+
+const findReport = `-- name: FindReport :one
+SELECT r.id, r.conversation_id, r.reason, r.details, r.message_id, r.created_at,
+       r.outcome, r.resolution_note, r.resolved_at,
+       r.reporter_id, COALESCE(rp.full_name, '')::text AS reporter_name, rp.headline AS reporter_headline, rp.photo_file_id AS reporter_photo,
+       r.reported_id, COALESCE(dp.full_name, '')::text AS reported_name, dp.headline AS reported_headline, dp.photo_file_id AS reported_photo
+FROM message_reports r
+LEFT JOIN profiles rp ON rp.user_id = r.reporter_id
+LEFT JOIN profiles dp ON dp.user_id = r.reported_id
+WHERE r.id = $1
+`
+
+type FindReportRow struct {
+	ID               pgtype.UUID
+	ConversationID   pgtype.UUID
+	Reason           string
+	Details          pgtype.Text
+	MessageID        pgtype.UUID
+	CreatedAt        pgtype.Timestamptz
+	Outcome          pgtype.Text
+	ResolutionNote   pgtype.Text
+	ResolvedAt       pgtype.Timestamptz
+	ReporterID       pgtype.UUID
+	ReporterName     string
+	ReporterHeadline pgtype.Text
+	ReporterPhoto    pgtype.UUID
+	ReportedID       pgtype.UUID
+	ReportedName     string
+	ReportedHeadline pgtype.Text
+	ReportedPhoto    pgtype.UUID
+}
+
+func (q *Queries) FindReport(ctx context.Context, id pgtype.UUID) (FindReportRow, error) {
+	row := q.db.QueryRow(ctx, findReport, id)
+	var i FindReportRow
+	err := row.Scan(
+		&i.ID,
+		&i.ConversationID,
+		&i.Reason,
+		&i.Details,
+		&i.MessageID,
+		&i.CreatedAt,
+		&i.Outcome,
+		&i.ResolutionNote,
+		&i.ResolvedAt,
+		&i.ReporterID,
+		&i.ReporterName,
+		&i.ReporterHeadline,
+		&i.ReporterPhoto,
+		&i.ReportedID,
+		&i.ReportedName,
+		&i.ReportedHeadline,
+		&i.ReportedPhoto,
 	)
 	return i, err
 }
@@ -344,13 +451,63 @@ func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (I
 	return i, err
 }
 
+const insertReport = `-- name: InsertReport :one
+INSERT INTO message_reports (conversation_id, reporter_id, reported_id, message_id, reason, details)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, created_at
+`
+
+type InsertReportParams struct {
+	ConversationID pgtype.UUID
+	ReporterID     pgtype.UUID
+	ReportedID     pgtype.UUID
+	MessageID      pgtype.UUID
+	Reason         string
+	Details        pgtype.Text
+}
+
+type InsertReportRow struct {
+	ID        pgtype.UUID
+	CreatedAt pgtype.Timestamptz
+}
+
+func (q *Queries) InsertReport(ctx context.Context, arg InsertReportParams) (InsertReportRow, error) {
+	row := q.db.QueryRow(ctx, insertReport,
+		arg.ConversationID,
+		arg.ReporterID,
+		arg.ReportedID,
+		arg.MessageID,
+		arg.Reason,
+		arg.Details,
+	)
+	var i InsertReportRow
+	err := row.Scan(&i.ID, &i.CreatedAt)
+	return i, err
+}
+
+const insertReportView = `-- name: InsertReportView :exec
+INSERT INTO message_report_views (report_id, admin_id) VALUES ($1, $2)
+`
+
+type InsertReportViewParams struct {
+	ReportID pgtype.UUID
+	AdminID  pgtype.UUID
+}
+
+func (q *Queries) InsertReportView(ctx context.Context, arg InsertReportViewParams) error {
+	_, err := q.db.Exec(ctx, insertReportView, arg.ReportID, arg.AdminID)
+	return err
+}
+
 const listItems = `-- name: ListItems :many
 SELECT c.id, c.state, c.requested_by, c.last_message_at,
        o.user_id AS other_id, o.last_read_message_id AS other_read_id,
        COALESCE(p.full_name, '')::text AS full_name, p.headline, p.photo_file_id,
        (u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL)::boolean AS other_available,
        lm.sender_id AS last_sender_id, COALESCE(lm.preview, '')::text AS last_preview, lm.created_at AS last_created_at,
-       unread.n AS unread_count
+       unread.n AS unread_count,
+       EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = me.user_id AND b.blocked_id = o.user_id)::boolean AS blocked_by_me,
+       EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = o.user_id AND b.blocked_id = me.user_id)::boolean AS blocked_me
 FROM conversation_members me
 JOIN conversations c ON c.id = me.conversation_id
 JOIN conversation_members o ON o.conversation_id = c.id AND o.user_id <> me.user_id
@@ -402,6 +559,8 @@ type ListItemsRow struct {
 	LastPreview    string
 	LastCreatedAt  pgtype.Timestamptz
 	UnreadCount    int64
+	BlockedByMe    bool
+	BlockedMe      bool
 }
 
 // The columns and joins of FindItem. A request whose sender is no longer verified or is
@@ -437,6 +596,8 @@ func (q *Queries) ListItems(ctx context.Context, arg ListItemsParams) ([]ListIte
 			&i.LastPreview,
 			&i.LastCreatedAt,
 			&i.UnreadCount,
+			&i.BlockedByMe,
+			&i.BlockedMe,
 		); err != nil {
 			return nil, err
 		}
@@ -495,6 +656,145 @@ func (q *Queries) ListMessages(ctx context.Context, arg ListMessagesParams) ([]L
 			&i.Body,
 			&i.ClientID,
 			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listReportedMessages = `-- name: ListReportedMessages :many
+SELECT m.id, m.conversation_id, m.sender_id, m.body, m.client_id, m.created_at
+FROM message_reports r
+JOIN messages m ON m.conversation_id = r.conversation_id AND m.created_at <= r.created_at
+WHERE r.id = $1
+  AND (NOT $2::boolean OR m.id < $3::uuid)
+ORDER BY m.id DESC
+LIMIT $4
+`
+
+type ListReportedMessagesParams struct {
+	ReportID  pgtype.UUID
+	HasBefore bool
+	BeforeID  pgtype.UUID
+	Lim       int32
+}
+
+type ListReportedMessagesRow struct {
+	ID             pgtype.UUID
+	ConversationID pgtype.UUID
+	SenderID       pgtype.UUID
+	Body           string
+	ClientID       pgtype.UUID
+	CreatedAt      pgtype.Timestamptz
+}
+
+// The one way an administrator reads a conversation (NFR-14): it starts from a report, so a
+// conversation without one is out of reach, and stops at the report's moment.
+func (q *Queries) ListReportedMessages(ctx context.Context, arg ListReportedMessagesParams) ([]ListReportedMessagesRow, error) {
+	rows, err := q.db.Query(ctx, listReportedMessages,
+		arg.ReportID,
+		arg.HasBefore,
+		arg.BeforeID,
+		arg.Lim,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListReportedMessagesRow
+	for rows.Next() {
+		var i ListReportedMessagesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ConversationID,
+			&i.SenderID,
+			&i.Body,
+			&i.ClientID,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listReports = `-- name: ListReports :many
+SELECT r.id, r.conversation_id, r.reason, r.details, r.message_id, r.created_at,
+       r.outcome, r.resolution_note, r.resolved_at,
+       r.reporter_id, COALESCE(rp.full_name, '')::text AS reporter_name, rp.headline AS reporter_headline, rp.photo_file_id AS reporter_photo,
+       r.reported_id, COALESCE(dp.full_name, '')::text AS reported_name, dp.headline AS reported_headline, dp.photo_file_id AS reported_photo
+FROM message_reports r
+LEFT JOIN profiles rp ON rp.user_id = r.reporter_id
+LEFT JOIN profiles dp ON dp.user_id = r.reported_id
+WHERE (r.resolved_at IS NULL) = $1::boolean
+ORDER BY r.created_at DESC, r.id DESC
+LIMIT $3 OFFSET $2
+`
+
+type ListReportsParams struct {
+	Open bool
+	Off  int32
+	Lim  int32
+}
+
+type ListReportsRow struct {
+	ID               pgtype.UUID
+	ConversationID   pgtype.UUID
+	Reason           string
+	Details          pgtype.Text
+	MessageID        pgtype.UUID
+	CreatedAt        pgtype.Timestamptz
+	Outcome          pgtype.Text
+	ResolutionNote   pgtype.Text
+	ResolvedAt       pgtype.Timestamptz
+	ReporterID       pgtype.UUID
+	ReporterName     string
+	ReporterHeadline pgtype.Text
+	ReporterPhoto    pgtype.UUID
+	ReportedID       pgtype.UUID
+	ReportedName     string
+	ReportedHeadline pgtype.Text
+	ReportedPhoto    pgtype.UUID
+}
+
+// message_reports_status_idx serves this. The two people are shown whatever their state:
+// an administrator must be able to review a report about a suspended user.
+func (q *Queries) ListReports(ctx context.Context, arg ListReportsParams) ([]ListReportsRow, error) {
+	rows, err := q.db.Query(ctx, listReports, arg.Open, arg.Off, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListReportsRow
+	for rows.Next() {
+		var i ListReportsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ConversationID,
+			&i.Reason,
+			&i.Details,
+			&i.MessageID,
+			&i.CreatedAt,
+			&i.Outcome,
+			&i.ResolutionNote,
+			&i.ResolvedAt,
+			&i.ReporterID,
+			&i.ReporterName,
+			&i.ReporterHeadline,
+			&i.ReporterPhoto,
+			&i.ReportedID,
+			&i.ReportedName,
+			&i.ReportedHeadline,
+			&i.ReportedPhoto,
 		); err != nil {
 			return nil, err
 		}
@@ -594,6 +894,32 @@ type MoveReadMarkerParams struct {
 // Forward only: a marker never moves back to an earlier message.
 func (q *Queries) MoveReadMarker(ctx context.Context, arg MoveReadMarkerParams) (int64, error) {
 	result, err := q.db.Exec(ctx, moveReadMarker, arg.MessageID, arg.ConversationID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const resolveReport = `-- name: ResolveReport :execrows
+UPDATE message_reports
+SET resolved_at = now(), resolved_by = $1, outcome = $2, resolution_note = $3
+WHERE id = $4 AND resolved_at IS NULL
+`
+
+type ResolveReportParams struct {
+	AdminID pgtype.UUID
+	Outcome pgtype.Text
+	Note    pgtype.Text
+	ID      pgtype.UUID
+}
+
+func (q *Queries) ResolveReport(ctx context.Context, arg ResolveReportParams) (int64, error) {
+	result, err := q.db.Exec(ctx, resolveReport,
+		arg.AdminID,
+		arg.Outcome,
+		arg.Note,
+		arg.ID,
+	)
 	if err != nil {
 		return 0, err
 	}

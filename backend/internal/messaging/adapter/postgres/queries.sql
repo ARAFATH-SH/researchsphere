@@ -45,6 +45,13 @@ SET state = 'active'
 WHERE user_low = LEAST(@a::uuid, @b::uuid) AND user_high = GREATEST(@a::uuid, @b::uuid)
   AND state = 'request';
 
+-- name: DeclineRequestBetween :exec
+-- A block closes a pending request between the two, whoever sent it (FR-16.9).
+UPDATE conversations
+SET state = 'declined'
+WHERE user_low = LEAST(@a::uuid, @b::uuid) AND user_high = GREATEST(@a::uuid, @b::uuid)
+  AND state = 'request';
+
 -- name: InsertMessage :one
 -- ON CONFLICT also settles two sends of one client_id at the same moment. The ID comes
 -- from uuid_v7() here, after the conversation's row is locked, so IDs follow commit order
@@ -78,7 +85,9 @@ SELECT c.id, c.state, c.requested_by, c.last_message_at,
        COALESCE(p.full_name, '')::text AS full_name, p.headline, p.photo_file_id,
        (u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL)::boolean AS other_available,
        lm.sender_id AS last_sender_id, COALESCE(lm.preview, '')::text AS last_preview, lm.created_at AS last_created_at,
-       unread.n AS unread_count
+       unread.n AS unread_count,
+       EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = me.user_id AND b.blocked_id = o.user_id)::boolean AS blocked_by_me,
+       EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = o.user_id AND b.blocked_id = me.user_id)::boolean AS blocked_me
 FROM conversation_members me
 JOIN conversations c ON c.id = me.conversation_id
 JOIN conversation_members o ON o.conversation_id = c.id AND o.user_id <> me.user_id
@@ -105,7 +114,9 @@ SELECT c.id, c.state, c.requested_by, c.last_message_at,
        COALESCE(p.full_name, '')::text AS full_name, p.headline, p.photo_file_id,
        (u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL)::boolean AS other_available,
        lm.sender_id AS last_sender_id, COALESCE(lm.preview, '')::text AS last_preview, lm.created_at AS last_created_at,
-       unread.n AS unread_count
+       unread.n AS unread_count,
+       EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = me.user_id AND b.blocked_id = o.user_id)::boolean AS blocked_by_me,
+       EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = o.user_id AND b.blocked_id = me.user_id)::boolean AS blocked_me
 FROM conversation_members me
 JOIN conversations c ON c.id = me.conversation_id
 JOIN conversation_members o ON o.conversation_id = c.id AND o.user_id <> me.user_id
@@ -170,3 +181,57 @@ JOIN conversations c ON c.id = me.conversation_id
     AND c.state = 'request' AND c.requested_by <> me.user_id
 JOIN users r ON r.id = c.requested_by
 WHERE me.user_id = @user_id AND r.email_verified_at IS NOT NULL AND r.suspended_at IS NULL;
+
+-- name: FindMessageSender :one
+SELECT sender_id FROM messages WHERE conversation_id = @conversation_id AND id = @id;
+
+-- name: InsertReport :one
+INSERT INTO message_reports (conversation_id, reporter_id, reported_id, message_id, reason, details)
+VALUES (@conversation_id, @reporter_id, @reported_id, sqlc.narg('message_id'), @reason, sqlc.narg('details'))
+RETURNING id, created_at;
+
+-- name: ListReports :many
+-- message_reports_status_idx serves this. The two people are shown whatever their state:
+-- an administrator must be able to review a report about a suspended user.
+SELECT r.id, r.conversation_id, r.reason, r.details, r.message_id, r.created_at,
+       r.outcome, r.resolution_note, r.resolved_at,
+       r.reporter_id, COALESCE(rp.full_name, '')::text AS reporter_name, rp.headline AS reporter_headline, rp.photo_file_id AS reporter_photo,
+       r.reported_id, COALESCE(dp.full_name, '')::text AS reported_name, dp.headline AS reported_headline, dp.photo_file_id AS reported_photo
+FROM message_reports r
+LEFT JOIN profiles rp ON rp.user_id = r.reporter_id
+LEFT JOIN profiles dp ON dp.user_id = r.reported_id
+WHERE (r.resolved_at IS NULL) = @open::boolean
+ORDER BY r.created_at DESC, r.id DESC
+LIMIT @lim OFFSET @off;
+
+-- name: CountReports :one
+SELECT count(*) FROM message_reports r WHERE (r.resolved_at IS NULL) = @open::boolean;
+
+-- name: FindReport :one
+SELECT r.id, r.conversation_id, r.reason, r.details, r.message_id, r.created_at,
+       r.outcome, r.resolution_note, r.resolved_at,
+       r.reporter_id, COALESCE(rp.full_name, '')::text AS reporter_name, rp.headline AS reporter_headline, rp.photo_file_id AS reporter_photo,
+       r.reported_id, COALESCE(dp.full_name, '')::text AS reported_name, dp.headline AS reported_headline, dp.photo_file_id AS reported_photo
+FROM message_reports r
+LEFT JOIN profiles rp ON rp.user_id = r.reporter_id
+LEFT JOIN profiles dp ON dp.user_id = r.reported_id
+WHERE r.id = @id;
+
+-- name: ListReportedMessages :many
+-- The one way an administrator reads a conversation (NFR-14): it starts from a report, so a
+-- conversation without one is out of reach, and stops at the report's moment.
+SELECT m.id, m.conversation_id, m.sender_id, m.body, m.client_id, m.created_at
+FROM message_reports r
+JOIN messages m ON m.conversation_id = r.conversation_id AND m.created_at <= r.created_at
+WHERE r.id = @report_id
+  AND (NOT @has_before::boolean OR m.id < @before_id::uuid)
+ORDER BY m.id DESC
+LIMIT @lim;
+
+-- name: InsertReportView :exec
+INSERT INTO message_report_views (report_id, admin_id) VALUES (@report_id, @admin_id);
+
+-- name: ResolveReport :execrows
+UPDATE message_reports
+SET resolved_at = now(), resolved_by = @admin_id, outcome = @outcome, resolution_note = sqlc.narg('note')
+WHERE id = @id AND resolved_at IS NULL;

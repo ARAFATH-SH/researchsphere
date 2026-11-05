@@ -131,7 +131,7 @@ func newMediaEnvOnPool(t *testing.T, pool *pgxpool.Pool, openAlexURL, orcidURL s
 		limits = *opt.messageLimits
 	}
 	connected := &connectionChecker{}
-	messaging := messagingusecase.New(messagingpg.NewStore(pool), postgres.NewTransactor(pool), connected, messageLimiter,
+	messaging := messagingusecase.New(messagingpg.NewStore(pool), postgres.NewTransactor(pool), connected, connected, messageLimiter,
 		messagingusecase.NopPublisher{}, limits, logger)
 	var notifier socialdomain.Notifier = connectionNotifier{notifications: notifications, messaging: messaging}
 	if opt.wrapNotifier != nil {

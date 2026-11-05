@@ -19,6 +19,9 @@ type fakeStore struct {
 	messages      []domain.Message
 	seq           int
 	failAdd       error
+	reports       []domain.Report
+	views         [][2]string // report, admin
+	failView      error
 	duplicateAdd  bool // AddMessage reports a client ID used by a racing send
 	calls         []string
 }
@@ -257,6 +260,29 @@ func (t fakeTx) InTx(ctx context.Context, fn func(context.Context) error) error 
 	return err
 }
 
+// fakeBlocks holds blocks as blocker|blocked, and counts locks. onLock runs under the first
+// lock, for a block that commits while a send waits for it.
+type fakeBlocks struct {
+	set    map[string]bool
+	locks  int
+	onLock func()
+}
+
+func newFakeBlocks() *fakeBlocks { return &fakeBlocks{set: map[string]bool{}} }
+
+func (b *fakeBlocks) Lock(context.Context, string, string) error {
+	b.locks++
+	if b.onLock != nil {
+		b.onLock()
+		b.onLock = nil
+	}
+	return nil
+}
+
+func (b *fakeBlocks) Between(_ context.Context, me, other string) (domain.BlockState, error) {
+	return domain.BlockState{ByMe: b.set[me+"|"+other], ByThem: b.set[other+"|"+me]}, nil
+}
+
 type fakeConnections map[string]bool
 
 func (f fakeConnections) Connected(_ context.Context, a, b string) (bool, error) {
@@ -306,4 +332,77 @@ func (f *fakePublisher) RequestAccepted(_ context.Context, id string, to []strin
 
 func (f *fakePublisher) RequestDeclined(_ context.Context, id string, to []string) {
 	f.events = append(f.events, fmt.Sprintf("declined %s to %v", id, to))
+}
+
+func (f *fakeStore) DeclineRequests(_ context.Context, a, b string) error {
+	if c := f.pair(a, b); c != nil && c.state == domain.StateRequest {
+		c.state = domain.StateDeclined
+	}
+	return nil
+}
+
+func (f *fakeStore) FindMessageSender(_ context.Context, conversationID, messageID string) (string, bool, error) {
+	for _, m := range f.messages {
+		if m.ConversationID == conversationID && m.ID == messageID {
+			return m.SenderID, true, nil
+		}
+	}
+	return "", false, nil
+}
+
+func (f *fakeStore) InsertReport(_ context.Context, r domain.NewReport) (string, time.Time, error) {
+	f.seq++
+	id, at := fmt.Sprintf("00000000-0000-0000-0000-9%011d", f.seq), reportClock(f.seq)
+	f.reports = append(f.reports, domain.Report{ID: id, ConversationID: r.ConversationID, Reason: r.Reason, Details: r.Details,
+		MessageID: r.MessageID, CreatedAt: at, Reporter: domain.ReportPerson{UserID: r.ReporterID}, Reported: domain.ReportPerson{UserID: r.ReportedID}})
+	return id, at, nil
+}
+
+func reportClock(n int) time.Time { return time.Date(2026, 11, 5, 9, 0, n, 0, time.UTC) }
+
+func (f *fakeStore) ListReports(_ context.Context, open bool, limit, offset int) ([]domain.Report, int, error) {
+	var all []domain.Report
+	for _, r := range f.reports {
+		if (r.ResolvedAt == nil) == open {
+			all = append(all, r)
+		}
+	}
+	return all[min(offset, len(all)):min(offset+limit, len(all))], len(all), nil
+}
+
+func (f *fakeStore) FindReport(_ context.Context, id string) (domain.Report, error) {
+	for _, r := range f.reports {
+		if r.ID == id {
+			return r, nil
+		}
+	}
+	return domain.Report{}, domain.ErrNotFound
+}
+
+// ListReportedMessages ignores the moment: the real query's cut-off has its own test.
+func (f *fakeStore) ListReportedMessages(ctx context.Context, reportID, before string, limit int) ([]domain.Message, error) {
+	r, err := f.FindReport(ctx, reportID)
+	if err != nil {
+		return nil, err
+	}
+	return f.ListMessages(ctx, r.ConversationID, before, limit)
+}
+
+func (f *fakeStore) AddReportView(_ context.Context, reportID, adminID string) error {
+	if f.failView != nil {
+		return f.failView
+	}
+	f.views = append(f.views, [2]string{reportID, adminID})
+	return nil
+}
+
+func (f *fakeStore) ResolveReport(_ context.Context, id, _ string, outcome domain.ReportOutcome, note *string) (bool, error) {
+	for i := range f.reports {
+		if r := &f.reports[i]; r.ID == id && r.ResolvedAt == nil {
+			at := reportClock(59)
+			r.ResolvedAt, r.Outcome, r.Note = &at, &outcome, note
+			return true, nil
+		}
+	}
+	return false, nil
 }

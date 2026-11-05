@@ -28,9 +28,15 @@ func (okSocial) Accept(context.Context, string, string) (socialdomain.Connection
 	return socialdomain.Connection{Other: okPerson}, nil
 }
 
-func (okSocial) Reject(context.Context, string, string) error { return nil }
-func (okSocial) Cancel(context.Context, string, string) error { return nil }
-func (okSocial) Remove(context.Context, string, string) error { return nil }
+func (okSocial) Reject(context.Context, string, string) error  { return nil }
+func (okSocial) Cancel(context.Context, string, string) error  { return nil }
+func (okSocial) Remove(context.Context, string, string) error  { return nil }
+func (okSocial) Block(context.Context, string, string) error   { return nil }
+func (okSocial) Unblock(context.Context, string, string) error { return nil }
+
+func (okSocial) ListBlocks(_ context.Context, _ string, page int) (socialdomain.BlockedPage, error) {
+	return socialdomain.BlockedPage{Page: page, PageSize: 20}, nil
+}
 
 func (okSocial) ListConnections(_ context.Context, _ string, page int) (socialdomain.ConnectionPage, error) {
 	return socialdomain.ConnectionPage{Page: page, PageSize: 20}, nil

@@ -276,6 +276,34 @@ func (fakeAPI) SendMessage(context.Context, gen.SendMessageRequestObject) (gen.S
 	return gen.SendMessage201JSONResponse{}, nil
 }
 
+func (fakeAPI) BlockUser(context.Context, gen.BlockUserRequestObject) (gen.BlockUserResponseObject, error) {
+	return gen.BlockUser204Response{}, nil
+}
+
+func (fakeAPI) UnblockUser(context.Context, gen.UnblockUserRequestObject) (gen.UnblockUserResponseObject, error) {
+	return gen.UnblockUser204Response{}, nil
+}
+
+func (fakeAPI) ListBlockedPeople(context.Context, gen.ListBlockedPeopleRequestObject) (gen.ListBlockedPeopleResponseObject, error) {
+	return gen.ListBlockedPeople200JSONResponse{}, nil
+}
+
+func (fakeAPI) ReportConversation(context.Context, gen.ReportConversationRequestObject) (gen.ReportConversationResponseObject, error) {
+	return gen.ReportConversation201JSONResponse{}, nil
+}
+
+func (fakeAPI) ListMessageReports(context.Context, gen.ListMessageReportsRequestObject) (gen.ListMessageReportsResponseObject, error) {
+	return gen.ListMessageReports200JSONResponse{}, nil
+}
+
+func (fakeAPI) GetMessageReport(context.Context, gen.GetMessageReportRequestObject) (gen.GetMessageReportResponseObject, error) {
+	return gen.GetMessageReport200JSONResponse{}, nil
+}
+
+func (fakeAPI) ResolveMessageReport(context.Context, gen.ResolveMessageReportRequestObject) (gen.ResolveMessageReportResponseObject, error) {
+	return gen.ResolveMessageReport200JSONResponse{}, nil
+}
+
 func (fakeAPI) GetMessageUnreadCount(context.Context, gen.GetMessageUnreadCountRequestObject) (gen.GetMessageUnreadCountResponseObject, error) {
 	return gen.GetMessageUnreadCount200JSONResponse{}, nil
 }
@@ -696,8 +724,8 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 
 func TestRoutes(t *testing.T) {
 	got := Routes()
-	if len(got) != 73 {
-		t.Errorf("Routes() returned %d routes, want the 73 operations in the contract: %v", len(got), got)
+	if len(got) != 80 {
+		t.Errorf("Routes() returned %d routes, want the 80 operations in the contract: %v", len(got), got)
 	}
 	seen := map[string]bool{}
 	for _, p := range got {

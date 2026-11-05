@@ -112,7 +112,7 @@ type service interface {
 	UpdatePublication(ctx context.Context, userID, id string, patch usecase.PublicationPatch) (domain.Publication, error)
 	RemovePublication(ctx context.Context, userID, id string) error
 	ListOwnPublications(ctx context.Context, userID string, page, pageSize int) (domain.PublicationPage, error)
-	ListPublications(ctx context.Context, userID string, page, pageSize int) (domain.PublicationPage, error)
+	ListPublications(ctx context.Context, viewerID, userID string, page, pageSize int) (domain.PublicationPage, error)
 	LookupDOI(ctx context.Context, userID, doi string) (usecase.DOIPreview, error)
 	AddPublicationFromDOI(ctx context.Context, userID, doi string) (usecase.AddedPublication, error)
 	SetOrcidID(ctx context.Context, userID string, orcidID *string) (*string, error)
@@ -293,6 +293,7 @@ func profileBody(p domain.Profile) (gen.Profile, error) {
 		ConnectionStatus:    status,
 		ConnectionRequestId: requestID,
 		ConnectionCount:     p.ConnectionCount,
+		BlockedByMe:         &p.BlockedByMe,
 		Contact:             contact,
 		PhotoUrl:            mediaURL(p.PhotoFileID),
 		CoverUrl:            mediaURL(p.CoverFileID),

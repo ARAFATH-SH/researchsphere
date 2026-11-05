@@ -277,6 +277,10 @@ func (n failingNotifier) RequestWithdrawn(ctx context.Context, id string) error 
 	return n.after(n.next.RequestWithdrawn(ctx, id))
 }
 
+func (n failingNotifier) Blocked(ctx context.Context, blockerID, blockedID string) error {
+	return n.after(n.next.Blocked(ctx, blockerID, blockedID))
+}
+
 // The notification and the connection change commit together: when the notifier fails
 // after writing, neither the change nor the notification is stored (FR-9.1).
 func TestNotificationsCommitWithConnectionChange(t *testing.T) {

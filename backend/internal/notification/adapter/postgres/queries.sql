@@ -16,6 +16,11 @@ ON CONFLICT (user_id, actor_id, type)
 -- name: DeleteNotificationsBySubject :exec
 DELETE FROM notifications WHERE type = @type AND entity_id = @entity_id;
 
+-- name: DeleteNotificationsBetween :exec
+-- Everything either user was told about the other, of any type (FR-16.9).
+DELETE FROM notifications
+WHERE (user_id = @a AND actor_id = @b) OR (user_id = @b AND actor_id = @a);
+
 -- name: ListNotifications :many
 -- Newest first, then by id, after the cursor when has_cursor; notifications_user_idx
 -- serves the order. request_pending is the state of the connection request a received

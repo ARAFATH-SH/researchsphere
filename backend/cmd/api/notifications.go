@@ -37,3 +37,12 @@ func (n connectionNotifier) RequestAccepted(ctx context.Context, r socialdomain.
 func (n connectionNotifier) RequestWithdrawn(ctx context.Context, requestID string) error {
 	return n.notifications.ConnectionRequestWithdrawn(ctx, requestID)
 }
+
+// Blocked takes back everything the two were told about each other and declines a pending
+// message request between them (FR-16.9), inside the block's transaction.
+func (n connectionNotifier) Blocked(ctx context.Context, blockerID, blockedID string) error {
+	if err := n.notifications.RemoveBetween(ctx, blockerID, blockedID); err != nil {
+		return err
+	}
+	return n.messaging.DeclineRequests(ctx, blockerID, blockedID)
+}

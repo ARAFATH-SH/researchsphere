@@ -11,6 +11,24 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const addBlock = `-- name: AddBlock :execrows
+INSERT INTO blocks (blocker_id, blocked_id) VALUES ($1, $2)
+ON CONFLICT (blocker_id, blocked_id) DO NOTHING
+`
+
+type AddBlockParams struct {
+	BlockerID pgtype.UUID
+	BlockedID pgtype.UUID
+}
+
+func (q *Queries) AddBlock(ctx context.Context, arg AddBlockParams) (int64, error) {
+	result, err := q.db.Exec(ctx, addBlock, arg.BlockerID, arg.BlockedID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const answerRequest = `-- name: AnswerRequest :one
 UPDATE connections c
 SET status = $1, responded_at = now()
@@ -48,6 +66,28 @@ func (q *Queries) AnswerRequest(ctx context.Context, arg AnswerRequestParams) (A
 	return i, err
 }
 
+const blockBetween = `-- name: BlockBetween :one
+SELECT EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = $1::uuid AND b.blocked_id = $2::uuid)::boolean AS by_me,
+       EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = $2::uuid AND b.blocked_id = $1::uuid)::boolean AS by_them
+`
+
+type BlockBetweenParams struct {
+	Me    pgtype.UUID
+	Other pgtype.UUID
+}
+
+type BlockBetweenRow struct {
+	ByMe   bool
+	ByThem bool
+}
+
+func (q *Queries) BlockBetween(ctx context.Context, arg BlockBetweenParams) (BlockBetweenRow, error) {
+	row := q.db.QueryRow(ctx, blockBetween, arg.Me, arg.Other)
+	var i BlockBetweenRow
+	err := row.Scan(&i.ByMe, &i.ByThem)
+	return i, err
+}
+
 const cancelRequest = `-- name: CancelRequest :execrows
 DELETE FROM connections
 WHERE id = $1 AND requester_id = $2 AND status = 'pending'
@@ -68,16 +108,37 @@ func (q *Queries) CancelRequest(ctx context.Context, arg CancelRequestParams) (i
 	return result.RowsAffected(), nil
 }
 
+const countBlocks = `-- name: CountBlocks :one
+SELECT count(*)
+FROM blocks b
+JOIN users o ON o.id = b.blocked_id
+WHERE b.blocker_id = $1
+  AND o.email_verified_at IS NOT NULL AND o.suspended_at IS NULL
+`
+
+func (q *Queries) CountBlocks(ctx context.Context, userID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countBlocks, userID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countConnections = `-- name: CountConnections :one
 SELECT count(*)
 FROM connections c
 JOIN users o ON o.id = CASE WHEN c.requester_id = $1::uuid THEN c.receiver_id ELSE c.requester_id END
 WHERE (c.requester_id = $1::uuid OR c.receiver_id = $1::uuid) AND c.status = 'accepted'
   AND o.email_verified_at IS NOT NULL AND o.suspended_at IS NULL
+  AND NOT EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = o.id AND b.blocked_id = $2::uuid)
 `
 
-func (q *Queries) CountConnections(ctx context.Context, userID pgtype.UUID) (int64, error) {
-	row := q.db.QueryRow(ctx, countConnections, userID)
+type CountConnectionsParams struct {
+	UserID   pgtype.UUID
+	ViewerID pgtype.UUID
+}
+
+func (q *Queries) CountConnections(ctx context.Context, arg CountConnectionsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countConnections, arg.UserID, arg.ViewerID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -203,6 +264,61 @@ func (q *Queries) FindPerson(ctx context.Context, id pgtype.UUID) (FindPersonRow
 	return i, err
 }
 
+const listBlocks = `-- name: ListBlocks :many
+SELECT b.created_at, o.id AS other_id, COALESCE(p.full_name, '')::text AS full_name,
+       p.headline, p.institution, p.photo_file_id
+FROM blocks b
+JOIN users o ON o.id = b.blocked_id
+LEFT JOIN profiles p ON p.user_id = o.id
+WHERE b.blocker_id = $1
+  AND o.email_verified_at IS NOT NULL AND o.suspended_at IS NULL
+ORDER BY b.created_at DESC, o.id DESC
+LIMIT $3 OFFSET $2
+`
+
+type ListBlocksParams struct {
+	UserID pgtype.UUID
+	Off    int32
+	Lim    int32
+}
+
+type ListBlocksRow struct {
+	CreatedAt   pgtype.Timestamptz
+	OtherID     pgtype.UUID
+	FullName    string
+	Headline    pgtype.Text
+	Institution pgtype.Text
+	PhotoFileID pgtype.UUID
+}
+
+// Most recently blocked first; suspended and unverified users are left out, as in every list.
+func (q *Queries) ListBlocks(ctx context.Context, arg ListBlocksParams) ([]ListBlocksRow, error) {
+	rows, err := q.db.Query(ctx, listBlocks, arg.UserID, arg.Off, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListBlocksRow
+	for rows.Next() {
+		var i ListBlocksRow
+		if err := rows.Scan(
+			&i.CreatedAt,
+			&i.OtherID,
+			&i.FullName,
+			&i.Headline,
+			&i.Institution,
+			&i.PhotoFileID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listConnections = `-- name: ListConnections :many
 SELECT c.id, c.responded_at, o.id AS other_id, COALESCE(p.full_name, '')::text AS full_name,
        p.headline, p.institution, p.photo_file_id
@@ -211,14 +327,16 @@ JOIN users o ON o.id = CASE WHEN c.requester_id = $1::uuid THEN c.receiver_id EL
 LEFT JOIN profiles p ON p.user_id = o.id
 WHERE (c.requester_id = $1::uuid OR c.receiver_id = $1::uuid) AND c.status = 'accepted'
   AND o.email_verified_at IS NOT NULL AND o.suspended_at IS NULL
+  AND NOT EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = o.id AND b.blocked_id = $2::uuid)
 ORDER BY c.responded_at DESC, c.id DESC
-LIMIT $3 OFFSET $2
+LIMIT $4 OFFSET $3
 `
 
 type ListConnectionsParams struct {
-	UserID pgtype.UUID
-	Off    int32
-	Lim    int32
+	UserID   pgtype.UUID
+	ViewerID pgtype.UUID
+	Off      int32
+	Lim      int32
 }
 
 type ListConnectionsRow struct {
@@ -231,9 +349,15 @@ type ListConnectionsRow struct {
 	PhotoFileID pgtype.UUID
 }
 
-// Most recently connected first.
+// Most recently connected first, leaving out anyone who blocked the viewer (FR-16.9). On
+// the caller's own list the viewer is the user.
 func (q *Queries) ListConnections(ctx context.Context, arg ListConnectionsParams) ([]ListConnectionsRow, error) {
-	rows, err := q.db.Query(ctx, listConnections, arg.UserID, arg.Off, arg.Lim)
+	rows, err := q.db.Query(ctx, listConnections,
+		arg.UserID,
+		arg.ViewerID,
+		arg.Off,
+		arg.Lim,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -422,6 +546,38 @@ func (q *Queries) ListSent(ctx context.Context, arg ListSentParams) ([]ListSentR
 	return items, nil
 }
 
+const lockPair = `-- name: LockPair :exec
+SELECT pg_advisory_xact_lock(hashtextextended(LEAST($1::uuid, $2::uuid)::text || GREATEST($1::uuid, $2::uuid)::text, 0))
+`
+
+type LockPairParams struct {
+	A pgtype.UUID
+	B pgtype.UUID
+}
+
+// Runs blocks, connection requests and sends between two users one at a time (FR-16.9):
+// each takes this lock first in its transaction and reads the block in a later statement,
+// so nothing can pass the check once a block has committed. The key is the same whichever
+// way round the two are given.
+func (q *Queries) LockPair(ctx context.Context, arg LockPairParams) error {
+	_, err := q.db.Exec(ctx, lockPair, arg.A, arg.B)
+	return err
+}
+
+const removeBlock = `-- name: RemoveBlock :exec
+DELETE FROM blocks WHERE blocker_id = $1 AND blocked_id = $2
+`
+
+type RemoveBlockParams struct {
+	BlockerID pgtype.UUID
+	BlockedID pgtype.UUID
+}
+
+func (q *Queries) RemoveBlock(ctx context.Context, arg RemoveBlockParams) error {
+	_, err := q.db.Exec(ctx, removeBlock, arg.BlockerID, arg.BlockedID)
+	return err
+}
+
 const removeConnection = `-- name: RemoveConnection :execrows
 DELETE FROM connections
 WHERE LEAST(requester_id, receiver_id) = LEAST($1::uuid, $2::uuid)
@@ -440,6 +596,25 @@ func (q *Queries) RemoveConnection(ctx context.Context, arg RemoveConnectionPara
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const removeLiveLink = `-- name: RemoveLiveLink :exec
+DELETE FROM connections
+WHERE LEAST(requester_id, receiver_id) = LEAST($1::uuid, $2::uuid)
+  AND GREATEST(requester_id, receiver_id) = GREATEST($1::uuid, $2::uuid)
+  AND status IN ('pending', 'accepted')
+`
+
+type RemoveLiveLinkParams struct {
+	A pgtype.UUID
+	B pgtype.UUID
+}
+
+// The pending request or connection between two users, in either direction. A rejected row
+// stays as history (FR-7.6).
+func (q *Queries) RemoveLiveLink(ctx context.Context, arg RemoveLiveLinkParams) error {
+	_, err := q.db.Exec(ctx, removeLiveLink, arg.A, arg.B)
+	return err
 }
 
 const userVisible = `-- name: UserVisible :one

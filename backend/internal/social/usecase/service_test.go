@@ -327,7 +327,7 @@ func TestAccept(t *testing.T) {
 		}
 	}
 	for _, u := range []string{"ada", "bob"} {
-		if n, err := e.svc.CountConnections(ctx, u); err != nil || n != 1 {
+		if n, err := e.svc.CountConnections(ctx, u, u); err != nil || n != 1 {
 			t.Errorf("CountConnections(%s) = %d, %v; want 1", u, n, err)
 		}
 	}
@@ -588,7 +588,7 @@ func TestLists(t *testing.T) {
 	if v := conns.Items[0].Viewer; v.Status != domain.StatusConnected || v.RequestID != nil {
 		t.Errorf("own list item's relation %+v, want connected", v)
 	}
-	if n, _ := e.svc.CountConnections(ctx, "ada"); n != 1 {
+	if n, _ := e.svc.CountConnections(ctx, "ada", "ada"); n != 1 {
 		t.Errorf("CountConnections = %d, want 1", n)
 	}
 }

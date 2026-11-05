@@ -53,6 +53,11 @@ var _ gen.StrictServerInterface = handlers{}
 var platformGuards = map[string]authz.Action{
 	"GET /api/v1/admin/users": authz.SuspendUser, // listing users comes before suspending one (FR-15.3)
 
+	// Reported conversations (FR-16.9, NFR-14): the only way an administrator reads messages.
+	"GET /api/v1/admin/message-reports":                     authz.ReviewMessageReports,
+	"GET /api/v1/admin/message-reports/{reportId}":          authz.ReviewMessageReports,
+	"POST /api/v1/admin/message-reports/{reportId}/resolve": authz.ReviewMessageReports,
+
 	// Profiles (FR-4.1, FR-4.5): reading any profile, the caller's own included, is the
 	// row "View profiles, ..."; editing is the row "Edit own profile, ...".
 	"GET /api/v1/profiles/me":       authz.ViewContent,
@@ -140,7 +145,8 @@ var platformGuards = map[string]authz.Action{
 
 	// Messaging (FR-16): SRS 2.3 has no row for it. Reading one's own conversations is
 	// closest to "View ...", writing to "Edit own profile, connect, ...". Membership is
-	// checked on every operation by the usecase (NFR-14); no role gets more access.
+	// checked on every operation by the usecase (NFR-14); no role gets more access on these
+	// routes. An administrator reads a reported conversation through /admin/message-reports.
 	"POST /api/v1/messages/direct":                         authz.ActAsMember,
 	"GET /api/v1/messages/unread-count":                    authz.ViewContent,
 	"GET /api/v1/conversations":                            authz.ViewContent,
@@ -150,6 +156,13 @@ var platformGuards = map[string]authz.Action{
 	"POST /api/v1/conversations/{conversationId}/read":     authz.ActAsMember,
 	"POST /api/v1/conversations/{conversationId}/accept":   authz.ActAsMember,
 	"POST /api/v1/conversations/{conversationId}/decline":  authz.ActAsMember,
+	"POST /api/v1/conversations/{conversationId}/reports":  authz.ActAsMember,
+
+	// Blocks (FR-16.9): SRS 2.3 has no row for them. Blocking is closest to "Edit own
+	// profile, connect, ...", and reading one's own list to "View ...".
+	"POST /api/v1/blocks":            authz.ActAsMember,
+	"DELETE /api/v1/blocks/{userId}": authz.ActAsMember,
+	"GET /api/v1/blocks":             authz.ViewContent,
 }
 
 // multipartOverhead is what a multipart body may hold besides the file: boundaries, part

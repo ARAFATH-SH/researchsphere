@@ -88,11 +88,11 @@ func TestSendAcceptListRemove(t *testing.T) {
 		t.Error("the link is not accepted")
 	}
 	for _, pair := range [][2]string{{ada, bob}, {bob, ada}} {
-		conns, total, err := s.ListConnections(ctx, pair[0], 20, 0)
+		conns, total, err := s.ListConnections(ctx, pair[0], pair[0], 20, 0)
 		if err != nil || total != 1 || conns[0].Other.UserID != pair[1] || !conns[0].ConnectedAt.Equal(at) {
 			t.Errorf("connections of %s: %+v, %d, %v", pair[0], conns, total, err)
 		}
-		if n, _ := s.CountConnections(ctx, pair[0]); n != 1 {
+		if n, _ := s.CountConnections(ctx, pair[0], pair[0]); n != 1 {
 			t.Errorf("CountConnections = %d, want 1", n)
 		}
 	}
@@ -268,11 +268,11 @@ func TestHiddenUsersLeftOut(t *testing.T) {
 	}
 	exec(t, pool, "UPDATE users SET email_verified_at = NULL WHERE id = $1", unv)
 
-	conns, total, err := s.ListConnections(ctx, ada, 20, 0)
+	conns, total, err := s.ListConnections(ctx, ada, ada, 20, 0)
 	if err != nil || total != 1 || len(conns) != 1 || conns[0].Other.UserID != friend {
 		t.Errorf("connections: %+v, %d, %v; want only Friend", conns, total, err)
 	}
-	if n, _ := s.CountConnections(ctx, ada); n != 1 {
+	if n, _ := s.CountConnections(ctx, ada, ada); n != 1 {
 		t.Errorf("CountConnections = %d, want 1", n)
 	}
 	if _, total, _ := s.ListReceived(ctx, ada, 20, 0); total != 0 {
@@ -333,7 +333,7 @@ func TestListOrderAndPages(t *testing.T) {
 	exec(t, pool, "UPDATE connections SET responded_at = now() - make_interval(mins => 3) WHERE id = $1", ids[0])
 	exec(t, pool, "UPDATE connections SET responded_at = now() - make_interval(mins => 2) WHERE id = $1", ids[4])
 	exec(t, pool, "UPDATE connections SET responded_at = now() - make_interval(mins => 1) WHERE id = $1", ids[2])
-	conns, _, _ := s.ListConnections(ctx, ada, 20, 0)
+	conns, _, _ := s.ListConnections(ctx, ada, ada, 20, 0)
 	var senders []string
 	for _, c := range conns {
 		senders = append(senders, c.Other.UserID)

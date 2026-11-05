@@ -1,6 +1,6 @@
 // Package domain holds the social module's entities and the interfaces its usecase needs:
-// connection requests and connections between researchers (FR-7). It imports only the
-// standard library.
+// connection requests and connections between researchers (FR-7) and blocks (FR-16.9). It
+// imports only the standard library.
 package domain
 
 import (
@@ -89,7 +89,27 @@ type Relation struct {
 	RequestID *string
 }
 
-// Store reads and writes connection requests. Methods that take an ID return ErrNotFound
+// BlockedPerson is one item of the caller's list of blocked people (FR-16.9).
+type BlockedPerson struct {
+	BlockedAt time.Time
+	Other     Person
+}
+
+// BlockedPage is one page of that list.
+type BlockedPage struct {
+	Items    []BlockedPerson
+	Page     int
+	PageSize int
+	Total    int // blocked people on all pages
+}
+
+// BlockState says who has blocked whom between a user and another (FR-16.9).
+type BlockState struct {
+	ByMe   bool // the user has blocked the other
+	ByThem bool // the other has blocked the user
+}
+
+// Store reads and writes connection requests and blocks. Methods that take an ID return ErrNotFound
 // (or false) for a value that is not a UUID, as for a missing row.
 type Store interface {
 	// UserVisible reports whether the user exists, is verified and is not suspended: the
@@ -122,12 +142,28 @@ type Store interface {
 	// they are not connected.
 	RemoveConnection(ctx context.Context, userID, otherID string) error
 	// ListConnections, ListReceived and ListSent return one page, newest first, and the
-	// total, leaving out other users who are suspended or not verified.
-	ListConnections(ctx context.Context, userID string, limit, offset int) ([]Connection, int, error)
+	// total, leaving out other users who are suspended or not verified. ListConnections
+	// also leaves out anyone who has blocked viewerID (FR-16.9).
+	ListConnections(ctx context.Context, viewerID, userID string, limit, offset int) ([]Connection, int, error)
 	ListReceived(ctx context.Context, userID string, limit, offset int) ([]PendingRequest, int, error)
 	ListSent(ctx context.Context, userID string, limit, offset int) ([]PendingRequest, int, error)
 	// CountConnections is the total of ListConnections.
-	CountConnections(ctx context.Context, userID string) (int, error)
+	CountConnections(ctx context.Context, viewerID, userID string) (int, error)
+	// LockPair holds a lock on the pair a, b until the transaction ends, so blocks,
+	// connection requests and sends between them run one at a time. It needs a transaction.
+	LockPair(ctx context.Context, a, b string) error
+	// BlockBetween reads who has blocked whom between me and other.
+	BlockBetween(ctx context.Context, me, other string) (BlockState, error)
+	// AddBlock stores that blockerID blocks blockedID. added is false when it already did.
+	AddBlock(ctx context.Context, blockerID, blockedID string) (added bool, err error)
+	// RemoveBlock deletes that block, if there is one. An ID that is not a UUID is none.
+	RemoveBlock(ctx context.Context, blockerID, blockedID string) error
+	// RemoveLiveLink deletes the pending request or connection between a and b, in either
+	// direction, if there is one.
+	RemoveLiveLink(ctx context.Context, a, b string) error
+	// ListBlocks returns one page of the people userID has blocked, newest first, and the
+	// total, leaving out those who are suspended or not verified.
+	ListBlocks(ctx context.Context, userID string, limit, offset int) ([]BlockedPerson, int, error)
 }
 
 // RequestLimiter counts a user's connection requests in a fixed window.
@@ -152,6 +188,9 @@ type Notifier interface {
 	// or rejected by its receiver, so what was said about it can be taken back. The
 	// sender is never told about a rejection (FR-7.6).
 	RequestWithdrawn(ctx context.Context, requestID string) error
+	// Blocked is called when blockerID has blocked blockedID, so what the rest of the
+	// platform holds between the two can be taken back (FR-16.9).
+	Blocked(ctx context.Context, blockerID, blockedID string) error
 }
 
 // Transactor runs fn in one database transaction that the Store and the Notifier both
@@ -167,6 +206,8 @@ var (
 	ErrAlreadyPending   = errors.New("social: a request is already pending")
 	ErrAlreadyConnected = errors.New("social: already connected")
 	ErrInvalidPage      = errors.New("social: page is not a whole number of at least 1")
+	ErrBlockSelf        = errors.New("social: cannot block oneself")
+	ErrYouBlocked       = errors.New("social: the caller has blocked this user")
 )
 
 // PendingFromThemError says the other user has already sent the caller a request that is

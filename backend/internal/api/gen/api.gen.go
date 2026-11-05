@@ -29,6 +29,7 @@ const (
 	AlreadyConnected       ConnectionConflictCode = "already_connected"
 	RequestAlreadyPending  ConnectionConflictCode = "request_already_pending"
 	RequestPendingFromThem ConnectionConflictCode = "request_pending_from_them"
+	YouBlockedThisUser     ConnectionConflictCode = "you_blocked_this_user"
 )
 
 // Valid indicates whether the value is a known member of the ConnectionConflictCode enum.
@@ -39,6 +40,8 @@ func (e ConnectionConflictCode) Valid() bool {
 	case RequestAlreadyPending:
 		return true
 	case RequestPendingFromThem:
+		return true
+	case YouBlockedThisUser:
 		return true
 	default:
 		return false
@@ -224,28 +227,28 @@ func (e LanguageProficiency) Valid() bool {
 
 // Defines values for LinkKind.
 const (
-	Github        LinkKind = "github"
-	GoogleScholar LinkKind = "google_scholar"
-	Linkedin      LinkKind = "linkedin"
-	Other         LinkKind = "other"
-	Researchgate  LinkKind = "researchgate"
-	Website       LinkKind = "website"
+	LinkKindGithub        LinkKind = "github"
+	LinkKindGoogleScholar LinkKind = "google_scholar"
+	LinkKindLinkedin      LinkKind = "linkedin"
+	LinkKindOther         LinkKind = "other"
+	LinkKindResearchgate  LinkKind = "researchgate"
+	LinkKindWebsite       LinkKind = "website"
 )
 
 // Valid indicates whether the value is a known member of the LinkKind enum.
 func (e LinkKind) Valid() bool {
 	switch e {
-	case Github:
+	case LinkKindGithub:
 		return true
-	case GoogleScholar:
+	case LinkKindGoogleScholar:
 		return true
-	case Linkedin:
+	case LinkKindLinkedin:
 		return true
-	case Other:
+	case LinkKindOther:
 		return true
-	case Researchgate:
+	case LinkKindResearchgate:
 		return true
-	case Website:
+	case LinkKindWebsite:
 		return true
 	default:
 		return false
@@ -267,6 +270,42 @@ func (e LocationType) Valid() bool {
 	case OnSite:
 		return true
 	case Remote:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MessageReportOutcome.
+const (
+	MessageReportOutcomeActionTaken MessageReportOutcome = "action_taken"
+	MessageReportOutcomeDismissed   MessageReportOutcome = "dismissed"
+)
+
+// Valid indicates whether the value is a known member of the MessageReportOutcome enum.
+func (e MessageReportOutcome) Valid() bool {
+	switch e {
+	case MessageReportOutcomeActionTaken:
+		return true
+	case MessageReportOutcomeDismissed:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MessageReportStatus.
+const (
+	Open     MessageReportStatus = "open"
+	Resolved MessageReportStatus = "resolved"
+)
+
+// Valid indicates whether the value is a known member of the MessageReportStatus enum.
+func (e MessageReportStatus) Valid() bool {
+	switch e {
+	case Open:
+		return true
+	case Resolved:
 		return true
 	default:
 		return false
@@ -357,6 +396,48 @@ func (e PublicationSource) Valid() bool {
 	}
 }
 
+// Defines values for ReportReason.
+const (
+	ReportReasonHarassment    ReportReason = "harassment"
+	ReportReasonInappropriate ReportReason = "inappropriate"
+	ReportReasonOther         ReportReason = "other"
+	ReportReasonSpam          ReportReason = "spam"
+)
+
+// Valid indicates whether the value is a known member of the ReportReason enum.
+func (e ReportReason) Valid() bool {
+	switch e {
+	case ReportReasonHarassment:
+		return true
+	case ReportReasonInappropriate:
+		return true
+	case ReportReasonOther:
+		return true
+	case ReportReasonSpam:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ResolveMessageReportRequestOutcome.
+const (
+	ResolveMessageReportRequestOutcomeActionTaken ResolveMessageReportRequestOutcome = "action_taken"
+	ResolveMessageReportRequestOutcomeDismissed   ResolveMessageReportRequestOutcome = "dismissed"
+)
+
+// Valid indicates whether the value is a known member of the ResolveMessageReportRequestOutcome enum.
+func (e ResolveMessageReportRequestOutcome) Valid() bool {
+	switch e {
+	case ResolveMessageReportRequestOutcomeActionTaken:
+		return true
+	case ResolveMessageReportRequestOutcomeDismissed:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for Role.
 const (
 	Admin      Role = "admin"
@@ -434,6 +515,33 @@ type AdminUser struct {
 type Birthday struct {
 	Day   int `json:"day"`
 	Month int `json:"month"`
+}
+
+// BlockRequest defines model for BlockRequest.
+type BlockRequest struct {
+	// UserId The user to block.
+	UserId openapi_types.UUID `json:"userId"`
+}
+
+// BlockedPerson defines model for BlockedPerson.
+type BlockedPerson struct {
+	BlockedAt time.Time `json:"blockedAt"`
+	FullName  string    `json:"fullName"`
+	Headline  *string   `json:"headline"`
+
+	// PhotoUrl The profile photo as `/api/v1/media/{fileId}`; null when not set.
+	PhotoUrl *string            `json:"photoUrl"`
+	UserId   openapi_types.UUID `json:"userId"`
+}
+
+// BlockedPersonPage defines model for BlockedPersonPage.
+type BlockedPersonPage struct {
+	Items    []BlockedPerson `json:"items"`
+	Page     int             `json:"page"`
+	PageSize int             `json:"pageSize"`
+
+	// Total Blocked people on all pages.
+	Total int `json:"total"`
 }
 
 // ChangePasswordRequest defines model for ChangePasswordRequest.
@@ -588,6 +696,13 @@ type ContactUpdate struct {
 
 // Conversation defines model for Conversation.
 type Conversation struct {
+	// BlockedByMe True when the caller has blocked the other member. A blocked person is never told.
+	BlockedByMe bool `json:"blockedByMe"`
+
+	// CanMessage True when a message from the caller would be accepted now: the conversation is
+	// `active`, the other member is available and neither has blocked the other
+	// (FR-16.9).
+	CanMessage    bool               `json:"canMessage"`
 	Id            openapi_types.UUID `json:"id"`
 	LastMessage   *MessagePreview    `json:"lastMessage"`
 	LastMessageAt time.Time          `json:"lastMessageAt"`
@@ -624,6 +739,17 @@ type ConversationPage struct {
 
 	// NextCursor Pass as `cursor` to get the next page; null on the last page.
 	NextCursor *string `json:"nextCursor"`
+}
+
+// ConversationReportReceipt defines model for ConversationReportReceipt.
+type ConversationReportReceipt struct {
+	// BlockedByMe Whether the caller has blocked that user. Reporting never does it.
+	BlockedByMe bool               `json:"blockedByMe"`
+	CreatedAt   time.Time          `json:"createdAt"`
+	Id          openapi_types.UUID `json:"id"`
+
+	// ReportedUserId The other member, whom the client can offer to block.
+	ReportedUserId openapi_types.UUID `json:"reportedUserId"`
 }
 
 // ConversationState `active`: both members can send. `request`: waiting for the receiver to accept.
@@ -907,6 +1033,64 @@ type MessagePreview struct {
 	SenderId  openapi_types.UUID `json:"senderId"`
 }
 
+// MessageReport defines model for MessageReport.
+type MessageReport struct {
+	ConversationId openapi_types.UUID `json:"conversationId"`
+
+	// CreatedAt The moment of the report; an administrator sees messages only up to it.
+	CreatedAt time.Time `json:"createdAt"`
+
+	// Details The reporter's own words.
+	Details *string            `json:"details"`
+	Id      openapi_types.UUID `json:"id"`
+
+	// MessageId The reported message; null when the whole conversation was reported.
+	MessageId    *openapi_types.UUID   `json:"messageId"`
+	Note         *string               `json:"note"`
+	Outcome      *MessageReportOutcome `json:"outcome"`
+	Reason       ReportReason          `json:"reason"`
+	ReportedUser MessageReportPerson   `json:"reportedUser"`
+	Reporter     MessageReportPerson   `json:"reporter"`
+	ResolvedAt   *time.Time            `json:"resolvedAt"`
+	Status       MessageReportStatus   `json:"status"`
+}
+
+// MessageReportOutcome defines model for MessageReport.Outcome.
+type MessageReportOutcome string
+
+// MessageReportStatus defines model for MessageReport.Status.
+type MessageReportStatus string
+
+// MessageReportDetail defines model for MessageReportDetail.
+type MessageReportDetail struct {
+	// Messages Newest first, none later than the report.
+	Messages []Message `json:"messages"`
+
+	// NextBefore Pass as `before` to load earlier messages; null on the last page.
+	NextBefore *string       `json:"nextBefore"`
+	Report     MessageReport `json:"report"`
+}
+
+// MessageReportPage defines model for MessageReportPage.
+type MessageReportPage struct {
+	Items    []MessageReport `json:"items"`
+	Page     int             `json:"page"`
+	PageSize int             `json:"pageSize"`
+
+	// Total Reports with this status on all pages.
+	Total int `json:"total"`
+}
+
+// MessageReportPerson defines model for MessageReportPerson.
+type MessageReportPerson struct {
+	FullName string  `json:"fullName"`
+	Headline *string `json:"headline"`
+
+	// PhotoUrl The profile photo as `/api/v1/media/{fileId}`; null when not set.
+	PhotoUrl *string            `json:"photoUrl"`
+	UserId   openapi_types.UUID `json:"userId"`
+}
+
 // MessageUnreadCount defines model for MessageUnreadCount.
 type MessageUnreadCount struct {
 	// Requests Pending message requests to the caller.
@@ -1136,11 +1320,16 @@ type PersonSearchResultMatchedOn string
 type Profile struct {
 	Bio *string `json:"bio"`
 
+	// BlockedByMe True when the viewer has blocked this user (FR-16.9), so the client can offer
+	// Unblock instead of Connect and Message. Sent on every profile.
+	BlockedByMe *bool `json:"blockedByMe,omitempty"`
+
 	// City Example: Cambridge
 	City *string `json:"city"`
 
 	// ConnectionCount How many connections the user has (FR-7.4), counting only verified accounts
-	// that are not suspended; the `total` of `listProfileConnections`.
+	// that are not suspended, and leaving out people who blocked the viewer; the
+	// `total` of `listProfileConnections`.
 	ConnectionCount int `json:"connectionCount"`
 
 	// ConnectionRequestId The pending request between the caller and the profile's owner when
@@ -1447,10 +1636,33 @@ type RegisterResponse struct {
 	Email string `json:"email"`
 }
 
+// ReportConversationRequest defines model for ReportConversationRequest.
+type ReportConversationRequest struct {
+	// Details At most 1,000 characters after trimming; empty means none.
+	Details *string `json:"details,omitempty"`
+
+	// MessageId The message being reported, when it is one message. It must be in this conversation and not the caller's.
+	MessageId *openapi_types.UUID `json:"messageId,omitempty"`
+	Reason    ReportReason        `json:"reason"`
+}
+
+// ReportReason defines model for ReportReason.
+type ReportReason string
+
 // ResendVerificationRequest defines model for ResendVerificationRequest.
 type ResendVerificationRequest struct {
 	Email string `json:"email"`
 }
+
+// ResolveMessageReportRequest defines model for ResolveMessageReportRequest.
+type ResolveMessageReportRequest struct {
+	// Note At most 1,000 characters after trimming; empty means none.
+	Note    *string                            `json:"note,omitempty"`
+	Outcome ResolveMessageReportRequestOutcome `json:"outcome"`
+}
+
+// ResolveMessageReportRequestOutcome defines model for ResolveMessageReportRequest.Outcome.
+type ResolveMessageReportRequestOutcome string
 
 // Role The platform role (SRS 2.2). Administrators are made only from the command line
 // (`make admin`); no operation changes a role.
@@ -1568,6 +1780,9 @@ type LanguageID = string
 // LinkID defines model for LinkID.
 type LinkID = string
 
+// PageFromOne defines model for PageFromOne.
+type PageFromOne = int
+
 // PublicationID defines model for PublicationID.
 type PublicationID = string
 
@@ -1579,6 +1794,9 @@ type PublicationListPageSize = int
 
 // RefreshCookie defines model for RefreshCookie.
 type RefreshCookie = string
+
+// ReportId defines model for ReportId.
+type ReportId = string
 
 // TagID defines model for TagID.
 type TagID = string
@@ -1628,6 +1846,9 @@ type InvalidPublication = Error
 // LookupRateLimited The shape of every error response (SRS 5.3).
 type LookupRateLimited = Error
 
+// MessageForbidden The shape of every error response (SRS 5.3).
+type MessageForbidden = Error
+
 // MessageRateLimited The shape of every error response (SRS 5.3).
 type MessageRateLimited = Error
 
@@ -1673,6 +1894,22 @@ type UploadRateLimited = Error
 // cookieAuthContextKey is the context key for cookieAuth security scheme
 type cookieAuthContextKey string
 
+// ListMessageReportsParams defines parameters for ListMessageReports.
+type ListMessageReportsParams struct {
+	// Status `open` or `resolved`; `open` when left out. Any other value gets 400 `bad_request`.
+	Status *string `form:"status,omitempty" json:"status,omitempty"`
+
+	// Page The page to return, from 1. Defaults to 1. A value below 1 gets 400 `bad_request`.
+	Page *PageFromOne `form:"page,omitempty" json:"page,omitempty"`
+}
+
+// GetMessageReportParams defines parameters for GetMessageReport.
+type GetMessageReportParams struct {
+	// Before `nextBefore` from the previous page; leave it out for the most recent messages. A
+	// value that is not a UUID gets 400 `bad_request`.
+	Before *string `form:"before,omitempty" json:"before,omitempty"`
+}
+
 // ListUsersParams defines parameters for ListUsers.
 type ListUsersParams struct {
 	// Page The page to return, from 1. Defaults to 1.
@@ -1699,6 +1936,12 @@ type ChangePasswordParams struct {
 type RefreshSessionParams struct {
 	// RsRefresh The refresh token set by `POST /auth/login` or `POST /auth/refresh`.
 	RsRefresh *RefreshCookie `form:"rs_refresh,omitempty" json:"rs_refresh,omitempty"`
+}
+
+// ListBlockedPeopleParams defines parameters for ListBlockedPeople.
+type ListBlockedPeopleParams struct {
+	// Page The page to return, from 1. Defaults to 1. A value below 1 gets 400 `bad_request`.
+	Page *PageFromOne `form:"page,omitempty" json:"page,omitempty"`
 }
 
 // ListMyConnectionsParams defines parameters for ListMyConnections.
@@ -1843,6 +2086,9 @@ type SuggestSkillTagsParams struct {
 // DeleteAccountJSONRequestBody defines body for DeleteAccount for application/json ContentType.
 type DeleteAccountJSONRequestBody = DeleteAccountRequest
 
+// ResolveMessageReportJSONRequestBody defines body for ResolveMessageReport for application/json ContentType.
+type ResolveMessageReportJSONRequestBody = ResolveMessageReportRequest
+
 // LoginUserJSONRequestBody defines body for LoginUser for application/json ContentType.
 type LoginUserJSONRequestBody = LoginRequest
 
@@ -1864,6 +2110,9 @@ type ResendVerificationJSONRequestBody = ResendVerificationRequest
 // VerifyEmailJSONRequestBody defines body for VerifyEmail for application/json ContentType.
 type VerifyEmailJSONRequestBody = VerifyEmailRequest
 
+// BlockUserJSONRequestBody defines body for BlockUser for application/json ContentType.
+type BlockUserJSONRequestBody = BlockRequest
+
 // SendConnectionRequestJSONRequestBody defines body for SendConnectionRequest for application/json ContentType.
 type SendConnectionRequestJSONRequestBody = ConnectionRequestCreate
 
@@ -1872,6 +2121,9 @@ type SendMessageJSONRequestBody = SendMessageRequest
 
 // MarkConversationReadJSONRequestBody defines body for MarkConversationRead for application/json ContentType.
 type MarkConversationReadJSONRequestBody = MarkConversationReadRequest
+
+// ReportConversationJSONRequestBody defines body for ReportConversation for application/json ContentType.
+type ReportConversationJSONRequestBody = ReportConversationRequest
 
 // SendDirectMessageJSONRequestBody defines body for SendDirectMessage for application/json ContentType.
 type SendDirectMessageJSONRequestBody = SendDirectMessageRequest
@@ -1935,6 +2187,15 @@ type ServerInterface interface {
 	// DeleteAccount Delete the logged-in user's account after entering the password (FR-2.8, FR-2.9)
 	// (DELETE /account)
 	DeleteAccount(w http.ResponseWriter, r *http.Request)
+	// ListMessageReports List reports of conversations for an administrator (FR-16.9, NFR-14)
+	// (GET /admin/message-reports)
+	ListMessageReports(w http.ResponseWriter, r *http.Request, params ListMessageReportsParams)
+	// GetMessageReport Read a report and its conversation up to the report (FR-16.9, NFR-14)
+	// (GET /admin/message-reports/{reportId})
+	GetMessageReport(w http.ResponseWriter, r *http.Request, reportId ReportId, params GetMessageReportParams)
+	// ResolveMessageReport Close a report with an outcome (FR-16.9)
+	// (POST /admin/message-reports/{reportId}/resolve)
+	ResolveMessageReport(w http.ResponseWriter, r *http.Request, reportId ReportId)
 	// ListUsers List every user account for an administrator (FR-15.3, FR-3.2)
 	// (GET /admin/users)
 	ListUsers(w http.ResponseWriter, r *http.Request, params ListUsersParams)
@@ -1968,6 +2229,15 @@ type ServerInterface interface {
 	// VerifyEmail Verify an email address with the token from the link (FR-1.3)
 	// (POST /auth/verify-email)
 	VerifyEmail(w http.ResponseWriter, r *http.Request)
+	// ListBlockedPeople List the people the logged-in user has blocked (FR-16.9)
+	// (GET /blocks)
+	ListBlockedPeople(w http.ResponseWriter, r *http.Request, params ListBlockedPeopleParams)
+	// BlockUser Block a user (FR-16.9)
+	// (POST /blocks)
+	BlockUser(w http.ResponseWriter, r *http.Request)
+	// UnblockUser Unblock a user (FR-16.9)
+	// (DELETE /blocks/{userId})
+	UnblockUser(w http.ResponseWriter, r *http.Request, userId string)
 	// ListMyConnections List the logged-in user's connections (FR-7.4)
 	// (GET /connections)
 	ListMyConnections(w http.ResponseWriter, r *http.Request, params ListMyConnectionsParams)
@@ -2013,6 +2283,9 @@ type ServerInterface interface {
 	// MarkConversationRead Move the logged-in user's read marker forward (FR-16.3, NFR-14)
 	// (POST /conversations/{conversationId}/read)
 	MarkConversationRead(w http.ResponseWriter, r *http.Request, conversationId ConversationId)
+	// ReportConversation Report a conversation or one of its messages (FR-16.9, NFR-14)
+	// (POST /conversations/{conversationId}/reports)
+	ReportConversation(w http.ResponseWriter, r *http.Request, conversationId ConversationId)
 	// GetHealth Report whether the database, Redis and object storage respond
 	// (GET /health)
 	GetHealth(w http.ResponseWriter, r *http.Request)
@@ -2173,6 +2446,138 @@ func (siw *ServerInterfaceWrapper) DeleteAccount(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.DeleteAccount(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListMessageReports operation middleware
+func (siw *ServerInterfaceWrapper) ListMessageReports(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListMessageReportsParams
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "page" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "page", r.URL.Query(), &params.Page, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "page"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListMessageReports(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetMessageReport operation middleware
+func (siw *ServerInterfaceWrapper) GetMessageReport(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "reportId" -------------
+	var reportId ReportId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "reportId", r.PathValue("reportId"), &reportId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "reportId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetMessageReportParams
+
+	// ------------- Optional query parameter "before" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "before", r.URL.Query(), &params.Before, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "before"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "before", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMessageReport(w, r, reportId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ResolveMessageReport operation middleware
+func (siw *ServerInterfaceWrapper) ResolveMessageReport(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "reportId" -------------
+	var reportId ReportId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "reportId", r.PathValue("reportId"), &reportId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "reportId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ResolveMessageReport(w, r, reportId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2440,6 +2845,97 @@ func (siw *ServerInterfaceWrapper) VerifyEmail(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.VerifyEmail(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListBlockedPeople operation middleware
+func (siw *ServerInterfaceWrapper) ListBlockedPeople(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListBlockedPeopleParams
+
+	// ------------- Optional query parameter "page" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "page", r.URL.Query(), &params.Page, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "page"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListBlockedPeople(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// BlockUser operation middleware
+func (siw *ServerInterfaceWrapper) BlockUser(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.BlockUser(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UnblockUser operation middleware
+func (siw *ServerInterfaceWrapper) UnblockUser(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "userId" -------------
+	var userId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", r.PathValue("userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "userId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UnblockUser(w, r, userId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2991,6 +3487,38 @@ func (siw *ServerInterfaceWrapper) MarkConversationRead(w http.ResponseWriter, r
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.MarkConversationRead(w, r, conversationId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReportConversation operation middleware
+func (siw *ServerInterfaceWrapper) ReportConversation(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "conversationId" -------------
+	var conversationId ConversationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "conversationId", r.PathValue("conversationId"), &conversationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "conversationId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReportConversation(w, r, conversationId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4489,6 +5017,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/auth/me", wrapper.GetCurrentUser)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/account", wrapper.DeleteAccount)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/admin/users", wrapper.ListUsers)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/admin/message-reports", wrapper.ListMessageReports)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/admin/message-reports/{reportId}", wrapper.GetMessageReport)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/admin/message-reports/{reportId}/resolve", wrapper.ResolveMessageReport)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles/me", wrapper.GetMyProfile)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/profiles/me", wrapper.UpdateMyProfile)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles/{userId}", wrapper.GetProfile)
@@ -4535,6 +5066,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/connections/requests/{requestId}", wrapper.CancelConnectionRequest)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/connections/requests/{requestId}/accept", wrapper.AcceptConnectionRequest)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/connections/requests/{requestId}/reject", wrapper.RejectConnectionRequest)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/blocks", wrapper.ListBlockedPeople)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/blocks", wrapper.BlockUser)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/blocks/{userId}", wrapper.UnblockUser)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/notifications", wrapper.ListNotifications)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/notifications/unread-count", wrapper.GetUnreadNotificationCount)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/notifications/{notificationId}/read", wrapper.MarkNotificationRead)
@@ -4548,6 +5082,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/conversations/{conversationId}/read", wrapper.MarkConversationRead)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/conversations/{conversationId}/accept", wrapper.AcceptMessageRequest)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/conversations/{conversationId}/decline", wrapper.DeclineMessageRequest)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/conversations/{conversationId}/reports", wrapper.ReportConversation)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/search/people", wrapper.SearchPeople)
 
 	return m
@@ -4585,6 +5120,8 @@ type LookupRateLimitedJSONResponse struct {
 
 	Headers LookupRateLimitedResponseHeaders
 }
+
+type MessageForbiddenJSONResponse Error
 
 type MessageRateLimitedResponseHeaders struct {
 	RetryAfter int
@@ -4735,6 +5272,284 @@ func (response DeleteAccount429JSONResponse) VisitDeleteAccountResponse(w http.R
 type DeleteAccount500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response DeleteAccount500JSONResponse) VisitDeleteAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMessageReportsRequestObject struct {
+	Params ListMessageReportsParams
+}
+
+type ListMessageReportsResponseObject interface {
+	VisitListMessageReportsResponse(w http.ResponseWriter) error
+}
+
+type ListMessageReports200JSONResponse MessageReportPage
+
+func (response ListMessageReports200JSONResponse) VisitListMessageReportsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMessageReports400JSONResponse Error
+
+func (response ListMessageReports400JSONResponse) VisitListMessageReportsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMessageReports401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListMessageReports401JSONResponse) VisitListMessageReportsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMessageReports403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListMessageReports403JSONResponse) VisitListMessageReportsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMessageReports500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ListMessageReports500JSONResponse) VisitListMessageReportsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMessageReportRequestObject struct {
+	ReportId ReportId `json:"reportId"`
+	Params   GetMessageReportParams
+}
+
+type GetMessageReportResponseObject interface {
+	VisitGetMessageReportResponse(w http.ResponseWriter) error
+}
+
+type GetMessageReport200JSONResponse MessageReportDetail
+
+func (response GetMessageReport200JSONResponse) VisitGetMessageReportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMessageReport400JSONResponse Error
+
+func (response GetMessageReport400JSONResponse) VisitGetMessageReportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMessageReport401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetMessageReport401JSONResponse) VisitGetMessageReportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMessageReport403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetMessageReport403JSONResponse) VisitGetMessageReportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMessageReport404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetMessageReport404JSONResponse) VisitGetMessageReportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMessageReport500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response GetMessageReport500JSONResponse) VisitGetMessageReportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveMessageReportRequestObject struct {
+	ReportId ReportId `json:"reportId"`
+	Body     *ResolveMessageReportJSONRequestBody
+}
+
+type ResolveMessageReportResponseObject interface {
+	VisitResolveMessageReportResponse(w http.ResponseWriter) error
+}
+
+type ResolveMessageReport200JSONResponse MessageReport
+
+func (response ResolveMessageReport200JSONResponse) VisitResolveMessageReportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveMessageReport400JSONResponse Error
+
+func (response ResolveMessageReport400JSONResponse) VisitResolveMessageReportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveMessageReport401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ResolveMessageReport401JSONResponse) VisitResolveMessageReportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveMessageReport403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ResolveMessageReport403JSONResponse) VisitResolveMessageReportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveMessageReport404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ResolveMessageReport404JSONResponse) VisitResolveMessageReportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveMessageReport409JSONResponse Error
+
+func (response ResolveMessageReport409JSONResponse) VisitResolveMessageReportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveMessageReport500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ResolveMessageReport500JSONResponse) VisitResolveMessageReportResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -5411,6 +6226,228 @@ func (response VerifyEmail400JSONResponse) VisitVerifyEmailResponse(w http.Respo
 type VerifyEmail500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response VerifyEmail500JSONResponse) VisitVerifyEmailResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListBlockedPeopleRequestObject struct {
+	Params ListBlockedPeopleParams
+}
+
+type ListBlockedPeopleResponseObject interface {
+	VisitListBlockedPeopleResponse(w http.ResponseWriter) error
+}
+
+type ListBlockedPeople200JSONResponse BlockedPersonPage
+
+func (response ListBlockedPeople200JSONResponse) VisitListBlockedPeopleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListBlockedPeople400JSONResponse Error
+
+func (response ListBlockedPeople400JSONResponse) VisitListBlockedPeopleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListBlockedPeople401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListBlockedPeople401JSONResponse) VisitListBlockedPeopleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListBlockedPeople403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListBlockedPeople403JSONResponse) VisitListBlockedPeopleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListBlockedPeople500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ListBlockedPeople500JSONResponse) VisitListBlockedPeopleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type BlockUserRequestObject struct {
+	Body *BlockUserJSONRequestBody
+}
+
+type BlockUserResponseObject interface {
+	VisitBlockUserResponse(w http.ResponseWriter) error
+}
+
+type BlockUser204Response struct {
+}
+
+func (response BlockUser204Response) VisitBlockUserResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type BlockUser400JSONResponse Error
+
+func (response BlockUser400JSONResponse) VisitBlockUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type BlockUser401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response BlockUser401JSONResponse) VisitBlockUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type BlockUser403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response BlockUser403JSONResponse) VisitBlockUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type BlockUser404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response BlockUser404JSONResponse) VisitBlockUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type BlockUser500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response BlockUser500JSONResponse) VisitBlockUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UnblockUserRequestObject struct {
+	UserId string `json:"userId"`
+}
+
+type UnblockUserResponseObject interface {
+	VisitUnblockUserResponse(w http.ResponseWriter) error
+}
+
+type UnblockUser204Response struct {
+}
+
+func (response UnblockUser204Response) VisitUnblockUserResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type UnblockUser401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response UnblockUser401JSONResponse) VisitUnblockUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UnblockUser403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response UnblockUser403JSONResponse) VisitUnblockUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UnblockUser500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response UnblockUser500JSONResponse) VisitUnblockUserResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -6554,7 +7591,7 @@ func (response SendMessage401JSONResponse) VisitSendMessageResponse(w http.Respo
 	return err
 }
 
-type SendMessage403JSONResponse struct{ ForbiddenJSONResponse }
+type SendMessage403JSONResponse struct{ MessageForbiddenJSONResponse }
 
 func (response SendMessage403JSONResponse) VisitSendMessageResponse(w http.ResponseWriter) error {
 
@@ -6701,6 +7738,121 @@ func (response MarkConversationRead404JSONResponse) VisitMarkConversationReadRes
 type MarkConversationRead500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response MarkConversationRead500JSONResponse) VisitMarkConversationReadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReportConversationRequestObject struct {
+	ConversationId ConversationId `json:"conversationId"`
+	Body           *ReportConversationJSONRequestBody
+}
+
+type ReportConversationResponseObject interface {
+	VisitReportConversationResponse(w http.ResponseWriter) error
+}
+
+type ReportConversation201JSONResponse ConversationReportReceipt
+
+func (response ReportConversation201JSONResponse) VisitReportConversationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReportConversation400JSONResponse Error
+
+func (response ReportConversation400JSONResponse) VisitReportConversationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReportConversation401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ReportConversation401JSONResponse) VisitReportConversationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReportConversation403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ReportConversation403JSONResponse) VisitReportConversationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReportConversation404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ReportConversation404JSONResponse) VisitReportConversationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReportConversation429ResponseHeaders struct {
+	RetryAfter int
+}
+
+type ReportConversation429JSONResponse struct {
+	Body    Error
+	Headers ReportConversation429ResponseHeaders
+}
+
+func (response ReportConversation429JSONResponse) VisitReportConversationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReportConversation500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ReportConversation500JSONResponse) VisitReportConversationResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -6905,7 +8057,7 @@ func (response SendDirectMessage401JSONResponse) VisitSendDirectMessageResponse(
 	return err
 }
 
-type SendDirectMessage403JSONResponse struct{ ForbiddenJSONResponse }
+type SendDirectMessage403JSONResponse struct{ MessageForbiddenJSONResponse }
 
 func (response SendDirectMessage403JSONResponse) VisitSendDirectMessageResponse(w http.ResponseWriter) error {
 
@@ -10766,6 +11918,15 @@ type StrictServerInterface interface {
 	// DeleteAccount Delete the logged-in user's account after entering the password (FR-2.8, FR-2.9)
 	// (DELETE /account)
 	DeleteAccount(ctx context.Context, request DeleteAccountRequestObject) (DeleteAccountResponseObject, error)
+	// ListMessageReports List reports of conversations for an administrator (FR-16.9, NFR-14)
+	// (GET /admin/message-reports)
+	ListMessageReports(ctx context.Context, request ListMessageReportsRequestObject) (ListMessageReportsResponseObject, error)
+	// GetMessageReport Read a report and its conversation up to the report (FR-16.9, NFR-14)
+	// (GET /admin/message-reports/{reportId})
+	GetMessageReport(ctx context.Context, request GetMessageReportRequestObject) (GetMessageReportResponseObject, error)
+	// ResolveMessageReport Close a report with an outcome (FR-16.9)
+	// (POST /admin/message-reports/{reportId}/resolve)
+	ResolveMessageReport(ctx context.Context, request ResolveMessageReportRequestObject) (ResolveMessageReportResponseObject, error)
 	// ListUsers List every user account for an administrator (FR-15.3, FR-3.2)
 	// (GET /admin/users)
 	ListUsers(ctx context.Context, request ListUsersRequestObject) (ListUsersResponseObject, error)
@@ -10799,6 +11960,15 @@ type StrictServerInterface interface {
 	// VerifyEmail Verify an email address with the token from the link (FR-1.3)
 	// (POST /auth/verify-email)
 	VerifyEmail(ctx context.Context, request VerifyEmailRequestObject) (VerifyEmailResponseObject, error)
+	// ListBlockedPeople List the people the logged-in user has blocked (FR-16.9)
+	// (GET /blocks)
+	ListBlockedPeople(ctx context.Context, request ListBlockedPeopleRequestObject) (ListBlockedPeopleResponseObject, error)
+	// BlockUser Block a user (FR-16.9)
+	// (POST /blocks)
+	BlockUser(ctx context.Context, request BlockUserRequestObject) (BlockUserResponseObject, error)
+	// UnblockUser Unblock a user (FR-16.9)
+	// (DELETE /blocks/{userId})
+	UnblockUser(ctx context.Context, request UnblockUserRequestObject) (UnblockUserResponseObject, error)
 	// ListMyConnections List the logged-in user's connections (FR-7.4)
 	// (GET /connections)
 	ListMyConnections(ctx context.Context, request ListMyConnectionsRequestObject) (ListMyConnectionsResponseObject, error)
@@ -10844,6 +12014,9 @@ type StrictServerInterface interface {
 	// MarkConversationRead Move the logged-in user's read marker forward (FR-16.3, NFR-14)
 	// (POST /conversations/{conversationId}/read)
 	MarkConversationRead(ctx context.Context, request MarkConversationReadRequestObject) (MarkConversationReadResponseObject, error)
+	// ReportConversation Report a conversation or one of its messages (FR-16.9, NFR-14)
+	// (POST /conversations/{conversationId}/reports)
+	ReportConversation(ctx context.Context, request ReportConversationRequestObject) (ReportConversationResponseObject, error)
 	// GetHealth Report whether the database, Redis and object storage respond
 	// (GET /health)
 	GetHealth(ctx context.Context, request GetHealthRequestObject) (GetHealthResponseObject, error)
@@ -11047,6 +12220,92 @@ func (sh *strictHandler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(DeleteAccountResponseObject); ok {
 		if err := validResponse.VisitDeleteAccountResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListMessageReports operation middleware
+func (sh *strictHandler) ListMessageReports(w http.ResponseWriter, r *http.Request, params ListMessageReportsParams) {
+	var request ListMessageReportsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListMessageReports(ctx, request.(ListMessageReportsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListMessageReports")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListMessageReportsResponseObject); ok {
+		if err := validResponse.VisitListMessageReportsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetMessageReport operation middleware
+func (sh *strictHandler) GetMessageReport(w http.ResponseWriter, r *http.Request, reportId ReportId, params GetMessageReportParams) {
+	var request GetMessageReportRequestObject
+
+	request.ReportId = reportId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetMessageReport(ctx, request.(GetMessageReportRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetMessageReport")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetMessageReportResponseObject); ok {
+		if err := validResponse.VisitGetMessageReportResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ResolveMessageReport operation middleware
+func (sh *strictHandler) ResolveMessageReport(w http.ResponseWriter, r *http.Request, reportId ReportId) {
+	var request ResolveMessageReportRequestObject
+
+	request.ReportId = reportId
+
+	var body ResolveMessageReportJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ResolveMessageReport(ctx, request.(ResolveMessageReportRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ResolveMessageReport")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ResolveMessageReportResponseObject); ok {
+		if err := validResponse.VisitResolveMessageReportResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -11368,6 +12627,89 @@ func (sh *strictHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(VerifyEmailResponseObject); ok {
 		if err := validResponse.VisitVerifyEmailResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListBlockedPeople operation middleware
+func (sh *strictHandler) ListBlockedPeople(w http.ResponseWriter, r *http.Request, params ListBlockedPeopleParams) {
+	var request ListBlockedPeopleRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListBlockedPeople(ctx, request.(ListBlockedPeopleRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListBlockedPeople")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListBlockedPeopleResponseObject); ok {
+		if err := validResponse.VisitListBlockedPeopleResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// BlockUser operation middleware
+func (sh *strictHandler) BlockUser(w http.ResponseWriter, r *http.Request) {
+	var request BlockUserRequestObject
+
+	var body BlockUserJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.BlockUser(ctx, request.(BlockUserRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "BlockUser")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(BlockUserResponseObject); ok {
+		if err := validResponse.VisitBlockUserResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UnblockUser operation middleware
+func (sh *strictHandler) UnblockUser(w http.ResponseWriter, r *http.Request, userId string) {
+	var request UnblockUserRequestObject
+
+	request.UserId = userId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UnblockUser(ctx, request.(UnblockUserRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UnblockUser")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UnblockUserResponseObject); ok {
+		if err := validResponse.VisitUnblockUserResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -11778,6 +13120,39 @@ func (sh *strictHandler) MarkConversationRead(w http.ResponseWriter, r *http.Req
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(MarkConversationReadResponseObject); ok {
 		if err := validResponse.VisitMarkConversationReadResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReportConversation operation middleware
+func (sh *strictHandler) ReportConversation(w http.ResponseWriter, r *http.Request, conversationId ConversationId) {
+	var request ReportConversationRequestObject
+
+	request.ConversationId = conversationId
+
+	var body ReportConversationJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReportConversation(ctx, request.(ReportConversationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReportConversation")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReportConversationResponseObject); ok {
+		if err := validResponse.VisitReportConversationResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

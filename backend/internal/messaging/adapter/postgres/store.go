@@ -338,6 +338,19 @@ func (s *Store) CountUnread(ctx context.Context, memberID string) (domain.Unread
 	return domain.UnreadCounts{Total: int(total), Requests: int(requests)}, nil
 }
 
+// DeclineRequests does nothing for a value that is not a UUID.
+func (s *Store) DeclineRequests(ctx context.Context, a, b string) error {
+	ua, ok1 := parseUUID(a)
+	ub, ok2 := parseUUID(b)
+	if !ok1 || !ok2 {
+		return nil
+	}
+	if err := s.q(ctx).DeclineRequestBetween(ctx, sqlcgen.DeclineRequestBetweenParams{A: ua, B: ub}); err != nil {
+		return fmt.Errorf("decline request: %w", err)
+	}
+	return nil
+}
+
 func conversation(id pgtype.UUID, state string, requestedBy pgtype.UUID, last pgtype.Timestamptz) domain.Conversation {
 	return domain.Conversation{ID: id.String(), State: domain.State(state), RequestedBy: uuidPtr(requestedBy), LastMessageAt: last.Time}
 }
@@ -356,7 +369,7 @@ func item(r sqlcgen.ListItemsRow) domain.Item {
 			UserID: r.OtherID.String(), FullName: r.FullName, Headline: textPtr(r.Headline),
 			PhotoFileID: uuidPtr(r.PhotoFileID), Available: r.OtherAvailable,
 		},
-		UnreadCount: int(r.UnreadCount),
+		UnreadCount: int(r.UnreadCount), BlockedByMe: r.BlockedByMe, BlockedMe: r.BlockedMe,
 	}
 	it.OtherID, it.OtherReadID = r.OtherID.String(), uuidPtr(r.OtherReadID)
 	if r.LastSenderID.Valid {

@@ -1,7 +1,7 @@
 // Package http serves the messaging operations in docs/openapi.yaml: sending (FR-16.1,
 // FR-16.2), the lists of conversations and messages, read markers and the unread counts
-// (FR-16.3), and answering requests (FR-16.2). It turns the usecase's errors into the
-// contract's codes. cmd/api guards each route with its platform action (SRS 2.3) before
+// (FR-16.3), answering requests (FR-16.2), and reports and their review (FR-16.9). It turns
+// the usecase's errors into the contract's codes. cmd/api guards each route with its platform action (SRS 2.3) before
 // it gets here; membership is checked by the usecase (NFR-14).
 package http
 
@@ -25,6 +25,10 @@ const (
 	CodeRequestPending     = "request_pending"
 	CodeConversationClosed = "conversation_closed"
 	CodeRateLimited        = "rate_limited"
+	CodeCannotMessage      = "cannot_message"
+	CodeYouBlocked         = "you_blocked_this_user"
+	CodeOwnMessage         = "cannot_report_own_message"
+	CodeAlreadyResolved    = "report_already_resolved"
 )
 
 // Service is what the handler needs from the usecase.
@@ -38,6 +42,10 @@ type Service interface {
 	Accept(ctx context.Context, userID, id string) (domain.Item, error)
 	Decline(ctx context.Context, userID, id string) (domain.Item, error)
 	UnreadCounts(ctx context.Context, userID string) (domain.UnreadCounts, error)
+	Report(ctx context.Context, reporterID, conversationID string, in domain.ReportInput) (domain.ReportReceipt, error)
+	ListReports(ctx context.Context, status string, page int) (domain.ReportPage, error)
+	ReportDetail(ctx context.Context, adminID, id, before string) (domain.ReportDetail, error)
+	ResolveReport(ctx context.Context, adminID, id string, outcome domain.ReportOutcome, note *string) (domain.Report, error)
 }
 
 // Handler implements the messaging operations of gen.StrictServerInterface.
@@ -60,6 +68,7 @@ var (
 type refusal struct {
 	invalid    *gen.InvalidMessageJSONResponse
 	notFound   bool
+	forbidden  *gen.MessageForbiddenJSONResponse
 	conflict   *gen.MessageRefusedJSONResponse
 	retryAfter int // set with limited
 	limited    bool
@@ -75,6 +84,10 @@ func refusalOf(err error) *refusal {
 		return &refusal{invalid: &gen.InvalidMessageJSONResponse{Code: CodeInvalidBody, Message: "A message must have 1 to 5,000 characters."}}
 	case errors.Is(err, domain.ErrNotFound):
 		return &refusal{notFound: true}
+	case errors.Is(err, domain.ErrCannotMessage):
+		return &refusal{forbidden: &gen.MessageForbiddenJSONResponse{Code: CodeCannotMessage, Message: "You cannot message this person."}}
+	case errors.Is(err, domain.ErrYouBlocked):
+		return &refusal{conflict: &gen.MessageRefusedJSONResponse{Code: CodeYouBlocked, Message: "You have blocked this person. Unblock them to send a message."}}
 	case errors.Is(err, domain.ErrRequestPending):
 		return &refusal{conflict: &gen.MessageRefusedJSONResponse{Code: CodeRequestPending, Message: "This message request has not been accepted yet."}}
 	case errors.Is(err, domain.ErrClosed):
@@ -106,6 +119,8 @@ func (h *Handler) SendDirectMessage(ctx context.Context, req gen.SendDirectMessa
 		switch {
 		case r.invalid != nil:
 			return gen.SendDirectMessage400JSONResponse{InvalidMessageJSONResponse: *r.invalid}, nil
+		case r.forbidden != nil:
+			return gen.SendDirectMessage403JSONResponse{MessageForbiddenJSONResponse: *r.forbidden}, nil
 		case r.notFound:
 			return gen.SendDirectMessage404JSONResponse{NotFoundJSONResponse: gen.NotFoundJSONResponse{Code: httpx.CodeNotFound, Message: "This person does not exist."}}, nil
 		case r.conflict != nil:
@@ -141,6 +156,8 @@ func (h *Handler) SendMessage(ctx context.Context, req gen.SendMessageRequestObj
 		switch {
 		case r.invalid != nil:
 			return gen.SendMessage400JSONResponse{InvalidMessageJSONResponse: *r.invalid}, nil
+		case r.forbidden != nil:
+			return gen.SendMessage403JSONResponse{MessageForbiddenJSONResponse: *r.forbidden}, nil
 		case r.notFound:
 			return gen.SendMessage404JSONResponse{NotFoundJSONResponse: notFound}, nil
 		case r.conflict != nil:
@@ -351,6 +368,7 @@ func conversationBody(it domain.Item) (gen.Conversation, error) {
 	c := gen.Conversation{
 		Id: id, State: gen.ConversationState(it.State), RequestedBy: requester,
 		LastMessageAt: it.LastMessageAt, UnreadCount: it.UnreadCount,
+		CanMessage: it.CanMessage(), BlockedByMe: it.BlockedByMe,
 		OtherMember: gen.ConversationMember{
 			UserId: other, FullName: it.Other.FullName, Headline: it.Other.Headline,
 			PhotoUrl: mediaURL(it.Other.PhotoFileID), Available: it.Other.Available,

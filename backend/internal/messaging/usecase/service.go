@@ -1,7 +1,8 @@
 // Package usecase holds the messaging module's logic: direct conversations between
 // connections (FR-16.1), message requests to everyone else (FR-16.2), unread counts and
-// read markers (FR-16.3), the send limits (FR-16.10) and the membership check on every read
-// and write (NFR-14). It imports only the messaging domain.
+// read markers (FR-16.3), the send limits (FR-16.10), the membership check on every read
+// and write (NFR-14), blocks and reports (FR-16.9) and an administrator's review of reports
+// (NFR-14). It imports only the messaging domain.
 package usecase
 
 import (
@@ -73,19 +74,21 @@ type Service struct {
 	store       domain.Store
 	tx          domain.Transactor
 	connections domain.Connections
+	blocks      domain.Blocks
 	limiter     domain.Limiter
 	publisher   domain.Publisher
 	messages    []window
 	requests    []window
+	reports     []window
 	logger      *slog.Logger
 }
 
 // New returns a Service.
-func New(store domain.Store, tx domain.Transactor, connections domain.Connections, limiter domain.Limiter,
-	publisher domain.Publisher, limits Limits, logger *slog.Logger,
+func New(store domain.Store, tx domain.Transactor, connections domain.Connections, blocks domain.Blocks,
+	limiter domain.Limiter, publisher domain.Publisher, limits Limits, logger *slog.Logger,
 ) *Service {
 	return &Service{
-		store: store, tx: tx, connections: connections, limiter: limiter, publisher: publisher, logger: logger,
+		store: store, tx: tx, connections: connections, blocks: blocks, limiter: limiter, publisher: publisher, logger: logger,
 		messages: []window{
 			{"messages:minute", limits.MessagesPerMinute, time.Minute},
 			{"messages:day", limits.MessagesPerDay, day},
@@ -94,6 +97,7 @@ func New(store domain.Store, tx domain.Transactor, connections domain.Connection
 			{"requests:minute", limits.RequestsPerMinute, time.Minute},
 			{"requests:day", limits.RequestsPerDay, day},
 		},
+		reports: []window{{"reports:day", ReportsPerDay, day}},
 	}
 }
 
@@ -101,8 +105,8 @@ func New(store domain.Store, tx domain.Transactor, connections domain.Connection
 // conversation (FR-16.1, FR-16.2). Checks run in this order: ErrSelf, ErrInvalidBody, the
 // client ID (a value used before returns the original with Replayed set),
 // *RateLimitedError for messages, ErrNotFound for a recipient who is unknown, suspended or
-// not verified, *RateLimitedError for requests when this would create one, then the
-// conversation's state: ErrRequestPending or ErrClosed.
+// not verified, a block (see refuseBlocked), *RateLimitedError for requests when this would
+// create one, then the conversation's state: ErrRequestPending or ErrClosed.
 func (s *Service) SendDirect(ctx context.Context, senderID, recipientID, body, clientID string) (domain.Sent, error) {
 	if senderID == recipientID {
 		return domain.Sent{}, domain.ErrSelf
@@ -126,6 +130,9 @@ func (s *Service) SendDirect(ctx context.Context, senderID, recipientID, body, c
 	}
 	exists, err := s.store.DirectExists(ctx, senderID, recipientID)
 	if err != nil {
+		return domain.Sent{}, err
+	}
+	if err := s.refuseBlocked(ctx, senderID, recipientID, exists); err != nil {
 		return domain.Sent{}, err
 	}
 	state, requester := domain.StateActive, (*string)(nil)
@@ -152,6 +159,9 @@ func (s *Service) SendDirect(ctx context.Context, senderID, recipientID, body, c
 			created bool
 			err     error
 		)
+		if err := s.lockAndRefuseBlocked(ctx, senderID, recipientID, exists); err != nil {
+			return err
+		}
 		if !exists {
 			if c, created, err = s.store.CreateDirect(ctx, senderID, recipientID, state, requester); err != nil {
 				return err
@@ -176,7 +186,7 @@ func (s *Service) SendDirect(ctx context.Context, senderID, recipientID, body, c
 // Send sends a message in a conversation (FR-16.1, FR-16.2, NFR-14). Checks run in this
 // order: ErrInvalidBody, ErrNotFound when senderID is not a member, the client ID as in
 // SendDirect, *RateLimitedError, ErrNotFound when the other member is suspended or not
-// verified, then ErrRequestPending or ErrClosed.
+// verified, a block (see refuseBlocked), then ErrRequestPending or ErrClosed.
 func (s *Service) Send(ctx context.Context, senderID, conversationID, body, clientID string) (domain.Sent, error) {
 	text, err := NormalizeBody(body)
 	if err != nil {
@@ -199,8 +209,14 @@ func (s *Service) Send(ctx context.Context, senderID, conversationID, body, clie
 	if !visible {
 		return domain.Sent{}, domain.ErrNotFound
 	}
+	if err := s.refuseBlocked(ctx, senderID, c.OtherID, true); err != nil {
+		return domain.Sent{}, err
+	}
 	var sent domain.Sent
 	err = s.tx.InTx(ctx, func(ctx context.Context) error {
+		if err := s.lockAndRefuseBlocked(ctx, senderID, c.OtherID, true); err != nil {
+			return err
+		}
 		locked, err := s.store.LockConversation(ctx, conversationID)
 		if err != nil {
 			return err
@@ -212,6 +228,35 @@ func (s *Service) Send(ctx context.Context, senderID, conversationID, body, clie
 		return err
 	})
 	return s.finish(ctx, sent, err, c.OtherID, senderID, clientID, false)
+}
+
+// refuseBlocked refuses a send when either user has blocked the other (FR-16.9). The caller
+// who blocked gets ErrYouBlocked, also when blocked back. The blocked person gets
+// ErrCannotMessage, or, when the two have no conversation, ErrNotFound: the answer they get
+// for that user's profile, so a first message does not reveal the block.
+func (s *Service) refuseBlocked(ctx context.Context, senderID, otherID string, exists bool) error {
+	state, err := s.blocks.Between(ctx, senderID, otherID)
+	switch {
+	case err != nil:
+		return err
+	case state.ByMe:
+		return domain.ErrYouBlocked
+	case state.ByThem && exists:
+		return domain.ErrCannotMessage
+	case state.ByThem:
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+// lockAndRefuseBlocked is refuseBlocked under the pair's lock, inside the send's transaction
+// and before its other locks. Once a block has committed no send can pass this. The check
+// before the transaction only keeps a refused send from reaching the request limits.
+func (s *Service) lockAndRefuseBlocked(ctx context.Context, senderID, otherID string, exists bool) error {
+	if err := s.blocks.Lock(ctx, senderID, otherID); err != nil {
+		return err
+	}
+	return s.refuseBlocked(ctx, senderID, otherID, exists)
 }
 
 // replay returns the message senderID already sent with clientID, if any.
@@ -336,6 +381,12 @@ func NormalizeBody(body string) (string, error) {
 // stores the connection, so it cannot publish yet (docs/decisions.md).
 func (s *Service) ConnectionMade(ctx context.Context, a, b string) error {
 	return s.store.ActivateRequest(ctx, a, b)
+}
+
+// DeclineRequests closes a pending request between a and b after a block (FR-16.9). It runs
+// inside the block's transaction, so it cannot publish yet, like ConnectionMade.
+func (s *Service) DeclineRequests(ctx context.Context, a, b string) error {
+	return s.store.DeclineRequests(ctx, a, b)
 }
 
 // List returns one page of userID's conversations in box, newest activity first. An empty

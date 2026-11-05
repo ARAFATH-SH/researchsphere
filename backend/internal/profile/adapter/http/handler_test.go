@@ -121,7 +121,7 @@ func (f *fakeService) ListOwnPublications(_ context.Context, userID string, page
 	return f.publicationPage, f.err
 }
 
-func (f *fakeService) ListPublications(_ context.Context, userID string, page, pageSize int) (domain.PublicationPage, error) {
+func (f *fakeService) ListPublications(_ context.Context, _, userID string, page, pageSize int) (domain.PublicationPage, error) {
 	f.userID, f.page, f.pageSize = userID, page, pageSize
 	return f.publicationPage, f.err
 }
@@ -291,7 +291,7 @@ func checkProfileBody(t *testing.T, rec *httptest.ResponseRecorder, wantID strin
 		"userId": wantID, "fullName": "Ada Lovelace", "headline": "Analyst", "bio": nil,
 		"institution": nil, "department": nil, "jobTitle": nil, "country": "GB", "city": "London", "orcidId": nil,
 		"interests": []any{}, "skills": []any{}, "education": []any{}, "experience": []any{}, "languages": []any{}, "publicationCount": float64(3),
-		"connectionStatus": "none", "connectionRequestId": nil, "connectionCount": float64(0),
+		"connectionStatus": "none", "connectionRequestId": nil, "connectionCount": float64(0), "blockedByMe": false,
 		"contact":  map[string]any{"links": []any{}},
 		"photoUrl": nil, "coverUrl": nil,
 	}

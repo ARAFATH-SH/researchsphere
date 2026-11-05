@@ -27,6 +27,22 @@ func (q *Queries) CountUnreadNotifications(ctx context.Context, userID pgtype.UU
 	return count, err
 }
 
+const deleteNotificationsBetween = `-- name: DeleteNotificationsBetween :exec
+DELETE FROM notifications
+WHERE (user_id = $1 AND actor_id = $2) OR (user_id = $2 AND actor_id = $1)
+`
+
+type DeleteNotificationsBetweenParams struct {
+	A pgtype.UUID
+	B pgtype.UUID
+}
+
+// Everything either user was told about the other, of any type (FR-16.9).
+func (q *Queries) DeleteNotificationsBetween(ctx context.Context, arg DeleteNotificationsBetweenParams) error {
+	_, err := q.db.Exec(ctx, deleteNotificationsBetween, arg.A, arg.B)
+	return err
+}
+
 const deleteNotificationsBySubject = `-- name: DeleteNotificationsBySubject :exec
 DELETE FROM notifications WHERE type = $1 AND entity_id = $2
 `

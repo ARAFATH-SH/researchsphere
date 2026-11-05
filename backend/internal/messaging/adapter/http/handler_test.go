@@ -88,6 +88,26 @@ func (f *fakeService) Decline(_ context.Context, userID, id string) (domain.Item
 	return item, f.err
 }
 
+func (f *fakeService) Report(_ context.Context, userID, id string, in domain.ReportInput) (domain.ReportReceipt, error) {
+	f.args = []any{userID, id, in}
+	return domain.ReportReceipt{ID: reportID, CreatedAt: at, ReportedID: otherID}, f.err
+}
+
+func (f *fakeService) ListReports(_ context.Context, status string, page int) (domain.ReportPage, error) {
+	f.args = []any{status, page}
+	return domain.ReportPage{Items: []domain.Report{report}, Page: page, PageSize: 20, Total: 1}, f.err
+}
+
+func (f *fakeService) ReportDetail(_ context.Context, adminID, id, before string) (domain.ReportDetail, error) {
+	f.args = []any{adminID, id, before}
+	return domain.ReportDetail{Report: report, Messages: []domain.Message{message}, NextBefore: f.next}, f.err
+}
+
+func (f *fakeService) ResolveReport(_ context.Context, adminID, id string, outcome domain.ReportOutcome, note *string) (domain.Report, error) {
+	f.args = []any{adminID, id, outcome, note}
+	return report, f.err
+}
+
 func (f *fakeService) UnreadCounts(_ context.Context, userID string) (domain.UnreadCounts, error) {
 	f.args = []any{userID}
 	return domain.UnreadCounts{Total: 3, Requests: 1}, f.err
@@ -392,5 +412,96 @@ func TestEveryOperationNeedsALogin(t *testing.T) {
 		if rec := send(t, &fakeService{}, r.method, r.path, r.body, ""); rec.Code != http.StatusUnauthorized {
 			t.Errorf("%s %s: %d", r.method, r.path, rec.Code)
 		}
+	}
+}
+
+const reportID = "7f3a1c2e-7777-4e8b-b7c1-2d3e4f5a6b7c"
+
+var report = domain.Report{
+	ID: reportID, ConversationID: convID, Reason: domain.ReasonSpam, CreatedAt: at,
+	Reporter: domain.ReportPerson{UserID: caller, FullName: "Ada"},
+	Reported: domain.ReportPerson{UserID: otherID, FullName: "Bob"},
+}
+
+// FR-16.9: the two refusals of a block, and the flags a conversation carries.
+func TestBlockRefusals(t *testing.T) {
+	path := "/api/v1/conversations/" + convID + "/messages"
+	body := `{"body":"hi","clientId":"` + clientID + `"}`
+	tests := []struct {
+		err    error
+		status int
+		code   string
+	}{
+		{domain.ErrCannotMessage, http.StatusForbidden, CodeCannotMessage},
+		{domain.ErrYouBlocked, http.StatusConflict, CodeYouBlocked},
+	}
+	for _, tc := range tests {
+		for _, target := range []struct{ path, body string }{
+			{path, body},
+			{directPath, `{"userId":"` + otherID + `","body":"hi","clientId":"` + clientID + `"}`},
+		} {
+			rec := send(t, &fakeService{err: tc.err}, http.MethodPost, target.path, target.body, caller)
+			if rec.Code != tc.status || !strings.Contains(rec.Body.String(), `"`+tc.code+`"`) {
+				t.Errorf("%s: %d %s, want %d %s", target.path, rec.Code, rec.Body, tc.status, tc.code)
+			}
+			if strings.Contains(strings.ToLower(rec.Body.String()), "blocked") && tc.code == CodeCannotMessage {
+				t.Errorf("the blocked person is told: %s", rec.Body)
+			}
+		}
+	}
+}
+
+func TestReportConversationHandler(t *testing.T) {
+	path := "/api/v1/conversations/" + convID + "/reports"
+	tests := []struct {
+		name, body string
+		err        error
+		status     int
+		want       string
+	}{
+		{"stored", `{"reason":"spam"}`, nil, http.StatusCreated, `"blockedByMe":false`},
+		{"missing reason", `{}`, nil, http.StatusBadRequest, ``},
+		{"bad reason", `{"reason":"x"}`, &domain.InvalidFieldError{Field: "reason"}, http.StatusBadRequest, `"field":"reason"`},
+		{"long details", `{"reason":"spam"}`, &domain.InvalidFieldError{Field: "details"}, http.StatusBadRequest, `"field":"details"`},
+		{"not a member", `{"reason":"spam"}`, domain.ErrNotFound, http.StatusNotFound, `"not_found"`},
+		{"own message", `{"reason":"spam"}`, domain.ErrOwnMessage, http.StatusBadRequest, CodeOwnMessage},
+		{"limit", `{"reason":"spam"}`, &domain.RateLimitedError{RetryAfter: time.Minute}, http.StatusTooManyRequests, CodeRateLimited},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := send(t, &fakeService{err: tc.err}, http.MethodPost, path, tc.body, caller)
+			if rec.Code != tc.status || !strings.Contains(rec.Body.String(), tc.want) {
+				t.Errorf("%d %s, want %d with %s", rec.Code, rec.Body, tc.status, tc.want)
+			}
+		})
+	}
+}
+
+func TestMessageReportHandlers(t *testing.T) {
+	base := "/api/v1/admin/message-reports"
+	tests := []struct {
+		name, method, path, body string
+		err                      error
+		status                   int
+		want                     string
+	}{
+		{"list", http.MethodGet, base, "", nil, http.StatusOK, `"status":"open"`},
+		{"bad status", http.MethodGet, base + "?status=x", "", domain.ErrInvalidStatus, http.StatusBadRequest, `bad_request`},
+		{"bad page", http.MethodGet, base + "?page=0", "", domain.ErrInvalidPage, http.StatusBadRequest, `bad_request`},
+		{"detail", http.MethodGet, base + "/" + reportID, "", nil, http.StatusOK, `"messages":[`},
+		{"no report", http.MethodGet, base + "/" + reportID, "", domain.ErrNotFound, http.StatusNotFound, `not_found`},
+		{"bad before", http.MethodGet, base + "/" + reportID + "?before=x", "", domain.ErrInvalidCursor, http.StatusBadRequest, `bad_request`},
+		{"resolve", http.MethodPost, base + "/" + reportID + "/resolve", `{"outcome":"dismissed"}`, nil, http.StatusOK, `"id"`},
+		{"bad outcome", http.MethodPost, base + "/" + reportID + "/resolve", `{"outcome":"x"}`, &domain.InvalidFieldError{Field: "outcome"}, http.StatusBadRequest, `"field":"outcome"`},
+		{"twice", http.MethodPost, base + "/" + reportID + "/resolve", `{"outcome":"dismissed"}`, domain.ErrAlreadyResolved, http.StatusConflict, CodeAlreadyResolved},
+		{"resolve none", http.MethodPost, base + "/" + reportID + "/resolve", `{"outcome":"dismissed"}`, domain.ErrNotFound, http.StatusNotFound, `not_found`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := send(t, &fakeService{err: tc.err}, tc.method, tc.path, tc.body, caller)
+			if rec.Code != tc.status || !strings.Contains(rec.Body.String(), tc.want) {
+				t.Errorf("%d %s, want %d with %s", rec.Code, rec.Body, tc.status, tc.want)
+			}
+		})
 	}
 }

@@ -208,15 +208,16 @@ func (s *Store) RemoveConnection(ctx context.Context, userID, otherID string) er
 }
 
 // ListConnections returns no items for a value that is not a UUID.
-func (s *Store) ListConnections(ctx context.Context, userID string, limit, offset int) ([]domain.Connection, int, error) {
+func (s *Store) ListConnections(ctx context.Context, viewerID, userID string, limit, offset int) ([]domain.Connection, int, error) {
 	id, ok := parseUUID(userID)
-	if !ok {
+	viewer, ok2 := parseUUID(viewerID)
+	if !ok || !ok2 {
 		return []domain.Connection{}, 0, nil
 	}
 	items := []domain.Connection{}
 	var total int64
 	err := s.readTx(ctx, func(q *sqlcgen.Queries) error {
-		rows, err := q.ListConnections(ctx, sqlcgen.ListConnectionsParams{UserID: id, Lim: clamp(limit), Off: clamp(offset)})
+		rows, err := q.ListConnections(ctx, sqlcgen.ListConnectionsParams{UserID: id, ViewerID: viewer, Lim: clamp(limit), Off: clamp(offset)})
 		if err != nil {
 			return err
 		}
@@ -224,7 +225,7 @@ func (s *Store) ListConnections(ctx context.Context, userID string, limit, offse
 			items = append(items, domain.Connection{ConnectedAt: r.RespondedAt.Time,
 				Other: person(r.OtherID, r.FullName, r.Headline, r.Institution, r.PhotoFileID)})
 		}
-		total, err = q.CountConnections(ctx, id)
+		total, err = q.CountConnections(ctx, sqlcgen.CountConnectionsParams{UserID: id, ViewerID: viewer})
 		return err
 	})
 	if err != nil {
@@ -286,16 +287,111 @@ func (s *Store) ListSent(ctx context.Context, userID string, limit, offset int) 
 }
 
 // CountConnections is 0 for a value that is not a UUID.
-func (s *Store) CountConnections(ctx context.Context, userID string) (int, error) {
+func (s *Store) CountConnections(ctx context.Context, viewerID, userID string) (int, error) {
 	id, ok := parseUUID(userID)
-	if !ok {
+	viewer, ok2 := parseUUID(viewerID)
+	if !ok || !ok2 {
 		return 0, nil
 	}
-	n, err := s.q(ctx).CountConnections(ctx, id)
+	n, err := s.q(ctx).CountConnections(ctx, sqlcgen.CountConnectionsParams{UserID: id, ViewerID: viewer})
 	if err != nil {
 		return 0, fmt.Errorf("count connections: %w", err)
 	}
 	return int(n), nil
+}
+
+// LockPair takes the lock in the context's transaction. Both IDs have already been checked
+// by the caller; a value that is not a UUID is an error here.
+func (s *Store) LockPair(ctx context.Context, a, b string) error {
+	ua, ok1 := parseUUID(a)
+	ub, ok2 := parseUUID(b)
+	if !ok1 || !ok2 {
+		return fmt.Errorf("lock pair: %w", domain.ErrNotFound)
+	}
+	if err := s.q(ctx).LockPair(ctx, sqlcgen.LockPairParams{A: ua, B: ub}); err != nil {
+		return fmt.Errorf("lock pair: %w", err)
+	}
+	return nil
+}
+
+// BlockBetween finds no block for a value that is not a UUID.
+func (s *Store) BlockBetween(ctx context.Context, me, other string) (domain.BlockState, error) {
+	um, ok1 := parseUUID(me)
+	uo, ok2 := parseUUID(other)
+	if !ok1 || !ok2 {
+		return domain.BlockState{}, nil
+	}
+	row, err := s.q(ctx).BlockBetween(ctx, sqlcgen.BlockBetweenParams{Me: um, Other: uo})
+	if err != nil {
+		return domain.BlockState{}, fmt.Errorf("read block: %w", err)
+	}
+	return domain.BlockState{ByMe: row.ByMe, ByThem: row.ByThem}, nil
+}
+
+// AddBlock relies on the primary key: a second block of the same user adds no row.
+func (s *Store) AddBlock(ctx context.Context, blockerID, blockedID string) (bool, error) {
+	from, ok1 := parseUUID(blockerID)
+	to, ok2 := parseUUID(blockedID)
+	if !ok1 || !ok2 {
+		return false, fmt.Errorf("add block: %w", domain.ErrNotFound)
+	}
+	n, err := s.q(ctx).AddBlock(ctx, sqlcgen.AddBlockParams{BlockerID: from, BlockedID: to})
+	if err != nil {
+		return false, fmt.Errorf("add block: %w", err)
+	}
+	return n > 0, nil
+}
+
+// RemoveBlock does nothing for a value that is not a UUID.
+func (s *Store) RemoveBlock(ctx context.Context, blockerID, blockedID string) error {
+	from, ok1 := parseUUID(blockerID)
+	to, ok2 := parseUUID(blockedID)
+	if !ok1 || !ok2 {
+		return nil
+	}
+	if err := s.q(ctx).RemoveBlock(ctx, sqlcgen.RemoveBlockParams{BlockerID: from, BlockedID: to}); err != nil {
+		return fmt.Errorf("remove block: %w", err)
+	}
+	return nil
+}
+
+// RemoveLiveLink does nothing for a value that is not a UUID.
+func (s *Store) RemoveLiveLink(ctx context.Context, a, b string) error {
+	ua, ok1 := parseUUID(a)
+	ub, ok2 := parseUUID(b)
+	if !ok1 || !ok2 {
+		return nil
+	}
+	if err := s.q(ctx).RemoveLiveLink(ctx, sqlcgen.RemoveLiveLinkParams{A: ua, B: ub}); err != nil {
+		return fmt.Errorf("remove link: %w", err)
+	}
+	return nil
+}
+
+// ListBlocks returns no items for a value that is not a UUID.
+func (s *Store) ListBlocks(ctx context.Context, userID string, limit, offset int) ([]domain.BlockedPerson, int, error) {
+	id, ok := parseUUID(userID)
+	if !ok {
+		return []domain.BlockedPerson{}, 0, nil
+	}
+	items := []domain.BlockedPerson{}
+	var total int64
+	err := s.readTx(ctx, func(q *sqlcgen.Queries) error {
+		rows, err := q.ListBlocks(ctx, sqlcgen.ListBlocksParams{UserID: id, Lim: clamp(limit), Off: clamp(offset)})
+		if err != nil {
+			return err
+		}
+		for _, r := range rows {
+			items = append(items, domain.BlockedPerson{BlockedAt: r.CreatedAt.Time,
+				Other: person(r.OtherID, r.FullName, r.Headline, r.Institution, r.PhotoFileID)})
+		}
+		total, err = q.CountBlocks(ctx, id)
+		return err
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("list blocks: %w", err)
+	}
+	return items, int(total), nil
 }
 
 func person(id pgtype.UUID, fullName string, headline, institution pgtype.Text, photo pgtype.UUID) domain.Person {

@@ -1,6 +1,6 @@
 // Package domain holds the messaging module's entities and the interfaces its usecase
-// needs: direct conversations, message requests, messages and read markers (FR-16). It
-// imports only the standard library.
+// needs: direct conversations, message requests, messages, read markers and reports
+// (FR-16). It imports only the standard library.
 package domain
 
 import (
@@ -80,6 +80,13 @@ type Item struct {
 	Other       Person
 	LastMessage *Preview
 	UnreadCount int
+	BlockedByMe bool // the caller has blocked the other member
+	BlockedMe   bool // the other member has blocked the caller; never shown to the caller
+}
+
+// CanMessage reports whether a message from the caller would be accepted now.
+func (i Item) CanMessage() bool {
+	return i.State == StateActive && i.Other.Available && !i.BlockedByMe && !i.BlockedMe
 }
 
 // Cursor is a position in a list of conversations: its last item's activity and ID.
@@ -156,12 +163,31 @@ type Store interface {
 	AnswerRequest(ctx context.Context, id, receiverID string, state State) (requesterID string, found bool, err error)
 	// CountUnread returns the two numbers of the badge.
 	CountUnread(ctx context.Context, memberID string) (UnreadCounts, error)
+	// DeclineRequests moves a and b's conversation from StateRequest to StateDeclined, and
+	// changes nothing in any other state.
+	DeclineRequests(ctx context.Context, a, b string) error
+	ReportStore
 }
 
 // Connections says whether two users are connected. The social module owns connections;
 // cmd/api implements this with its usecase.
 type Connections interface {
 	Connected(ctx context.Context, a, b string) (bool, error)
+}
+
+// BlockState says who has blocked whom between a user and another (FR-16.9).
+type BlockState struct {
+	ByMe   bool // the user has blocked the other
+	ByThem bool // the other has blocked the user
+}
+
+// Blocks reads blocks. The social module owns them; cmd/api implements this with its usecase.
+type Blocks interface {
+	// Lock holds a lock on the pair a, b until the transaction ends, so a send and a block
+	// between them run one at a time.
+	Lock(ctx context.Context, a, b string) error
+	// Between reads who has blocked whom between me and other.
+	Between(ctx context.Context, me, other string) (BlockState, error)
 }
 
 // Limiter counts a user's sends in fixed windows, one counter per window name.
@@ -199,6 +225,8 @@ var (
 	ErrInvalidBox     = errors.New("messaging: unknown box")
 	ErrInvalidCursor  = errors.New("messaging: invalid cursor")
 	ErrInvalidLimit   = errors.New("messaging: limit is not a whole number of at least 1")
+	ErrCannotMessage  = errors.New("messaging: this person cannot be messaged")
+	ErrYouBlocked     = errors.New("messaging: the caller has blocked this user")
 )
 
 // RateLimitedError says the user has used up a window (FR-16.10).

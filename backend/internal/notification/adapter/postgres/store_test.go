@@ -248,3 +248,25 @@ func TestMarkRead(t *testing.T) {
 		t.Errorf("unread %d, want 0", n)
 	}
 }
+
+// FR-16.9: both directions, every type, nobody else's.
+func TestDeleteBetween(t *testing.T) {
+	s, pool := newTestStore(t)
+	ctx := t.Context()
+	ada, bob, cy := newUser(t, pool), newUser(t, pool), newUser(t, pool)
+	put(t, s, ada, bob, domain.TypeConnectionRequestAccepted, newRequest(t, pool, ada, bob))
+	put(t, s, bob, ada, domain.TypeConnectionRequestReceived, newRequest(t, pool, ada, cy))
+	put(t, s, ada, cy, domain.TypeConnectionRequestAccepted, newRequest(t, pool, cy, bob))
+	if err := s.DeleteBetween(ctx, bob, ada); err != nil {
+		t.Fatal(err)
+	}
+	if got := list(t, s, bob); len(got) != 0 {
+		t.Errorf("bob keeps %+v", got)
+	}
+	if got := list(t, s, ada); len(got) != 1 || got[0].ActorID != cy {
+		t.Errorf("ada keeps %+v", got)
+	}
+	if err := s.DeleteBetween(ctx, "not-a-uuid", ada); err != nil {
+		t.Errorf("bad ID: %v", err)
+	}
+}

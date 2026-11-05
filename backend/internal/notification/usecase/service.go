@@ -54,6 +54,13 @@ func (s *Service) ConnectionRequestWithdrawn(ctx context.Context, requestID stri
 	return s.store.DeleteBySubject(ctx, domain.TypeConnectionRequestReceived, requestID)
 }
 
+// RemoveBetween removes everything a and b were told about each other, once one has blocked
+// the other (FR-16.9): pending requests, and accepted ones, which name a person the
+// recipient can no longer open.
+func (s *Service) RemoveBetween(ctx context.Context, a, b string) error {
+	return s.store.DeleteBetween(ctx, a, b)
+}
+
 // List returns one page of recipientID's notifications, newest first (FR-9.5). A nil
 // limit means DefaultLimit; above MaxLimit it is reduced to MaxLimit; below 1 it is
 // ErrInvalidLimit. cursor is the previous page's NextCursor, or empty for the first page;

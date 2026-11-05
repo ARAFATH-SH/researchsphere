@@ -19,6 +19,7 @@ const (
 
 // PeopleQuery is a validated researcher search (FR-6.1, FR-6.3).
 type PeopleQuery struct {
+	ViewerID    string   // the searcher: nobody finds a person who has blocked them (FR-16.9)
 	Q           string   // trimmed, 2 to 100 characters
 	Institution *string  // keep only this institution, ignoring letter case; nil for any
 	Interests   []string // normalized tag names the result must all have, no duplicates

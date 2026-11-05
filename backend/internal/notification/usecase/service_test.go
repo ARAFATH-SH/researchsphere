@@ -36,6 +36,16 @@ func newFakeStore() *fakeStore {
 
 func (s *fakeStore) visible(n *domain.Notification) bool { return !s.hidden[n.ActorID] }
 
+func (s *fakeStore) DeleteBetween(_ context.Context, a, b string) error {
+	if s.err != nil {
+		return s.err
+	}
+	s.rows = slices.DeleteFunc(s.rows, func(n *domain.Notification) bool {
+		return (n.RecipientID == a && n.ActorID == b) || (n.RecipientID == b && n.ActorID == a)
+	})
+	return nil
+}
+
 func (s *fakeStore) Put(_ context.Context, n domain.Notification) error {
 	if s.err != nil {
 		return s.err
@@ -445,5 +455,28 @@ func TestUnknownTypeFails(t *testing.T) {
 	s.rows = append(s.rows, &domain.Notification{ID: req1, RecipientID: bob, ActorID: ada, Type: "post_like", SubjectID: req2, CreatedAt: s.clock})
 	if _, err := svc.List(ctx, bob, "", nil); err == nil || !strings.Contains(err.Error(), "registry") {
 		t.Errorf("List: %v, want a missing registry entry error", err)
+	}
+}
+
+// FR-16.9: a block takes back what the two were told about each other, both ways and of
+// every type, and nothing about anyone else.
+func TestRemoveBetween(t *testing.T) {
+	store := newFakeStore()
+	svc := New(store)
+	ctx := t.Context()
+	for _, n := range []domain.Notification{
+		{RecipientID: "ada", ActorID: "bob", Type: domain.TypeConnectionRequestAccepted, SubjectID: "1"},
+		{RecipientID: "bob", ActorID: "ada", Type: domain.TypeConnectionRequestReceived, SubjectID: "2"},
+		{RecipientID: "ada", ActorID: "cy", Type: domain.TypeConnectionRequestAccepted, SubjectID: "3"},
+	} {
+		if err := store.Put(ctx, n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := svc.RemoveBetween(ctx, "bob", "ada"); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.rows) != 1 || store.rows[0].ActorID != "cy" {
+		t.Errorf("rows left: %+v, want only cy's", store.rows)
 	}
 }

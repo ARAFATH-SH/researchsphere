@@ -101,6 +101,8 @@ type Store interface {
 	Put(ctx context.Context, n Notification) error
 	// DeleteBySubject deletes the notifications of type t about subjectID.
 	DeleteBySubject(ctx context.Context, t Type, subjectID string) error
+	// DeleteBetween deletes everything a and b were told about each other, of any type.
+	DeleteBetween(ctx context.Context, a, b string) error
 	// List returns up to limit visible notifications of recipientID, newest first,
 	// after the cursor when it is not nil.
 	List(ctx context.Context, recipientID string, after *Cursor, limit int) ([]Item, error)

@@ -17,6 +17,7 @@ type harness struct {
 	svc     *Service
 	store   *fakeStore
 	conns   fakeConnections
+	blocks  *fakeBlocks
 	limiter *fakeLimiter
 	pub     *fakePublisher
 	client  int
@@ -25,14 +26,14 @@ type harness struct {
 var testLimits = Limits{MessagesPerMinute: 30, MessagesPerDay: 1000, RequestsPerMinute: 5, RequestsPerDay: 20}
 
 func newHarness() *harness {
-	h := &harness{store: newFakeStore(), conns: fakeConnections{}, limiter: newFakeLimiter(), pub: &fakePublisher{}}
-	h.svc = New(h.store, fakeTx{h.store}, h.conns, h.limiter, h.pub, testLimits, slog.New(slog.DiscardHandler))
+	h := &harness{store: newFakeStore(), conns: fakeConnections{}, blocks: newFakeBlocks(), limiter: newFakeLimiter(), pub: &fakePublisher{}}
+	h.svc = New(h.store, fakeTx{h.store}, h.conns, h.blocks, h.limiter, h.pub, testLimits, slog.New(slog.DiscardHandler))
 	return h
 }
 
 // noLimits replaces the limits with ones a test that sends many messages cannot reach.
 func (h *harness) noLimits() {
-	h.svc = New(h.store, fakeTx{h.store}, h.conns, h.limiter, h.pub,
+	h.svc = New(h.store, fakeTx{h.store}, h.conns, h.blocks, h.limiter, h.pub,
 		Limits{MessagesPerMinute: 1 << 20, MessagesPerDay: 1 << 20, RequestsPerMinute: 1 << 20, RequestsPerDay: 1 << 20},
 		slog.New(slog.DiscardHandler))
 }
@@ -444,7 +445,7 @@ func TestIdempotentClientID(t *testing.T) {
 		found := h.store.messages
 		h.store.messages = nil
 		lookups := &racingFind{fakeStore: h.store, hidden: true, saved: found}
-		svc := New(lookups, fakeTx{h.store}, h.conns, h.limiter, h.pub, testLimits, slog.New(slog.DiscardHandler))
+		svc := New(lookups, fakeTx{h.store}, h.conns, h.blocks, h.limiter, h.pub, testLimits, slog.New(slog.DiscardHandler))
 		h.store.duplicateAdd = true
 		got, err := svc.SendDirect(ctx, "ada", "bob", "second", "c1")
 		if err != nil || !got.Replayed || got.Message.ID != winner.Message.ID {
@@ -464,7 +465,7 @@ func TestIdempotentClientID(t *testing.T) {
 		// The retry got past the lookup before the first send committed, then found the
 		// request it had started itself.
 		lookups := &racingFind{fakeStore: h.store, hidden: true, saved: h.store.messages}
-		svc := New(lookups, fakeTx{h.store}, h.conns, h.limiter, h.pub, testLimits, slog.New(slog.DiscardHandler))
+		svc := New(lookups, fakeTx{h.store}, h.conns, h.blocks, h.limiter, h.pub, testLimits, slog.New(slog.DiscardHandler))
 		got, err := svc.SendDirect(ctx, "ada", "bob", "may I?", "c1")
 		if err != nil || !got.Replayed || got.Message.ID != winner.Message.ID {
 			t.Fatalf("got %+v, %v", got, err)
@@ -605,7 +606,7 @@ func TestRateLimits(t *testing.T) {
 	t.Run("the numbers come from the configuration", func(t *testing.T) {
 		h := newHarness()
 		h.connect("ada", "bob")
-		h.svc = New(h.store, fakeTx{h.store}, h.conns, h.limiter, h.pub,
+		h.svc = New(h.store, fakeTx{h.store}, h.conns, h.blocks, h.limiter, h.pub,
 			Limits{MessagesPerMinute: 1, MessagesPerDay: 1000, RequestsPerMinute: 5, RequestsPerDay: 20}, slog.New(slog.DiscardHandler))
 		h.direct(t, "ada", "bob", "one")
 		var limited *domain.RateLimitedError
@@ -830,6 +831,132 @@ func TestCursorRoundTrip(t *testing.T) {
 	for _, bad := range []string{"", "!!!", "bm8tc2VwYXJhdG9y"} {
 		if _, err := DecodeCursor(bad); !errors.Is(err, domain.ErrInvalidCursor) {
 			t.Errorf("DecodeCursor(%q) = %v", bad, err)
+		}
+	}
+}
+
+// FR-16.9: both directions, with and without a conversation.
+func TestBlockRefusesSends(t *testing.T) {
+	const blocker, blocked = "ada", "bob"
+	h := newHarness()
+	h.connect(blocker, blocked)
+	id := h.direct(t, blocker, blocked, "hello").Message.ConversationID
+	h.blocks.set[blocker+"|"+blocked] = true
+
+	tests := []struct {
+		name string
+		send func() error
+		want error
+	}{
+		{"blocked, in the conversation", func() error { _, err := h.svc.Send(t.Context(), blocked, id, "hi", h.clientID()); return err }, domain.ErrCannotMessage},
+		{"blocked, direct", func() error {
+			_, err := h.svc.SendDirect(t.Context(), blocked, blocker, "hi", h.clientID())
+			return err
+		}, domain.ErrCannotMessage},
+		{"blocker, in the conversation", func() error { _, err := h.svc.Send(t.Context(), blocker, id, "hi", h.clientID()); return err }, domain.ErrYouBlocked},
+		{"blocker, direct", func() error {
+			_, err := h.svc.SendDirect(t.Context(), blocker, blocked, "hi", h.clientID())
+			return err
+		}, domain.ErrYouBlocked},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.send(); !errors.Is(err, tc.want) {
+				t.Errorf("err = %v, want %v", err, tc.want)
+			}
+		})
+	}
+	if len(h.store.messages) != 1 {
+		t.Errorf("%d messages stored, want 1", len(h.store.messages))
+	}
+}
+
+// A first message from a blocked person gets the 404 of an unknown user, so it does not
+// reveal the block; the blocker is told. Nothing is created or counted.
+func TestBlockWithoutConversation(t *testing.T) {
+	h := newHarness()
+	h.blocks.set["ada|bob"] = true
+	if _, err := h.svc.SendDirect(t.Context(), "bob", "ada", "hi", h.clientID()); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("blocked person: %v", err)
+	}
+	if _, err := h.svc.SendDirect(t.Context(), "ada", "bob", "hi", h.clientID()); !errors.Is(err, domain.ErrYouBlocked) {
+		t.Errorf("blocker: %v", err)
+	}
+	h.blocks.set["bob|ada"] = true
+	if _, err := h.svc.SendDirect(t.Context(), "bob", "ada", "hi", h.clientID()); !errors.Is(err, domain.ErrYouBlocked) {
+		t.Errorf("blocked both ways: %v", err)
+	}
+	if len(h.store.conversations) != 0 || len(h.limiter.used) != 0 {
+		t.Errorf("conversations %v, counted %v", h.store.conversations, h.limiter.used)
+	}
+}
+
+// A block that commits while a send waits for the pair's lock refuses that send, and the
+// conversation a first message would have created is not left behind.
+func TestBlockCommittedWhileSendWaits(t *testing.T) {
+	h := newHarness()
+	h.blocks.onLock = func() { h.blocks.set["ada|bob"] = true }
+	if _, err := h.svc.SendDirect(t.Context(), "bob", "ada", "hi", h.clientID()); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("err = %v", err)
+	}
+	if h.blocks.locks != 1 || len(h.store.conversations) != 0 || len(h.store.messages) != 0 {
+		t.Errorf("locks %d, conversations %d, messages %d", h.blocks.locks, len(h.store.conversations), len(h.store.messages))
+	}
+}
+
+// A retry of a message stored before the block still returns the original (14A.1).
+func TestBlockKeepsReplay(t *testing.T) {
+	h := newHarness()
+	h.connect("ada", "bob")
+	sent, err := h.svc.SendDirect(t.Context(), "bob", "ada", "hi", "retry")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.blocks.set["ada|bob"] = true
+	again, err := h.svc.SendDirect(t.Context(), "bob", "ada", "hi", "retry")
+	if err != nil || !again.Replayed || again.Message.ID != sent.Message.ID {
+		t.Errorf("retry: %+v, %v", again, err)
+	}
+}
+
+// FR-16.9: a block declines a pending request, which leaves the boxes; an active conversation
+// stays.
+func TestDeclineRequests(t *testing.T) {
+	h := newHarness()
+	h.direct(t, "ada", "bob", "may I?")
+	if err := h.svc.DeclineRequests(t.Context(), "bob", "ada"); err != nil {
+		t.Fatal(err)
+	}
+	if s := h.store.pair("ada", "bob").state; s != domain.StateDeclined {
+		t.Errorf("state = %s", s)
+	}
+	h.connect("ada", "cy")
+	h.direct(t, "ada", "cy", "hello")
+	if err := h.svc.DeclineRequests(t.Context(), "ada", "cy"); err != nil {
+		t.Fatal(err)
+	}
+	if s := h.store.pair("ada", "cy").state; s != domain.StateActive {
+		t.Errorf("active conversation became %s", s)
+	}
+}
+
+func TestCanMessage(t *testing.T) {
+	ok := domain.Item{Conversation: domain.Conversation{State: domain.StateActive}, Other: domain.Person{Available: true}}
+	if !ok.CanMessage() {
+		t.Error("an active conversation refuses")
+	}
+	tests := map[string]func(*domain.Item){
+		"blocked by me":   func(i *domain.Item) { i.BlockedByMe = true },
+		"blocked me":      func(i *domain.Item) { i.BlockedMe = true },
+		"unavailable":     func(i *domain.Item) { i.Other.Available = false },
+		"pending request": func(i *domain.Item) { i.State = domain.StateRequest },
+		"declined":        func(i *domain.Item) { i.State = domain.StateDeclined },
+	}
+	for name, change := range tests {
+		it := ok
+		change(&it)
+		if it.CanMessage() {
+			t.Errorf("%s: can message", name)
 		}
 	}
 }

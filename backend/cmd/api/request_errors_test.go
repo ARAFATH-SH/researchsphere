@@ -41,6 +41,9 @@ var jsonBodyRoutes = []struct {
 	{http.MethodPost, "/api/v1/profiles/me/publications/from-orcid", "putCodes", `{"putCodes":5}`, "putCodes", "putCodes must be a list."},
 	{http.MethodPatch, "/api/v1/profiles/me/publications/" + okUserID, "", `{"title":5}`, "title", "title must be a string."},
 	{http.MethodPost, "/api/v1/connections/requests", "userId", `{"userId":5}`, "userId", "userId must be a string."},
+	{http.MethodPost, "/api/v1/blocks", "userId", `{"userId":5}`, "userId", "userId must be a UUID."},
+	{http.MethodPost, "/api/v1/conversations/" + okConversationID + "/reports", "reason", `{"reason":5}`, "reason", "reason must be a string."},
+	{http.MethodPost, "/api/v1/admin/message-reports/" + okConversationID + "/resolve", "outcome", `{"outcome":5}`, "outcome", "outcome must be a string."},
 	{http.MethodPost, "/api/v1/messages/direct", "body", `{"body":5}`, "body", "body must be a string."},
 	{http.MethodPost, "/api/v1/conversations/" + okConversationID + "/messages", "body", `{"body":5}`, "body", "body must be a string."},
 	{http.MethodPost, "/api/v1/conversations/" + okConversationID + "/read", "messageId", `{"messageId":5}`, "messageId", "messageId must be a UUID."},
@@ -51,7 +54,11 @@ func TestEveryJSONBodyGetsFieldErrors(t *testing.T) {
 	router := testRouter()
 	post := func(t *testing.T, method, path, body string) (int, map[string]any) {
 		t.Helper()
-		rec := sendAs(t, router, method, path, strings.NewReader(body), "application/json", string(authz.RoleResearcher))
+		role := authz.RoleResearcher
+		if strings.HasPrefix(path, "/api/v1/admin/") {
+			role = authz.RoleAdmin
+		}
+		rec := sendAs(t, router, method, path, strings.NewReader(body), "application/json", string(role))
 		var got map[string]any
 		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil && rec.Body.Len() > 0 {
 			t.Fatalf("body %q: %v", rec.Body, err)

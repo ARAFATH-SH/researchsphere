@@ -228,13 +228,21 @@ func (s *Service) ListOwnPublications(ctx context.Context, userID string, page, 
 // user (FR-5.5): by year, newest first, a publication without a year last, then by when
 // the user added it, newest first. pageSize above MaxPublicationPageSize is reduced to
 // it, and a page or page size below 1 returns domain.ErrInvalidPage. An unknown,
-// suspended or unverified account gives domain.ErrNotFound, as for the profile.
-func (s *Service) ListPublications(ctx context.Context, userID string, page, pageSize int) (domain.PublicationPage, error) {
+// suspended or unverified account, or an owner who has blocked viewerID (FR-16.9), gives
+// domain.ErrNotFound, as for the profile.
+func (s *Service) ListPublications(ctx context.Context, viewerID, userID string, page, pageSize int) (domain.PublicationPage, error) {
 	a, err := s.store.FindAccount(ctx, userID)
 	if err != nil {
 		return domain.PublicationPage{}, err
 	}
 	if a.Suspended || !a.Verified {
+		return domain.PublicationPage{}, domain.ErrNotFound
+	}
+	blocks, err := s.blockState(ctx, viewerID, userID)
+	if err != nil {
+		return domain.PublicationPage{}, err
+	}
+	if blocks.ByOwner {
 		return domain.PublicationPage{}, domain.ErrNotFound
 	}
 	return s.publicationPage(ctx, userID, page, pageSize)

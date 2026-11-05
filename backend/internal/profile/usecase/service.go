@@ -57,7 +57,8 @@ func (s *Service) GetOwn(ctx context.Context, userID string) (domain.Profile, er
 
 // View returns any user's profile to the logged-in user viewerID (FR-4.5), with the
 // contact info viewerID may see (FR-4.7). An unknown, suspended or unverified account
-// gives domain.ErrNotFound, so the caller cannot tell them apart.
+// gives domain.ErrNotFound, so the caller cannot tell them apart, and so does an owner who
+// has blocked viewerID (FR-16.9). A viewer who has blocked the owner still sees the profile.
 func (s *Service) View(ctx context.Context, viewerID, userID string) (domain.Profile, error) {
 	a, err := s.store.FindAccount(ctx, userID)
 	if err != nil {
@@ -66,7 +67,27 @@ func (s *Service) View(ctx context.Context, viewerID, userID string) (domain.Pro
 	if a.Suspended || !a.Verified {
 		return domain.Profile{}, domain.ErrNotFound
 	}
-	return s.withDetails(ctx, profileOf(a), viewerID)
+	blocks, err := s.blockState(ctx, viewerID, userID)
+	if err != nil {
+		return domain.Profile{}, err
+	}
+	if blocks.ByOwner {
+		return domain.Profile{}, domain.ErrNotFound
+	}
+	p, err := s.withDetails(ctx, profileOf(a), viewerID)
+	if err != nil {
+		return domain.Profile{}, err
+	}
+	p.BlockedByMe = blocks.ByViewer
+	return p, nil
+}
+
+// blockState reads the block between viewerID and ownerID; none without a ConnectionLookup.
+func (s *Service) blockState(ctx context.Context, viewerID, ownerID string) (domain.BlockState, error) {
+	if s.conns == nil {
+		return domain.BlockState{}, nil
+	}
+	return s.conns.Block(ctx, viewerID, ownerID)
 }
 
 // UpdateInput is what a user sends to edit their profile. A nil optional field means
@@ -142,7 +163,7 @@ func (s *Service) withDetails(ctx context.Context, p domain.Profile, viewerID st
 	if p.Connection, err = s.conns.Relation(ctx, viewerID, p.UserID); err != nil {
 		return domain.Profile{}, err
 	}
-	if p.ConnectionCount, err = s.conns.Count(ctx, p.UserID); err != nil {
+	if p.ConnectionCount, err = s.conns.Count(ctx, viewerID, p.UserID); err != nil {
 		return domain.Profile{}, err
 	}
 	return p, nil

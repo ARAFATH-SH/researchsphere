@@ -84,6 +84,7 @@ The server enforces both tables (FR-3.2). An administrator has no extra rights i
 | Add, edit and remove venues | No | No | Yes |
 | Remove any post or comment | No | No | Yes |
 | Suspend a user account | No | No | Yes |
+| Review reported conversations | No | No | Yes |
 
 **Project level**
 
@@ -455,7 +456,7 @@ NFR-1 to NFR-7 come from the proposal. NFR-8 to NFR-14 are added here.
 | NFR-11.2 | Maintainability | The API server's business logic shall have automated tests covering at least 70% of its lines | Should |
 | NFR-12 | Capacity | The deployment shall support 10 files being edited at once, each by 6 editors | Should |
 | NFR-13 | Security | Uploaded files shall be kept in private object storage, served only through short-lived presigned URLs after a permission check, and encrypted at rest | Must |
-| NFR-14 | Security | Every read and write of a conversation or message shall check on the server that the user is a member; anyone else, an administrator included, shall get the same "not found" answer as for a conversation that does not exist | Must |
+| NFR-14 | Security | Every read and write of a conversation or message shall check on the server that the user is a member; anyone else, an administrator included, shall get the same "not found" answer as for a conversation that does not exist. The one exception: an administrator may read a conversation only through a report on it, only the messages up to the moment of that report, and every such read shall be recorded with the administrator, the report and the time | Must |
 
 ## 7. Data Requirements
 
@@ -486,6 +487,9 @@ The database holds the 23 kinds of record below. The rules below are enforced by
 | Conversation | Kind (direct or group), state (active, request or declined), who requested it, the pair of users, last message time | One direct conversation per pair of users; a request names who requested it |
 | Conversation member | Conversation, user, joined time, read marker and its time | One row per user per conversation; the read marker is a message of the same conversation |
 | Message | Conversation, sender, text, client ID, times | 1 to 5,000 characters, trimmed; a client ID is used once per sender |
+| Block | Blocker, blocked user, time | One per direction; no self-block; deleted with either user |
+| Message report | Conversation, reporter, reported user, message, reason, details, time, resolution (time, administrator, outcome, note) | A reported message belongs to the conversation; deleted with the conversation |
+| Report view | Report, administrator, time | One per administrator's read; holds no message text and outlives the report |
 
 **Retention**
 

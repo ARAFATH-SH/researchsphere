@@ -312,6 +312,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/message-reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List reports of conversations for an administrator (FR-16.9, NFR-14)
+         * @description Needs the access cookie and the platform action "Review reported conversations"
+         *     (SRS 2.3). 20 per page, newest first. A report's `details` are the reporter's own
+         *     words; the list holds no messages, so reading it writes no audit row.
+         */
+        get: operations["listMessageReports"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/message-reports/{reportId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a report and its conversation up to the report (FR-16.9, NFR-14)
+         * @description Needs the access cookie and the platform action "Review reported conversations"
+         *     (SRS 2.3). This is the only way an administrator can read a conversation, and only a
+         *     reported one (NFR-14): messages sent after the report are never returned. 100
+         *     messages per page, newest first; `before` loads earlier ones. Every request writes
+         *     one audit row (administrator, report, time) in the same transaction as the read.
+         */
+        get: operations["getMessageReport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/message-reports/{reportId}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Close a report with an outcome (FR-16.9)
+         * @description Needs the access cookie and the platform action "Review reported conversations"
+         *     (SRS 2.3). A report is resolved once; it stays readable afterwards. Resolving changes
+         *     nothing else: suspending a user is a separate action (slice 27).
+         */
+        post: operations["resolveMessageReport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/profiles/me": {
         parameters: {
             query?: never;
@@ -353,7 +421,9 @@ export interface paths {
          * Return any user's profile to a logged-in user (FR-4.5)
          * @description Needs the access cookie and the platform action "View profiles, search, feed,
          *     events and recommendations" (SRS 2.3). An unknown, suspended or unverified account
-         *     gets the same 404 `not_found`, so the answer does not reveal which it is.
+         *     gets the same 404 `not_found`, so the answer does not reveal which it is. So does a
+         *     viewer whom this user has blocked (FR-16.9); the blocker can still open the blocked
+         *     person's profile, with `blockedByMe` true.
          */
         get: operations["getProfile"];
         put?: never;
@@ -960,7 +1030,8 @@ export interface paths {
          * @description Needs the access cookie and the platform action "View profiles, search, feed,
          *     events and recommendations" (SRS 2.3). Only publications the user has confirmed
          *     are listed, in the order of `listMyPublications`. An unknown, suspended or
-         *     unverified account gets the same 404 `not_found`, as for the profile.
+         *     unverified account gets the same 404 `not_found`, as for the profile, and so does a
+         *     viewer whom this user has blocked (FR-16.9).
          */
         get: operations["listPublications"];
         put?: never;
@@ -982,8 +1053,10 @@ export interface paths {
          * List any user's connections to a logged-in user (FR-7.4)
          * @description Needs the access cookie and the platform action "View profiles, search, feed,
          *     events and recommendations" (SRS 2.3). Lists the user's connections in the order
-         *     of `listMyConnections`, leaving out suspended and unverified accounts. An unknown,
-         *     suspended or unverified account gets the same 404 `not_found`, as for the profile.
+         *     of `listMyConnections`, leaving out suspended and unverified accounts and anyone who
+         *     has blocked the viewer (FR-16.9). An unknown, suspended or unverified account gets the
+         *     same 404 `not_found`, as for the profile, and so does a viewer whom this user has
+         *     blocked.
          */
         get: operations["listProfileConnections"];
         put?: never;
@@ -1139,8 +1212,10 @@ export interface paths {
          *     like, comment" (SRS 2.3). Checks run in this order: a request to oneself
          *     (`cannot_connect_to_self`), the daily limit (`rate_limited`), the receiver (an
          *     unknown, suspended or unverified account gets 404 `not_found`, as for the
-         *     profile), then the existing requests and connections between the two, in either
-         *     direction (409). A rejected request does not block a new one (FR-7.6).
+         *     profile), a block (FR-16.9: the same 404 for the blocked person, 409
+         *     `you_blocked_this_user` for the blocker), then the existing requests and connections
+         *     between the two, in either direction (409). A rejected request does not block a new
+         *     one (FR-7.6).
          *
          *     Each user may send 50 requests a day; only requests that were created count.
          *     Two users who send each other a request at the same moment get one request: the
@@ -1270,6 +1345,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/blocks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the people the logged-in user has blocked (FR-16.9)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed,
+         *     events and recommendations" (SRS 2.3). 20 per page, most recently blocked first.
+         *     Suspended and unverified accounts are left out, as in every other list.
+         */
+        get: operations["listBlockedPeople"];
+        put?: never;
+        /**
+         * Block a user (FR-16.9)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Blocking someone already blocked succeeds and changes
+         *     nothing. In one transaction it removes the connection and the pending connection
+         *     requests between the two, in both directions, deletes the notifications between them
+         *     and declines a pending message request between them. Each of the two may block the
+         *     other.
+         */
+        post: operations["blockUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/blocks/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Unblock a user (FR-16.9)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Unblocking someone who is not blocked, or an unknown ID,
+         *     succeeds and changes nothing. No removed connection, request or notification comes
+         *     back.
+         */
+        delete: operations["unblockUser"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/notifications": {
         parameters: {
             query?: never;
@@ -1382,11 +1511,16 @@ export interface paths {
          *     `clientId` (a value already used by the sender returns the original message with
          *     200, whatever the conversation's state is now, and uses no quota), the message
          *     limits (`rate_limited`), the receiver (404 `not_found` for unknown, suspended or
-         *     not verified), the request limits (`rate_limited`, only when this message would
-         *     create a request), then the conversation's state (`request_pending`,
+         *     not verified), a block (FR-16.9), the request limits (`rate_limited`, only when this
+         *     message would create a request), then the conversation's state (`request_pending`,
          *     `conversation_closed`). A pending request refuses both members until the receiver
          *     accepts it; if they have connected meanwhile it becomes `active` and the message
          *     is sent. A `declined` conversation stays closed, also after the two connect.
+         *
+         *     A block refuses both users. The blocker gets 409 `you_blocked_this_user`. The blocked
+         *     person gets 403 `cannot_message` when the two have a conversation, and otherwise the
+         *     same 404 `not_found` as for an unknown user. A caller who has blocked the other and
+         *     is also blocked by them gets the blocker's answer.
          */
         post: operations["sendDirectMessage"];
         delete?: never;
@@ -1455,8 +1589,9 @@ export interface paths {
          * Get one of the logged-in user's conversations (FR-16.1, NFR-14)
          * @description Needs the access cookie and the platform action "View profiles, search, feed,
          *     events and recommendations" (SRS 2.3). Anyone who is not a member gets 404
-         *     `not_found`, the same answer as for an unknown ID (NFR-14); administrators have no
-         *     extra access.
+         *     `not_found`, the same answer as for an unknown ID (NFR-14). This holds for
+         *     administrators too: they read a conversation only through a report on it
+         *     (`getMessageReport`).
          */
         get: operations["getConversation"];
         put?: never;
@@ -1489,8 +1624,9 @@ export interface paths {
          *     like, comment" (SRS 2.3). Checks run in this order: the body (`invalid_body`),
          *     membership (404 `not_found`, NFR-14), `clientId` (a value already used by the sender
          *     returns the original message with 200), the message limits (`rate_limited`), the
-         *     other member (404 `not_found` when suspended or not verified), then the
-         *     conversation's state (`request_pending`, `conversation_closed`), as for
+         *     other member (404 `not_found` when suspended or not verified), a block (FR-16.9: 403
+         *     `cannot_message` for the blocked person, 409 `you_blocked_this_user` for the blocker),
+         *     then the conversation's state (`request_pending`, `conversation_closed`), as for
          *     `POST /messages/direct`.
          */
         post: operations["sendMessage"];
@@ -1570,6 +1706,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/conversations/{conversationId}/reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Report a conversation or one of its messages (FR-16.9, NFR-14)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Anyone who is not a member gets 404 `not_found` (NFR-14).
+         *     Checks run in this order: membership, `reason`, `details` and `messageId`
+         *     (`bad_request`, with `field`), the message (404 `not_found` when it is not in this
+         *     conversation, 400 `cannot_report_own_message` when the caller sent it), then the
+         *     limit of 10 reports per user per day (`rate_limited`); only stored reports count.
+         *     An administrator can read this conversation's messages up to the moment of the report.
+         *
+         *     Reporting does not block the other user: `blockedByMe` says whether the caller has
+         *     blocked them, so the client can offer to block `reportedUserId` next.
+         */
+        post: operations["reportConversation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/search/people": {
         parameters: {
             query?: never;
@@ -1581,7 +1746,9 @@ export interface paths {
          * Search researchers by name, institution, research interest or headline (FR-6.1 to FR-6.3)
          * @description Needs the access cookie and the platform action "View profiles, search, feed,
          *     events and recommendations" (SRS 2.3). Only verified accounts that are not
-         *     suspended are found, as with `GET /profiles/{userId}`. Only public profile fields
+         *     suspended are found, as with `GET /profiles/{userId}`, and never anyone who has
+         *     blocked the searcher (FR-16.9), in the results, the totals or the facets. Only public
+         *     profile fields
          *     are searched: full name, institution, research interest names and headline; never
          *     email, phone, birthday, links or bio.
          *
@@ -1806,9 +1973,15 @@ export interface components {
             connectionRequestId: string | null;
             /**
              * @description How many connections the user has (FR-7.4), counting only verified accounts
-             *     that are not suspended; the `total` of `listProfileConnections`.
+             *     that are not suspended, and leaving out people who blocked the viewer; the
+             *     `total` of `listProfileConnections`.
              */
             connectionCount: number;
+            /**
+             * @description True when the viewer has blocked this user (FR-16.9), so the client can offer
+             *     Unblock instead of Connect and Message. Sent on every profile.
+             */
+            blockedByMe?: boolean;
             contact: components["schemas"]["PublicContact"];
             /**
              * @description The profile photo (FR-4.6) as `/api/v1/media/{fileId}`; null when not set.
@@ -1921,7 +2094,7 @@ export interface components {
          */
         ConnectionConflict: {
             /** @enum {string} */
-            code: "request_already_pending" | "request_pending_from_them" | "already_connected";
+            code: "request_already_pending" | "request_pending_from_them" | "already_connected" | "you_blocked_this_user";
             message: string;
             /**
              * Format: uuid
@@ -2071,6 +2244,14 @@ export interface components {
             requestedBy: string | null;
             /** Format: date-time */
             lastMessageAt: string;
+            /**
+             * @description True when a message from the caller would be accepted now: the conversation is
+             *     `active`, the other member is available and neither has blocked the other
+             *     (FR-16.9).
+             */
+            canMessage: boolean;
+            /** @description True when the caller has blocked the other member. A blocked person is never told. */
+            blockedByMe: boolean;
         };
         ConversationPage: {
             items: components["schemas"]["Conversation"][];
@@ -2086,6 +2267,111 @@ export interface components {
              * @description The other member's read marker; null until they have read a message.
              */
             otherLastReadMessageId: string | null;
+        };
+        BlockRequest: {
+            /**
+             * Format: uuid
+             * @description The user to block.
+             */
+            userId: string;
+        };
+        BlockedPerson: {
+            /** Format: uuid */
+            userId: string;
+            fullName: string;
+            /** @description The profile photo as `/api/v1/media/{fileId}`; null when not set. */
+            photoUrl: string | null;
+            headline: string | null;
+            /** Format: date-time */
+            blockedAt: string;
+        };
+        BlockedPersonPage: {
+            items: components["schemas"]["BlockedPerson"][];
+            page: number;
+            pageSize: number;
+            /** @description Blocked people on all pages. */
+            total: number;
+        };
+        /** @enum {string} */
+        ReportReason: "spam" | "harassment" | "inappropriate" | "other";
+        ReportConversationRequest: {
+            reason: components["schemas"]["ReportReason"];
+            /** @description At most 1,000 characters after trimming; empty means none. */
+            details?: string;
+            /**
+             * Format: uuid
+             * @description The message being reported, when it is one message. It must be in this conversation and not the caller's.
+             */
+            messageId?: string;
+        };
+        ConversationReportReceipt: {
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            createdAt: string;
+            /**
+             * Format: uuid
+             * @description The other member, whom the client can offer to block.
+             */
+            reportedUserId: string;
+            /** @description Whether the caller has blocked that user. Reporting never does it. */
+            blockedByMe: boolean;
+        };
+        MessageReportPerson: {
+            /** Format: uuid */
+            userId: string;
+            fullName: string;
+            /** @description The profile photo as `/api/v1/media/{fileId}`; null when not set. */
+            photoUrl: string | null;
+            headline: string | null;
+        };
+        MessageReport: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            conversationId: string;
+            /** @enum {string} */
+            status: "open" | "resolved";
+            reason: components["schemas"]["ReportReason"];
+            /** @description The reporter's own words. */
+            details: string | null;
+            /**
+             * Format: uuid
+             * @description The reported message; null when the whole conversation was reported.
+             */
+            messageId: string | null;
+            reporter: components["schemas"]["MessageReportPerson"];
+            reportedUser: components["schemas"]["MessageReportPerson"];
+            /**
+             * Format: date-time
+             * @description The moment of the report; an administrator sees messages only up to it.
+             */
+            createdAt: string;
+            /** @enum {string|null} */
+            outcome: "dismissed" | "action_taken" | null;
+            note: string | null;
+            /** Format: date-time */
+            resolvedAt: string | null;
+        };
+        MessageReportPage: {
+            items: components["schemas"]["MessageReport"][];
+            page: number;
+            pageSize: number;
+            /** @description Reports with this status on all pages. */
+            total: number;
+        };
+        MessageReportDetail: {
+            report: components["schemas"]["MessageReport"];
+            /** @description Newest first, none later than the report. */
+            messages: components["schemas"]["Message"][];
+            /** @description Pass as `before` to load earlier messages; null on the last page. */
+            nextBefore: string | null;
+        };
+        ResolveMessageReportRequest: {
+            /** @enum {string} */
+            outcome: "dismissed" | "action_taken";
+            /** @description At most 1,000 characters after trimming; empty means none. */
+            note?: string;
         };
         MessageUnreadCount: {
             /** @description Unread messages in active conversations. */
@@ -2619,8 +2905,21 @@ export interface components {
             };
         };
         /**
+         * @description `forbidden`: the user's role does not permit the action (FR-3.2).
+         *     `cannot_message`: this person cannot be messaged. It does not say why (FR-16.9).
+         */
+        MessageForbidden: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /**
          * @description `request_pending`: the receiver has not accepted the request yet.
          *     `conversation_closed`: the request was declined.
+         *     `you_blocked_this_user`: the caller has blocked the other user (FR-16.9).
          */
         MessageRefused: {
             headers: {
@@ -2916,6 +3215,13 @@ export interface components {
         };
     };
     parameters: {
+        /** @description The page to return, from 1. Defaults to 1. A value below 1 gets 400 `bad_request`. */
+        PageFromOne: number;
+        /**
+         * @description The report's ID, a UUID. It is declared as a plain string so that the login and role
+         *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+         */
+        ReportId: string;
         /**
          * @description The conversation's ID, a UUID. It is declared as a plain string so that the login
          *     check runs before it is read (FR-3.1); a value that is not a UUID names no
@@ -3547,6 +3853,140 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listMessageReports: {
+        parameters: {
+            query?: {
+                /** @description `open` or `resolved`; `open` when left out. Any other value gets 400 `bad_request`. */
+                status?: string;
+                /** @description The page to return, from 1. Defaults to 1. A value below 1 gets 400 `bad_request`. */
+                page?: components["parameters"]["PageFromOne"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of reports. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageReportPage"];
+                };
+            };
+            /** @description `status` or `page` is not valid (`bad_request`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getMessageReport: {
+        parameters: {
+            query?: {
+                /**
+                 * @description `nextBefore` from the previous page; leave it out for the most recent messages. A
+                 *     value that is not a UUID gets 400 `bad_request`.
+                 */
+                before?: string;
+            };
+            header?: never;
+            path: {
+                /**
+                 * @description The report's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                reportId: components["parameters"]["ReportId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The report and one page of its conversation. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageReportDetail"];
+                };
+            };
+            /** @description `before` is not valid (`bad_request`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    resolveMessageReport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The report's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                reportId: components["parameters"]["ReportId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResolveMessageReportRequest"];
+            };
+        };
+        responses: {
+            /** @description The report, now resolved. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageReport"];
+                };
+            };
+            /** @description `outcome` or `note` is not valid (`bad_request`, with `field`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The report is already resolved (`report_already_resolved`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             500: components["responses"]["InternalError"];
         };
     };
@@ -5113,8 +5553,8 @@ export interface operations {
              * @description A request or connection already exists between the two (FR-7.2):
              *     `request_already_pending` (the caller's earlier request is still pending),
              *     `request_pending_from_them` (the other user has sent the caller a request that
-             *     is still pending; `requestId` names it, so the caller can accept it instead) or
-             *     `already_connected`.
+             *     is still pending; `requestId` names it, so the caller can accept it instead),
+             *     `already_connected`, or `you_blocked_this_user` (FR-16.9).
              */
             409: {
                 headers: {
@@ -5281,6 +5721,106 @@ export interface operations {
             500: components["responses"]["InternalError"];
         };
     };
+    listBlockedPeople: {
+        parameters: {
+            query?: {
+                /** @description The page to return, from 1. Defaults to 1. A value below 1 gets 400 `bad_request`. */
+                page?: components["parameters"]["PageFromOne"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of blocked people. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BlockedPersonPage"];
+                };
+            };
+            /** @description `page` is not a whole number of at least 1 (`bad_request`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    blockUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BlockRequest"];
+            };
+        };
+        responses: {
+            /** @description The user is blocked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /**
+             * @description `userId` is the caller's own ID (`cannot_block_self`), or the body is not valid
+             *     (`bad_request`).
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    unblockUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The blocked user's ID, a UUID. It is declared as a plain string so that the login
+                 *     check runs before it is read (FR-3.1).
+                 */
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The user is not blocked by the caller. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
     listNotifications: {
         parameters: {
             query?: {
@@ -5432,7 +5972,7 @@ export interface operations {
             };
             400: components["responses"]["InvalidMessage"];
             401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
+            403: components["responses"]["MessageForbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["MessageRefused"];
             429: components["responses"]["MessageRateLimited"];
@@ -5629,7 +6169,7 @@ export interface operations {
             };
             400: components["responses"]["InvalidMessage"];
             401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
+            403: components["responses"]["MessageForbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["MessageRefused"];
             429: components["responses"]["MessageRateLimited"];
@@ -5737,6 +6277,64 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    reportConversation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The conversation's ID, a UUID. It is declared as a plain string so that the login
+                 *     check runs before it is read (FR-3.1); a value that is not a UUID names no
+                 *     conversation and gets 404 `not_found`.
+                 */
+                conversationId: components["parameters"]["ConversationId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReportConversationRequest"];
+            };
+        };
+        responses: {
+            /** @description The report is stored. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationReportReceipt"];
+                };
+            };
+            /**
+             * @description A field is not valid (`bad_request`, with `field`), or the message is the caller's
+             *     own (`cannot_report_own_message`).
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The user has made 10 reports in the current day (`rate_limited`). */
+            429: {
+                headers: {
+                    /** @description Seconds until reports are accepted again. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             500: components["responses"]["InternalError"];
         };
     };

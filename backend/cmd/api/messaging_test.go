@@ -58,6 +58,27 @@ func (okMessaging) Decline(context.Context, string, string) (messagingdomain.Ite
 	return okItem, nil
 }
 
+func (okMessaging) Report(context.Context, string, string, messagingdomain.ReportInput) (messagingdomain.ReportReceipt, error) {
+	return messagingdomain.ReportReceipt{ID: okUserID, ReportedID: okUserID}, nil
+}
+
+func (okMessaging) ListReports(context.Context, string, int) (messagingdomain.ReportPage, error) {
+	return messagingdomain.ReportPage{}, nil
+}
+
+func (okMessaging) ReportDetail(context.Context, string, string, string) (messagingdomain.ReportDetail, error) {
+	return messagingdomain.ReportDetail{Report: okReport}, nil
+}
+
+func (okMessaging) ResolveReport(context.Context, string, string, messagingdomain.ReportOutcome, *string) (messagingdomain.Report, error) {
+	return okReport, nil
+}
+
+var okReport = messagingdomain.Report{
+	ID: okUserID, ConversationID: okUserID,
+	Reporter: messagingdomain.ReportPerson{UserID: okUserID}, Reported: messagingdomain.ReportPerson{UserID: okUserID},
+}
+
 func (okMessaging) UnreadCounts(context.Context, string) (messagingdomain.UnreadCounts, error) {
 	return messagingdomain.UnreadCounts{}, nil
 }

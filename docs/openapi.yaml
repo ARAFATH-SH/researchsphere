@@ -532,6 +532,131 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /admin/message-reports:
+    get:
+      operationId: listMessageReports
+      summary: List reports of conversations for an administrator (FR-16.9, NFR-14)
+      description: |
+        Needs the access cookie and the platform action "Review reported conversations"
+        (SRS 2.3). 20 per page, newest first. A report's `details` are the reporter's own
+        words; the list holds no messages, so reading it writes no audit row.
+      tags: [admin]
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: "`open` or `resolved`; `open` when left out. Any other value gets 400 `bad_request`."
+          schema:
+            type: string
+        - $ref: "#/components/parameters/PageFromOne"
+      responses:
+        "200":
+          description: One page of reports.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageReportPage"
+        "400":
+          description: "`status` or `page` is not valid (`bad_request`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /admin/message-reports/{reportId}:
+    get:
+      operationId: getMessageReport
+      summary: Read a report and its conversation up to the report (FR-16.9, NFR-14)
+      description: |
+        Needs the access cookie and the platform action "Review reported conversations"
+        (SRS 2.3). This is the only way an administrator can read a conversation, and only a
+        reported one (NFR-14): messages sent after the report are never returned. 100
+        messages per page, newest first; `before` loads earlier ones. Every request writes
+        one audit row (administrator, report, time) in the same transaction as the read.
+      tags: [admin]
+      parameters:
+        - $ref: "#/components/parameters/ReportId"
+        - name: before
+          in: query
+          required: false
+          description: |
+            `nextBefore` from the previous page; leave it out for the most recent messages. A
+            value that is not a UUID gets 400 `bad_request`.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The report and one page of its conversation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageReportDetail"
+        "400":
+          description: "`before` is not valid (`bad_request`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /admin/message-reports/{reportId}/resolve:
+    post:
+      operationId: resolveMessageReport
+      summary: Close a report with an outcome (FR-16.9)
+      description: |
+        Needs the access cookie and the platform action "Review reported conversations"
+        (SRS 2.3). A report is resolved once; it stays readable afterwards. Resolving changes
+        nothing else: suspending a user is a separate action (slice 27).
+      tags: [admin]
+      parameters:
+        - $ref: "#/components/parameters/ReportId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolveMessageReportRequest"
+      responses:
+        "200":
+          description: The report, now resolved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageReport"
+        "400":
+          description: "`outcome` or `note` is not valid (`bad_request`, with `field`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The report is already resolved (`report_already_resolved`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /profiles/me:
     get:
       operationId: getMyProfile
@@ -601,7 +726,9 @@ paths:
       description: |
         Needs the access cookie and the platform action "View profiles, search, feed,
         events and recommendations" (SRS 2.3). An unknown, suspended or unverified account
-        gets the same 404 `not_found`, so the answer does not reveal which it is.
+        gets the same 404 `not_found`, so the answer does not reveal which it is. So does a
+        viewer whom this user has blocked (FR-16.9); the blocker can still open the blocked
+        person's profile, with `blockedByMe` true.
       tags: [profile]
       parameters:
         - name: userId
@@ -1713,7 +1840,8 @@ paths:
         Needs the access cookie and the platform action "View profiles, search, feed,
         events and recommendations" (SRS 2.3). Only publications the user has confirmed
         are listed, in the order of `listMyPublications`. An unknown, suspended or
-        unverified account gets the same 404 `not_found`, as for the profile.
+        unverified account gets the same 404 `not_found`, as for the profile, and so does a
+        viewer whom this user has blocked (FR-16.9).
       tags: [profile]
       parameters:
         - name: userId
@@ -1756,8 +1884,10 @@ paths:
       description: |
         Needs the access cookie and the platform action "View profiles, search, feed,
         events and recommendations" (SRS 2.3). Lists the user's connections in the order
-        of `listMyConnections`, leaving out suspended and unverified accounts. An unknown,
-        suspended or unverified account gets the same 404 `not_found`, as for the profile.
+        of `listMyConnections`, leaving out suspended and unverified accounts and anyone who
+        has blocked the viewer (FR-16.9). An unknown, suspended or unverified account gets the
+        same 404 `not_found`, as for the profile, and so does a viewer whom this user has
+        blocked.
       tags: [connections]
       parameters:
         - name: userId
@@ -1997,8 +2127,10 @@ paths:
         like, comment" (SRS 2.3). Checks run in this order: a request to oneself
         (`cannot_connect_to_self`), the daily limit (`rate_limited`), the receiver (an
         unknown, suspended or unverified account gets 404 `not_found`, as for the
-        profile), then the existing requests and connections between the two, in either
-        direction (409). A rejected request does not block a new one (FR-7.6).
+        profile), a block (FR-16.9: the same 404 for the blocked person, 409
+        `you_blocked_this_user` for the blocker), then the existing requests and connections
+        between the two, in either direction (409). A rejected request does not block a new
+        one (FR-7.6).
 
         Each user may send 50 requests a day; only requests that were created count.
         Two users who send each other a request at the same moment get one request: the
@@ -2036,8 +2168,8 @@ paths:
             A request or connection already exists between the two (FR-7.2):
             `request_already_pending` (the caller's earlier request is still pending),
             `request_pending_from_them` (the other user has sent the caller a request that
-            is still pending; `requestId` names it, so the caller can accept it instead) or
-            `already_connected`.
+            is still pending; `requestId` names it, so the caller can accept it instead),
+            `already_connected`, or `you_blocked_this_user` (FR-16.9).
           content:
             application/json:
               schema:
@@ -2191,6 +2323,102 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /blocks:
+    get:
+      operationId: listBlockedPeople
+      summary: List the people the logged-in user has blocked (FR-16.9)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed,
+        events and recommendations" (SRS 2.3). 20 per page, most recently blocked first.
+        Suspended and unverified accounts are left out, as in every other list.
+      tags: [connections]
+      parameters:
+        - $ref: "#/components/parameters/PageFromOne"
+      responses:
+        "200":
+          description: One page of blocked people.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BlockedPersonPage"
+        "400":
+          description: "`page` is not a whole number of at least 1 (`bad_request`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      operationId: blockUser
+      summary: Block a user (FR-16.9)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Blocking someone already blocked succeeds and changes
+        nothing. In one transaction it removes the connection and the pending connection
+        requests between the two, in both directions, deletes the notifications between them
+        and declines a pending message request between them. Each of the two may block the
+        other.
+      tags: [connections]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BlockRequest"
+      responses:
+        "204":
+          description: The user is blocked.
+        "400":
+          description: |
+            `userId` is the caller's own ID (`cannot_block_self`), or the body is not valid
+            (`bad_request`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /blocks/{userId}:
+    delete:
+      operationId: unblockUser
+      summary: Unblock a user (FR-16.9)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Unblocking someone who is not blocked, or an unknown ID,
+        succeeds and changes nothing. No removed connection, request or notification comes
+        back.
+      tags: [connections]
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          description: |
+            The blocked user's ID, a UUID. It is declared as a plain string so that the login
+            check runs before it is read (FR-3.1).
+          schema:
+            type: string
+      responses:
+        "204":
+          description: The user is not blocked by the caller.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /notifications:
     get:
       operationId: listNotifications
@@ -2334,11 +2562,16 @@ paths:
         `clientId` (a value already used by the sender returns the original message with
         200, whatever the conversation's state is now, and uses no quota), the message
         limits (`rate_limited`), the receiver (404 `not_found` for unknown, suspended or
-        not verified), the request limits (`rate_limited`, only when this message would
-        create a request), then the conversation's state (`request_pending`,
+        not verified), a block (FR-16.9), the request limits (`rate_limited`, only when this
+        message would create a request), then the conversation's state (`request_pending`,
         `conversation_closed`). A pending request refuses both members until the receiver
         accepts it; if they have connected meanwhile it becomes `active` and the message
         is sent. A `declined` conversation stays closed, also after the two connect.
+
+        A block refuses both users. The blocker gets 409 `you_blocked_this_user`. The blocked
+        person gets 403 `cannot_message` when the two have a conversation, and otherwise the
+        same 404 `not_found` as for an unknown user. A caller who has blocked the other and
+        is also blocked by them gets the blocker's answer.
       tags: [messaging]
       requestBody:
         required: true
@@ -2364,7 +2597,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/Forbidden"
+          $ref: "#/components/responses/MessageForbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
@@ -2463,8 +2696,9 @@ paths:
       description: |
         Needs the access cookie and the platform action "View profiles, search, feed,
         events and recommendations" (SRS 2.3). Anyone who is not a member gets 404
-        `not_found`, the same answer as for an unknown ID (NFR-14); administrators have no
-        extra access.
+        `not_found`, the same answer as for an unknown ID (NFR-14). This holds for
+        administrators too: they read a conversation only through a report on it
+        (`getMessageReport`).
       tags: [messaging]
       parameters:
         - $ref: "#/components/parameters/ConversationId"
@@ -2543,8 +2777,9 @@ paths:
         like, comment" (SRS 2.3). Checks run in this order: the body (`invalid_body`),
         membership (404 `not_found`, NFR-14), `clientId` (a value already used by the sender
         returns the original message with 200), the message limits (`rate_limited`), the
-        other member (404 `not_found` when suspended or not verified), then the
-        conversation's state (`request_pending`, `conversation_closed`), as for
+        other member (404 `not_found` when suspended or not verified), a block (FR-16.9: 403
+        `cannot_message` for the blocked person, 409 `you_blocked_this_user` for the blocker),
+        then the conversation's state (`request_pending`, `conversation_closed`), as for
         `POST /messages/direct`.
       tags: [messaging]
       parameters:
@@ -2573,7 +2808,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/Forbidden"
+          $ref: "#/components/responses/MessageForbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
@@ -2676,6 +2911,66 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /conversations/{conversationId}/reports:
+    post:
+      operationId: reportConversation
+      summary: Report a conversation or one of its messages (FR-16.9, NFR-14)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Anyone who is not a member gets 404 `not_found` (NFR-14).
+        Checks run in this order: membership, `reason`, `details` and `messageId`
+        (`bad_request`, with `field`), the message (404 `not_found` when it is not in this
+        conversation, 400 `cannot_report_own_message` when the caller sent it), then the
+        limit of 10 reports per user per day (`rate_limited`); only stored reports count.
+        An administrator can read this conversation's messages up to the moment of the report.
+
+        Reporting does not block the other user: `blockedByMe` says whether the caller has
+        blocked them, so the client can offer to block `reportedUserId` next.
+      tags: [messaging]
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReportConversationRequest"
+      responses:
+        "201":
+          description: The report is stored.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationReportReceipt"
+        "400":
+          description: |
+            A field is not valid (`bad_request`, with `field`), or the message is the caller's
+            own (`cannot_report_own_message`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          description: The user has made 10 reports in the current day (`rate_limited`).
+          headers:
+            Retry-After:
+              description: Seconds until reports are accepted again.
+              required: true
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /search/people:
     get:
       operationId: searchPeople
@@ -2683,7 +2978,9 @@ paths:
       description: |
         Needs the access cookie and the platform action "View profiles, search, feed,
         events and recommendations" (SRS 2.3). Only verified accounts that are not
-        suspended are found, as with `GET /profiles/{userId}`. Only public profile fields
+        suspended are found, as with `GET /profiles/{userId}`, and never anyone who has
+        blocked the searcher (FR-16.9), in the results, the totals or the facets. Only public
+        profile fields
         are searched: full name, institution, research interest names and headline; never
         email, phone, birthday, links or bio.
 
@@ -2776,6 +3073,24 @@ components:
       description: The access token set by `POST /auth/login`.
 
   parameters:
+    PageFromOne:
+      name: page
+      in: query
+      required: false
+      description: The page to return, from 1. Defaults to 1. A value below 1 gets 400 `bad_request`.
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    ReportId:
+      name: reportId
+      in: path
+      required: true
+      description: |
+        The report's ID, a UUID. It is declared as a plain string so that the login and role
+        checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+      schema:
+        type: string
     ConversationId:
       name: conversationId
       in: path
@@ -3278,7 +3593,13 @@ components:
           type: integer
           description: |
             How many connections the user has (FR-7.4), counting only verified accounts
-            that are not suspended; the `total` of `listProfileConnections`.
+            that are not suspended, and leaving out people who blocked the viewer; the
+            `total` of `listProfileConnections`.
+        blockedByMe:
+          type: boolean
+          description: |
+            True when the viewer has blocked this user (FR-16.9), so the client can offer
+            Unblock instead of Connect and Message. Sent on every profile.
         contact:
           $ref: "#/components/schemas/PublicContact"
         photoUrl:
@@ -3457,7 +3778,7 @@ components:
       properties:
         code:
           type: string
-          enum: [request_already_pending, request_pending_from_them, already_connected]
+          enum: [request_already_pending, request_pending_from_them, already_connected, you_blocked_this_user]
         message:
           type: string
         requestId:
@@ -3653,7 +3974,7 @@ components:
 
     Conversation:
       type: object
-      required: [id, state, otherMember, lastMessage, unreadCount, requestedBy, lastMessageAt]
+      required: [id, state, otherMember, lastMessage, unreadCount, requestedBy, lastMessageAt, canMessage, blockedByMe]
       properties:
         id:
           type: string
@@ -3677,6 +3998,15 @@ components:
         lastMessageAt:
           type: string
           format: date-time
+        canMessage:
+          type: boolean
+          description: |
+            True when a message from the caller would be accepted now: the conversation is
+            `active`, the other member is available and neither has blocked the other
+            (FR-16.9).
+        blockedByMe:
+          type: boolean
+          description: True when the caller has blocked the other member. A blocked person is never told.
 
     ConversationPage:
       type: object
@@ -3708,6 +4038,193 @@ components:
           format: uuid
           nullable: true
           description: The other member's read marker; null until they have read a message.
+
+    BlockRequest:
+      type: object
+      required: [userId]
+      properties:
+        userId:
+          type: string
+          format: uuid
+          description: The user to block.
+
+    BlockedPerson:
+      type: object
+      required: [userId, fullName, photoUrl, headline, blockedAt]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        fullName:
+          type: string
+        photoUrl:
+          type: string
+          nullable: true
+          description: The profile photo as `/api/v1/media/{fileId}`; null when not set.
+        headline:
+          type: string
+          nullable: true
+        blockedAt:
+          type: string
+          format: date-time
+
+    BlockedPersonPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/BlockedPerson"
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+          description: Blocked people on all pages.
+
+    ReportReason:
+      type: string
+      enum: [spam, harassment, inappropriate, other]
+
+    ReportConversationRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          $ref: "#/components/schemas/ReportReason"
+        details:
+          type: string
+          description: At most 1,000 characters after trimming; empty means none.
+          maxLength: 1000
+        messageId:
+          type: string
+          format: uuid
+          description: The message being reported, when it is one message. It must be in this conversation and not the caller's.
+
+    ConversationReportReceipt:
+      type: object
+      required: [id, createdAt, reportedUserId, blockedByMe]
+      properties:
+        id:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        reportedUserId:
+          type: string
+          format: uuid
+          description: The other member, whom the client can offer to block.
+        blockedByMe:
+          type: boolean
+          description: Whether the caller has blocked that user. Reporting never does it.
+
+    MessageReportPerson:
+      type: object
+      required: [userId, fullName, photoUrl, headline]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        fullName:
+          type: string
+        photoUrl:
+          type: string
+          nullable: true
+          description: The profile photo as `/api/v1/media/{fileId}`; null when not set.
+        headline:
+          type: string
+          nullable: true
+
+    MessageReport:
+      type: object
+      required: [id, conversationId, status, reason, details, messageId, reporter, reportedUser, createdAt, outcome, note, resolvedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        conversationId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [open, resolved]
+        reason:
+          $ref: "#/components/schemas/ReportReason"
+        details:
+          type: string
+          nullable: true
+          description: The reporter's own words.
+        messageId:
+          type: string
+          format: uuid
+          nullable: true
+          description: The reported message; null when the whole conversation was reported.
+        reporter:
+          $ref: "#/components/schemas/MessageReportPerson"
+        reportedUser:
+          $ref: "#/components/schemas/MessageReportPerson"
+        createdAt:
+          type: string
+          format: date-time
+          description: The moment of the report; an administrator sees messages only up to it.
+        outcome:
+          type: string
+          nullable: true
+          enum: [dismissed, action_taken]
+        note:
+          type: string
+          nullable: true
+        resolvedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    MessageReportPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/MessageReport"
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+          description: Reports with this status on all pages.
+
+    MessageReportDetail:
+      type: object
+      required: [report, messages, nextBefore]
+      properties:
+        report:
+          $ref: "#/components/schemas/MessageReport"
+        messages:
+          type: array
+          description: Newest first, none later than the report.
+          items:
+            $ref: "#/components/schemas/Message"
+        nextBefore:
+          type: string
+          nullable: true
+          description: Pass as `before` to load earlier messages; null on the last page.
+
+    ResolveMessageReportRequest:
+      type: object
+      required: [outcome]
+      properties:
+        outcome:
+          type: string
+          enum: [dismissed, action_taken]
+        note:
+          type: string
+          description: At most 1,000 characters after trimming; empty means none.
+          maxLength: 1000
 
     MessageUnreadCount:
       type: object
@@ -4725,10 +5242,19 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+    MessageForbidden:
+      description: |
+        `forbidden`: the user's role does not permit the action (FR-3.2).
+        `cannot_message`: this person cannot be messaged. It does not say why (FR-16.9).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
     MessageRefused:
       description: |
         `request_pending`: the receiver has not accepted the request yet.
         `conversation_closed`: the request was declined.
+        `you_blocked_this_user`: the caller has blocked the other user (FR-16.9).
       content:
         application/json:
           schema:

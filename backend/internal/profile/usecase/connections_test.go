@@ -18,6 +18,11 @@ type fakeConnections struct {
 	relations [][2]string
 	lists     [][]string
 	counted   []string
+	block     domain.BlockState
+}
+
+func (f *fakeConnections) Block(context.Context, string, string) (domain.BlockState, error) {
+	return f.block, f.err
 }
 
 func (f *fakeConnections) Relations(_ context.Context, _ string, userIDs []string) (map[string]domain.ConnectionRelation, error) {
@@ -34,7 +39,7 @@ func (f *fakeConnections) Relation(_ context.Context, viewerID, ownerID string) 
 	return f.relation, f.err
 }
 
-func (f *fakeConnections) Count(_ context.Context, userID string) (int, error) {
+func (f *fakeConnections) Count(_ context.Context, _, userID string) (int, error) {
 	f.counted = append(f.counted, userID)
 	return f.count, f.err
 }
@@ -98,5 +103,29 @@ func TestConnectionLookupError(t *testing.T) {
 	}
 	if _, err := svc.GetOwn(t.Context(), adaID); !errors.Is(err, boom) {
 		t.Errorf("GetOwn: %v, want the lookup error", err)
+	}
+}
+
+// FR-16.9: the owner who blocked the viewer does not exist for them, on the profile or the
+// publications; the blocker still opens the blocked person's profile.
+func TestBlockedViewer(t *testing.T) {
+	blockedBy := New(newFakeStore(testAccounts()...), WithConnections(&fakeConnections{block: domain.BlockState{ByOwner: true}}))
+	if _, err := blockedBy.View(t.Context(), eveID, adaID); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("View by the blocked person: %v, want ErrNotFound", err)
+	}
+	if _, err := blockedBy.ListPublications(t.Context(), eveID, adaID, 1, 10); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("ListPublications by the blocked person: %v, want ErrNotFound", err)
+	}
+
+	blocker := New(newFakeStore(testAccounts()...), WithConnections(&fakeConnections{block: domain.BlockState{ByViewer: true}}))
+	p, err := blocker.View(t.Context(), eveID, adaID)
+	if err != nil {
+		t.Fatalf("View by the blocker: %v", err)
+	}
+	if !p.BlockedByMe {
+		t.Error("BlockedByMe is false for the blocker")
+	}
+	if _, err := blocker.ListPublications(t.Context(), eveID, adaID, 1, 10); err != nil {
+		t.Errorf("ListPublications by the blocker: %v", err)
 	}
 }

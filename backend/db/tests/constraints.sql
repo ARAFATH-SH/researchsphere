@@ -1072,6 +1072,41 @@ SELECT pg_temp.expect_true('Project deletion: files, members, requests, compile 
 SELECT pg_temp.expect_true('Project deletion: a post that linked to it stays, without the link', $q$
     SELECT project_id IS NULL FROM posts WHERE id = '00000000-0000-0000-0000-0000000000e4'$q$);
 
+-- Blocks and reports (FR-16.9, NFR-14). Users 1 and 2 have the conversation above.
+INSERT INTO blocks (blocker_id, blocked_id) VALUES
+    ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002');
+SELECT pg_temp.expect_ok('Block: each side may block the other',
+    $s$INSERT INTO blocks (blocker_id, blocked_id) VALUES
+        ('00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001')$s$);
+SELECT pg_temp.expect_error('Block: one per direction',
+    $s$INSERT INTO blocks (blocker_id, blocked_id) VALUES
+        ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002')$s$, '23505');
+SELECT pg_temp.expect_error('Block: not oneself',
+    $s$INSERT INTO blocks (blocker_id, blocked_id) VALUES
+        ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001')$s$, '23514');
+
+INSERT INTO message_reports (id, conversation_id, reporter_id, reported_id, reason) VALUES
+    ('00000000-0000-0000-0000-0000000000f1', (SELECT id FROM conversations ORDER BY created_at LIMIT 1),
+     '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002', 'spam');
+SELECT pg_temp.expect_error('Report: a known reason',
+    $s$UPDATE message_reports SET reason = 'rude'$s$, '23514');
+SELECT pg_temp.expect_error('Report: details of at most 1,000 characters',
+    $s$UPDATE message_reports SET details = repeat('x', 1001)$s$, '23514');
+SELECT pg_temp.expect_error('Report: not of oneself',
+    $s$UPDATE message_reports SET reported_id = reporter_id$s$, '23514');
+SELECT pg_temp.expect_error('Report: the message must be in the conversation',
+    $s$UPDATE message_reports SET message_id = '00000000-0000-0000-0000-00000000dead'$s$, '23503');
+SELECT pg_temp.expect_error('Report: resolved with an outcome',
+    $s$UPDATE message_reports SET resolved_at = now()$s$, '23514');
+SELECT pg_temp.expect_error('Report: an outcome only when resolved',
+    $s$UPDATE message_reports SET outcome = 'dismissed'$s$, '23514');
+SELECT pg_temp.expect_error('Report: a known outcome',
+    $s$UPDATE message_reports SET resolved_at = now(), outcome = 'closed'$s$, '23514');
+SELECT pg_temp.expect_error('Report: a note only when resolved',
+    $s$UPDATE message_reports SET resolution_note = 'early'$s$, '23514');
+SELECT pg_temp.expect_ok('Report: resolved with an outcome and a note',
+    $s$UPDATE message_reports SET resolved_at = now(), outcome = 'dismissed', resolution_note = 'ok'$s$);
+
 ROLLBACK;
 
 \echo 'All database constraint tests passed.'

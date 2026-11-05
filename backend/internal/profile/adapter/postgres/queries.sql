@@ -402,7 +402,8 @@ SELECT count(*) FROM user_publications WHERE user_id = @user_id AND confirmed_at
 -- profiles_institution_trgm_idx, research_interests_name_trgm_idx and
 -- profiles_headline_trgm_idx. A result's rank is its best match: 0 exact name, 1 name
 -- prefix, 2 name contains, 3 similar name, 4 institution, 5 research interest, 6 headline.
--- Visibility is the profile view rule: verified and not suspended.
+-- Visibility is the profile view rule: verified and not suspended. Nobody finds a person
+-- who has blocked them (FR-16.9).
 
 -- name: SetWordSimilarityThreshold :exec
 -- Transaction-local (is_local true), so it ends with the search's transaction.
@@ -415,6 +416,7 @@ SELECT EXISTS (
     JOIN users u ON u.id = p.user_id
     WHERE p.full_name ILIKE @pattern::text
       AND u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM blocks x WHERE x.blocker_id = p.user_id AND x.blocked_id = @viewer_id::uuid)
 );
 
 -- name: SearchPeopleSummary :one
@@ -446,6 +448,7 @@ WITH hits AS (
     JOIN users u ON u.id = b.user_id
     JOIN profiles p ON p.user_id = b.user_id
     WHERE u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM blocks x WHERE x.blocker_id = b.user_id AND x.blocked_id = @viewer_id::uuid)
       AND (sqlc.narg(institution)::text IS NULL OR lower(p.institution) = lower(sqlc.narg(institution)::text))
       AND (cardinality(@interests::text[]) = 0 OR cardinality(@interests::text[]) = (
           SELECT count(*)
@@ -487,6 +490,7 @@ WITH hits AS (
     JOIN users u ON u.id = b.user_id
     JOIN profiles p ON p.user_id = b.user_id
     WHERE u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM blocks x WHERE x.blocker_id = b.user_id AND x.blocked_id = @viewer_id::uuid)
       AND (sqlc.narg(institution)::text IS NULL OR lower(p.institution) = lower(sqlc.narg(institution)::text))
       AND (cardinality(@interests::text[]) = 0 OR cardinality(@interests::text[]) = (
           SELECT count(*)
@@ -528,6 +532,7 @@ WITH hits AS (
     JOIN users u ON u.id = b.user_id
     JOIN profiles p ON p.user_id = b.user_id
     WHERE u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM blocks x WHERE x.blocker_id = b.user_id AND x.blocked_id = @viewer_id::uuid)
       AND (sqlc.narg(institution)::text IS NULL OR lower(p.institution) = lower(sqlc.narg(institution)::text))
       AND (cardinality(@interests::text[]) = 0 OR cardinality(@interests::text[]) = (
           SELECT count(*)
@@ -571,6 +576,7 @@ WITH hits AS (
     JOIN users u ON u.id = b.user_id
     JOIN profiles p ON p.user_id = b.user_id
     WHERE u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM blocks x WHERE x.blocker_id = b.user_id AND x.blocked_id = @viewer_id::uuid)
       AND (sqlc.narg(institution)::text IS NULL OR lower(p.institution) = lower(sqlc.narg(institution)::text))
       AND (cardinality(@interests::text[]) = 0 OR cardinality(@interests::text[]) = (
           SELECT count(*)
