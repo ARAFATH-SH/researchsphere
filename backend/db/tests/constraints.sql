@@ -700,7 +700,7 @@ SELECT pg_temp.expect_ok('Connection: a new request is allowed after a rejection
 
 SELECT pg_temp.expect_error('Notification: an actor is required',
     $s$INSERT INTO notifications (user_id, type, entity_id)
-       VALUES ('00000000-0000-0000-0000-000000000002', 'connection_request_received', '00000000-0000-0000-0000-0000000000d1')$s$, '23502');
+       VALUES ('00000000-0000-0000-0000-000000000002', 'connection_request_received', '00000000-0000-0000-0000-0000000000d1')$s$, '23514');
 SELECT pg_temp.expect_error('Notification: an item is required',
     $s$INSERT INTO notifications (user_id, type, actor_id)
        VALUES ('00000000-0000-0000-0000-000000000002', 'connection_request_received', '00000000-0000-0000-0000-000000000001')$s$, '23502');
@@ -1106,6 +1106,67 @@ SELECT pg_temp.expect_error('Report: a note only when resolved',
     $s$UPDATE message_reports SET resolution_note = 'early'$s$, '23514');
 SELECT pg_temp.expect_ok('Report: resolved with an outcome and a note',
     $s$UPDATE message_reports SET resolved_at = now(), outcome = 'dismissed', resolution_note = 'ok'$s$);
+
+-- Moderation (FR-15.5 to FR-15.8).
+INSERT INTO users (id, email, password_hash)
+VALUES ('00000000-0000-4000-8000-0000000000a1', pg_temp.t('moderated@example.org'), 'hash');
+INSERT INTO account_warnings (id, user_id, reason)
+VALUES ('00000000-0000-4000-8000-0000000000a2', '00000000-0000-4000-8000-0000000000a1', 'A reason of ten or more');
+INSERT INTO account_restrictions (id, user_id, kind, starts_at, ends_at)
+VALUES ('00000000-0000-4000-8000-0000000000a3', '00000000-0000-4000-8000-0000000000a1', 'messaging', now(), now() + interval '1 day');
+
+SELECT pg_temp.expect_error('Notification: a warning has no actor',
+    $s$INSERT INTO notifications (user_id, actor_id, type, entity_id)
+       VALUES ('00000000-0000-4000-8000-0000000000a1', '00000000-0000-4000-8000-0000000000a1', 'account_warning', gen_random_uuid())$s$, '23514');
+SELECT pg_temp.expect_error('Notification: a connection type needs its actor',
+    $s$INSERT INTO notifications (user_id, type, entity_id)
+       VALUES ('00000000-0000-4000-8000-0000000000a1', 'connection_request_received', gen_random_uuid())$s$, '23514');
+SELECT pg_temp.expect_ok('Notification: a warning without an actor',
+    $s$INSERT INTO notifications (user_id, type, entity_id)
+       VALUES ('00000000-0000-4000-8000-0000000000a1', 'account_warning', gen_random_uuid())$s$);
+
+SELECT pg_temp.expect_error('User: an end time needs a suspension',
+    $s$UPDATE users SET suspended_until = now() WHERE id = '00000000-0000-4000-8000-0000000000a1'$s$, '23514');
+SELECT pg_temp.expect_error('User: a reason needs a suspension',
+    $s$UPDATE users SET suspension_reason = 'A reason of ten or more' WHERE id = '00000000-0000-4000-8000-0000000000a1'$s$, '23514');
+SELECT pg_temp.expect_error('User: a suspension ends after it starts',
+    $s$UPDATE users SET suspended_at = now(), suspended_until = now() - interval '1 day' WHERE id = '00000000-0000-4000-8000-0000000000a1'$s$, '23514');
+SELECT pg_temp.expect_error('User: a suspension reason of at least 10 characters',
+    $s$UPDATE users SET suspended_at = now(), suspension_reason = 'short' WHERE id = '00000000-0000-4000-8000-0000000000a1'$s$, '23514');
+
+SELECT pg_temp.expect_error('Warning: a reason of at least 10 characters',
+    $s$UPDATE account_warnings SET reason = 'short'$s$, '23514');
+SELECT pg_temp.expect_error('Warning: a reason of at most 1,000 characters',
+    $s$UPDATE account_warnings SET reason = repeat('x', 1001)$s$, '23514');
+
+SELECT pg_temp.expect_error('Restriction: a known kind',
+    $s$UPDATE account_restrictions SET kind = 'posting'$s$, '23514');
+SELECT pg_temp.expect_error('Restriction: ends after it starts',
+    $s$UPDATE account_restrictions SET ends_at = starts_at$s$, '23514');
+SELECT pg_temp.expect_error('Restriction: lifted by someone only when lifted',
+    $s$UPDATE account_restrictions SET lifted_by = user_id$s$, '23514');
+
+SELECT pg_temp.expect_error('Moderation action: a known action',
+    $s$INSERT INTO moderation_actions (user_id, action, reason)
+       VALUES ('00000000-0000-4000-8000-0000000000a1', 'banned', 'A reason of ten or more')$s$, '23514');
+SELECT pg_temp.expect_error('Moderation action: a warning names its warning',
+    $s$INSERT INTO moderation_actions (user_id, action, reason)
+       VALUES ('00000000-0000-4000-8000-0000000000a1', 'warning', 'A reason of ten or more')$s$, '23514');
+SELECT pg_temp.expect_error('Moderation action: a restriction names its restriction',
+    $s$INSERT INTO moderation_actions (user_id, action, reason, ends_at)
+       VALUES ('00000000-0000-4000-8000-0000000000a1', 'restriction', 'A reason of ten or more', now())$s$, '23514');
+SELECT pg_temp.expect_error('Moderation action: a restriction has an end',
+    $s$INSERT INTO moderation_actions (user_id, action, reason, restriction_id)
+       VALUES ('00000000-0000-4000-8000-0000000000a1', 'restriction', 'A reason of ten or more', '00000000-0000-4000-8000-0000000000a3')$s$, '23514');
+SELECT pg_temp.expect_error('Moderation action: a restoration resolves no report',
+    $s$INSERT INTO moderation_actions (user_id, action, reason, report_id)
+       VALUES ('00000000-0000-4000-8000-0000000000a1', 'restoration', 'A reason of ten or more', gen_random_uuid())$s$, '23514');
+SELECT pg_temp.expect_error('Moderation action: a note of at most 1,000 characters',
+    $s$INSERT INTO moderation_actions (user_id, action, reason, note)
+       VALUES ('00000000-0000-4000-8000-0000000000a1', 'suspension', 'A reason of ten or more', repeat('x', 1001))$s$, '23514');
+SELECT pg_temp.expect_ok('Moderation action: a permanent suspension, its report outliving it',
+    $s$INSERT INTO moderation_actions (user_id, action, reason, report_id)
+       VALUES ('00000000-0000-4000-8000-0000000000a1', 'suspension', 'A reason of ten or more', gen_random_uuid())$s$);
 
 ROLLBACK;
 

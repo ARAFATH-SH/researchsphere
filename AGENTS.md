@@ -86,7 +86,7 @@ check, tests and a production build.
 ## Conventions
 
 - **Go:** one application (modular monolith). Modules live in `backend/internal/<module>`: health,
-  then auth, profile, media, social, project, event, notification and messaging. Return errors, do not panic.
+  then auth, profile, media, social, project, event, notification, messaging and moderation. Return errors, do not panic.
   Table-driven tests beside the code they test. Each module is split into layers (clean
   architecture); `backend/internal/health` is the example to copy:
 

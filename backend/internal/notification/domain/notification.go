@@ -20,11 +20,15 @@ const (
 	// TypeConnectionRequestAccepted: the actor accepted the recipient's connection
 	// request. The subject is the request, now a connection.
 	TypeConnectionRequestAccepted Type = "connection_request_accepted"
+	// TypeAccountWarning: an administrator warned the recipient (FR-15.5). A system
+	// notification: it has no actor. The subject is the warning.
+	TypeAccountWarning Type = "account_warning"
 )
 
 // Subject kinds: what a notification's SubjectID names.
 const (
 	SubjectConnectionRequest = "connection_request"
+	SubjectWarning           = "warning"
 )
 
 // Spec describes one Type.
@@ -46,13 +50,17 @@ var Registry = map[Type]Spec{
 		SubjectKind: SubjectConnectionRequest,
 		Link:        func(n Notification) string { return "/profile/" + n.ActorID },
 	},
+	TypeAccountWarning: {
+		SubjectKind: SubjectWarning,
+		Link:        func(n Notification) string { return "/warnings/" + n.SubjectID },
+	},
 }
 
 // Notification is one stored notification.
 type Notification struct {
 	ID          string
 	RecipientID string
-	ActorID     string // who caused it
+	ActorID     string // who caused it; empty on a system notification, from ResearchSphere
 	Type        Type
 	SubjectID   string // the item it is about; Registry gives its kind
 	CreatedAt   time.Time
@@ -69,7 +77,7 @@ type Actor struct {
 // Item is one notification as the list shows it.
 type Item struct {
 	Notification
-	Actor Actor
+	Actor *Actor // nil on a system notification
 	// RequestPending is set only for TypeConnectionRequestReceived: whether the request
 	// is still pending, so the client can offer Accept and Ignore.
 	RequestPending *bool
@@ -92,8 +100,8 @@ type Page struct {
 
 // Store reads and writes notifications. Writes run in the transaction the context
 // carries, if any, so a notification is stored together with the change it reports.
-// "Visible" means the actor is verified and not suspended; every read and every
-// mark-as-read leaves the others out, so the count matches the list.
+// "Visible" means the notification has no actor, or its actor is verified and not suspended;
+// every read and every mark-as-read leaves the others out, so the count matches the list.
 type Store interface {
 	// Put stores n (ID, CreatedAt and ReadAt are ignored). Where the schema allows one
 	// notification of n.Type per recipient and actor, it replaces the existing one: the

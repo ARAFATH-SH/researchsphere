@@ -13,6 +13,7 @@ import (
 	mediadomain "github.com/ARAFATH-SH/researchsphere/backend/internal/media/domain"
 	mediausecase "github.com/ARAFATH-SH/researchsphere/backend/internal/media/usecase"
 	messaginghttp "github.com/ARAFATH-SH/researchsphere/backend/internal/messaging/adapter/http"
+	moderationhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/moderation/adapter/http"
 	notificationhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/notification/adapter/http"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/authz"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpserver"
@@ -31,6 +32,7 @@ type (
 	socialHandler       = socialhttp.Handler
 	notificationHandler = notificationhttp.Handler
 	messagingHandler    = messaginghttp.Handler
+	moderationHandler   = moderationhttp.Handler
 )
 
 // handlers implements every operation in the contract by embedding each module's HTTP
@@ -43,6 +45,7 @@ type handlers struct {
 	*socialHandler
 	*notificationHandler
 	*messagingHandler
+	*moderationHandler
 }
 
 var _ gen.StrictServerInterface = handlers{}
@@ -52,6 +55,18 @@ var _ gen.StrictServerInterface = handlers{}
 // under /api/v1/admin/ must be listed (routes_test.go).
 var platformGuards = map[string]authz.Action{
 	"GET /api/v1/admin/users": authz.SuspendUser, // listing users comes before suspending one (FR-15.3)
+
+	// Moderation (FR-15.3, FR-15.5 to FR-15.9). Warnings are the user's own, so reading and
+	// acknowledging one needs what reading the app needs.
+	"POST /api/v1/admin/users/{userId}/warnings":           authz.ModerateUser,
+	"POST /api/v1/admin/users/{userId}/restrictions":       authz.ModerateUser,
+	"POST /api/v1/admin/restrictions/{restrictionId}/lift": authz.ModerateUser,
+	"POST /api/v1/admin/users/{userId}/suspension":         authz.SuspendUser,
+	"POST /api/v1/admin/users/{userId}/restore":            authz.SuspendUser,
+	"GET /api/v1/admin/users/{userId}/moderation":          authz.ModerateUser,
+	"GET /api/v1/me/warnings/pending":                      authz.ViewContent,
+	"GET /api/v1/me/warnings/{warningId}":                  authz.ViewContent,
+	"POST /api/v1/me/warnings/{warningId}/acknowledge":     authz.ViewContent,
 
 	// Reported conversations (FR-16.9, NFR-14): the only way an administrator reads messages.
 	"GET /api/v1/admin/message-reports":                     authz.ReviewMessageReports,
@@ -213,7 +228,7 @@ func guardPlatform(next http.Handler) http.Handler {
 // Tests pass fakes; run passes the real PostgreSQL, Redis and SMTP adapters. requireAuth
 // guards the operations the contract secures (httpx.RequireAuth); guardPlatform runs
 // inside it, and limitBody inside that.
-func newRouter(logger *slog.Logger, db, redis, storage healthdomain.Pinger, auth *authhttp.Handler, profile *profilehttp.Handler, media *mediahttp.Handler, social *socialhttp.Handler, notifications *notificationhttp.Handler, messaging *messaginghttp.Handler, requireAuth func(http.Handler) http.Handler) http.Handler {
+func newRouter(logger *slog.Logger, db, redis, storage healthdomain.Pinger, auth *authhttp.Handler, profile *profilehttp.Handler, media *mediahttp.Handler, social *socialhttp.Handler, notifications *notificationhttp.Handler, messaging *messaginghttp.Handler, moderation *moderationhttp.Handler, requireAuth func(http.Handler) http.Handler) http.Handler {
 	checker := healthusecase.New(healthusecase.DefaultTimeout,
 		healthdomain.Dependency{Name: "database", Pinger: db},
 		healthdomain.Dependency{Name: "redis", Pinger: redis},
@@ -227,5 +242,6 @@ func newRouter(logger *slog.Logger, db, redis, storage healthdomain.Pinger, auth
 		socialHandler:       social,
 		notificationHandler: notifications,
 		messagingHandler:    messaging,
+		moderationHandler:   moderation,
 	}, func(next http.Handler) http.Handler { return requireAuth(guardPlatform(limitBody(next))) })
 }

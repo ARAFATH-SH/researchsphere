@@ -32,6 +32,9 @@ import (
 	messagingpg "github.com/ARAFATH-SH/researchsphere/backend/internal/messaging/adapter/postgres"
 	messagingredis "github.com/ARAFATH-SH/researchsphere/backend/internal/messaging/adapter/redis"
 	messagingusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/messaging/usecase"
+	moderationhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/moderation/adapter/http"
+	moderationpg "github.com/ARAFATH-SH/researchsphere/backend/internal/moderation/adapter/postgres"
+	moderationusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/moderation/usecase"
 	notificationhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/notification/adapter/http"
 	notificationpg "github.com/ARAFATH-SH/researchsphere/backend/internal/notification/adapter/postgres"
 	notificationusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/notification/usecase"
@@ -113,19 +116,23 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 	connectLimiter := socialredis.New(rdb)
 	defer func() { _ = connectLimiter.Close() }()
 	notifications := notificationusecase.New(notificationpg.NewStore(pool))
+	// Messaging and social ask what a user may do now; moderation needs messaging, so this part
+	// stands on its own.
+	moderationStore := moderationpg.NewStore(pool)
+	standings := moderationusecase.NewStandings(moderationStore, time.Now)
 	messageLimiter := messagingredis.New(rdb)
 	defer func() { _ = messageLimiter.Close() }()
 	// Messaging asks social who is connected or blocked, and social tells messaging about
 	// new connections and blocks, so the checker gets social once that exists.
 	connected := &connectionChecker{}
-	messaging := messagingusecase.New(messagingpg.NewStore(pool), postgres.NewTransactor(pool), connected, connected, messageLimiter,
+	messaging := messagingusecase.New(messagingpg.NewStore(pool), postgres.NewTransactor(pool), connected, connected, messagingActors{standings: standings}, messageLimiter,
 		messagingusecase.NopPublisher{}, messagingusecase.Limits{
 			MessagesPerMinute: cfg.MessagesPerMinute, MessagesPerDay: cfg.MessagesPerDay,
 			RequestsPerMinute: cfg.RequestsPerMinute, RequestsPerDay: cfg.RequestsPerDay,
 		}, logger)
 	// A connection change and its notification are written in one transaction (FR-9.1).
 	social := socialusecase.New(socialpg.NewStore(pool), postgres.NewTransactor(pool), connectLimiter,
-		connectionNotifier{notifications: notifications, messaging: messaging}, logger)
+		connectionNotifier{notifications: notifications, messaging: messaging}, socialActors{standings: standings}, logger)
 	connected.social = social
 
 	lookups := profileredis.New(rdb)
@@ -153,16 +160,20 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 	)
 
 	tokens := accesstoken.New(cfg.JWTSecret, accessTTL)
+	mailer := smtp.New(cfg.SMTPHost, cfg.SMTPPort, cfg.MailFrom)
 	auth := authusecase.New(
 		authpg.NewStore(pool),
 		argon2.New(argon2.DefaultParams),
-		smtp.New(cfg.SMTPHost, cfg.SMTPPort, cfg.MailFrom),
+		mailer,
 		tokens,
 		attempts,
 		authusecase.Config{AppBaseURL: cfg.AppBaseURL},
 		time.Now,
 		logger,
 	)
+	moderation := moderationusecase.New(moderationStore, postgres.NewTransactor(pool), moderationAccounts{auth: auth},
+		moderationReports{messaging: messaging}, moderationNotifier{notifications: notifications},
+		moderationMailer{mailer: mailer}, time.Now, logger)
 	handler := newRouter(logger, healthpg.NewPinger(pool), healthredis.NewPinger(rdb), files,
 		authhttp.NewHandler(auth, authhttp.CookieConfig{Secure: cfg.CookieSecure}),
 		profilehttp.NewHandler(profiles),
@@ -170,6 +181,7 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 		socialhttp.NewHandler(social),
 		notificationhttp.NewHandler(notifications),
 		messaginghttp.NewHandler(messaging),
+		moderationhttp.NewHandler(moderation),
 		httpx.RequireAuth(tokens, time.Now))
 
 	var lc net.ListenConfig

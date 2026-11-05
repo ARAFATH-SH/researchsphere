@@ -246,3 +246,33 @@ func TestResolveReport(t *testing.T) {
 		t.Errorf("no report: %v", err)
 	}
 }
+
+func TestResolveForAction(t *testing.T) {
+	h := newHarness()
+	h.connect("ada", "bob")
+	sent := h.direct(t, "ada", "bob", "hello")
+	r, err := h.svc.Report(t.Context(), "bob", sent.Message.ConversationID, domain.ReportInput{Reason: domain.ReasonSpam})
+	if err != nil {
+		t.Fatal(err)
+	}
+	note := "internal"
+	if err := h.svc.ResolveForAction(t.Context(), "admin", "unknown", "ada", nil); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("unknown: error = %v", err)
+	}
+	if err := h.svc.ResolveForAction(t.Context(), "admin", r.ID, "bob", nil); !errors.Is(err, domain.ErrReportAboutOther) {
+		t.Errorf("about someone else: error = %v", err)
+	}
+	if err := h.svc.ResolveForAction(t.Context(), "admin", r.ID, "ada", &note); err != nil {
+		t.Fatal(err)
+	}
+	got, err := h.store.FindReport(t.Context(), r.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Outcome == nil || *got.Outcome != domain.OutcomeActionTaken || got.Note == nil || *got.Note != note {
+		t.Errorf("report = %+v", got)
+	}
+	if err := h.svc.ResolveForAction(t.Context(), "admin", r.ID, "ada", nil); !errors.Is(err, domain.ErrAlreadyResolved) {
+		t.Errorf("twice: error = %v", err)
+	}
+}

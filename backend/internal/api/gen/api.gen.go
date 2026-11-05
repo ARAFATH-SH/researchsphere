@@ -312,18 +312,66 @@ func (e MessageReportStatus) Valid() bool {
 	}
 }
 
+// Defines values for ModerationActionKind.
+const (
+	Restoration       ModerationActionKind = "restoration"
+	Restriction       ModerationActionKind = "restriction"
+	RestrictionLifted ModerationActionKind = "restriction_lifted"
+	Suspension        ModerationActionKind = "suspension"
+	Warning           ModerationActionKind = "warning"
+)
+
+// Valid indicates whether the value is a known member of the ModerationActionKind enum.
+func (e ModerationActionKind) Valid() bool {
+	switch e {
+	case Restoration:
+		return true
+	case Restriction:
+		return true
+	case RestrictionLifted:
+		return true
+	case Suspension:
+		return true
+	case Warning:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ModerationLinkedReportOutcome.
+const (
+	ModerationLinkedReportOutcomeActionTaken ModerationLinkedReportOutcome = "action_taken"
+	ModerationLinkedReportOutcomeDismissed   ModerationLinkedReportOutcome = "dismissed"
+)
+
+// Valid indicates whether the value is a known member of the ModerationLinkedReportOutcome enum.
+func (e ModerationLinkedReportOutcome) Valid() bool {
+	switch e {
+	case ModerationLinkedReportOutcomeActionTaken:
+		return true
+	case ModerationLinkedReportOutcomeDismissed:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for NotificationType.
 const (
-	ConnectionRequestAccepted NotificationType = "connection_request_accepted"
-	ConnectionRequestReceived NotificationType = "connection_request_received"
+	NotificationTypeAccountWarning            NotificationType = "account_warning"
+	NotificationTypeConnectionRequestAccepted NotificationType = "connection_request_accepted"
+	NotificationTypeConnectionRequestReceived NotificationType = "connection_request_received"
 )
 
 // Valid indicates whether the value is a known member of the NotificationType enum.
 func (e NotificationType) Valid() bool {
 	switch e {
-	case ConnectionRequestAccepted:
+	case NotificationTypeAccountWarning:
 		return true
-	case ConnectionRequestReceived:
+	case NotificationTypeConnectionRequestAccepted:
+		return true
+	case NotificationTypeConnectionRequestReceived:
 		return true
 	default:
 		return false
@@ -438,6 +486,21 @@ func (e ResolveMessageReportRequestOutcome) Valid() bool {
 	}
 }
 
+// Defines values for RestrictUserRequestKind.
+const (
+	Messaging RestrictUserRequestKind = "messaging"
+)
+
+// Valid indicates whether the value is a known member of the RestrictUserRequestKind enum.
+func (e RestrictUserRequestKind) Valid() bool {
+	switch e {
+	case Messaging:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for Role.
 const (
 	Admin      Role = "admin"
@@ -474,6 +537,19 @@ func (e Visibility) Valid() bool {
 	}
 }
 
+// AccountWarning A warning as its user sees it. It holds no note and names no administrator.
+type AccountWarning struct {
+	Acknowledged bool               `json:"acknowledged"`
+	CreatedAt    time.Time          `json:"createdAt"`
+	Id           openapi_types.UUID `json:"id"`
+	Reason       string             `json:"reason"`
+}
+
+// AccountWarningList defines model for AccountWarningList.
+type AccountWarningList struct {
+	Items []AccountWarning `json:"items"`
+}
+
 // AddLinkRequest defines model for AddLinkRequest.
 type AddLinkRequest struct {
 	// Kind What a profile link points to; the client shows a label and icon for it.
@@ -504,7 +580,8 @@ type AdminUser struct {
 	// (`make admin`); no operation changes a role.
 	Role Role `json:"role"`
 
-	// Suspended The account is suspended (FR-3.4).
+	// Suspended The account is suspended now (FR-3.4). A suspension that has ended by time reads
+	// false, also before the user's next login clears it.
 	Suspended bool `json:"suspended"`
 
 	// Verified The email address is verified (FR-1.4).
@@ -857,6 +934,14 @@ type Error struct {
 	//
 	// Example: The requested resource does not exist.
 	Message string `json:"message"`
+
+	// Reason On `account_suspended`, the reason the administrator gave the user. Absent for an
+	// account suspended before reasons were recorded.
+	Reason *string `json:"reason,omitempty"`
+
+	// Until On `account_suspended`, when a temporary suspension ends; absent when it is
+	// permanent. On `messaging_restricted`, when the restriction ends.
+	Until *time.Time `json:"until,omitempty"`
 }
 
 // Experience One work experience entry (FR-4.8). The optional fields are always present and null when not set.
@@ -1100,15 +1185,78 @@ type MessageUnreadCount struct {
 	Total int `json:"total"`
 }
 
+// ModerationAction One row of the audit trail, as only an administrator sees it.
+type ModerationAction struct {
+	// AcknowledgedAt When the user acknowledged a warning.
+	AcknowledgedAt *time.Time           `json:"acknowledgedAt"`
+	Action         ModerationActionKind `json:"action"`
+
+	// AdminId Null once the administrator's account is deleted.
+	AdminId   *openapi_types.UUID `json:"adminId"`
+	AdminName *string             `json:"adminName"`
+	CreatedAt time.Time           `json:"createdAt"`
+
+	// EndsAt When a restriction or a temporary suspension ends. Null when permanent.
+	EndsAt *time.Time         `json:"endsAt"`
+	Id     openapi_types.UUID `json:"id"`
+
+	// LiftedAt When a restriction was lifted early.
+	LiftedAt *time.Time `json:"liftedAt"`
+	Note     *string    `json:"note"`
+	Reason   string     `json:"reason"`
+
+	// Report The report the action resolved. Null when none, or when it has since been deleted.
+	Report        *ModerationLinkedReport `json:"report"`
+	ReportId      *openapi_types.UUID     `json:"reportId"`
+	RestrictionId *openapi_types.UUID     `json:"restrictionId"`
+	UserId        openapi_types.UUID      `json:"userId"`
+	WarningId     *openapi_types.UUID     `json:"warningId"`
+}
+
+// ModerationActionKind defines model for ModerationActionKind.
+type ModerationActionKind string
+
+// ModerationHistory defines model for ModerationHistory.
+type ModerationHistory struct {
+	Items    []ModerationAction `json:"items"`
+	Page     int                `json:"page"`
+	PageSize int                `json:"pageSize"`
+	Total    int                `json:"total"`
+}
+
+// ModerationLinkedReport The report the action resolved. Null when none, or when it has since been deleted.
+type ModerationLinkedReport struct {
+	CreatedAt time.Time                     `json:"createdAt"`
+	Id        openapi_types.UUID            `json:"id"`
+	Outcome   ModerationLinkedReportOutcome `json:"outcome"`
+	Reason    ReportReason                  `json:"reason"`
+}
+
+// ModerationLinkedReportOutcome defines model for ModerationLinkedReport.Outcome.
+type ModerationLinkedReportOutcome string
+
+// ModerationNote For administrators only. It is never shown or sent to the user.
+type ModerationNote = string
+
+// ModerationReason What the user is told, by email and in the app. 10 to 1000 characters, trimmed.
+type ModerationReason = string
+
+// ModerationReportId A report about this user to resolve as `action_taken`. Unknown gets 404, about someone
+// else 400 with `field`, already resolved 409 `report_already_resolved`; each undoes the
+// action.
+type ModerationReportId = string
+
 // Notification defines model for Notification.
 type Notification struct {
-	// Actor The user who caused the notification.
-	Actor     NotificationActor  `json:"actor"`
+	// Actor The user who caused the notification. A system notification comes from ResearchSphere
+	// and has no actor: the field is left out, and a client treats null the same way.
+	Actor     *NotificationActor `json:"actor,omitempty"`
 	CreatedAt time.Time          `json:"createdAt"`
 	Id        openapi_types.UUID `json:"id"`
 
 	// Link The web client path of the item it is about (FR-9.5):
-	// `/network` for a received request, `/profile/{actorId}` for an accepted one.
+	// `/network` for a received request, `/profile/{actorId}` for an accepted one,
+	// `/warnings/{warningId}` for a warning.
 	Link string `json:"link"`
 	Read bool   `json:"read"`
 
@@ -1121,11 +1269,13 @@ type Notification struct {
 
 	// Type What happened (FR-9.1). `connection_request_received`: the actor sent the caller a
 	// connection request. `connection_request_accepted`: the actor accepted the caller's
-	// request. Later slices add the project, comment and like types.
+	// request. `account_warning`: an administrator warned the caller; a system notification,
+	// with no actor. Later slices add the project, comment and like types.
 	Type NotificationType `json:"type"`
 }
 
-// NotificationActor The user who caused the notification.
+// NotificationActor The user who caused the notification. A system notification comes from ResearchSphere
+// and has no actor: the field is left out, and a client treats null the same way.
 type NotificationActor struct {
 	FullName string `json:"fullName"`
 
@@ -1144,7 +1294,8 @@ type NotificationPage struct {
 
 // NotificationType What happened (FR-9.1). `connection_request_received`: the actor sent the caller a
 // connection request. `connection_request_accepted`: the actor accepted the caller's
-// request. Later slices add the project, comment and like types.
+// request. `account_warning`: an administrator warned the caller; a system notification,
+// with no actor. Later slices add the project, comment and like types.
 type NotificationType string
 
 // NotificationsMarked defines model for NotificationsMarked.
@@ -1664,6 +1815,35 @@ type ResolveMessageReportRequest struct {
 // ResolveMessageReportRequestOutcome defines model for ResolveMessageReportRequest.Outcome.
 type ResolveMessageReportRequestOutcome string
 
+// RestrictUserRequest defines model for RestrictUserRequest.
+type RestrictUserRequest struct {
+	Days int                     `json:"days"`
+	Kind RestrictUserRequestKind `json:"kind"`
+
+	// Note For administrators only. It is never shown or sent to the user.
+	Note *ModerationNote `json:"note,omitempty"`
+
+	// Reason What the user is told, by email and in the app. 10 to 1000 characters, trimmed.
+	Reason ModerationReason `json:"reason"`
+
+	// ReportId A report about this user to resolve as `action_taken`. Unknown gets 404, about someone
+	// else 400 with `field`, already resolved 409 `report_already_resolved`; each undoes the
+	// action.
+	ReportId *ModerationReportId `json:"reportId,omitempty"`
+}
+
+// RestrictUserRequestKind defines model for RestrictUserRequest.Kind.
+type RestrictUserRequestKind string
+
+// ReverseActionRequest Lifting and restoring reverse an action, so they name no report.
+type ReverseActionRequest struct {
+	// Note For administrators only. It is never shown or sent to the user.
+	Note *ModerationNote `json:"note,omitempty"`
+
+	// Reason What the user is told, by email and in the app. 10 to 1000 characters, trimmed.
+	Reason ModerationReason `json:"reason"`
+}
+
 // Role The platform role (SRS 2.2). Administrators are made only from the command line
 // (`make admin`); no operation changes a role.
 type Role string
@@ -1701,6 +1881,24 @@ type SentMessage struct {
 	// `declined`: closed for good.
 	ConversationState ConversationState `json:"conversationState"`
 	Message           Message           `json:"message"`
+}
+
+// SuspendUserRequest defines model for SuspendUserRequest.
+type SuspendUserRequest struct {
+	// Note For administrators only. It is never shown or sent to the user.
+	Note *ModerationNote `json:"note,omitempty"`
+
+	// Reason What the user is told, by email and in the app. 10 to 1000 characters, trimmed.
+	Reason ModerationReason `json:"reason"`
+
+	// ReportId A report about this user to resolve as `action_taken`. Unknown gets 404, about someone
+	// else 400 with `field`, already resolved 409 `report_already_resolved`; each undoes the
+	// action.
+	ReportId *ModerationReportId `json:"reportId,omitempty"`
+
+	// Until When the suspension ends: 1 to 365 days from now, with 5 minutes of slack at each
+	// end for the time the request takes. Left out, the suspension is permanent.
+	Until *time.Time `json:"until,omitempty"`
 }
 
 // Tag A research interest or skill (FR-4.2). Tags are shared by all users; names that
@@ -1745,6 +1943,20 @@ type VerifyEmailRequest struct {
 // "Connections only" comes with connections (slice 13).
 type Visibility string
 
+// WarnUserRequest defines model for WarnUserRequest.
+type WarnUserRequest struct {
+	// Note For administrators only. It is never shown or sent to the user.
+	Note *ModerationNote `json:"note,omitempty"`
+
+	// Reason What the user is told, by email and in the app. 10 to 1000 characters, trimmed.
+	Reason ModerationReason `json:"reason"`
+
+	// ReportId A report about this user to resolve as `action_taken`. Unknown gets 404, about someone
+	// else 400 with `field`, already resolved 409 `report_already_resolved`; each undoes the
+	// action.
+	ReportId *ModerationReportId `json:"reportId,omitempty"`
+}
+
 // YearMonth A month of a year, such as March 2021.
 type YearMonth struct {
 	// Month 1 (January) to 12 (December).
@@ -1780,6 +1992,9 @@ type LanguageID = string
 // LinkID defines model for LinkID.
 type LinkID = string
 
+// ModeratedUserId defines model for ModeratedUserId.
+type ModeratedUserId = string
+
 // PageFromOne defines model for PageFromOne.
 type PageFromOne = int
 
@@ -1806,6 +2021,12 @@ type TagLimit = int
 
 // TagQuery defines model for TagQuery.
 type TagQuery = string
+
+// WarningId defines model for WarningId.
+type WarningId = string
+
+// AccountSuspendedOrForbidden The shape of every error response (SRS 5.3).
+type AccountSuspendedOrForbidden = Error
 
 // DOINotFound The shape of every error response (SRS 5.3).
 type DOINotFound = Error
@@ -1857,6 +2078,15 @@ type MessageRefused = Error
 
 // MetadataUnavailable The shape of every error response (SRS 5.3).
 type MetadataUnavailable = Error
+
+// ModerationConflict The shape of every error response (SRS 5.3).
+type ModerationConflict = Error
+
+// ModerationForbidden The shape of every error response (SRS 5.3).
+type ModerationForbidden = Error
+
+// ModerationInvalid The shape of every error response (SRS 5.3).
+type ModerationInvalid = Error
 
 // NoProfile The shape of every error response (SRS 5.3).
 type NoProfile = Error
@@ -1918,6 +2148,12 @@ type ListUsersParams struct {
 	// PageSize Users per page, from 1. Defaults to 20. A larger value than 50 is reduced to 50,
 	// and the response says which size was used.
 	PageSize *int `form:"pageSize,omitempty" json:"pageSize,omitempty"`
+}
+
+// GetUserModerationParams defines parameters for GetUserModeration.
+type GetUserModerationParams struct {
+	// Page The page to return, from 1. Defaults to 1. A value below 1 gets 400 `bad_request`.
+	Page *PageFromOne `form:"page,omitempty" json:"page,omitempty"`
 }
 
 // LogoutUserParams defines parameters for LogoutUser.
@@ -2089,6 +2325,21 @@ type DeleteAccountJSONRequestBody = DeleteAccountRequest
 // ResolveMessageReportJSONRequestBody defines body for ResolveMessageReport for application/json ContentType.
 type ResolveMessageReportJSONRequestBody = ResolveMessageReportRequest
 
+// LiftRestrictionJSONRequestBody defines body for LiftRestriction for application/json ContentType.
+type LiftRestrictionJSONRequestBody = ReverseActionRequest
+
+// RestoreUserJSONRequestBody defines body for RestoreUser for application/json ContentType.
+type RestoreUserJSONRequestBody = ReverseActionRequest
+
+// RestrictUserJSONRequestBody defines body for RestrictUser for application/json ContentType.
+type RestrictUserJSONRequestBody = RestrictUserRequest
+
+// SuspendUserJSONRequestBody defines body for SuspendUser for application/json ContentType.
+type SuspendUserJSONRequestBody = SuspendUserRequest
+
+// WarnUserJSONRequestBody defines body for WarnUser for application/json ContentType.
+type WarnUserJSONRequestBody = WarnUserRequest
+
 // LoginUserJSONRequestBody defines body for LoginUser for application/json ContentType.
 type LoginUserJSONRequestBody = LoginRequest
 
@@ -2185,7 +2436,7 @@ type AddMySkillJSONRequestBody = AddTagRequest
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// DeleteAccount Delete the logged-in user's account after entering the password (FR-2.8, FR-2.9)
-	// (DELETE /account)
+	// (POST /account/delete)
 	DeleteAccount(w http.ResponseWriter, r *http.Request)
 	// ListMessageReports List reports of conversations for an administrator (FR-16.9, NFR-14)
 	// (GET /admin/message-reports)
@@ -2196,9 +2447,27 @@ type ServerInterface interface {
 	// ResolveMessageReport Close a report with an outcome (FR-16.9)
 	// (POST /admin/message-reports/{reportId}/resolve)
 	ResolveMessageReport(w http.ResponseWriter, r *http.Request, reportId ReportId)
+	// LiftRestriction End a restriction early (FR-15.6)
+	// (POST /admin/restrictions/{restrictionId}/lift)
+	LiftRestriction(w http.ResponseWriter, r *http.Request, restrictionId string)
 	// ListUsers List every user account for an administrator (FR-15.3, FR-3.2)
 	// (GET /admin/users)
 	ListUsers(w http.ResponseWriter, r *http.Request, params ListUsersParams)
+	// GetUserModeration A user's moderation history, newest first (FR-15.9)
+	// (GET /admin/users/{userId}/moderation)
+	GetUserModeration(w http.ResponseWriter, r *http.Request, userId ModeratedUserId, params GetUserModerationParams)
+	// RestoreUser Restore a suspended account (FR-15.3)
+	// (POST /admin/users/{userId}/restore)
+	RestoreUser(w http.ResponseWriter, r *http.Request, userId ModeratedUserId)
+	// RestrictUser Stop a user sending messages for a number of days (FR-15.6)
+	// (POST /admin/users/{userId}/restrictions)
+	RestrictUser(w http.ResponseWriter, r *http.Request, userId ModeratedUserId)
+	// SuspendUser Suspend an account, for a time or for good (FR-3.4, FR-15.3, FR-15.7)
+	// (POST /admin/users/{userId}/suspension)
+	SuspendUser(w http.ResponseWriter, r *http.Request, userId ModeratedUserId)
+	// WarnUser Warn a user (FR-15.5)
+	// (POST /admin/users/{userId}/warnings)
+	WarnUser(w http.ResponseWriter, r *http.Request, userId ModeratedUserId)
 	// LoginUser Log in with email address and password (FR-2.1, FR-1.4, FR-3.4)
 	// (POST /auth/login)
 	LoginUser(w http.ResponseWriter, r *http.Request)
@@ -2289,6 +2558,15 @@ type ServerInterface interface {
 	// GetHealth Report whether the database, Redis and object storage respond
 	// (GET /health)
 	GetHealth(w http.ResponseWriter, r *http.Request)
+	// ListPendingWarnings The caller's warnings not yet acknowledged, newest first (FR-15.5)
+	// (GET /me/warnings/pending)
+	ListPendingWarnings(w http.ResponseWriter, r *http.Request)
+	// GetMyWarning One of the caller's warnings, acknowledged or not (FR-15.5)
+	// (GET /me/warnings/{warningId})
+	GetMyWarning(w http.ResponseWriter, r *http.Request, warningId WarningId)
+	// AcknowledgeWarning Acknowledge one of the caller's warnings (FR-15.5)
+	// (POST /me/warnings/{warningId}/acknowledge)
+	AcknowledgeWarning(w http.ResponseWriter, r *http.Request, warningId WarningId)
 	// GetMedia Redirect to a stored file after a permission check (NFR-13)
 	// (GET /media/{fileId})
 	GetMedia(w http.ResponseWriter, r *http.Request, fileId FileID)
@@ -2587,6 +2865,38 @@ func (siw *ServerInterfaceWrapper) ResolveMessageReport(w http.ResponseWriter, r
 	handler.ServeHTTP(w, r)
 }
 
+// LiftRestriction operation middleware
+func (siw *ServerInterfaceWrapper) LiftRestriction(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "restrictionId" -------------
+	var restrictionId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "restrictionId", r.PathValue("restrictionId"), &restrictionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "restrictionId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.LiftRestriction(w, r, restrictionId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListUsers operation middleware
 func (siw *ServerInterfaceWrapper) ListUsers(w http.ResponseWriter, r *http.Request) {
 
@@ -2630,6 +2940,182 @@ func (siw *ServerInterfaceWrapper) ListUsers(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListUsers(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetUserModeration operation middleware
+func (siw *ServerInterfaceWrapper) GetUserModeration(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "userId" -------------
+	var userId ModeratedUserId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", r.PathValue("userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "userId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetUserModerationParams
+
+	// ------------- Optional query parameter "page" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "page", r.URL.Query(), &params.Page, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "page"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetUserModeration(w, r, userId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RestoreUser operation middleware
+func (siw *ServerInterfaceWrapper) RestoreUser(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "userId" -------------
+	var userId ModeratedUserId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", r.PathValue("userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "userId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RestoreUser(w, r, userId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RestrictUser operation middleware
+func (siw *ServerInterfaceWrapper) RestrictUser(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "userId" -------------
+	var userId ModeratedUserId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", r.PathValue("userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "userId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RestrictUser(w, r, userId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SuspendUser operation middleware
+func (siw *ServerInterfaceWrapper) SuspendUser(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "userId" -------------
+	var userId ModeratedUserId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", r.PathValue("userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "userId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SuspendUser(w, r, userId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// WarnUser operation middleware
+func (siw *ServerInterfaceWrapper) WarnUser(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "userId" -------------
+	var userId ModeratedUserId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", r.PathValue("userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "userId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.WarnUser(w, r, userId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3533,6 +4019,90 @@ func (siw *ServerInterfaceWrapper) GetHealth(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetHealth(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListPendingWarnings operation middleware
+func (siw *ServerInterfaceWrapper) ListPendingWarnings(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListPendingWarnings(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetMyWarning operation middleware
+func (siw *ServerInterfaceWrapper) GetMyWarning(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "warningId" -------------
+	var warningId WarningId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "warningId", r.PathValue("warningId"), &warningId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "warningId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMyWarning(w, r, warningId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AcknowledgeWarning operation middleware
+func (siw *ServerInterfaceWrapper) AcknowledgeWarning(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "warningId" -------------
+	var warningId WarningId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "warningId", r.PathValue("warningId"), &warningId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "warningId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AcknowledgeWarning(w, r, warningId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -5015,11 +5585,20 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/auth/logout", wrapper.LogoutUser)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/auth/password", wrapper.ChangePassword)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/auth/me", wrapper.GetCurrentUser)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/account", wrapper.DeleteAccount)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/account/delete", wrapper.DeleteAccount)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/admin/users", wrapper.ListUsers)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/admin/message-reports", wrapper.ListMessageReports)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/admin/message-reports/{reportId}", wrapper.GetMessageReport)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/admin/message-reports/{reportId}/resolve", wrapper.ResolveMessageReport)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/admin/users/{userId}/warnings", wrapper.WarnUser)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/admin/users/{userId}/restrictions", wrapper.RestrictUser)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/admin/restrictions/{restrictionId}/lift", wrapper.LiftRestriction)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/admin/users/{userId}/suspension", wrapper.SuspendUser)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/admin/users/{userId}/restore", wrapper.RestoreUser)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/admin/users/{userId}/moderation", wrapper.GetUserModeration)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/me/warnings/pending", wrapper.ListPendingWarnings)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/me/warnings/{warningId}", wrapper.GetMyWarning)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/me/warnings/{warningId}/acknowledge", wrapper.AcknowledgeWarning)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles/me", wrapper.GetMyProfile)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/profiles/me", wrapper.UpdateMyProfile)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles/{userId}", wrapper.GetProfile)
@@ -5088,6 +5667,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	return m
 }
 
+type AccountSuspendedOrForbiddenJSONResponse Error
+
 type DOINotFoundJSONResponse Error
 
 type FileTooLargeJSONResponse Error
@@ -5135,6 +5716,12 @@ type MessageRateLimitedJSONResponse struct {
 type MessageRefusedJSONResponse Error
 
 type MetadataUnavailableJSONResponse Error
+
+type ModerationConflictJSONResponse Error
+
+type ModerationForbiddenJSONResponse Error
+
+type ModerationInvalidJSONResponse Error
 
 type NoProfileJSONResponse Error
 
@@ -5561,6 +6148,109 @@ func (response ResolveMessageReport500JSONResponse) VisitResolveMessageReportRes
 	return err
 }
 
+type LiftRestrictionRequestObject struct {
+	RestrictionId string `json:"restrictionId"`
+	Body          *LiftRestrictionJSONRequestBody
+}
+
+type LiftRestrictionResponseObject interface {
+	VisitLiftRestrictionResponse(w http.ResponseWriter) error
+}
+
+type LiftRestriction204Response struct {
+}
+
+func (response LiftRestriction204Response) VisitLiftRestrictionResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type LiftRestriction400JSONResponse struct{ ModerationInvalidJSONResponse }
+
+func (response LiftRestriction400JSONResponse) VisitLiftRestrictionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LiftRestriction401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response LiftRestriction401JSONResponse) VisitLiftRestrictionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LiftRestriction403JSONResponse struct {
+	ModerationForbiddenJSONResponse
+}
+
+func (response LiftRestriction403JSONResponse) VisitLiftRestrictionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LiftRestriction404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response LiftRestriction404JSONResponse) VisitLiftRestrictionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LiftRestriction409JSONResponse struct{ ModerationConflictJSONResponse }
+
+func (response LiftRestriction409JSONResponse) VisitLiftRestrictionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LiftRestriction500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response LiftRestriction500JSONResponse) VisitLiftRestrictionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListUsersRequestObject struct {
 	Params ListUsersParams
 }
@@ -5628,6 +6318,535 @@ func (response ListUsers403JSONResponse) VisitListUsersResponse(w http.ResponseW
 type ListUsers500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response ListUsers500JSONResponse) VisitListUsersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetUserModerationRequestObject struct {
+	UserId ModeratedUserId `json:"userId"`
+	Params GetUserModerationParams
+}
+
+type GetUserModerationResponseObject interface {
+	VisitGetUserModerationResponse(w http.ResponseWriter) error
+}
+
+type GetUserModeration200JSONResponse ModerationHistory
+
+func (response GetUserModeration200JSONResponse) VisitGetUserModerationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetUserModeration400JSONResponse Error
+
+func (response GetUserModeration400JSONResponse) VisitGetUserModerationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetUserModeration401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetUserModeration401JSONResponse) VisitGetUserModerationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetUserModeration403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetUserModeration403JSONResponse) VisitGetUserModerationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetUserModeration404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetUserModeration404JSONResponse) VisitGetUserModerationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetUserModeration500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response GetUserModeration500JSONResponse) VisitGetUserModerationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreUserRequestObject struct {
+	UserId ModeratedUserId `json:"userId"`
+	Body   *RestoreUserJSONRequestBody
+}
+
+type RestoreUserResponseObject interface {
+	VisitRestoreUserResponse(w http.ResponseWriter) error
+}
+
+type RestoreUser200JSONResponse ModerationAction
+
+func (response RestoreUser200JSONResponse) VisitRestoreUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreUser400JSONResponse struct{ ModerationInvalidJSONResponse }
+
+func (response RestoreUser400JSONResponse) VisitRestoreUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreUser401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RestoreUser401JSONResponse) VisitRestoreUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreUser403JSONResponse struct {
+	ModerationForbiddenJSONResponse
+}
+
+func (response RestoreUser403JSONResponse) VisitRestoreUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreUser404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RestoreUser404JSONResponse) VisitRestoreUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreUser409JSONResponse struct{ ModerationConflictJSONResponse }
+
+func (response RestoreUser409JSONResponse) VisitRestoreUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreUser500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RestoreUser500JSONResponse) VisitRestoreUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestrictUserRequestObject struct {
+	UserId ModeratedUserId `json:"userId"`
+	Body   *RestrictUserJSONRequestBody
+}
+
+type RestrictUserResponseObject interface {
+	VisitRestrictUserResponse(w http.ResponseWriter) error
+}
+
+type RestrictUser201JSONResponse ModerationAction
+
+func (response RestrictUser201JSONResponse) VisitRestrictUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestrictUser400JSONResponse struct{ ModerationInvalidJSONResponse }
+
+func (response RestrictUser400JSONResponse) VisitRestrictUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestrictUser401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RestrictUser401JSONResponse) VisitRestrictUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestrictUser403JSONResponse struct {
+	ModerationForbiddenJSONResponse
+}
+
+func (response RestrictUser403JSONResponse) VisitRestrictUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestrictUser404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RestrictUser404JSONResponse) VisitRestrictUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestrictUser409JSONResponse struct{ ModerationConflictJSONResponse }
+
+func (response RestrictUser409JSONResponse) VisitRestrictUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestrictUser500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RestrictUser500JSONResponse) VisitRestrictUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SuspendUserRequestObject struct {
+	UserId ModeratedUserId `json:"userId"`
+	Body   *SuspendUserJSONRequestBody
+}
+
+type SuspendUserResponseObject interface {
+	VisitSuspendUserResponse(w http.ResponseWriter) error
+}
+
+type SuspendUser200JSONResponse ModerationAction
+
+func (response SuspendUser200JSONResponse) VisitSuspendUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SuspendUser400JSONResponse struct{ ModerationInvalidJSONResponse }
+
+func (response SuspendUser400JSONResponse) VisitSuspendUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SuspendUser401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response SuspendUser401JSONResponse) VisitSuspendUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SuspendUser403JSONResponse struct {
+	ModerationForbiddenJSONResponse
+}
+
+func (response SuspendUser403JSONResponse) VisitSuspendUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SuspendUser404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response SuspendUser404JSONResponse) VisitSuspendUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SuspendUser409JSONResponse struct{ ModerationConflictJSONResponse }
+
+func (response SuspendUser409JSONResponse) VisitSuspendUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SuspendUser500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response SuspendUser500JSONResponse) VisitSuspendUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type WarnUserRequestObject struct {
+	UserId ModeratedUserId `json:"userId"`
+	Body   *WarnUserJSONRequestBody
+}
+
+type WarnUserResponseObject interface {
+	VisitWarnUserResponse(w http.ResponseWriter) error
+}
+
+type WarnUser201JSONResponse ModerationAction
+
+func (response WarnUser201JSONResponse) VisitWarnUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type WarnUser400JSONResponse struct{ ModerationInvalidJSONResponse }
+
+func (response WarnUser400JSONResponse) VisitWarnUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type WarnUser401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response WarnUser401JSONResponse) VisitWarnUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type WarnUser403JSONResponse struct {
+	ModerationForbiddenJSONResponse
+}
+
+func (response WarnUser403JSONResponse) VisitWarnUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type WarnUser404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response WarnUser404JSONResponse) VisitWarnUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type WarnUser409JSONResponse struct{ ModerationConflictJSONResponse }
+
+func (response WarnUser409JSONResponse) VisitWarnUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type WarnUser500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response WarnUser500JSONResponse) VisitWarnUserResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -6589,7 +7808,9 @@ func (response SendConnectionRequest401JSONResponse) VisitSendConnectionRequestR
 	return err
 }
 
-type SendConnectionRequest403JSONResponse struct{ ForbiddenJSONResponse }
+type SendConnectionRequest403JSONResponse struct {
+	AccountSuspendedOrForbiddenJSONResponse
+}
 
 func (response SendConnectionRequest403JSONResponse) VisitSendConnectionRequestResponse(w http.ResponseWriter) error {
 
@@ -7313,7 +8534,9 @@ func (response AcceptMessageRequest401JSONResponse) VisitAcceptMessageRequestRes
 	return err
 }
 
-type AcceptMessageRequest403JSONResponse struct{ ForbiddenJSONResponse }
+type AcceptMessageRequest403JSONResponse struct {
+	AccountSuspendedOrForbiddenJSONResponse
+}
 
 func (response AcceptMessageRequest403JSONResponse) VisitAcceptMessageRequestResponse(w http.ResponseWriter) error {
 
@@ -7391,7 +8614,9 @@ func (response DeclineMessageRequest401JSONResponse) VisitDeclineMessageRequestR
 	return err
 }
 
-type DeclineMessageRequest403JSONResponse struct{ ForbiddenJSONResponse }
+type DeclineMessageRequest403JSONResponse struct {
+	AccountSuspendedOrForbiddenJSONResponse
+}
 
 func (response DeclineMessageRequest403JSONResponse) VisitDeclineMessageRequestResponse(w http.ResponseWriter) error {
 
@@ -7800,7 +9025,9 @@ func (response ReportConversation401JSONResponse) VisitReportConversationRespons
 	return err
 }
 
-type ReportConversation403JSONResponse struct{ ForbiddenJSONResponse }
+type ReportConversation403JSONResponse struct {
+	AccountSuspendedOrForbiddenJSONResponse
+}
 
 func (response ReportConversation403JSONResponse) VisitReportConversationResponse(w http.ResponseWriter) error {
 
@@ -7909,6 +9136,219 @@ func (response GetHealth503JSONResponse) VisitGetHealthResponse(w http.ResponseW
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPendingWarningsRequestObject struct {
+}
+
+type ListPendingWarningsResponseObject interface {
+	VisitListPendingWarningsResponse(w http.ResponseWriter) error
+}
+
+type ListPendingWarnings200JSONResponse AccountWarningList
+
+func (response ListPendingWarnings200JSONResponse) VisitListPendingWarningsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPendingWarnings401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListPendingWarnings401JSONResponse) VisitListPendingWarningsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPendingWarnings403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListPendingWarnings403JSONResponse) VisitListPendingWarningsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPendingWarnings500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ListPendingWarnings500JSONResponse) VisitListPendingWarningsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMyWarningRequestObject struct {
+	WarningId WarningId `json:"warningId"`
+}
+
+type GetMyWarningResponseObject interface {
+	VisitGetMyWarningResponse(w http.ResponseWriter) error
+}
+
+type GetMyWarning200JSONResponse AccountWarning
+
+func (response GetMyWarning200JSONResponse) VisitGetMyWarningResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMyWarning401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetMyWarning401JSONResponse) VisitGetMyWarningResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMyWarning403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetMyWarning403JSONResponse) VisitGetMyWarningResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMyWarning404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetMyWarning404JSONResponse) VisitGetMyWarningResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMyWarning500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response GetMyWarning500JSONResponse) VisitGetMyWarningResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcknowledgeWarningRequestObject struct {
+	WarningId WarningId `json:"warningId"`
+}
+
+type AcknowledgeWarningResponseObject interface {
+	VisitAcknowledgeWarningResponse(w http.ResponseWriter) error
+}
+
+type AcknowledgeWarning204Response struct {
+}
+
+func (response AcknowledgeWarning204Response) VisitAcknowledgeWarningResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type AcknowledgeWarning401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response AcknowledgeWarning401JSONResponse) VisitAcknowledgeWarningResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcknowledgeWarning403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response AcknowledgeWarning403JSONResponse) VisitAcknowledgeWarningResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcknowledgeWarning404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response AcknowledgeWarning404JSONResponse) VisitAcknowledgeWarningResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcknowledgeWarning500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response AcknowledgeWarning500JSONResponse) VisitAcknowledgeWarningResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -11916,7 +13356,7 @@ func (response SuggestSkillTags500JSONResponse) VisitSuggestSkillTagsResponse(w 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// DeleteAccount Delete the logged-in user's account after entering the password (FR-2.8, FR-2.9)
-	// (DELETE /account)
+	// (POST /account/delete)
 	DeleteAccount(ctx context.Context, request DeleteAccountRequestObject) (DeleteAccountResponseObject, error)
 	// ListMessageReports List reports of conversations for an administrator (FR-16.9, NFR-14)
 	// (GET /admin/message-reports)
@@ -11927,9 +13367,27 @@ type StrictServerInterface interface {
 	// ResolveMessageReport Close a report with an outcome (FR-16.9)
 	// (POST /admin/message-reports/{reportId}/resolve)
 	ResolveMessageReport(ctx context.Context, request ResolveMessageReportRequestObject) (ResolveMessageReportResponseObject, error)
+	// LiftRestriction End a restriction early (FR-15.6)
+	// (POST /admin/restrictions/{restrictionId}/lift)
+	LiftRestriction(ctx context.Context, request LiftRestrictionRequestObject) (LiftRestrictionResponseObject, error)
 	// ListUsers List every user account for an administrator (FR-15.3, FR-3.2)
 	// (GET /admin/users)
 	ListUsers(ctx context.Context, request ListUsersRequestObject) (ListUsersResponseObject, error)
+	// GetUserModeration A user's moderation history, newest first (FR-15.9)
+	// (GET /admin/users/{userId}/moderation)
+	GetUserModeration(ctx context.Context, request GetUserModerationRequestObject) (GetUserModerationResponseObject, error)
+	// RestoreUser Restore a suspended account (FR-15.3)
+	// (POST /admin/users/{userId}/restore)
+	RestoreUser(ctx context.Context, request RestoreUserRequestObject) (RestoreUserResponseObject, error)
+	// RestrictUser Stop a user sending messages for a number of days (FR-15.6)
+	// (POST /admin/users/{userId}/restrictions)
+	RestrictUser(ctx context.Context, request RestrictUserRequestObject) (RestrictUserResponseObject, error)
+	// SuspendUser Suspend an account, for a time or for good (FR-3.4, FR-15.3, FR-15.7)
+	// (POST /admin/users/{userId}/suspension)
+	SuspendUser(ctx context.Context, request SuspendUserRequestObject) (SuspendUserResponseObject, error)
+	// WarnUser Warn a user (FR-15.5)
+	// (POST /admin/users/{userId}/warnings)
+	WarnUser(ctx context.Context, request WarnUserRequestObject) (WarnUserResponseObject, error)
 	// LoginUser Log in with email address and password (FR-2.1, FR-1.4, FR-3.4)
 	// (POST /auth/login)
 	LoginUser(ctx context.Context, request LoginUserRequestObject) (LoginUserResponseObject, error)
@@ -12020,6 +13478,15 @@ type StrictServerInterface interface {
 	// GetHealth Report whether the database, Redis and object storage respond
 	// (GET /health)
 	GetHealth(ctx context.Context, request GetHealthRequestObject) (GetHealthResponseObject, error)
+	// ListPendingWarnings The caller's warnings not yet acknowledged, newest first (FR-15.5)
+	// (GET /me/warnings/pending)
+	ListPendingWarnings(ctx context.Context, request ListPendingWarningsRequestObject) (ListPendingWarningsResponseObject, error)
+	// GetMyWarning One of the caller's warnings, acknowledged or not (FR-15.5)
+	// (GET /me/warnings/{warningId})
+	GetMyWarning(ctx context.Context, request GetMyWarningRequestObject) (GetMyWarningResponseObject, error)
+	// AcknowledgeWarning Acknowledge one of the caller's warnings (FR-15.5)
+	// (POST /me/warnings/{warningId}/acknowledge)
+	AcknowledgeWarning(ctx context.Context, request AcknowledgeWarningRequestObject) (AcknowledgeWarningResponseObject, error)
 	// GetMedia Redirect to a stored file after a permission check (NFR-13)
 	// (GET /media/{fileId})
 	GetMedia(ctx context.Context, request GetMediaRequestObject) (GetMediaResponseObject, error)
@@ -12313,6 +13780,39 @@ func (sh *strictHandler) ResolveMessageReport(w http.ResponseWriter, r *http.Req
 	}
 }
 
+// LiftRestriction operation middleware
+func (sh *strictHandler) LiftRestriction(w http.ResponseWriter, r *http.Request, restrictionId string) {
+	var request LiftRestrictionRequestObject
+
+	request.RestrictionId = restrictionId
+
+	var body LiftRestrictionJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.LiftRestriction(ctx, request.(LiftRestrictionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "LiftRestriction")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(LiftRestrictionResponseObject); ok {
+		if err := validResponse.VisitLiftRestrictionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListUsers operation middleware
 func (sh *strictHandler) ListUsers(w http.ResponseWriter, r *http.Request, params ListUsersParams) {
 	var request ListUsersRequestObject
@@ -12332,6 +13832,165 @@ func (sh *strictHandler) ListUsers(w http.ResponseWriter, r *http.Request, param
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListUsersResponseObject); ok {
 		if err := validResponse.VisitListUsersResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetUserModeration operation middleware
+func (sh *strictHandler) GetUserModeration(w http.ResponseWriter, r *http.Request, userId ModeratedUserId, params GetUserModerationParams) {
+	var request GetUserModerationRequestObject
+
+	request.UserId = userId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetUserModeration(ctx, request.(GetUserModerationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetUserModeration")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetUserModerationResponseObject); ok {
+		if err := validResponse.VisitGetUserModerationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RestoreUser operation middleware
+func (sh *strictHandler) RestoreUser(w http.ResponseWriter, r *http.Request, userId ModeratedUserId) {
+	var request RestoreUserRequestObject
+
+	request.UserId = userId
+
+	var body RestoreUserJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RestoreUser(ctx, request.(RestoreUserRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RestoreUser")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RestoreUserResponseObject); ok {
+		if err := validResponse.VisitRestoreUserResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RestrictUser operation middleware
+func (sh *strictHandler) RestrictUser(w http.ResponseWriter, r *http.Request, userId ModeratedUserId) {
+	var request RestrictUserRequestObject
+
+	request.UserId = userId
+
+	var body RestrictUserJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RestrictUser(ctx, request.(RestrictUserRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RestrictUser")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RestrictUserResponseObject); ok {
+		if err := validResponse.VisitRestrictUserResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SuspendUser operation middleware
+func (sh *strictHandler) SuspendUser(w http.ResponseWriter, r *http.Request, userId ModeratedUserId) {
+	var request SuspendUserRequestObject
+
+	request.UserId = userId
+
+	var body SuspendUserJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SuspendUser(ctx, request.(SuspendUserRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SuspendUser")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SuspendUserResponseObject); ok {
+		if err := validResponse.VisitSuspendUserResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// WarnUser operation middleware
+func (sh *strictHandler) WarnUser(w http.ResponseWriter, r *http.Request, userId ModeratedUserId) {
+	var request WarnUserRequestObject
+
+	request.UserId = userId
+
+	var body WarnUserJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.WarnUser(ctx, request.(WarnUserRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "WarnUser")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(WarnUserResponseObject); ok {
+		if err := validResponse.VisitWarnUserResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -13177,6 +14836,82 @@ func (sh *strictHandler) GetHealth(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetHealthResponseObject); ok {
 		if err := validResponse.VisitGetHealthResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListPendingWarnings operation middleware
+func (sh *strictHandler) ListPendingWarnings(w http.ResponseWriter, r *http.Request) {
+	var request ListPendingWarningsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListPendingWarnings(ctx, request.(ListPendingWarningsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListPendingWarnings")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListPendingWarningsResponseObject); ok {
+		if err := validResponse.VisitListPendingWarningsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetMyWarning operation middleware
+func (sh *strictHandler) GetMyWarning(w http.ResponseWriter, r *http.Request, warningId WarningId) {
+	var request GetMyWarningRequestObject
+
+	request.WarningId = warningId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetMyWarning(ctx, request.(GetMyWarningRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetMyWarning")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetMyWarningResponseObject); ok {
+		if err := validResponse.VisitGetMyWarningResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AcknowledgeWarning operation middleware
+func (sh *strictHandler) AcknowledgeWarning(w http.ResponseWriter, r *http.Request, warningId WarningId) {
+	var request AcknowledgeWarningRequestObject
+
+	request.WarningId = warningId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AcknowledgeWarning(ctx, request.(AcknowledgeWarningRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AcknowledgeWarning")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AcknowledgeWarningResponseObject); ok {
+		if err := validResponse.VisitAcknowledgeWarningResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

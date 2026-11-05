@@ -466,6 +466,7 @@ func TestReportConversationHandler(t *testing.T) {
 		{"not a member", `{"reason":"spam"}`, domain.ErrNotFound, http.StatusNotFound, `"not_found"`},
 		{"own message", `{"reason":"spam"}`, domain.ErrOwnMessage, http.StatusBadRequest, CodeOwnMessage},
 		{"limit", `{"reason":"spam"}`, &domain.RateLimitedError{RetryAfter: time.Minute}, http.StatusTooManyRequests, CodeRateLimited},
+		{"suspended", `{"reason":"spam"}`, &domain.SuspendedError{Reason: ptr("Repeated spam")}, http.StatusForbidden, `"reason":"Repeated spam"`},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -503,5 +504,40 @@ func TestMessageReportHandlers(t *testing.T) {
 				t.Errorf("%d %s, want %d with %s", rec.Code, rec.Body, tc.status, tc.want)
 			}
 		})
+	}
+}
+
+// A send refused by a suspension or a restriction says why and until when (FR-15.6, FR-15.7).
+func TestSendRefusedByStanding(t *testing.T) {
+	until := at.Add(time.Hour)
+	tests := []struct {
+		name, want string
+		err        error
+	}{
+		{"restricted", `"code":"messaging_restricted"`, &domain.RestrictedError{Until: until}},
+		{"suspended", `"code":"account_suspended"`, &domain.SuspendedError{Reason: ptr("Repeated spam"), Until: &until}},
+		{"suspended for good", `"reason":"Repeated spam"`, &domain.SuspendedError{Reason: ptr("Repeated spam")}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			path := "/api/v1/conversations/" + convID + "/messages"
+			rec := send(t, &fakeService{err: tc.err}, http.MethodPost, path, sendBody, caller)
+			if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), tc.want) {
+				t.Errorf("%d %s, want 403 with %s", rec.Code, rec.Body, tc.want)
+			}
+			permanent := tc.name == "suspended for good"
+			if got := strings.Contains(rec.Body.String(), `"until"`); got == permanent {
+				t.Errorf("until in the body = %v: %s", got, rec.Body)
+			}
+		})
+	}
+}
+
+func TestAnswerRefusedWhenSuspended(t *testing.T) {
+	for _, op := range []string{"accept", "decline"} {
+		rec := send(t, &fakeService{err: &domain.SuspendedError{}}, http.MethodPost, "/api/v1/conversations/"+convID+"/"+op, "", caller)
+		if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), CodeAccountSuspended) {
+			t.Errorf("%s: %d %s", op, rec.Code, rec.Body)
+		}
 	}
 }

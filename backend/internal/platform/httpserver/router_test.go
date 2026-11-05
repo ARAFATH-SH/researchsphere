@@ -350,6 +350,42 @@ func (fakeAPI) GetCurrentUser(ctx context.Context, _ gen.GetCurrentUserRequestOb
 	return gen.GetCurrentUser200JSONResponse{FullName: id}, nil
 }
 
+func (fakeAPI) WarnUser(context.Context, gen.WarnUserRequestObject) (gen.WarnUserResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) RestrictUser(context.Context, gen.RestrictUserRequestObject) (gen.RestrictUserResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) LiftRestriction(context.Context, gen.LiftRestrictionRequestObject) (gen.LiftRestrictionResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) SuspendUser(context.Context, gen.SuspendUserRequestObject) (gen.SuspendUserResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) RestoreUser(context.Context, gen.RestoreUserRequestObject) (gen.RestoreUserResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) GetUserModeration(context.Context, gen.GetUserModerationRequestObject) (gen.GetUserModerationResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) ListPendingWarnings(context.Context, gen.ListPendingWarningsRequestObject) (gen.ListPendingWarningsResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) GetMyWarning(context.Context, gen.GetMyWarningRequestObject) (gen.GetMyWarningResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) AcknowledgeWarning(context.Context, gen.AcknowledgeWarningRequestObject) (gen.AcknowledgeWarningResponseObject, error) {
+	return nil, nil
+}
+
 var _ gen.StrictServerInterface = fakeAPI{}
 
 var testSigner = accesstoken.New([]byte("test-secret-that-is-at-least-32-bytes-long"), 15*time.Minute)
@@ -724,8 +760,8 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 
 func TestRoutes(t *testing.T) {
 	got := Routes()
-	if len(got) != 80 {
-		t.Errorf("Routes() returned %d routes, want the 80 operations in the contract: %v", len(got), got)
+	if len(got) != 89 {
+		t.Errorf("Routes() returned %d routes, want the 89 operations in the contract: %v", len(got), got)
 	}
 	seen := map[string]bool{}
 	for _, p := range got {
@@ -734,9 +770,15 @@ func TestRoutes(t *testing.T) {
 		}
 		seen[p] = true
 	}
-	for _, want := range []string{"GET /api/v1/health", "GET /api/v1/auth/me", "DELETE /api/v1/account", "GET /api/v1/media/{fileId}", "GET /api/v1/notifications/unread-count"} {
+	for _, want := range []string{"GET /api/v1/health", "GET /api/v1/auth/me", "POST /api/v1/account/delete", "POST /api/v1/admin/restrictions/{restrictionId}/lift", "GET /api/v1/media/{fileId}", "GET /api/v1/notifications/unread-count"} {
 		if !seen[want] {
 			t.Errorf("Routes() lacks %q", want)
+		}
+	}
+	// A body on DELETE can be dropped on the way, so these moved to POST.
+	for _, gone := range []string{"DELETE /api/v1/account", "DELETE /api/v1/admin/restrictions/{restrictionId}"} {
+		if seen[gone] {
+			t.Errorf("Routes() still has %q", gone)
 		}
 	}
 }

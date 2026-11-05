@@ -34,11 +34,14 @@ func (s *Store) q(ctx context.Context) *sqlcgen.Queries {
 	return sqlcgen.New(postgres.Conn(ctx, s.pool))
 }
 
-// Put needs UUIDs for the recipient, actor and subject: they come from another module's
-// stored rows, so anything else is a programming error.
+// Put needs UUIDs for the recipient, subject and any actor: they come from another module's
+// stored rows, so anything else is a programming error. An empty actor is NULL.
 func (s *Store) Put(ctx context.Context, n domain.Notification) error {
 	user, ok1 := parseUUID(n.RecipientID)
-	actor, ok2 := parseUUID(n.ActorID)
+	actor, ok2 := pgtype.UUID{}, true
+	if n.ActorID != "" {
+		actor, ok2 = parseUUID(n.ActorID)
+	}
 	subject, ok3 := parseUUID(n.SubjectID)
 	if !ok1 || !ok2 || !ok3 {
 		return fmt.Errorf("store notification: recipient %q, actor %q or subject %q is not a UUID", n.RecipientID, n.ActorID, n.SubjectID)
@@ -91,12 +94,15 @@ func (s *Store) List(ctx context.Context, recipientID string, after *domain.Curs
 		pending := r.RequestPending
 		items[i] = domain.Item{
 			Notification: domain.Notification{
-				ID: r.ID.String(), RecipientID: recipientID, ActorID: r.ActorID.String(),
+				ID: r.ID.String(), RecipientID: recipientID,
 				Type: domain.Type(r.Type), SubjectID: r.EntityID.String(),
 				CreatedAt: r.CreatedAt.Time, ReadAt: timePtr(r.ReadAt),
 			},
-			Actor:          domain.Actor{UserID: r.ActorID.String(), FullName: r.FullName, PhotoFileID: uuidPtr(r.PhotoFileID)},
 			RequestPending: &pending,
+		}
+		if r.ActorID.Valid {
+			items[i].ActorID = r.ActorID.String()
+			items[i].Actor = &domain.Actor{UserID: items[i].ActorID, FullName: r.FullName, PhotoFileID: uuidPtr(r.PhotoFileID)}
 		}
 	}
 	return items, nil

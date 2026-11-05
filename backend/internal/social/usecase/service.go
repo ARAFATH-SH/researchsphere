@@ -31,18 +31,19 @@ type Service struct {
 	tx       domain.Transactor
 	limiter  domain.RequestLimiter
 	notifier domain.Notifier
+	actors   domain.Actors
 	logger   *slog.Logger
 }
 
 // New returns a Service. notifier hears about sent, accepted, cancelled and rejected
 // requests inside the transaction tx opens for each change, so the change and its
 // notification are stored together or not at all (FR-9.1).
-func New(store domain.Store, tx domain.Transactor, limiter domain.RequestLimiter, notifier domain.Notifier, logger *slog.Logger) *Service {
-	return &Service{store: store, tx: tx, limiter: limiter, notifier: notifier, logger: logger}
+func New(store domain.Store, tx domain.Transactor, limiter domain.RequestLimiter, notifier domain.Notifier, actors domain.Actors, logger *slog.Logger) *Service {
+	return &Service{store: store, tx: tx, limiter: limiter, notifier: notifier, actors: actors, logger: logger}
 }
 
 // Send sends a connection request from requesterID to receiverID (FR-7.1). Checks run in
-// this order: ErrSelf, *RateLimitedError, ErrNotFound for a receiver who is unknown,
+// this order: ErrSelf, *SuspendedError, *RateLimitedError, ErrNotFound for a receiver who is unknown,
 // suspended or not verified, a block (FR-16.9: ErrYouBlocked for the blocker, ErrNotFound
 // for the blocked person), then the link between the two (FR-7.2): ErrAlreadyPending,
 // *PendingFromThemError or ErrAlreadyConnected. A rejected request does not block a new
@@ -50,6 +51,9 @@ func New(store domain.Store, tx domain.Transactor, limiter domain.RequestLimiter
 func (s *Service) Send(ctx context.Context, requesterID, receiverID string) (domain.PendingRequest, error) {
 	if requesterID == receiverID {
 		return domain.PendingRequest{}, domain.ErrSelf
+	}
+	if err := s.refuseSuspended(ctx, requesterID); err != nil {
+		return domain.PendingRequest{}, err
 	}
 	if err := s.checkLimit(ctx, requesterID); err != nil {
 		return domain.PendingRequest{}, err
@@ -75,6 +79,20 @@ func (s *Service) Send(ctx context.Context, requesterID, receiverID string) (dom
 	return domain.PendingRequest{ID: req.ID, CreatedAt: req.CreatedAt, Other: other}, nil
 }
 
+// refuseSuspended returns *SuspendedError when the user's account is suspended now. It runs
+// before the limit, so a refusal uses no quota, and first in the transaction, where it holds
+// the user's row (domain.Actors), so a suspension that commits meanwhile cannot be passed.
+func (s *Service) refuseSuspended(ctx context.Context, userID string) error {
+	st, err := s.actors.Standing(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if st.Suspended {
+		return &domain.SuspendedError{Reason: st.SuspensionReason, Until: st.SuspendedUntil}
+	}
+	return nil
+}
+
 // create stores the request and its notification in one transaction, or explains with
 // the link that refused it. The database decides between two requests sent at the same
 // moment; when the refusing link is gone before it can be read, it tries again.
@@ -85,6 +103,9 @@ func (s *Service) create(ctx context.Context, requesterID, receiverID string) (d
 			created bool
 		)
 		err := s.tx.InTx(ctx, func(ctx context.Context) error {
+			if err := s.refuseSuspended(ctx, requesterID); err != nil {
+				return err
+			}
 			if err := s.refuseBlocked(ctx, requesterID, receiverID); err != nil {
 				return err
 			}

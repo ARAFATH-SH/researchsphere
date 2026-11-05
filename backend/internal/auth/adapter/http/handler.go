@@ -202,7 +202,7 @@ func (h *Handler) LoginUser(ctx context.Context, req gen.LoginUserRequestObject)
 	case errors.Is(err, domain.ErrInvalidCredentials):
 		return gen.LoginUser401JSONResponse{Code: CodeInvalidCredentials, Message: "The email address or password is wrong."}, nil
 	case errors.Is(err, domain.ErrAccountSuspended):
-		return gen.LoginUser403JSONResponse(accountSuspended), nil
+		return gen.LoginUser403JSONResponse(suspendedBody(err)), nil
 	case errors.Is(err, domain.ErrEmailNotVerified):
 		return gen.LoginUser403JSONResponse{
 			Code:    CodeEmailNotVerified,
@@ -228,6 +228,17 @@ func (h *Handler) LoginUser(ctx context.Context, req gen.LoginUserRequestObject)
 			h.cookie(httpx.RefreshCookie, res.RefreshToken, refreshCookiePath, res.RefreshExpiresAt.Sub(res.IssuedAt)),
 		},
 	}, nil
+}
+
+// suspendedBody refuses a login with the administrator's reason and, when the suspension is
+// temporary, its end (FR-15.7). This comes only after the right password.
+func suspendedBody(err error) gen.Error {
+	body := accountSuspended
+	var e *domain.SuspendedError
+	if errors.As(err, &e) {
+		body.Reason, body.Until = e.Reason, e.Until
+	}
+	return body
 }
 
 // accountSuspended refuses a login or a password reset of a suspended account (FR-3.4).
@@ -453,7 +464,7 @@ func (h *Handler) ListUsers(ctx context.Context, req gen.ListUsersRequestObject)
 			Email:     u.Email,
 			Role:      gen.Role(u.Role),
 			Verified:  u.Verified(),
-			Suspended: u.Suspended(),
+			Suspended: u.Suspended(res.At),
 			CreatedAt: u.CreatedAt,
 		})
 	}

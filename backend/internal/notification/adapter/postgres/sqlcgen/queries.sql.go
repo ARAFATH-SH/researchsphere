@@ -14,9 +14,9 @@ import (
 const countUnreadNotifications = `-- name: CountUnreadNotifications :one
 SELECT count(*)
 FROM notifications n
-JOIN users a ON a.id = n.actor_id
+LEFT JOIN users a ON a.id = n.actor_id
 WHERE n.user_id = $1 AND n.read_at IS NULL
-  AND a.email_verified_at IS NOT NULL AND a.suspended_at IS NULL
+  AND (n.actor_id IS NULL OR (a.email_verified_at IS NOT NULL AND a.suspended_at IS NULL))
 `
 
 // notifications_unread_idx finds the unread rows.
@@ -62,11 +62,11 @@ SELECT n.id, n.actor_id, n.type, n.entity_id, n.created_at, n.read_at,
        COALESCE(p.full_name, '')::text AS full_name, p.photo_file_id,
        COALESCE(c.status = 'pending', false)::boolean AS request_pending
 FROM notifications n
-JOIN users a ON a.id = n.actor_id
+LEFT JOIN users a ON a.id = n.actor_id
 LEFT JOIN profiles p ON p.user_id = a.id
 LEFT JOIN connections c ON n.type = 'connection_request_received' AND c.id = n.entity_id
 WHERE n.user_id = $1
-  AND a.email_verified_at IS NOT NULL AND a.suspended_at IS NULL
+  AND (n.actor_id IS NULL OR (a.email_verified_at IS NOT NULL AND a.suspended_at IS NULL))
   AND (NOT $2::boolean OR (n.created_at, n.id) < ($3::timestamptz, $4::uuid))
 ORDER BY n.created_at DESC, n.id DESC
 LIMIT $5
@@ -134,9 +134,10 @@ func (q *Queries) ListNotifications(ctx context.Context, arg ListNotificationsPa
 const markAllNotificationsRead = `-- name: MarkAllNotificationsRead :execrows
 UPDATE notifications n
 SET read_at = now()
-FROM users a
 WHERE n.user_id = $1 AND n.read_at IS NULL
-  AND a.id = n.actor_id AND a.email_verified_at IS NOT NULL AND a.suspended_at IS NULL
+  AND (n.actor_id IS NULL OR EXISTS (
+      SELECT 1 FROM users a
+      WHERE a.id = n.actor_id AND a.email_verified_at IS NOT NULL AND a.suspended_at IS NULL))
 `
 
 func (q *Queries) MarkAllNotificationsRead(ctx context.Context, userID pgtype.UUID) (int64, error) {
@@ -150,9 +151,10 @@ func (q *Queries) MarkAllNotificationsRead(ctx context.Context, userID pgtype.UU
 const markNotificationRead = `-- name: MarkNotificationRead :execrows
 UPDATE notifications n
 SET read_at = COALESCE(n.read_at, now())
-FROM users a
 WHERE n.id = $1 AND n.user_id = $2
-  AND a.id = n.actor_id AND a.email_verified_at IS NOT NULL AND a.suspended_at IS NULL
+  AND (n.actor_id IS NULL OR EXISTS (
+      SELECT 1 FROM users a
+      WHERE a.id = n.actor_id AND a.email_verified_at IS NOT NULL AND a.suspended_at IS NULL))
 `
 
 type MarkNotificationReadParams struct {
@@ -187,8 +189,9 @@ type PutNotificationParams struct {
 
 // Notifications (FR-9). user_id is the recipient and entity_id the item, whose kind the
 // type gives (notification/domain.Registry). A notification is visible while its actor is
-// verified and not suspended; every read and every mark-as-read leaves the others out, so
-// the unread count matches the list.
+// verified and not suspended, or when it has none: a system notification is never hidden.
+// Every read and every mark-as-read leaves the others out, so the unread count matches the
+// list.
 // For the connection types notifications_connection_pair_uq allows one per recipient,
 // actor and type: a new one replaces the old (new item, created now, unread). Other types
 // are not covered by that index and are simply inserted.

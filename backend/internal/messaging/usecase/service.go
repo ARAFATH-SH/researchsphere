@@ -75,6 +75,7 @@ type Service struct {
 	tx          domain.Transactor
 	connections domain.Connections
 	blocks      domain.Blocks
+	actors      domain.Actors
 	limiter     domain.Limiter
 	publisher   domain.Publisher
 	messages    []window
@@ -84,11 +85,11 @@ type Service struct {
 }
 
 // New returns a Service.
-func New(store domain.Store, tx domain.Transactor, connections domain.Connections, blocks domain.Blocks,
+func New(store domain.Store, tx domain.Transactor, connections domain.Connections, blocks domain.Blocks, actors domain.Actors,
 	limiter domain.Limiter, publisher domain.Publisher, limits Limits, logger *slog.Logger,
 ) *Service {
 	return &Service{
-		store: store, tx: tx, connections: connections, blocks: blocks, limiter: limiter, publisher: publisher, logger: logger,
+		store: store, tx: tx, connections: connections, blocks: blocks, actors: actors, limiter: limiter, publisher: publisher, logger: logger,
 		messages: []window{
 			{"messages:minute", limits.MessagesPerMinute, time.Minute},
 			{"messages:day", limits.MessagesPerDay, day},
@@ -103,8 +104,8 @@ func New(store domain.Store, tx domain.Transactor, connections domain.Connection
 
 // SendDirect sends a message from senderID to recipientID, finding or creating their
 // conversation (FR-16.1, FR-16.2). Checks run in this order: ErrSelf, ErrInvalidBody, the
-// client ID (a value used before returns the original with Replayed set),
-// *RateLimitedError for messages, ErrNotFound for a recipient who is unknown, suspended or
+// client ID (a value used before returns the original with Replayed set), the sender's standing
+// (see refuseSender), *RateLimitedError for messages, ErrNotFound for a recipient who is unknown, suspended or
 // not verified, a block (see refuseBlocked), *RateLimitedError for requests when this would
 // create one, then the conversation's state: ErrRequestPending or ErrClosed.
 func (s *Service) SendDirect(ctx context.Context, senderID, recipientID, body, clientID string) (domain.Sent, error) {
@@ -117,6 +118,9 @@ func (s *Service) SendDirect(ctx context.Context, senderID, recipientID, body, c
 	}
 	if sent, found, err := s.replay(ctx, senderID, clientID); found || err != nil {
 		return sent, err
+	}
+	if err := s.refuseSender(ctx, senderID); err != nil {
+		return domain.Sent{}, err
 	}
 	if err := s.checkLimits(ctx, senderID, s.messages); err != nil {
 		return domain.Sent{}, err
@@ -159,6 +163,9 @@ func (s *Service) SendDirect(ctx context.Context, senderID, recipientID, body, c
 			created bool
 			err     error
 		)
+		if err := s.refuseSender(ctx, senderID); err != nil {
+			return err
+		}
 		if err := s.lockAndRefuseBlocked(ctx, senderID, recipientID, exists); err != nil {
 			return err
 		}
@@ -185,7 +192,7 @@ func (s *Service) SendDirect(ctx context.Context, senderID, recipientID, body, c
 
 // Send sends a message in a conversation (FR-16.1, FR-16.2, NFR-14). Checks run in this
 // order: ErrInvalidBody, ErrNotFound when senderID is not a member, the client ID as in
-// SendDirect, *RateLimitedError, ErrNotFound when the other member is suspended or not
+// SendDirect, the sender's standing (see refuseSender), *RateLimitedError, ErrNotFound when the other member is suspended or not
 // verified, a block (see refuseBlocked), then ErrRequestPending or ErrClosed.
 func (s *Service) Send(ctx context.Context, senderID, conversationID, body, clientID string) (domain.Sent, error) {
 	text, err := NormalizeBody(body)
@@ -198,6 +205,9 @@ func (s *Service) Send(ctx context.Context, senderID, conversationID, body, clie
 	}
 	if sent, found, err := s.replay(ctx, senderID, clientID); found || err != nil {
 		return sent, err
+	}
+	if err := s.refuseSender(ctx, senderID); err != nil {
+		return domain.Sent{}, err
 	}
 	if err := s.checkLimits(ctx, senderID, s.messages); err != nil {
 		return domain.Sent{}, err
@@ -214,6 +224,9 @@ func (s *Service) Send(ctx context.Context, senderID, conversationID, body, clie
 	}
 	var sent domain.Sent
 	err = s.tx.InTx(ctx, func(ctx context.Context) error {
+		if err := s.refuseSender(ctx, senderID); err != nil {
+			return err
+		}
 		if err := s.lockAndRefuseBlocked(ctx, senderID, c.OtherID, true); err != nil {
 			return err
 		}
@@ -228,6 +241,36 @@ func (s *Service) Send(ctx context.Context, senderID, conversationID, body, clie
 		return err
 	})
 	return s.finish(ctx, sent, err, c.OtherID, senderID, clientID, false)
+}
+
+// refuseSuspended returns *SuspendedError when the user's account is suspended now. Inside a
+// transaction it holds the user's row (domain.Actors).
+func (s *Service) refuseSuspended(ctx context.Context, userID string) error {
+	st, err := s.actors.Standing(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if st.Suspended {
+		return &domain.SuspendedError{Reason: st.SuspensionReason, Until: st.SuspendedUntil}
+	}
+	return nil
+}
+
+// refuseSender is refuseSuspended, and *RestrictedError during a messaging restriction. A send
+// runs it before the limits, so a refusal uses no quota, and first in its transaction, so a
+// suspension or restriction that commits meanwhile cannot be passed.
+func (s *Service) refuseSender(ctx context.Context, senderID string) error {
+	st, err := s.actors.Standing(ctx, senderID)
+	if err != nil {
+		return err
+	}
+	switch {
+	case st.Suspended:
+		return &domain.SuspendedError{Reason: st.SuspensionReason, Until: st.SuspendedUntil}
+	case st.RestrictedUntil != nil:
+		return &domain.RestrictedError{Until: *st.RestrictedUntil}
+	}
+	return nil
 }
 
 // refuseBlocked refuses a send when either user has blocked the other (FR-16.9). The caller
@@ -489,7 +532,8 @@ func (s *Service) MarkRead(ctx context.Context, userID, id, messageID string) er
 }
 
 // Accept makes a pending request active (FR-16.2). Decline closes it. Both are for the
-// receiver only, and anything else is ErrNotFound, so the answer reveals nothing.
+// receiver only, and anything else is ErrNotFound, so the answer reveals nothing. A suspended
+// caller gets *SuspendedError; a restricted one may still answer.
 func (s *Service) Accept(ctx context.Context, userID, id string) (domain.Item, error) {
 	return s.answer(ctx, userID, id, domain.StateActive, s.publisher.RequestAccepted)
 }
@@ -502,7 +546,18 @@ func (s *Service) Decline(ctx context.Context, userID, id string) (domain.Item, 
 func (s *Service) answer(ctx context.Context, userID, id string, state domain.State,
 	publish func(context.Context, string, []string),
 ) (domain.Item, error) {
-	requester, found, err := s.store.AnswerRequest(ctx, id, userID, state)
+	var (
+		requester string
+		found     bool
+	)
+	err := s.tx.InTx(ctx, func(ctx context.Context) error {
+		if err := s.refuseSuspended(ctx, userID); err != nil {
+			return err
+		}
+		var err error
+		requester, found, err = s.store.AnswerRequest(ctx, id, userID, state)
+		return err
+	})
 	if err != nil {
 		return domain.Item{}, err
 	}

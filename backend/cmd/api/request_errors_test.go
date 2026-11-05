@@ -16,7 +16,7 @@ import (
 var jsonBodyRoutes = []struct {
 	method, path, missing, wrong, wrongField, message string
 }{
-	{http.MethodDelete, "/api/v1/account", "password", `{"password":5}`, "password", "password must be a string."},
+	{http.MethodPost, "/api/v1/account/delete", "password", `{"password":5}`, "password", "password must be a string."},
 	{http.MethodPost, "/api/v1/auth/register", "email", `{"email":5}`, "email", "email must be a string."},
 	{http.MethodPost, "/api/v1/auth/verify-email", "token", `{"token":5}`, "token", "token must be a string."},
 	{http.MethodPost, "/api/v1/auth/resend-verification", "email", `{"email":5}`, "email", "email must be a string."},
@@ -47,6 +47,11 @@ var jsonBodyRoutes = []struct {
 	{http.MethodPost, "/api/v1/messages/direct", "body", `{"body":5}`, "body", "body must be a string."},
 	{http.MethodPost, "/api/v1/conversations/" + okConversationID + "/messages", "body", `{"body":5}`, "body", "body must be a string."},
 	{http.MethodPost, "/api/v1/conversations/" + okConversationID + "/read", "messageId", `{"messageId":5}`, "messageId", "messageId must be a UUID."},
+	{http.MethodPost, "/api/v1/admin/users/" + okUserID + "/warnings", "reason", `{"reason":5}`, "reason", "reason must be a string."},
+	{http.MethodPost, "/api/v1/admin/users/" + okUserID + "/suspension", "reason", `{"reason":5}`, "reason", "reason must be a string."},
+	{http.MethodPost, "/api/v1/admin/users/" + okUserID + "/restore", "reason", `{"reason":5}`, "reason", "reason must be a string."},
+	{http.MethodPost, "/api/v1/admin/restrictions/" + okUserID + "/lift", "reason", `{"reason":5}`, "reason", "reason must be a string."},
+	{http.MethodPost, "/api/v1/admin/users/" + okUserID + "/restrictions", "days", `{"days":"week"}`, "days", "days must be a whole number."},
 }
 
 // Every operation with a JSON body goes through the same decoder and the same error shape.

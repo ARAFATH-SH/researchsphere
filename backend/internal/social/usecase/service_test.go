@@ -22,22 +22,30 @@ type env struct {
 	limiter  *fakeLimiter
 	notifier *fakeNotifier
 	tx       *fakeTx
+	actors   fakeActors
 	logs     *bytes.Buffer
 }
 
 func newEnv() env {
-	e := env{store: newFakeStore(), limiter: newFakeLimiter(), logs: &bytes.Buffer{}}
+	e := env{store: newFakeStore(), limiter: newFakeLimiter(), actors: fakeActors{}, logs: &bytes.Buffer{}}
 	e.tx = &fakeTx{store: e.store}
 	e.notifier = &fakeNotifier{tx: e.tx}
 	for _, u := range []string{"ada", "bob", "cy"} {
 		e.store.addUser(u, false)
 	}
 	e.store.addUser("sam", true)
-	e.svc = New(e.store, e.tx, e.limiter, e.notifier, slog.New(slog.NewTextHandler(e.logs, nil)))
+	e.svc = New(e.store, e.tx, e.limiter, e.notifier, e.actors, slog.New(slog.NewTextHandler(e.logs, nil)))
 	return e
 }
 
 var ctx = context.Background()
+
+// fakeActors gives each user a standing; nobody listed is in good standing.
+type fakeActors map[string]domain.Standing
+
+func (f fakeActors) Standing(_ context.Context, userID string) (domain.Standing, error) {
+	return f[userID], nil
+}
 
 func (e env) send(t *testing.T, from, to string) domain.PendingRequest {
 	t.Helper()
@@ -656,5 +664,27 @@ func TestListsRefuseBadPage(t *testing.T) {
 		if _, err := e.svc.ListSent(ctx, "ada", p); !errors.Is(err, domain.ErrInvalidPage) {
 			t.Errorf("ListSent page %d: %v", p, err)
 		}
+	}
+}
+
+// A suspended user is refused a connection request even with a valid access token, with no quota
+// used (decisions.md, 2026-11-05). A restriction is about messages and does not apply.
+func TestSendConnectionRequestSuspended(t *testing.T) {
+	e := newEnv()
+	reason := "Repeated spam in messages"
+	e.actors["ada"] = domain.Standing{Suspended: true, SuspensionReason: &reason}
+
+	_, err := e.svc.Send(ctx, "ada", "bob")
+	var refused *domain.SuspendedError
+	if !errors.As(err, &refused) || *refused.Reason != reason || refused.Until != nil {
+		t.Fatalf("error = %v, want *SuspendedError", err)
+	}
+	if used, _, _ := e.limiter.Used(ctx, "ada"); used != 0 {
+		t.Errorf("requests counted = %d, want 0", used)
+	}
+
+	delete(e.actors, "ada")
+	if _, err := e.svc.Send(ctx, "ada", "bob"); err != nil {
+		t.Errorf("after the suspension: %v", err)
 	}
 }

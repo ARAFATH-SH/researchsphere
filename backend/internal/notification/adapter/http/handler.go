@@ -116,13 +116,13 @@ func notificationBody(it domain.Item) (gen.Notification, error) {
 	if err != nil {
 		return gen.Notification{}, err
 	}
-	actor, err := uuid(it.Actor.UserID)
-	if err != nil {
-		return gen.Notification{}, err
-	}
-	n := gen.Notification{
-		Id: nid, Type: gen.NotificationType(it.Type), CreatedAt: it.CreatedAt, Read: it.ReadAt != nil, Link: it.Link,
-		Actor: gen.NotificationActor{UserId: actor, FullName: it.Actor.FullName, PhotoUrl: mediaURL(it.Actor.PhotoFileID)},
+	n := gen.Notification{Id: nid, Type: gen.NotificationType(it.Type), CreatedAt: it.CreatedAt, Read: it.ReadAt != nil, Link: it.Link}
+	if it.Actor != nil {
+		actor, err := uuid(it.Actor.UserID)
+		if err != nil {
+			return gen.Notification{}, err
+		}
+		n.Actor = &gen.NotificationActor{UserId: actor, FullName: it.Actor.FullName, PhotoUrl: mediaURL(it.Actor.PhotoFileID)}
 	}
 	if it.Type == domain.TypeConnectionRequestReceived {
 		rid, err := uuid(it.SubjectID)

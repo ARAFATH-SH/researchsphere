@@ -175,6 +175,20 @@ type RequestLimiter interface {
 	Record(ctx context.Context, userID string, window time.Duration) error
 }
 
+// Standing is what a user may do now. The zero value means no suspension.
+type Standing struct {
+	Suspended        bool
+	SuspensionReason *string
+	SuspendedUntil   *time.Time // nil when permanent, or when not suspended
+}
+
+// Actors tells what a user may do now. The moderation module owns this; cmd/api implements it
+// with its usecase. Inside a transaction it holds the user's row until the transaction ends, so
+// a suspension cannot commit between the check and the write.
+type Actors interface {
+	Standing(ctx context.Context, userID string) (Standing, error)
+}
+
 // Notifier hears about connection events, so the other user can be notified (FR-9.1).
 // It is called inside the transaction of the change it reports (Transactor): an error
 // rolls the change back, so a change is never stored without its notification, nor a
@@ -219,6 +233,15 @@ type PendingFromThemError struct {
 func (e *PendingFromThemError) Error() string {
 	return fmt.Sprintf("social: request %s from the other user is pending", e.RequestID)
 }
+
+// SuspendedError refuses a connection request by a user suspended after their access token was
+// issued (decisions.md, 2026-11-05).
+type SuspendedError struct {
+	Reason *string
+	Until  *time.Time // nil when permanent
+}
+
+func (e *SuspendedError) Error() string { return "social: the account is suspended" }
 
 // RateLimitedError says the user has used up the requests of the current window.
 type RateLimitedError struct {

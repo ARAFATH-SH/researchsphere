@@ -175,6 +175,7 @@ func TestSendConnectionRequestErrors(t *testing.T) {
 		{"connected", domain.ErrAlreadyConnected, http.StatusConflict, "already_connected", ""},
 		{"theirs pending", &domain.PendingFromThemError{RequestID: requestID}, http.StatusConflict, "request_pending_from_them", "requestId"},
 		{"rate limited", &domain.RateLimitedError{RetryAfter: 90*time.Minute + 300*time.Millisecond}, http.StatusTooManyRequests, "rate_limited", ""},
+		{"suspended", &domain.SuspendedError{}, http.StatusForbidden, "account_suspended", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

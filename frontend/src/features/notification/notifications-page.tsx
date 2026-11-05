@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { type MouseEvent, type ReactNode, useState } from "react";
 
 import { Avatar } from "@/components/avatar";
+import { LogoSquare } from "@/components/logo";
 import { useSession } from "@/features/auth/session";
 import { emptyCard, homeCard } from "@/features/home/cards";
 import { acceptConnectionRequest, rejectConnectionRequest } from "@/features/social/api";
@@ -13,7 +14,7 @@ import { markAllNotificationsRead, markNotificationRead, type Notification } fro
 import { refreshBadges } from "./badges";
 import { relativeTime } from "./format";
 import { type NotificationList, useNotificationList } from "./notification-list";
-import { hasPendingRequest, sentenceFor } from "./types";
+import { hasPendingRequest, senderName, sentenceFor } from "./types";
 import { setUnreadNotifications, useUnreadNotifications } from "./unread-count";
 
 const headingId = "notifications-heading";
@@ -169,12 +170,13 @@ type RowProps = {
   onGone: () => void;
 };
 
-// Row is one notification: the unread dot, the actor's photo, the sentence (a link that
-// covers the row), the time, and the row's actions above that link. Unread rows are tinted
+// Row is one notification: the unread dot, the actor's photo (the ResearchSphere mark when it
+// has no actor), the sentence (a link that covers the row), the time, and the row's actions
+// above that link. Unread rows are tinted
 // and also say "Unread" to screen readers, so the state is not shown by color alone.
 function Row({ n, connected, onRead, onAccepted, onIgnored, onGone }: RowProps) {
   const router = useRouter();
-  const name = n.actor.fullName;
+  const name = senderName(n);
 
   function open(e: MouseEvent<HTMLAnchorElement>) {
     onRead();
@@ -189,7 +191,7 @@ function Row({ n, connected, onRead, onAccepted, onIgnored, onGone }: RowProps) 
       className={`relative flex items-start gap-3 border-b border-rs-divider px-4 py-3.5 last:border-b-0 max-[640px]:px-3 ${n.read ? "bg-rs-surface" : "bg-rs-accent-soft"}`}
     >
       <span aria-hidden="true" className={`mt-5 size-2 flex-none rounded-full ${n.read ? "" : "bg-rs-accent-strong"}`} />
-      <Avatar name={name} src={n.actor.photoUrl} size="list" decorative />
+      {n.actor ? <Avatar name={name} src={n.actor.photoUrl} size="list" decorative /> : <LogoSquare size="lg" />}
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <a
           href={n.link}

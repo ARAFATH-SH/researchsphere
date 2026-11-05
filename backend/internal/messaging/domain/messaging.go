@@ -190,6 +190,21 @@ type Blocks interface {
 	Between(ctx context.Context, me, other string) (BlockState, error)
 }
 
+// Standing is what a user may do now (FR-15.6, FR-15.7).
+type Standing struct {
+	Suspended        bool
+	SuspensionReason *string
+	SuspendedUntil   *time.Time // nil when permanent, or when not suspended
+	RestrictedUntil  *time.Time // the end of a messaging restriction, nil when none
+}
+
+// Actors tells what a user may do now. The moderation module owns this; cmd/api implements it
+// with its usecase. Inside a transaction it holds the user's row until the transaction ends, so
+// a suspension or restriction cannot commit between the check and the write.
+type Actors interface {
+	Standing(ctx context.Context, userID string) (Standing, error)
+}
+
 // Limiter counts a user's sends in fixed windows, one counter per window name.
 type Limiter interface {
 	// Used returns the sends counted in the user's current window and the time left in
@@ -228,6 +243,22 @@ var (
 	ErrCannotMessage  = errors.New("messaging: this person cannot be messaged")
 	ErrYouBlocked     = errors.New("messaging: the caller has blocked this user")
 )
+
+// SuspendedError refuses a write by a user whose account was suspended after their access token
+// was issued (decisions.md, 2026-11-05).
+type SuspendedError struct {
+	Reason *string
+	Until  *time.Time // nil when permanent
+}
+
+func (e *SuspendedError) Error() string { return "messaging: the account is suspended" }
+
+// RestrictedError refuses a send during a messaging restriction (FR-15.6).
+type RestrictedError struct {
+	Until time.Time
+}
+
+func (e *RestrictedError) Error() string { return "messaging: the user may not send messages" }
 
 // RateLimitedError says the user has used up a window (FR-16.10).
 type RateLimitedError struct {

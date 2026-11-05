@@ -4,6 +4,7 @@ import (
 	"context"
 	"math"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/messaging/domain"
@@ -24,7 +25,8 @@ const (
 // Report stores a member's report of a conversation or one of its messages (FR-16.9). Checks
 // run in this order: ErrNotFound when reporterID is not a member (NFR-14), *InvalidFieldError
 // for the reason or details, ErrNotFound for a message outside the conversation,
-// ErrOwnMessage, *RateLimitedError. Only stored reports count. It blocks nobody.
+// ErrOwnMessage, *SuspendedError, *RateLimitedError. Only stored reports count. It blocks
+// nobody. A restricted user may still report.
 func (s *Service) Report(ctx context.Context, reporterID, conversationID string, in domain.ReportInput) (domain.ReportReceipt, error) {
 	c, err := s.store.FindConversation(ctx, conversationID, reporterID)
 	if err != nil {
@@ -50,12 +52,26 @@ func (s *Service) Report(ctx context.Context, reporterID, conversationID string,
 			return domain.ReportReceipt{}, domain.ErrOwnMessage
 		}
 	}
+	if err := s.refuseSuspended(ctx, reporterID); err != nil {
+		return domain.ReportReceipt{}, err
+	}
 	if err := s.checkLimits(ctx, reporterID, s.reports); err != nil {
 		return domain.ReportReceipt{}, err
 	}
-	id, at, err := s.store.InsertReport(ctx, domain.NewReport{
-		ConversationID: conversationID, ReporterID: reporterID, ReportedID: c.OtherID,
-		MessageID: in.MessageID, Reason: in.Reason, Details: details,
+	var (
+		id string
+		at time.Time
+	)
+	err = s.tx.InTx(ctx, func(ctx context.Context) error {
+		if err := s.refuseSuspended(ctx, reporterID); err != nil {
+			return err
+		}
+		var err error
+		id, at, err = s.store.InsertReport(ctx, domain.NewReport{
+			ConversationID: conversationID, ReporterID: reporterID, ReportedID: c.OtherID,
+			MessageID: in.MessageID, Reason: in.Reason, Details: details,
+		})
+		return err
 	})
 	if err != nil {
 		return domain.ReportReceipt{}, err
@@ -149,6 +165,27 @@ func (s *Service) ResolveReport(ctx context.Context, adminID, id string, outcome
 		return domain.Report{}, domain.ErrAlreadyResolved
 	}
 	return r, nil
+}
+
+// ResolveForAction resolves a report as action_taken because a moderation action on userID
+// names it (FR-15.8), in the transaction the context carries. ErrNotFound for no such report,
+// ErrReportAboutOther when it is about someone else, ErrAlreadyResolved when it is closed.
+func (s *Service) ResolveForAction(ctx context.Context, adminID, id, userID string, note *string) error {
+	r, err := s.store.FindReport(ctx, id)
+	if err != nil {
+		return err
+	}
+	if r.Reported.UserID != userID {
+		return domain.ErrReportAboutOther
+	}
+	resolved, err := s.store.ResolveReport(ctx, id, adminID, domain.OutcomeActionTaken, note)
+	if err != nil {
+		return err
+	}
+	if !resolved {
+		return domain.ErrAlreadyResolved
+	}
+	return nil
 }
 
 // reportText trims an optional text and checks it; empty means none. PostgreSQL cannot store

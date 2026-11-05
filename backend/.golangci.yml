@@ -56,6 +56,12 @@ linters:
           allow:
             - $gostd
             - github.com/ARAFATH-SH/researchsphere/backend/internal/auth/domain
+        usecase-moderation:
+          files: ["**/internal/moderation/usecase/**"]
+          list-mode: strict
+          allow:
+            - $gostd
+            - github.com/ARAFATH-SH/researchsphere/backend/internal/moderation/domain
         usecase-profile:
           files: ["**/internal/profile/usecase/**"]
           list-mode: strict

@@ -17,7 +17,8 @@ import (
 // fakeUser is a stored user with its profile name.
 type fakeUser struct {
 	domain.User
-	passwordHash string
+	passwordHash     string
+	suspensionReason *string
 }
 
 // fakeToken is a stored token with its hash and purpose.
@@ -125,7 +126,7 @@ func (s *fakeStore) FindCredentialsByEmail(_ context.Context, email string) (dom
 	if !ok {
 		return domain.Credentials{}, domain.ErrNotFound
 	}
-	return domain.Credentials{User: u.User, PasswordHash: u.passwordHash}, nil
+	return domain.Credentials{User: u.User, PasswordHash: u.passwordHash, SuspensionReason: u.suspensionReason}, nil
 }
 
 func (s *fakeStore) FindUserByID(_ context.Context, id string) (domain.User, error) {
@@ -229,7 +230,49 @@ func (s *fakeStore) tokensFor(userID string) []fakeToken {
 	return out
 }
 
+// ClearExpiredSuspension applies the query's condition.
+func (s *fakeStore) ClearExpiredSuspension(_ context.Context, userID string, now time.Time) error {
+	k, u, ok := s.userByID(userID)
+	if ok && u.SuspendedUntil != nil && !u.SuspendedUntil.After(now) {
+		u.SuspendedAt, u.SuspendedUntil, u.suspensionReason = nil, nil, nil
+		s.users[k] = u
+	}
+	return nil
+}
+
+func (s *fakeStore) LockUser(_ context.Context, userID string) (domain.User, error) {
+	_, u, ok := s.userByID(userID)
+	if !ok {
+		return domain.User{}, domain.ErrNotFound
+	}
+	return u.User, nil
+}
+
+func (s *fakeStore) Suspend(_ context.Context, userID string, at time.Time, until *time.Time, reason string) error {
+	k, u, ok := s.userByID(userID)
+	if !ok {
+		return domain.ErrNotFound
+	}
+	u.SuspendedAt, u.SuspendedUntil, u.suspensionReason = &at, until, &reason
+	s.users[k] = u
+	return nil
+}
+
+func (s *fakeStore) Restore(_ context.Context, userID string) error {
+	k, u, ok := s.userByID(userID)
+	if !ok {
+		return domain.ErrNotFound
+	}
+	u.SuspendedAt, u.SuspendedUntil, u.suspensionReason = nil, nil, nil
+	s.users[k] = u
+	return nil
+}
+
 type fakeTx struct{ s *fakeStore }
+
+func (tx fakeTx) ClearExpiredSuspension(ctx context.Context, userID string, now time.Time) error {
+	return tx.s.ClearExpiredSuspension(ctx, userID, now)
+}
 
 func (tx fakeTx) CreateUser(_ context.Context, u domain.NewUser) (string, error) {
 	if tx.s.failTx != nil {
@@ -286,6 +329,7 @@ func (tx fakeTx) FindTokenForUpdate(_ context.Context, hash string, purpose doma
 			tok := t.Token
 			_, u, _ := tx.s.userByID(t.UserID)
 			tok.UserSuspendedAt = u.SuspendedAt // as the query's join with users
+			tok.UserSuspendedUntil = u.SuspendedUntil
 			return tok, nil
 		}
 	}
@@ -317,6 +361,7 @@ func (tx fakeTx) FindSessionForUpdate(_ context.Context, hash string) (domain.Se
 			found := sess.Session
 			_, u, _ := tx.s.userByID(sess.UserID)
 			found.UserSuspendedAt = u.SuspendedAt // as the query's join with users
+			found.UserSuspendedUntil = u.SuspendedUntil
 			found.UserRole = u.Role
 			return found, nil
 		}

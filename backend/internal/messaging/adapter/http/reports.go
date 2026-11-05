@@ -39,10 +39,13 @@ func (h *Handler) ReportConversation(ctx context.Context, req gen.ReportConversa
 	}
 	r, err := h.svc.Report(ctx, id, req.ConversationId, in)
 	var (
-		field   *domain.InvalidFieldError
-		limited *domain.RateLimitedError
+		field     *domain.InvalidFieldError
+		limited   *domain.RateLimitedError
+		suspended *domain.SuspendedError
 	)
 	switch {
+	case errors.As(err, &suspended):
+		return gen.ReportConversation403JSONResponse{AccountSuspendedOrForbiddenJSONResponse: gen.AccountSuspendedOrForbiddenJSONResponse(suspendedBody(suspended))}, nil
 	case errors.Is(err, domain.ErrNotFound):
 		return gen.ReportConversation404JSONResponse{NotFoundJSONResponse: notFound}, nil
 	case errors.As(err, &field):

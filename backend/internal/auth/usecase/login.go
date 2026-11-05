@@ -44,8 +44,9 @@ type LoginResult struct {
 // An unknown address and a wrong password both return ErrInvalidCredentials. An
 // account whose address is not verified returns ErrEmailNotVerified, but only after
 // the right password, so that answer cannot reveal an account either (FR-1.4). A
-// suspended account returns ErrAccountSuspended, also only after the right password,
-// and before the verification check (FR-3.4).
+// suspended account returns a *domain.SuspendedError, also only after the right password,
+// and before the verification check (FR-3.4). A temporary suspension that has ended by
+// time is cleared here, and the login goes on (FR-15.7).
 //
 // A locked address returns a *domain.LockedError before the password is checked, so
 // even the right password is refused (FR-2.7). An unknown address and a wrong password
@@ -86,14 +87,20 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (LoginResult, error)
 		lock.recordFailure(ctx)
 		return LoginResult{}, domain.ErrInvalidCredentials
 	}
-	if creds.Suspended() {
-		return LoginResult{}, domain.ErrAccountSuspended
+	now := s.now()
+	if creds.Suspended(now) {
+		return LoginResult{}, &domain.SuspendedError{Reason: creds.SuspensionReason, Until: creds.SuspendedUntil}
+	}
+	if creds.SuspensionExpired(now) {
+		if err := s.store.ClearExpiredSuspension(ctx, creds.ID, now); err != nil {
+			return LoginResult{}, err
+		}
+		creds.SuspendedAt, creds.SuspendedUntil = nil, nil
 	}
 	if !creds.Verified() {
 		return LoginResult{}, domain.ErrEmailNotVerified
 	}
 
-	now := s.now()
 	refresh, hash := newToken()
 	res := LoginResult{User: creds.User, IssuedAt: now, RefreshToken: refresh, RefreshExpiresAt: now.Add(RefreshTTL)}
 	// Sign first, so a failure leaves no session behind.

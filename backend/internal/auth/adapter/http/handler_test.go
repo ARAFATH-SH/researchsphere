@@ -761,7 +761,7 @@ func deleteAccount(t *testing.T, svc *fakeService, ctxUser string) *httptest.Res
 	if ctxUser != "" {
 		ctx = httpx.WithUserID(ctx, ctxUser) // what the auth middleware does
 	}
-	req := httptest.NewRequestWithContext(ctx, http.MethodDelete, "/api/v1/account", strings.NewReader(`{"password":"password1"}`))
+	req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/account/delete", strings.NewReader(`{"password":"password1"}`))
 	req.Header.Set("Content-Type", "application/json")
 	return serve(NewHandler(svc, CookieConfig{}), req)
 }

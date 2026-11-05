@@ -18,6 +18,7 @@ import (
 	authusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/usecase"
 	mediahttp "github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/http"
 	messaginghttp "github.com/ARAFATH-SH/researchsphere/backend/internal/messaging/adapter/http"
+	moderationhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/moderation/adapter/http"
 	notificationhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/notification/adapter/http"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/accesstoken"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpx"
@@ -144,6 +145,7 @@ func testRouter() http.Handler {
 		socialhttp.NewHandler(okSocial{}),
 		notificationhttp.NewHandler(okNotifications{}),
 		messaginghttp.NewHandler(okMessaging{}),
+		moderationhttp.NewHandler(okModeration{}),
 		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
 }
 
@@ -172,6 +174,7 @@ func TestHealthReportsStorageDown(t *testing.T) {
 		socialhttp.NewHandler(okSocial{}),
 		notificationhttp.NewHandler(okNotifications{}),
 		messaginghttp.NewHandler(okMessaging{}),
+		moderationhttp.NewHandler(okModeration{}),
 		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
 
 	rec := httptest.NewRecorder()
@@ -489,7 +492,7 @@ func TestCurrentUserThroughRouter(t *testing.T) {
 func TestDeleteAccountThroughRouter(t *testing.T) {
 	router := testRouter()
 	del := func(cookie string) *httptest.ResponseRecorder {
-		req := httptest.NewRequestWithContext(t.Context(), http.MethodDelete, "/api/v1/account", strings.NewReader(`{"password":"password1"}`))
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/account/delete", strings.NewReader(`{"password":"password1"}`))
 		req.Header.Set("Content-Type", "application/json")
 		if cookie != "" {
 			req.Header.Set("Cookie", cookie)

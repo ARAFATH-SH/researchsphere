@@ -98,7 +98,11 @@ func (s *fakeStore) List(_ context.Context, recipientID string, after *domain.Cu
 			break
 		}
 		p := s.pending[r.SubjectID]
-		out = append(out, domain.Item{Notification: *r, Actor: domain.Actor{UserID: r.ActorID, FullName: "Name of " + r.ActorID}, RequestPending: &p})
+		item := domain.Item{Notification: *r, RequestPending: &p}
+		if r.ActorID != "" {
+			item.Actor = &domain.Actor{UserID: r.ActorID, FullName: "Name of " + r.ActorID}
+		}
+		out = append(out, item)
 	}
 	return out, nil
 }
@@ -478,5 +482,28 @@ func TestRemoveBetween(t *testing.T) {
 	}
 	if len(store.rows) != 1 || store.rows[0].ActorID != "cy" {
 		t.Errorf("rows left: %+v, want only cy's", store.rows)
+	}
+}
+
+// A warning is a system notification that links to the warning (FR-15.5).
+func TestAccountWarned(t *testing.T) {
+	store := newFakeStore()
+	svc := New(store)
+	if err := svc.AccountWarned(context.Background(), "warning-1", "ada"); err != nil {
+		t.Fatal(err)
+	}
+	page, err := svc.List(context.Background(), "ada", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Items) != 1 {
+		t.Fatalf("items = %+v", page.Items)
+	}
+	it := page.Items[0]
+	if it.Type != domain.TypeAccountWarning || it.Actor != nil || it.ActorID != "" || it.Link != "/warnings/warning-1" {
+		t.Errorf("item = %+v", it)
+	}
+	if it.RequestPending != nil {
+		t.Errorf("RequestPending = %v, want nil", *it.RequestPending)
 	}
 }

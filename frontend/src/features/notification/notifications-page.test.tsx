@@ -89,6 +89,37 @@ afterEach(() => {
 });
 
 describe("NotificationsPage", () => {
+  it("shows a system notification with the ResearchSphere mark and its own sentence", async () => {
+    const warning: Notification = {
+      id: "n-09",
+      type: "account_warning",
+      createdAt: "2026-11-03T10:00:00Z",
+      read: false,
+      link: "/warnings/7a1d2c3e-0000-4000-8000-000000000009",
+      actor: null,
+    };
+    mockList.mockResolvedValue(page([warning]));
+    await renderPage();
+
+    const [row] = rows();
+    const link = within(row).getByRole("link", {
+      name: "Unread: You received a warning from ResearchSphere. Tap to read it.",
+    });
+    expect(link.getAttribute("href")).toBe(warning.link);
+    expect(within(row).getByText("RS")).toBeTruthy();
+    expect(within(row).getByRole("button", { name: "Mark notification from ResearchSphere as read" })).toBeTruthy();
+    expect(within(row).queryByRole("button", { name: /Accept/ })).toBeNull();
+  });
+
+  it("also shows a system notification when it has no actor field at all", async () => {
+    mockList.mockResolvedValue(
+      page([{ id: "n-10", type: "account_warning", createdAt: "2026-11-03T10:00:00Z", read: true, link: "/warnings/x" }]),
+    );
+    await renderPage();
+
+    expect(within(rows()[0]).getByRole("link", { name: /You received a warning/ })).toBeTruthy();
+  });
+
   it("lists each type with its sentence, photo initials and time, newest first", async () => {
     mockList.mockResolvedValue(page([received("n-01", "Bob Babbage"), accepted("n-02", "Grace Hopper")]));
     await renderPage();

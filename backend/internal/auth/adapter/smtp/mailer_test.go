@@ -210,3 +210,29 @@ func TestSendPasswordReset(t *testing.T) {
 		}
 	}
 }
+
+// A message another module wrote: its name and subject cannot add headers (FR-15.8).
+func TestSendText(t *testing.T) {
+	host, port, got := fakeServer(t)
+	m := New(host, port, mail.Address{Name: "ResearchSphere", Address: "no-reply@rs.example"})
+
+	err := m.SendText(t.Context(), "ada@example.org", "Ada\r\nBcc: victim@evil.test", "Hello\r\nBcc: victim@evil.test", "Reason:\nSpam in messages")
+	if err != nil {
+		t.Fatalf("SendText() error = %v", err)
+	}
+	r := <-got
+	msg, err := mail.ReadMessage(strings.NewReader(r.data))
+	if err != nil {
+		t.Fatalf("message does not parse: %v\n%s", err, r.data)
+	}
+	if bcc := msg.Header.Get("Bcc"); bcc != "" {
+		t.Errorf("injected Bcc header: %q", bcc)
+	}
+	body, err := io.ReadAll(quotedprintable.NewReader(msg.Body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "Spam in messages") {
+		t.Errorf("body = %q", body)
+	}
+}

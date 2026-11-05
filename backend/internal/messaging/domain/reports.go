@@ -129,8 +129,11 @@ type ReportStore interface {
 var (
 	ErrOwnMessage      = errors.New("messaging: the message is the reporter's own")
 	ErrAlreadyResolved = errors.New("messaging: the report is already resolved")
-	ErrInvalidStatus   = errors.New("messaging: unknown report status")
-	ErrInvalidPage     = errors.New("messaging: page is not a whole number of at least 1")
+	// ErrReportAboutOther refuses a moderation action on one user that names a report about
+	// another (FR-15.8).
+	ErrReportAboutOther = errors.New("messaging: the report is about another user")
+	ErrInvalidStatus    = errors.New("messaging: unknown report status")
+	ErrInvalidPage      = errors.New("messaging: page is not a whole number of at least 1")
 )
 
 // InvalidFieldError says a body field of a report or a resolution is not valid. Field is its

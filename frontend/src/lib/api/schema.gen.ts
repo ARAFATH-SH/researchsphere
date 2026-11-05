@@ -256,7 +256,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/account": {
+    "/account/delete": {
         parameters: {
             query?: never;
             header?: never;
@@ -265,7 +265,6 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post?: never;
         /**
          * Delete the logged-in user's account after entering the password (FR-2.8, FR-2.9)
          * @description Needs the access cookie. Refused while the user owns a project that has other
@@ -282,7 +281,8 @@ export interface paths {
          *     the password is checked. A wrong password is a 400, not a 401, so the client does
          *     not take it for an expired session.
          */
-        delete: operations["deleteAccount"];
+        post: operations["deleteAccount"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -300,8 +300,7 @@ export interface paths {
          * @description Needs the access cookie and the platform action "Suspend a user account" (SRS 2.3),
          *     so only an administrator may call it; listing users is what an administrator needs
          *     before suspending one. A researcher gets 403 with the one refusal body and no user
-         *     data (FR-3.3). Users are sorted newest first. Read only: suspending comes with
-         *     slice 27.
+         *     data (FR-3.3). Users are sorted newest first.
          */
         get: operations["listUsers"];
         put?: never;
@@ -371,9 +370,217 @@ export interface paths {
          * Close a report with an outcome (FR-16.9)
          * @description Needs the access cookie and the platform action "Review reported conversations"
          *     (SRS 2.3). A report is resolved once; it stays readable afterwards. Resolving changes
-         *     nothing else: suspending a user is a separate action (slice 27).
+         *     nothing else. A moderation action given this report's ID resolves it as `action_taken`
+         *     itself, so an action is the way to close a report with a consequence.
          */
         post: operations["resolveMessageReport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/users/{userId}/warnings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Warn a user (FR-15.5)
+         * @description Needs the access cookie and the platform action "Warn or restrict a user" (SRS 2.3).
+         *     In one transaction: stores the warning, an in-app notification (`account_warning`),
+         *     the audit row and, with `reportId`, resolves that report as `action_taken`. The user
+         *     then gets an email with the reason, never the internal note. A mail failure is logged
+         *     and does not undo the action.
+         */
+        post: operations["warnUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/users/{userId}/restrictions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop a user sending messages for a number of days (FR-15.6)
+         * @description Needs the access cookie and the platform action "Warn or restrict a user" (SRS 2.3).
+         *     Until it ends, sending messages and message requests gets 403 `messaging_restricted`
+         *     with the end time; everything else works. It ends by itself at that time. A user has
+         *     at most one active restriction of a kind (409 `already_restricted`): to change one,
+         *     lift it first. Otherwise as for a warning, without a notification.
+         */
+        post: operations["restrictUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/restrictions/{restrictionId}/lift": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * End a restriction early (FR-15.6)
+         * @description Needs the access cookie and the platform action "Warn or restrict a user" (SRS 2.3).
+         *     Audited and emailed like any action. It resolves no report. A restriction that has
+         *     ended or been lifted gets 409 `restriction_not_active`.
+         */
+        post: operations["liftRestriction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/users/{userId}/suspension": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Suspend an account, for a time or for good (FR-3.4, FR-15.3, FR-15.7)
+         * @description Needs the access cookie and the platform action "Suspend a user account" (SRS 2.3).
+         *     In one transaction: suspends the account, revokes all its sessions, resolves the
+         *     report if one is given and writes the audit row. An access token already issued works
+         *     until it expires, except on the write paths that check the actor (decisions.md). A
+         *     suspension with `until` ends by itself at that time, checked at login and refresh. An
+         *     account already suspended gets 409 `already_suspended`: to change it, restore first.
+         */
+        post: operations["suspendUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/users/{userId}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore a suspended account (FR-15.3)
+         * @description Needs the access cookie and the platform action "Suspend a user account" (SRS 2.3).
+         *     Audited and emailed like any action. It resolves no report. An account that is not
+         *     suspended, also one whose suspension has ended by time, gets 409 `not_suspended`.
+         */
+        post: operations["restoreUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/users/{userId}/moderation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A user's moderation history, newest first (FR-15.9)
+         * @description Needs the access cookie and the platform action "Warn or restrict a user" (SRS 2.3).
+         *     Holds warnings, restrictions, suspensions, what reversed them and the linked reports,
+         *     with internal notes. 20 per page. Reading it about another administrator is allowed:
+         *     only acting on one is refused.
+         */
+        get: operations["getUserModeration"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/warnings/pending": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The caller's warnings not yet acknowledged, newest first (FR-15.5)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed, events
+         *     and recommendations" (SRS 2.3). At most 50, enough for the banner. A warning shows
+         *     its reason and time, never the internal note or the administrator.
+         */
+        get: operations["listPendingWarnings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/warnings/{warningId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One of the caller's warnings, acknowledged or not (FR-15.5)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed, events
+         *     and recommendations" (SRS 2.3). Another user's warning gets the same 404 as an
+         *     unknown ID. The `account_warning` notification links to the page that reads this.
+         */
+        get: operations["getMyWarning"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/warnings/{warningId}/acknowledge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Acknowledge one of the caller's warnings (FR-15.5)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed, events
+         *     and recommendations" (SRS 2.3): a user must be able to clear the banner, so this
+         *     stays open during a restriction. Acknowledging twice succeeds and keeps the first
+         *     time. Another user's warning gets the same 404 as an unknown ID.
+         */
+        post: operations["acknowledgeWarning"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1798,6 +2005,17 @@ export interface components {
              * @example clientId
              */
             field?: string;
+            /**
+             * @description On `account_suspended`, the reason the administrator gave the user. Absent for an
+             *     account suspended before reasons were recorded.
+             */
+            reason?: string;
+            /**
+             * Format: date-time
+             * @description On `account_suspended`, when a temporary suspension ends; absent when it is
+             *     permanent. On `messaging_restricted`, when the restriction ends.
+             */
+            until?: string;
         };
         Health: {
             /** @enum {string} */
@@ -1899,7 +2117,10 @@ export interface components {
             role: components["schemas"]["Role"];
             /** @description The email address is verified (FR-1.4). */
             verified: boolean;
-            /** @description The account is suspended (FR-3.4). */
+            /**
+             * @description The account is suspended now (FR-3.4). A suspension that has ended by time reads
+             *     false, also before the user's next login clears it.
+             */
             suspended: boolean;
             /** Format: date-time */
             createdAt: string;
@@ -2112,21 +2333,134 @@ export interface components {
          * @enum {string}
          */
         ConnectionStatus: "none" | "pending_sent" | "pending_received" | "connected" | "self";
+        WarnUserRequest: {
+            reason: components["schemas"]["ModerationReason"];
+            note?: components["schemas"]["ModerationNote"];
+            reportId?: components["schemas"]["ModerationReportId"];
+        };
+        RestrictUserRequest: {
+            /** @enum {string} */
+            kind: "messaging";
+            days: number;
+            reason: components["schemas"]["ModerationReason"];
+            note?: components["schemas"]["ModerationNote"];
+            reportId?: components["schemas"]["ModerationReportId"];
+        };
+        SuspendUserRequest: {
+            /**
+             * Format: date-time
+             * @description When the suspension ends: 1 to 365 days from now, with 5 minutes of slack at each
+             *     end for the time the request takes. Left out, the suspension is permanent.
+             */
+            until?: string;
+            reason: components["schemas"]["ModerationReason"];
+            note?: components["schemas"]["ModerationNote"];
+            reportId?: components["schemas"]["ModerationReportId"];
+        };
+        /** @description Lifting and restoring reverse an action, so they name no report. */
+        ReverseActionRequest: {
+            reason: components["schemas"]["ModerationReason"];
+            note?: components["schemas"]["ModerationNote"];
+        };
+        /** @description What the user is told, by email and in the app. 10 to 1000 characters, trimmed. */
+        ModerationReason: string;
+        /** @description For administrators only. It is never shown or sent to the user. */
+        ModerationNote: string;
+        /**
+         * @description A report about this user to resolve as `action_taken`. Unknown gets 404, about someone
+         *     else 400 with `field`, already resolved 409 `report_already_resolved`; each undoes the
+         *     action.
+         */
+        ModerationReportId: string;
+        /** @enum {string} */
+        ModerationActionKind: "warning" | "restriction" | "restriction_lifted" | "suspension" | "restoration";
+        /** @description The report the action resolved. Null when none, or when it has since been deleted. */
+        ModerationLinkedReport: {
+            /** Format: uuid */
+            id: string;
+            reason: components["schemas"]["ReportReason"];
+            /** @enum {string} */
+            outcome: "dismissed" | "action_taken";
+            /** Format: date-time */
+            createdAt: string;
+        } | null;
+        /** @description One row of the audit trail, as only an administrator sees it. */
+        ModerationAction: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            userId: string;
+            action: components["schemas"]["ModerationActionKind"];
+            reason: string;
+            note: string | null;
+            /**
+             * Format: uuid
+             * @description Null once the administrator's account is deleted.
+             */
+            adminId: string | null;
+            adminName: string | null;
+            /** Format: uuid */
+            reportId: string | null;
+            report: components["schemas"]["ModerationLinkedReport"];
+            /** Format: uuid */
+            warningId: string | null;
+            /** Format: uuid */
+            restrictionId: string | null;
+            /**
+             * Format: date-time
+             * @description When a restriction or a temporary suspension ends. Null when permanent.
+             */
+            endsAt: string | null;
+            /**
+             * Format: date-time
+             * @description When the user acknowledged a warning.
+             */
+            acknowledgedAt: string | null;
+            /**
+             * Format: date-time
+             * @description When a restriction was lifted early.
+             */
+            liftedAt: string | null;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        ModerationHistory: {
+            items: components["schemas"]["ModerationAction"][];
+            page: number;
+            pageSize: number;
+            total: number;
+        };
+        /** @description A warning as its user sees it. It holds no note and names no administrator. */
+        AccountWarning: {
+            /** Format: uuid */
+            id: string;
+            reason: string;
+            /** Format: date-time */
+            createdAt: string;
+            acknowledged: boolean;
+        };
+        AccountWarningList: {
+            items: components["schemas"]["AccountWarning"][];
+        };
         /**
          * @description What happened (FR-9.1). `connection_request_received`: the actor sent the caller a
          *     connection request. `connection_request_accepted`: the actor accepted the caller's
-         *     request. Later slices add the project, comment and like types.
+         *     request. `account_warning`: an administrator warned the caller; a system notification,
+         *     with no actor. Later slices add the project, comment and like types.
          * @enum {string}
          */
-        NotificationType: "connection_request_received" | "connection_request_accepted";
-        /** @description The user who caused the notification. */
+        NotificationType: "connection_request_received" | "connection_request_accepted" | "account_warning";
+        /**
+         * @description The user who caused the notification. A system notification comes from ResearchSphere
+         *     and has no actor: the field is left out, and a client treats null the same way.
+         */
         NotificationActor: {
             /** Format: uuid */
             userId: string;
             fullName: string;
             /** @description The actor's profile photo as `/api/v1/media/{fileId}`; null when not set. */
             photoUrl: string | null;
-        };
+        } | null;
         Notification: {
             /** Format: uuid */
             id: string;
@@ -2136,10 +2470,11 @@ export interface components {
             read: boolean;
             /**
              * @description The web client path of the item it is about (FR-9.5):
-             *     `/network` for a received request, `/profile/{actorId}` for an accepted one.
+             *     `/network` for a received request, `/profile/{actorId}` for an accepted one,
+             *     `/warnings/{warningId}` for a warning.
              */
             link: string;
-            actor: components["schemas"]["NotificationActor"];
+            actor?: components["schemas"]["NotificationActor"];
             /**
              * Format: uuid
              * @description Only for `connection_request_received`, the connection request.
@@ -2905,8 +3240,60 @@ export interface components {
             };
         };
         /**
+         * @description `reason`, `note`, `days`, `until`, `kind` or `reportId` is not valid (`bad_request`, with
+         *     `field`).
+         */
+        ModerationInvalid: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /**
+         * @description `forbidden`: the user's role does not permit the action (FR-3.2).
+         *     `cannot_moderate_admin`: the target is an administrator, the caller included (FR-15.10).
+         */
+        ModerationForbidden: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /**
+         * @description `already_restricted`, `already_suspended`, `not_suspended`, `restriction_not_active`, or
+         *     `report_already_resolved`. Nothing is changed.
+         */
+        ModerationConflict: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /**
+         * @description `forbidden`: the user's role does not permit the action (FR-3.2).
+         *     `account_suspended`: the caller's account was suspended after this session began, with
+         *     `reason` and `until`.
+         */
+        AccountSuspendedOrForbidden: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /**
          * @description `forbidden`: the user's role does not permit the action (FR-3.2).
          *     `cannot_message`: this person cannot be messaged. It does not say why (FR-16.9).
+         *     `account_suspended`: the caller's account was suspended after this session began, with
+         *     `reason` and `until`. `messaging_restricted`: the caller may not send messages until
+         *     `until` (FR-15.6).
          */
         MessageForbidden: {
             headers: {
@@ -3217,6 +3604,16 @@ export interface components {
     parameters: {
         /** @description The page to return, from 1. Defaults to 1. A value below 1 gets 400 `bad_request`. */
         PageFromOne: number;
+        /**
+         * @description The user's ID, a UUID. It is declared as a plain string so that the login and role
+         *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+         */
+        ModeratedUserId: string;
+        /**
+         * @description The warning's ID, a UUID. It is declared as a plain string so that the login and role
+         *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+         */
+        WarningId: string;
         /**
          * @description The report's ID, a UUID. It is declared as a plain string so that the login and role
          *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
@@ -3581,9 +3978,10 @@ export interface operations {
             };
             /**
              * @description The password is right but the account is suspended (`account_suspended`,
-             *     FR-3.4) or its email address is not verified yet (`email_not_verified`,
-             *     FR-1.4). Suspension is checked first. A wrong password always gets 401, so
-             *     this answer never reveals a suspension to someone guessing.
+             *     FR-3.4, with `reason` and, when it is temporary, `until`) or its email address is
+             *     not verified yet (`email_not_verified`, FR-1.4). Suspension is checked first. A
+             *     wrong password always gets 401, so this answer never reveals a suspension to
+             *     someone guessing. A suspension whose `until` has passed no longer counts.
              */
             403: {
                 headers: {
@@ -3987,6 +4385,308 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    warnUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The user's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                userId: components["parameters"]["ModeratedUserId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WarnUserRequest"];
+            };
+        };
+        responses: {
+            /** @description The warning is stored; the body is its audit row. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModerationAction"];
+                };
+            };
+            400: components["responses"]["ModerationInvalid"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["ModerationForbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["ModerationConflict"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    restrictUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The user's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                userId: components["parameters"]["ModeratedUserId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RestrictUserRequest"];
+            };
+        };
+        responses: {
+            /** @description The restriction is active; the body is its audit row. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModerationAction"];
+                };
+            };
+            400: components["responses"]["ModerationInvalid"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["ModerationForbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["ModerationConflict"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    liftRestriction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The restriction's ID, a UUID. It is declared as a plain string so that the login and
+                 *     role checks run before it is read (FR-3.1); a value that is not a UUID gets 404
+                 *     `not_found`.
+                 */
+                restrictionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReverseActionRequest"];
+            };
+        };
+        responses: {
+            /** @description The restriction is lifted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["ModerationInvalid"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["ModerationForbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["ModerationConflict"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    suspendUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The user's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                userId: components["parameters"]["ModeratedUserId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SuspendUserRequest"];
+            };
+        };
+        responses: {
+            /** @description The account is suspended; the body is the audit row. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModerationAction"];
+                };
+            };
+            400: components["responses"]["ModerationInvalid"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["ModerationForbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["ModerationConflict"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    restoreUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The user's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                userId: components["parameters"]["ModeratedUserId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReverseActionRequest"];
+            };
+        };
+        responses: {
+            /** @description The account is restored; the body is the audit row. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModerationAction"];
+                };
+            };
+            400: components["responses"]["ModerationInvalid"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["ModerationForbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["ModerationConflict"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getUserModeration: {
+        parameters: {
+            query?: {
+                /** @description The page to return, from 1. Defaults to 1. A value below 1 gets 400 `bad_request`. */
+                page?: components["parameters"]["PageFromOne"];
+            };
+            header?: never;
+            path: {
+                /**
+                 * @description The user's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                userId: components["parameters"]["ModeratedUserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the history. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModerationHistory"];
+                };
+            };
+            /** @description `page` is below 1 or not a whole number (`bad_request`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listPendingWarnings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The pending warnings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountWarningList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getMyWarning: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The warning's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                warningId: components["parameters"]["WarningId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The warning. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountWarning"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    acknowledgeWarning: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The warning's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                warningId: components["parameters"]["WarningId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The warning is acknowledged. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             500: components["responses"]["InternalError"];
         };
     };
@@ -5547,7 +6247,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
+            403: components["responses"]["AccountSuspendedOrForbidden"];
             404: components["responses"]["NotFound"];
             /**
              * @description A request or connection already exists between the two (FR-7.2):
@@ -6244,7 +6944,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
+            403: components["responses"]["AccountSuspendedOrForbidden"];
             404: components["responses"]["NotFound"];
             500: components["responses"]["InternalError"];
         };
@@ -6275,7 +6975,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
+            403: components["responses"]["AccountSuspendedOrForbidden"];
             404: components["responses"]["NotFound"];
             500: components["responses"]["InternalError"];
         };
@@ -6322,7 +7022,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
+            403: components["responses"]["AccountSuspendedOrForbidden"];
             404: components["responses"]["NotFound"];
             /** @description The user has made 10 reports in the current day (`rate_limited`). */
             429: {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -20,20 +21,21 @@ type harness struct {
 	blocks  *fakeBlocks
 	limiter *fakeLimiter
 	pub     *fakePublisher
+	actors  fakeActors
 	client  int
 }
 
 var testLimits = Limits{MessagesPerMinute: 30, MessagesPerDay: 1000, RequestsPerMinute: 5, RequestsPerDay: 20}
 
 func newHarness() *harness {
-	h := &harness{store: newFakeStore(), conns: fakeConnections{}, blocks: newFakeBlocks(), limiter: newFakeLimiter(), pub: &fakePublisher{}}
-	h.svc = New(h.store, fakeTx{h.store}, h.conns, h.blocks, h.limiter, h.pub, testLimits, slog.New(slog.DiscardHandler))
+	h := &harness{store: newFakeStore(), conns: fakeConnections{}, blocks: newFakeBlocks(), limiter: newFakeLimiter(), pub: &fakePublisher{}, actors: fakeActors{}}
+	h.svc = New(h.store, fakeTx{h.store}, h.conns, h.blocks, h.actors, h.limiter, h.pub, testLimits, slog.New(slog.DiscardHandler))
 	return h
 }
 
 // noLimits replaces the limits with ones a test that sends many messages cannot reach.
 func (h *harness) noLimits() {
-	h.svc = New(h.store, fakeTx{h.store}, h.conns, h.blocks, h.limiter, h.pub,
+	h.svc = New(h.store, fakeTx{h.store}, h.conns, h.blocks, h.actors, h.limiter, h.pub,
 		Limits{MessagesPerMinute: 1 << 20, MessagesPerDay: 1 << 20, RequestsPerMinute: 1 << 20, RequestsPerDay: 1 << 20},
 		slog.New(slog.DiscardHandler))
 }
@@ -445,7 +447,7 @@ func TestIdempotentClientID(t *testing.T) {
 		found := h.store.messages
 		h.store.messages = nil
 		lookups := &racingFind{fakeStore: h.store, hidden: true, saved: found}
-		svc := New(lookups, fakeTx{h.store}, h.conns, h.blocks, h.limiter, h.pub, testLimits, slog.New(slog.DiscardHandler))
+		svc := New(lookups, fakeTx{h.store}, h.conns, h.blocks, h.actors, h.limiter, h.pub, testLimits, slog.New(slog.DiscardHandler))
 		h.store.duplicateAdd = true
 		got, err := svc.SendDirect(ctx, "ada", "bob", "second", "c1")
 		if err != nil || !got.Replayed || got.Message.ID != winner.Message.ID {
@@ -465,7 +467,7 @@ func TestIdempotentClientID(t *testing.T) {
 		// The retry got past the lookup before the first send committed, then found the
 		// request it had started itself.
 		lookups := &racingFind{fakeStore: h.store, hidden: true, saved: h.store.messages}
-		svc := New(lookups, fakeTx{h.store}, h.conns, h.blocks, h.limiter, h.pub, testLimits, slog.New(slog.DiscardHandler))
+		svc := New(lookups, fakeTx{h.store}, h.conns, h.blocks, h.actors, h.limiter, h.pub, testLimits, slog.New(slog.DiscardHandler))
 		got, err := svc.SendDirect(ctx, "ada", "bob", "may I?", "c1")
 		if err != nil || !got.Replayed || got.Message.ID != winner.Message.ID {
 			t.Fatalf("got %+v, %v", got, err)
@@ -606,7 +608,7 @@ func TestRateLimits(t *testing.T) {
 	t.Run("the numbers come from the configuration", func(t *testing.T) {
 		h := newHarness()
 		h.connect("ada", "bob")
-		h.svc = New(h.store, fakeTx{h.store}, h.conns, h.blocks, h.limiter, h.pub,
+		h.svc = New(h.store, fakeTx{h.store}, h.conns, h.blocks, h.actors, h.limiter, h.pub,
 			Limits{MessagesPerMinute: 1, MessagesPerDay: 1000, RequestsPerMinute: 5, RequestsPerDay: 20}, slog.New(slog.DiscardHandler))
 		h.direct(t, "ada", "bob", "one")
 		var limited *domain.RateLimitedError
@@ -959,4 +961,167 @@ func TestCanMessage(t *testing.T) {
 			t.Errorf("%s: can message", name)
 		}
 	}
+}
+
+// A suspended sender is refused on every write that checks the actor, even with a valid access
+// token (decisions.md, 2026-11-05).
+func TestSuspendedActorIsRefused(t *testing.T) {
+	until := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
+	reason := "Repeated spam in messages"
+	standing := domain.Standing{Suspended: true, SuspensionReason: &reason, SuspendedUntil: &until}
+	h := newHarness()
+	h.connect("ada", "bob")
+	sent := h.direct(t, "ada", "bob", "hello")
+	request := h.direct(t, "cy", "ada", "hi, may I ask?")
+	h.actors["ada"] = standing
+	counted := maps.Clone(h.limiter.used)
+
+	tests := []struct {
+		name string
+		run  func() error
+	}{
+		{"send", func() error {
+			_, err := h.svc.Send(t.Context(), "ada", sent.Message.ConversationID, "again", h.clientID())
+			return err
+		}},
+		{"first message", func() error {
+			_, err := h.svc.SendDirect(t.Context(), "ada", "dee", "hi", h.clientID())
+			return err
+		}},
+		{"accept", func() error {
+			_, err := h.svc.Accept(t.Context(), "ada", request.Message.ConversationID)
+			return err
+		}},
+		{"decline", func() error {
+			_, err := h.svc.Decline(t.Context(), "ada", request.Message.ConversationID)
+			return err
+		}},
+		{"report", func() error {
+			_, err := h.svc.Report(t.Context(), "ada", sent.Message.ConversationID, domain.ReportInput{Reason: domain.ReasonSpam})
+			return err
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var refused *domain.SuspendedError
+			if err := tt.run(); !errors.As(err, &refused) {
+				t.Fatalf("error = %v, want *SuspendedError", err)
+			}
+			if *refused.Reason != reason || !refused.Until.Equal(until) {
+				t.Errorf("refusal = %+v", refused)
+			}
+		})
+	}
+	if !maps.Equal(h.limiter.used, counted) {
+		t.Errorf("counters = %v, want %v: a refusal must use no quota", h.limiter.used, counted)
+	}
+}
+
+// A restriction stops sends and nothing else (FR-15.6).
+func TestRestrictedSenderMayDoEverythingElse(t *testing.T) {
+	until := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
+	h := newHarness()
+	h.connect("ada", "bob")
+	sent := h.direct(t, "ada", "bob", "hello")
+	request := h.direct(t, "cy", "ada", "hi, may I ask?")
+	other := h.direct(t, "dee", "ada", "hi, a question")
+	h.actors["ada"] = domain.Standing{RestrictedUntil: &until}
+
+	var refused *domain.RestrictedError
+	if _, err := h.svc.Send(t.Context(), "ada", sent.Message.ConversationID, "again", h.clientID()); !errors.As(err, &refused) || !refused.Until.Equal(until) {
+		t.Errorf("send: error = %v, want *RestrictedError until %v", err, until)
+	}
+	if _, err := h.svc.SendDirect(t.Context(), "ada", "eve", "hi", h.clientID()); !errors.As(err, &refused) {
+		t.Errorf("message request: error = %v, want *RestrictedError", err)
+	}
+	if _, err := h.svc.Accept(t.Context(), "ada", request.Message.ConversationID); err != nil {
+		t.Errorf("accept: %v", err)
+	}
+	if _, err := h.svc.Decline(t.Context(), "ada", other.Message.ConversationID); err != nil {
+		t.Errorf("decline: %v", err)
+	}
+	if _, err := h.svc.Report(t.Context(), "ada", sent.Message.ConversationID, domain.ReportInput{Reason: domain.ReasonSpam}); err != nil {
+		t.Errorf("report: %v", err)
+	}
+	if _, err := h.svc.Messages(t.Context(), "ada", sent.Message.ConversationID, "", nil); err != nil {
+		t.Errorf("read: %v", err)
+	}
+
+	// The restriction ends: Standing no longer names it.
+	h.actors["ada"] = domain.Standing{}
+	if _, err := h.svc.Send(t.Context(), "ada", sent.Message.ConversationID, "back", h.clientID()); err != nil {
+		t.Errorf("after the end: %v", err)
+	}
+}
+
+// A retry of a send accepted before the restriction returns the original: it sends nothing new.
+func TestReplayDuringRestriction(t *testing.T) {
+	until := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
+	h := newHarness()
+	h.connect("ada", "bob")
+	client := h.clientID()
+	first, err := h.svc.SendDirect(t.Context(), "ada", "bob", "hello", client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.actors["ada"] = domain.Standing{RestrictedUntil: &until}
+
+	again, err := h.svc.SendDirect(t.Context(), "ada", "bob", "hello", client)
+	if err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+	if !again.Replayed || again.Message.ID != first.Message.ID {
+		t.Errorf("replay = %+v, want the original %s", again, first.Message.ID)
+	}
+}
+
+// A suspension or restriction that commits after the first check is caught by the check inside
+// the transaction.
+func TestStandingIsCheckedAgainInTheTransaction(t *testing.T) {
+	until := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
+	h := newHarness()
+	h.connect("ada", "bob")
+	sent := h.direct(t, "ada", "bob", "hello")
+	flip := &flippingActors{after: 1, then: domain.Standing{RestrictedUntil: &until}}
+	h.svc = New(h.store, fakeTx{h.store}, h.conns, h.blocks, flip, h.limiter, h.pub, testLimits, slog.New(slog.DiscardHandler))
+
+	before := len(h.store.messages)
+	var refused *domain.RestrictedError
+	if _, err := h.svc.Send(t.Context(), "ada", sent.Message.ConversationID, "late", h.clientID()); !errors.As(err, &refused) {
+		t.Fatalf("error = %v, want *RestrictedError", err)
+	}
+	if flip.calls != 2 || len(h.store.messages) != before {
+		t.Errorf("calls = %d, messages added = %d; want 2 and 0", flip.calls, len(h.store.messages)-before)
+	}
+}
+
+// flippingActors answers in good standing for the first calls, then with then.
+type flippingActors struct {
+	after, calls int
+	then         domain.Standing
+}
+
+func (f *flippingActors) Standing(context.Context, string) (domain.Standing, error) {
+	f.calls++
+	if f.calls > f.after {
+		return f.then, nil
+	}
+	return domain.Standing{}, nil
+}
+
+func TestStandingFailureStopsTheWrite(t *testing.T) {
+	h := newHarness()
+	h.connect("ada", "bob")
+	sent := h.direct(t, "ada", "bob", "hello")
+	boom := errors.New("database down")
+	h.svc = New(h.store, fakeTx{h.store}, h.conns, h.blocks, failingActors{boom}, h.limiter, h.pub, testLimits, slog.New(slog.DiscardHandler))
+	if _, err := h.svc.Send(t.Context(), "ada", sent.Message.ConversationID, "x", h.clientID()); !errors.Is(err, boom) {
+		t.Errorf("error = %v, want %v", err, boom)
+	}
+}
+
+type failingActors struct{ err error }
+
+func (f failingActors) Standing(context.Context, string) (domain.Standing, error) {
+	return domain.Standing{}, f.err
 }

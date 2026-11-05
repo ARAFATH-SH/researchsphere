@@ -270,3 +270,51 @@ func TestDeleteBetween(t *testing.T) {
 		t.Errorf("bad ID: %v", err)
 	}
 }
+
+// A system notification has no actor and is never hidden; an actor's is hidden while the actor
+// is suspended, so the count always matches the list (FR-9.5, FR-15.5).
+func TestSystemNotifications(t *testing.T) {
+	s, pool := newTestStore(t)
+	ada, bob := newUser(t, pool), newUser(t, pool)
+	warning := "00000000-0000-4000-8000-000000000001"
+	put(t, s, ada, "", domain.TypeAccountWarning, warning)
+	put(t, s, ada, bob, domain.TypeConnectionRequestReceived, newRequest(t, pool, bob, ada))
+
+	if got := list(t, s, ada); len(got) != 2 {
+		t.Fatalf("list = %+v", got)
+	}
+	exec(t, pool, "UPDATE users SET suspended_at = now() WHERE id = $1", bob)
+
+	items := list(t, s, ada)
+	if len(items) != 1 || items[0].Type != domain.TypeAccountWarning || items[0].Actor != nil || items[0].ActorID != "" {
+		t.Fatalf("list = %+v", items)
+	}
+	if got := unread(t, s, ada); got != 1 {
+		t.Errorf("unread = %d, want 1", got)
+	}
+	found, err := s.MarkRead(t.Context(), items[0].ID, ada)
+	if err != nil || !found {
+		t.Fatalf("MarkRead: found %v, error %v", found, err)
+	}
+	if got := unread(t, s, ada); got != 0 {
+		t.Errorf("unread after marking = %d, want 0", got)
+	}
+
+	put(t, s, ada, "", domain.TypeAccountWarning, warning)
+	n, err := s.MarkAllRead(t.Context(), ada)
+	if err != nil || n != 1 {
+		t.Errorf("MarkAllRead = %d, %v; want 1: the suspended actor's stays out", n, err)
+	}
+}
+
+func TestAnActorNotificationNeedsItsActor(t *testing.T) {
+	s, pool := newTestStore(t)
+	ada, bob := newUser(t, pool), newUser(t, pool)
+	warning := "00000000-0000-4000-8000-000000000001"
+	if err := s.Put(t.Context(), domain.Notification{RecipientID: ada, Type: domain.TypeConnectionRequestReceived, SubjectID: warning}); err == nil {
+		t.Error("a connection notification without an actor was stored")
+	}
+	if err := s.Put(t.Context(), domain.Notification{RecipientID: ada, ActorID: bob, Type: domain.TypeAccountWarning, SubjectID: warning}); err == nil {
+		t.Error("a system notification with an actor was stored")
+	}
+}

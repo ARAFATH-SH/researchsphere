@@ -20,15 +20,17 @@ import (
 
 // Error codes of the messaging operations (docs/openapi.yaml).
 const (
-	CodeCannotMessageSelf  = "cannot_message_self"
-	CodeInvalidBody        = "invalid_body"
-	CodeRequestPending     = "request_pending"
-	CodeConversationClosed = "conversation_closed"
-	CodeRateLimited        = "rate_limited"
-	CodeCannotMessage      = "cannot_message"
-	CodeYouBlocked         = "you_blocked_this_user"
-	CodeOwnMessage         = "cannot_report_own_message"
-	CodeAlreadyResolved    = "report_already_resolved"
+	CodeCannotMessageSelf   = "cannot_message_self"
+	CodeInvalidBody         = "invalid_body"
+	CodeRequestPending      = "request_pending"
+	CodeConversationClosed  = "conversation_closed"
+	CodeRateLimited         = "rate_limited"
+	CodeAccountSuspended    = "account_suspended"
+	CodeMessagingRestricted = "messaging_restricted"
+	CodeCannotMessage       = "cannot_message"
+	CodeYouBlocked          = "you_blocked_this_user"
+	CodeOwnMessage          = "cannot_report_own_message"
+	CodeAlreadyResolved     = "report_already_resolved"
 )
 
 // Service is what the handler needs from the usecase.
@@ -76,8 +78,18 @@ type refusal struct {
 
 // refusalOf sorts the errors of the two send operations; nil for any other error.
 func refusalOf(err error) *refusal {
-	var limited *domain.RateLimitedError
+	var (
+		limited    *domain.RateLimitedError
+		suspended  *domain.SuspendedError
+		restricted *domain.RestrictedError
+	)
 	switch {
+	case errors.As(err, &suspended):
+		body := gen.MessageForbiddenJSONResponse(suspendedBody(suspended))
+		return &refusal{forbidden: &body}
+	case errors.As(err, &restricted):
+		return &refusal{forbidden: &gen.MessageForbiddenJSONResponse{Code: CodeMessagingRestricted,
+			Message: "You cannot send messages until this restriction ends.", Until: &restricted.Until}}
 	case errors.Is(err, domain.ErrSelf):
 		return &refusal{invalid: &gen.InvalidMessageJSONResponse{Code: CodeCannotMessageSelf, Message: "You cannot send a message to yourself."}}
 	case errors.Is(err, domain.ErrInvalidBody):
@@ -96,6 +108,11 @@ func refusalOf(err error) *refusal {
 		return &refusal{limited: true, retryAfter: max(1, int(math.Ceil(limited.RetryAfter.Seconds())))}
 	}
 	return nil
+}
+
+// suspendedBody refuses a write by a user suspended after their access token was issued.
+func suspendedBody(e *domain.SuspendedError) gen.Error {
+	return gen.Error{Code: CodeAccountSuspended, Message: "This account is suspended. Contact support.", Reason: e.Reason, Until: e.Until}
 }
 
 func rateLimited(retryAfter int) gen.MessageRateLimitedJSONResponse {
@@ -282,6 +299,10 @@ func (h *Handler) AcceptMessageRequest(ctx context.Context, req gen.AcceptMessag
 		return gen.AcceptMessageRequest401JSONResponse{UnauthorizedJSONResponse: unauthenticated}, nil
 	}
 	it, err := h.svc.Accept(ctx, id, req.ConversationId)
+	var suspended *domain.SuspendedError
+	if errors.As(err, &suspended) {
+		return gen.AcceptMessageRequest403JSONResponse{AccountSuspendedOrForbiddenJSONResponse: gen.AccountSuspendedOrForbiddenJSONResponse(suspendedBody(suspended))}, nil
+	}
 	if errors.Is(err, domain.ErrNotFound) {
 		return gen.AcceptMessageRequest404JSONResponse{NotFoundJSONResponse: notFound}, nil
 	}
@@ -302,6 +323,10 @@ func (h *Handler) DeclineMessageRequest(ctx context.Context, req gen.DeclineMess
 		return gen.DeclineMessageRequest401JSONResponse{UnauthorizedJSONResponse: unauthenticated}, nil
 	}
 	it, err := h.svc.Decline(ctx, id, req.ConversationId)
+	var suspended *domain.SuspendedError
+	if errors.As(err, &suspended) {
+		return gen.DeclineMessageRequest403JSONResponse{AccountSuspendedOrForbiddenJSONResponse: gen.AccountSuspendedOrForbiddenJSONResponse(suspendedBody(suspended))}, nil
+	}
 	if errors.Is(err, domain.ErrNotFound) {
 		return gen.DeclineMessageRequest404JSONResponse{NotFoundJSONResponse: notFound}, nil
 	}

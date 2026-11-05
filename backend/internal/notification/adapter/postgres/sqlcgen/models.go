@@ -22,6 +22,7 @@ const (
 	NotificationTypeProjectInvitationRejected  NotificationType = "project_invitation_rejected"
 	NotificationTypePostComment                NotificationType = "post_comment"
 	NotificationTypePostLike                   NotificationType = "post_like"
+	NotificationTypeAccountWarning             NotificationType = "account_warning"
 )
 
 func (e *NotificationType) Scan(src interface{}) error {

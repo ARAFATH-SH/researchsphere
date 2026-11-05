@@ -47,6 +47,12 @@ func (s *Service) ConnectionRequestAccepted(ctx context.Context, requestID, requ
 	})
 }
 
+// AccountWarned tells userID that an administrator warned them (FR-15.5). It is a system
+// notification: the recipient never learns which administrator it was.
+func (s *Service) AccountWarned(ctx context.Context, warningID, userID string) error {
+	return s.store.Put(ctx, domain.Notification{RecipientID: userID, Type: domain.TypeAccountWarning, SubjectID: warningID})
+}
+
 // ConnectionRequestWithdrawn removes the notification of request requestID after the
 // sender cancelled it or the receiver rejected it, so no stale Accept remains. Nobody is
 // told about a rejection (FR-7.6).

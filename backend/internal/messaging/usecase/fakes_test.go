@@ -26,6 +26,13 @@ type fakeStore struct {
 	calls         []string
 }
 
+// fakeActors gives each user a standing; nobody listed is in good standing.
+type fakeActors map[string]domain.Standing
+
+func (f fakeActors) Standing(_ context.Context, userID string) (domain.Standing, error) {
+	return f[userID], nil
+}
+
 type fakeConversation struct {
 	id, a, b    string
 	state       domain.State

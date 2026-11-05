@@ -84,6 +84,7 @@ The server enforces both tables (FR-3.2). An administrator has no extra rights i
 | Add, edit and remove venues | No | No | Yes |
 | Remove any post or comment | No | No | Yes |
 | Suspend a user account | No | No | Yes |
+| Warn or restrict a user, and read their moderation history | No | No | Yes |
 | Review reported conversations | No | No | Yes |
 
 **Project level**
@@ -158,7 +159,7 @@ The 15 functional requirements of the proposal are grouped by module below. In e
 | FR-3.1 | require a valid access token for every request except registration, verification, login and password reset | Must |
 | FR-3.2 | check on the server, for every request, that the user's role permits the action according to the tables in Section 2.3 | Must |
 | FR-3.3 | answer a request for an action the user may not perform with an error that reveals none of the protected content | Must |
-| FR-3.4 | refuse login to a suspended account | Should |
+| FR-3.4 | refuse login to a suspended account, saying why and, when the suspension is temporary, until when, only after the right password | Should |
 
 ### 3.2 Profile, publications and search
 
@@ -316,8 +317,14 @@ The 15 functional requirements of the proposal are grouped by module below. In e
 | --- | --- | --- |
 | FR-15.1 | let an administrator add, edit and remove venues | Must |
 | FR-15.2 | let an administrator remove a post or a comment with a recorded reason, after which no user sees it | Must |
-| FR-15.3 | let an administrator list users, and suspend and restore an account | Should |
+| FR-15.3 | let an administrator list users, and suspend and restore an account, each with a reason shown to the user | Should |
 | FR-15.4 | show an administrator how many compile jobs and embedding jobs succeeded and failed in the last 24 hours | Could |
+| FR-15.5 | let an administrator warn a user with a reason; the user gets a notification and an email, and sees the warning until acknowledging it | Should |
+| FR-15.6 | let an administrator stop a user sending messages and message requests for 1 to 90 days; it ends by itself or when an administrator lifts it, and nothing else changes for the user | Should |
+| FR-15.7 | let a suspension be permanent or last 1 to 365 days, after which it ends by itself; suspending ends every session of the account, and the writes named in docs/decisions.md are refused at once | Should |
+| FR-15.8 | record every moderation action with the administrator, user, action, reason, internal note, report and time, in the transaction of the action; email the user the reason and never the note; and, when the action names a report, resolve it as action taken | Should |
+| FR-15.9 | show an administrator a user's moderation history, newest first, with linked reports | Should |
+| FR-15.10 | refuse every moderation action on an administrator, oneself included | Should |
 
 ## 4. AI Requirements
 
@@ -460,11 +467,11 @@ NFR-1 to NFR-7 come from the proposal. NFR-8 to NFR-14 are added here.
 
 ## 7. Data Requirements
 
-The database holds the 23 kinds of record below. The rules below are enforced by the database itself, so that a fault in the application cannot break them.
+The database holds the 32 kinds of record below. The rules below are enforced by the database itself, so that a fault in the application cannot break them.
 
 | Entity | Main attributes | Rules |
 | --- | --- | --- |
-| User | Email, password hash, role, verified time, suspended time, AI consent time | Email is unique, ignoring letter case |
+| User | Email, password hash, role, verified time, suspended time, suspension end and reason, AI consent time | Email is unique, ignoring letter case; a suspension end or reason only on a suspended account; a suspension ends after it starts |
 | Session | User, refresh token hash, expiry, revoked time, hashes of earlier (retired) refresh tokens, kept to detect reuse | One per logged-in device; the token hash and every retired hash are unique |
 | One-time token | User, purpose (verification or reset), token hash, expiry, used time | The token hash is unique; works once |
 | Profile | Name, headline, bio, institution, department, job title, country, ORCID iD | One per user; ORCID iD is unique and well formed |
@@ -482,7 +489,7 @@ The database holds the 23 kinds of record below. The rules below are enforced by
 | Compile job | Project, requester, status, PDF key, log, times | Belongs to one project |
 | Venue | Name, type, scope, field, location, dates, deadline, source | An imported venue is unique by its source and source identifier |
 | Embedding | Owner (profile, project, post or venue), model, text hash, vector | One per owner; deleted with its owner |
-| Notification | Receiver, type, actor, item, read time | Deleted with its receiver |
+| Notification | Receiver, type, actor, item, read time | Deleted with its receiver; a system type has no actor, every other type has one |
 | Assistant request | User, project, kind, accepted or not | The suggestion text is not stored |
 | Conversation | Kind (direct or group), state (active, request or declined), who requested it, the pair of users, last message time | One direct conversation per pair of users; a request names who requested it |
 | Conversation member | Conversation, user, joined time, read marker and its time | One row per user per conversation; the read marker is a message of the same conversation |
@@ -490,6 +497,9 @@ The database holds the 23 kinds of record below. The rules below are enforced by
 | Block | Blocker, blocked user, time | One per direction; no self-block; deleted with either user |
 | Message report | Conversation, reporter, reported user, message, reason, details, time, resolution (time, administrator, outcome, note) | A reported message belongs to the conversation; deleted with the conversation |
 | Report view | Report, administrator, time | One per administrator's read; holds no message text and outlives the report |
+| Account warning | User, reason, time, acknowledged time | Reason of 10 to 1,000 characters; deleted with the user |
+| Account restriction | User, kind, start, end, lifted time, who lifted it | Ends after it starts; deleted with the user |
+| Moderation action | User, administrator, action, reason, internal note, report, warning or restriction, end, time | One per action, never changed; deleted with the user, keeps its row without the name when the administrator's account is deleted, and outlives its report |
 
 **Retention**
 
@@ -504,7 +514,7 @@ The database holds the 23 kinds of record below. The rules below are enforced by
 - Research groups and communities.
 - Dataset hosting and file sharing outside a project's figures.
 - Sharing or reposting another user's post.
-- Email notifications other than verification and password reset.
+- Email notifications other than verification, password reset and moderation actions (FR-15.8).
 - Login through Google or ORCID.
 - Comments, version history and templates in the editor.
 - Hosting full-text papers, peer review, submission to venues and plagiarism detection.

@@ -62,7 +62,7 @@ export type DeleteAccountResult = { ok: true; data: undefined } | ({ ok: false; 
 export async function deleteAccount(password: string): Promise<DeleteAccountResult> {
   let projects: ProjectRef[] | undefined;
   const res = await call(async () => {
-    const reply = await api.DELETE("/account", { body: { password } });
+    const reply = await api.POST("/account/delete", { body: { password } });
     if (reply.error && "projects" in reply.error) projects = reply.error.projects;
     return reply;
   });
