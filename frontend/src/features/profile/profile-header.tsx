@@ -5,7 +5,9 @@ import { type RefObject, useEffect, useRef, useState } from "react";
 
 import { Avatar } from "@/components/avatar";
 import { Container } from "@/components/Container";
+import { useSession } from "@/features/auth/session";
 import { homeCard } from "@/features/home/cards";
+import { MessageButton, messageAction } from "@/features/messaging/message-button";
 import { ConnectButton, type Link as ConnectionLink } from "@/features/social/connect-button";
 
 import type { Profile } from "./api";
@@ -31,10 +33,10 @@ const topBarHeight = 52;
 // and a "Contact info" link (FR-4.7), then the action row. The owner gets a camera button on
 // the cover, a clickable photo and a pencil that opens the intro dialog. Under the meta line
 // "N connections" links to the connections list (FR-7.4). On someone else's profile the
-// action row has the connect button (FR-7.1 to FR-7.3), a "Connected" label once connected,
-// and More, which then offers "Remove connection" (FR-7.5). Message request waits for
-// messaging (slice 14A). Once the card scrolls out of view, a slim bar under the top bar
-// repeats the name and buttons.
+// action row has the message button (FR-16.1, FR-16.2), the connect button (FR-7.1 to FR-7.3)
+// and More, which offers "Remove connection" once connected (FR-7.5). A connection with no
+// message button, because their conversation is closed, keeps a "Connected" label. Once the card scrolls
+// out of view, a slim bar under the top bar repeats the name and buttons.
 export function ProfileHeader({
   profile,
   edit,
@@ -181,7 +183,9 @@ function useConnection(profile: Profile): Connection {
   };
 }
 
-// Actions is the action row: ConnectButton, the "Connected" label, then More.
+// Actions is the action row. Message comes first when it is the main action; next to a filled
+// Connect, "Message request" follows it, as the design draws them. The slim bar has room for
+// the filled Message only.
 function Actions({
   profile,
   connection,
@@ -191,9 +195,14 @@ function Actions({
   connection: Connection;
   variant: "pill" | "icon";
 }) {
+  const session = useSession();
+  const me = session.status === "signedIn" ? session.user.id : null;
   const connected = connection.status === "connected";
+  const action = messageAction(profile, connected, me);
+  const message = action && (variant === "pill" || action.kind === "filled") ? <MessageButton action={action} /> : null;
   return (
     <>
+      {action?.kind === "filled" && message}
       {!connection.self && (
         <ConnectButton
           userId={profile.userId}
@@ -204,7 +213,8 @@ function Actions({
           onChange={connection.change}
         />
       )}
-      {connected && variant === "pill" && <ConnectedLabel />}
+      {action?.kind === "outline" && message}
+      {connected && !action && variant === "pill" && <ConnectedLabel />}
       <MoreMenu
         userId={profile.userId}
         variant={variant}

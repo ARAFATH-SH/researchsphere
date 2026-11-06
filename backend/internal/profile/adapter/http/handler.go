@@ -273,6 +273,10 @@ func profileBody(p domain.Profile) (gen.Profile, error) {
 	if err != nil {
 		return gen.Profile{}, err
 	}
+	conversation, err := conversationField(p.Conversation)
+	if err != nil {
+		return gen.Profile{}, err
+	}
 	return gen.Profile{
 		UserId:              id,
 		FullName:            p.FullName,
@@ -294,6 +298,7 @@ func profileBody(p domain.Profile) (gen.Profile, error) {
 		ConnectionRequestId: requestID,
 		ConnectionCount:     p.ConnectionCount,
 		BlockedByMe:         &p.BlockedByMe,
+		Conversation:        conversation,
 		Contact:             contact,
 		PhotoUrl:            mediaURL(p.PhotoFileID),
 		CoverUrl:            mediaURL(p.CoverFileID),
@@ -307,6 +312,26 @@ func mediaURL(fileID *string) *string {
 	}
 	u := httpx.MediaURL(*fileID)
 	return &u
+}
+
+// conversationField is the contract's conversation for link, nil when there is none.
+func conversationField(link *domain.ConversationLink) (*gen.ProfileConversation, error) {
+	if link == nil {
+		return nil, nil
+	}
+	var id openapi_types.UUID
+	if err := id.UnmarshalText([]byte(link.ID)); err != nil {
+		return nil, fmt.Errorf("conversation id: %w", err)
+	}
+	out := &gen.ProfileConversation{Id: id, State: gen.ConversationState(link.State), CanMessage: link.CanMessage}
+	if link.RequestedBy != nil {
+		by := new(openapi_types.UUID)
+		if err := by.UnmarshalText([]byte(*link.RequestedBy)); err != nil {
+			return nil, fmt.Errorf("conversation requested by: %w", err)
+		}
+		out.RequestedBy = by
+	}
+	return out, nil
 }
 
 // connectionFields is the contract's connectionStatus and connectionRequestId for rel; a

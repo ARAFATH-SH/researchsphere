@@ -2257,6 +2257,12 @@ export interface components {
              *     Unblock instead of Connect and Message. Sent on every profile.
              */
             blockedByMe?: boolean;
+            /**
+             * @description The viewer's direct conversation with this user, so the client can open it or
+             *     say why it cannot be used (FR-16.1, FR-16.2). Null when they have none and on
+             *     the caller's own profile.
+             */
+            conversation: components["schemas"]["ProfileConversation"] | null;
             contact: components["schemas"]["PublicContact"];
             /**
              * @description The profile photo (FR-4.6) as `/api/v1/media/{fileId}`; null when not set.
@@ -2265,6 +2271,19 @@ export interface components {
             photoUrl: string | null;
             /** @description The cover image (FR-4.6) as `/api/v1/media/{fileId}`; null when not set. */
             coverUrl: string | null;
+        };
+        /** @description The viewer's conversation with a profile's owner. */
+        ProfileConversation: {
+            /** Format: uuid */
+            id: string;
+            state: components["schemas"]["ConversationState"];
+            /**
+             * Format: uuid
+             * @description Who sent the request; null when the conversation never was one.
+             */
+            requestedBy: string | null;
+            /** @description As on `Conversation`, a message from the viewer would be accepted now. */
+            canMessage: boolean;
         };
         /** @description A stored profile photo or cover image (FR-4.6). */
         ProfileImage: {

@@ -3928,6 +3928,7 @@ components:
         - connectionStatus
         - connectionRequestId
         - connectionCount
+        - conversation
         - contact
         - photoUrl
         - coverUrl
@@ -4026,6 +4027,14 @@ components:
           description: |
             True when the viewer has blocked this user (FR-16.9), so the client can offer
             Unblock instead of Connect and Message. Sent on every profile.
+        conversation:
+          nullable: true
+          description: |
+            The viewer's direct conversation with this user, so the client can open it or
+            say why it cannot be used (FR-16.1, FR-16.2). Null when they have none and on
+            the caller's own profile.
+          allOf:
+            - $ref: "#/components/schemas/ProfileConversation"
         contact:
           $ref: "#/components/schemas/PublicContact"
         photoUrl:
@@ -4037,6 +4046,25 @@ components:
           type: string
           nullable: true
           description: The cover image (FR-4.6) as `/api/v1/media/{fileId}`; null when not set.
+
+    ProfileConversation:
+      type: object
+      description: The viewer's conversation with a profile's owner.
+      required: [id, state, requestedBy, canMessage]
+      properties:
+        id:
+          type: string
+          format: uuid
+        state:
+          $ref: "#/components/schemas/ConversationState"
+        requestedBy:
+          type: string
+          format: uuid
+          nullable: true
+          description: Who sent the request; null when the conversation never was one.
+        canMessage:
+          type: boolean
+          description: As on `Conversation`, a message from the viewer would be accepted now.
 
     ProfileImage:
       type: object

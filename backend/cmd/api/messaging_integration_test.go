@@ -745,3 +745,79 @@ func TestMessagesCreateNoNotification(t *testing.T) {
 		t.Errorf("%d notifications", n)
 	}
 }
+
+// profileChat is the viewer's conversation on the owner's profile, nil when it is null.
+func (e mediaEnv) profileChat(t *testing.T, viewer, owner string) map[string]any {
+	t.Helper()
+	code, p := e.call(t, viewer, http.MethodGet, "/api/v1/profiles/"+owner, "")
+	if code != http.StatusOK {
+		t.Fatalf("profile: %d %v", code, p)
+	}
+	value, present := p["conversation"]
+	if !present {
+		t.Fatal("profile has no conversation field")
+	}
+	chat, _ := value.(map[string]any)
+	return chat
+}
+
+func wantProfileChat(t *testing.T, what string, chat map[string]any, id, state string, requestedBy any, canMessage bool) {
+	t.Helper()
+	if chat == nil {
+		t.Fatalf("%s: conversation is null", what)
+	}
+	if chat["id"] != id || chat["state"] != state || chat["requestedBy"] != requestedBy || chat["canMessage"] != canMessage {
+		t.Errorf("%s: %v; want %s %s by %v canMessage %v", what, chat, id, state, requestedBy, canMessage)
+	}
+}
+
+// A profile shows the viewer's own conversation with its owner, in every state, for each
+// side; a third user sees null, and so does the owner on their own profile.
+func TestProfileShowsConversation(t *testing.T) {
+	e := newMediaEnv(t)
+	ada, bob, cy, dee := e.newProfileUser(t), e.newProfileUser(t), e.newProfileUser(t), e.newProfileUser(t)
+
+	if chat := e.profileChat(t, ada, bob); chat != nil {
+		t.Errorf("before any message: %v", chat)
+	}
+
+	// Pending: each side sees who asked, and neither can send.
+	id, _ := e.startChat(t, ada, bob, "hello")
+	wantProfileChat(t, "sender of a request", e.profileChat(t, ada, bob), id, "request", ada, false)
+	wantProfileChat(t, "receiver of a request", e.profileChat(t, bob, ada), id, "request", ada, false)
+	if chat := e.profileChat(t, cy, bob); chat != nil {
+		t.Errorf("third user: %v", chat)
+	}
+
+	// Active.
+	if code, body := e.call(t, bob, http.MethodPost, "/api/v1/conversations/"+id+"/accept", ""); code != http.StatusOK {
+		t.Fatalf("accept: %d %v", code, body)
+	}
+	wantProfileChat(t, "active", e.profileChat(t, ada, bob), id, "active", ada, true)
+
+	// Active but blocked: the blocker still opens the profile, and cannot send.
+	e.block(t, ada, bob)
+	wantProfileChat(t, "blocker", e.profileChat(t, ada, bob), id, "active", ada, false)
+	e.unblock(t, ada, bob)
+
+	// Declined: the sender is told by the profile, which the list never does.
+	declined, _ := e.startChat(t, dee, bob, "hello")
+	if code, body := e.call(t, bob, http.MethodPost, "/api/v1/conversations/"+declined+"/decline", ""); code != http.StatusOK {
+		t.Fatalf("decline: %d %v", code, body)
+	}
+	wantProfileChat(t, "declined", e.profileChat(t, dee, bob), declined, "declined", dee, false)
+
+	// Connected from the start: never a request.
+	e.link(t, cy, dee)
+	direct, _ := e.startChat(t, cy, dee, "hello")
+	wantProfileChat(t, "connected", e.profileChat(t, cy, dee), direct, "active", nil, true)
+
+	// One's own profile, by either route.
+	if chat := e.profileChat(t, ada, ada); chat != nil {
+		t.Errorf("own profile by ID: %v", chat)
+	}
+	code, own := e.call(t, ada, http.MethodGet, "/api/v1/profiles/me", "")
+	if value, present := own["conversation"]; code != http.StatusOK || !present || value != nil {
+		t.Errorf("profiles/me: %d conversation %v present %v", code, value, present)
+	}
+}

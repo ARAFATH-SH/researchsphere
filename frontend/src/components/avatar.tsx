@@ -4,11 +4,14 @@ import { useState } from "react";
 
 import { initials } from "@/lib/initials";
 
-// The avatar sizes: sm in the top bar, bar in the sticky profile bar and the phone top bar,
-// menu in the Me menu, post beside the home composer, list in a My Network row, result in a
-// search result row, md on the home profile card and lg in the profile header.
+// The avatar sizes: sm in the top bar, bubble beside a message, thread in a conversation's
+// header, bar in the sticky profile bar and the phone top bar, menu in the Me menu, post beside
+// the home composer and in a conversation row, list in a My Network row, result in a search
+// result row, md on the home profile card and lg in the profile header.
 const sizes = {
   sm: "size-6 text-[10px]",
+  bubble: "size-8 text-xs",
+  thread: "size-10 text-sm",
   bar: "size-9 text-sm",
   menu: "size-12 text-base",
   post: "size-11 text-sm",

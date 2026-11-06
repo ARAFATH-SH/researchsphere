@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { type ReactNode, Suspense } from "react";
 
 import { Container } from "@/components/Container";
@@ -6,10 +5,9 @@ import { Logo } from "@/components/logo";
 import { CurrentSiteFooter } from "@/components/site-footer";
 import { BadgePoller } from "@/features/notification/badge-poller";
 
-import { MessagingIcon } from "./icons";
 import { MeMenu } from "./me-menu";
 import { SearchBox, type SearchBoxVariant, StaticSearchBox } from "./search-box";
-import { CurrentTabList, TabList, type TabListVariant } from "./tab-list";
+import { CurrentTabList, PhoneMessagingLink, TabList, type TabListVariant } from "./tab-list";
 
 // AppShell is the signed-in frame (docs/ui-guidelines.md, Signed-in pages): a sticky 52px
 // top bar with the logo, search and icon tabs, whose tabs move to a 56px bottom bar from 481
@@ -33,13 +31,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <header className="fixed inset-x-0 top-0 z-[70] hidden h-14 items-center gap-3 border-b border-rs-nav-border bg-rs-surface px-3 font-rs-ui text-rs-nav-text shadow-rs-bar max-[480px]:flex">
         <MeMenu placement="phone" />
         <Search id="phone-search" variant="phone" />
-        <Link
-          href="/messaging"
-          aria-label="Messaging"
-          className="relative flex size-11 flex-none items-center justify-center rounded-full text-rs-nav-muted focus-visible:shadow-focus focus-visible:outline-none"
-        >
-          <MessagingIcon />
-        </Link>
+        <PhoneMessagingLink />
       </header>
 
       <Container as="main" className="flex-1 pt-6 pb-12 max-[640px]:pt-4 max-[640px]:pb-8">

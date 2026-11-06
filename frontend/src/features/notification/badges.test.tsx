@@ -1,6 +1,7 @@
 import { act, render, screen } from "@testing-library/react";
 
 import type { Session } from "@/features/auth/session";
+import { refreshUnreadMessages, resetUnreadMessages } from "@/features/messaging/unread-count";
 import { refreshPendingInvitations } from "@/features/social/pending-invitations";
 
 import { getUnreadNotificationCount } from "./api";
@@ -10,6 +11,7 @@ import { resetUnreadNotifications, useUnreadNotifications } from "./unread-count
 
 jest.mock("./api");
 jest.mock("@/features/social/pending-invitations");
+jest.mock("@/features/messaging/unread-count");
 const mockSession = jest.fn<Session, []>();
 jest.mock("@/features/auth/session", () => ({ useSession: () => mockSession() }));
 
@@ -21,6 +23,7 @@ const signedIn: Session = {
 
 const mockCount = jest.mocked(getUnreadNotificationCount);
 const mockPending = jest.mocked(refreshPendingInvitations);
+const mockMessages = jest.mocked(refreshUnreadMessages);
 
 let visibility: DocumentVisibilityState = "visible";
 Object.defineProperty(document, "visibilityState", { configurable: true, get: () => visibility });
@@ -48,6 +51,7 @@ beforeEach(() => {
   mockSession.mockReturnValue(signedIn);
   mockCount.mockResolvedValue({ ok: true, data: 4 });
   mockPending.mockResolvedValue();
+  mockMessages.mockResolvedValue();
   resetUnreadNotifications();
 });
 afterEach(() => {
@@ -56,6 +60,16 @@ afterEach(() => {
 });
 
 describe("badge poller", () => {
+  it("refreshes the Messaging badge with the others, and forgets it on sign-out", async () => {
+    const { unmount } = render(<BadgePoller />);
+    await act(async () => {});
+    expect(mockMessages).toHaveBeenCalledWith(adaID);
+    await advance(pollInterval);
+    expect(mockMessages).toHaveBeenCalledTimes(2);
+    unmount();
+    expect(resetUnreadMessages).toHaveBeenCalled();
+  });
+
   it("fetches both counts on sign-in, then every 60 seconds", async () => {
     const { unmount } = render(
       <>

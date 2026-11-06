@@ -1567,6 +1567,11 @@ type Profile struct {
 	// item that is set. Links are visible to every logged-in user.
 	Contact PublicContact `json:"contact"`
 
+	// Conversation The viewer's direct conversation with this user, so the client can open it or
+	// say why it cannot be used (FR-16.1, FR-16.2). Null when they have none and on
+	// the caller's own profile.
+	Conversation *ProfileConversation `json:"conversation"`
+
 	// Country ISO 3166-1 alpha-2 code in capitals, such as DE.
 	//
 	// Example: DE
@@ -1616,6 +1621,20 @@ type Profile struct {
 	// Skills The user's skills (FR-4.2), sorted by name ignoring letter case.
 	Skills []Tag              `json:"skills"`
 	UserId openapi_types.UUID `json:"userId"`
+}
+
+// ProfileConversation The viewer's conversation with a profile's owner.
+type ProfileConversation struct {
+	// CanMessage As on `Conversation`, a message from the viewer would be accepted now.
+	CanMessage bool               `json:"canMessage"`
+	Id         openapi_types.UUID `json:"id"`
+
+	// RequestedBy Who sent the request; null when the conversation never was one.
+	RequestedBy *openapi_types.UUID `json:"requestedBy"`
+
+	// State `active`: both members can send. `request`: waiting for the receiver to accept.
+	// `declined`: closed for good.
+	State ConversationState `json:"state"`
 }
 
 // ProfileImage A stored profile photo or cover image (FR-4.6).

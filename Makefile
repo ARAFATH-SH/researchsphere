@@ -20,7 +20,7 @@ TEST_REDIS_URL    ?= redis://localhost:6379/15
 MIGRATIONS_DIR := backend/db/migrations
 
 .DEFAULT_GOAL := help
-.PHONY: help up down logs ps psql check migrate migrate-down migrate-new admin unadmin api web stop web-clean generate check-generated test test-prepare test-db test-go test-integration test-web lint lint-go lint-web
+.PHONY: help up down logs ps psql check migrate migrate-down migrate-new admin unadmin seed-ui-compare api web stop web-clean generate check-generated test test-prepare test-db test-go test-integration test-web lint lint-go lint-web
 
 help: ## List the available commands
 	@grep -hE '^[a-zA-Z_-]+:.*## ' $(firstword $(MAKEFILE_LIST)) | awk 'BEGIN {FS = ":.*## "} {printf "  make %-16s %s\n", $$1, $$2}'
@@ -69,6 +69,9 @@ admin: ## Make an account an administrator: make admin email=ada@example.org
 unadmin: ## Make an administrator a researcher again: make unadmin email=ada@example.org
 	@test -n "$$email" || (echo "Usage: make unadmin email=ada@example.org" && exit 1)
 	@cd backend && go run ./cmd/setrole -role researcher -email "$$email"
+
+seed-ui-compare: ## Fill the local dev database with the fake accounts ui:compare signs in with (needs make migrate and UI_COMPARE_PASSWORD)
+	@cd backend && go run ./cmd/seedcompare
 
 api: ## Run the API server (needs make up; settings from .env)
 	cd backend && go run ./cmd/api

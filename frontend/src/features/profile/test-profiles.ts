@@ -29,6 +29,7 @@ export function emptyProfile(userId: string, fullName: string): Profile {
     connectionStatus: userId === adaID ? "self" : "none",
     connectionRequestId: null,
     connectionCount: 0,
+    conversation: null,
     contact: { links: [] },
     photoUrl: null,
     coverUrl: null,

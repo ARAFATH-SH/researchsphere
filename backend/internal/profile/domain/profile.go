@@ -50,6 +50,9 @@ type Profile struct {
 	ConnectionCount int
 	// BlockedByMe is true when the viewer has blocked the owner (FR-16.9).
 	BlockedByMe bool
+	// Conversation is the viewer's direct conversation with the owner (FR-16.1, FR-16.2):
+	// nil when they have none and on the viewer's own profile. View fills it.
+	Conversation *ConversationLink
 }
 
 // ConnectionStatus is the link between a viewer and another user, the owner of a profile
@@ -72,6 +75,23 @@ const (
 type ConnectionRelation struct {
 	Status    ConnectionStatus
 	RequestID *string
+}
+
+// ConversationLink is the viewer's conversation with a profile's owner. State holds the
+// contract's ConversationState. RequestedBy says who sent the request, nil when it never
+// was one; CanMessage is true when a message from the viewer would be accepted now.
+type ConversationLink struct {
+	ID          string
+	State       string
+	RequestedBy *string
+	CanMessage  bool
+}
+
+// ConversationLookup reads conversations, which the messaging module owns; cmd/api
+// supplies it.
+type ConversationLookup interface {
+	// Between returns viewerID's conversation with ownerID, nil when there is none.
+	Between(ctx context.Context, viewerID, ownerID string) (*ConversationLink, error)
 }
 
 // ConnectionLookup reads connections, which the social module owns; cmd/api supplies it.

@@ -4,6 +4,7 @@ import (
 	"context"
 
 	messagingdomain "github.com/ARAFATH-SH/researchsphere/backend/internal/messaging/domain"
+	messagingusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/messaging/usecase"
 	profiledomain "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/domain"
 	socialdomain "github.com/ARAFATH-SH/researchsphere/backend/internal/social/domain"
 	socialusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/social/usecase"
@@ -52,6 +53,32 @@ func (c connectionLookup) Relations(ctx context.Context, viewerID string, userID
 		out[id] = profiledomain.ConnectionRelation{Status: profiledomain.ConnectionStatus(r.Status), RequestID: r.RequestID}
 	}
 	return out, nil
+}
+
+// conversationLookup gives the profile module the viewer's conversation with a profile's
+// owner (FR-16.1, FR-16.2) from the messaging module, which owns conversations.
+type conversationLookup struct {
+	messaging *messagingusecase.Service
+}
+
+var _ profiledomain.ConversationLookup = conversationLookup{}
+
+// Between finds the pair's conversation and reads it as the viewer sees it, nil when none.
+func (c conversationLookup) Between(ctx context.Context, viewerID, ownerID string) (*profiledomain.ConversationLink, error) {
+	id, found, err := c.messaging.ConversationBetween(ctx, viewerID, ownerID)
+	if err != nil || !found {
+		return nil, err
+	}
+	it, err := c.messaging.Get(ctx, viewerID, id)
+	if err != nil {
+		return nil, err
+	}
+	return &profiledomain.ConversationLink{
+		ID:          it.ID,
+		State:       string(it.State),
+		RequestedBy: it.RequestedBy,
+		CanMessage:  it.CanMessage(),
+	}, nil
 }
 
 // connectionChecker tells the messaging module whether two users are connected (FR-16.1)

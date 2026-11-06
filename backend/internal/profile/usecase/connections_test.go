@@ -129,3 +129,65 @@ func TestBlockedViewer(t *testing.T) {
 		t.Errorf("ListPublications by the blocker: %v", err)
 	}
 }
+
+// fakeConversations answers every lookup with link, or err, and records who asked.
+type fakeConversations struct {
+	link  *domain.ConversationLink
+	err   error
+	calls [][2]string
+}
+
+func (f *fakeConversations) Between(_ context.Context, viewerID, ownerID string) (*domain.ConversationLink, error) {
+	f.calls = append(f.calls, [2]string{viewerID, ownerID})
+	return f.link, f.err
+}
+
+// A profile carries the viewer's conversation with its owner, nil when there is none.
+func TestViewShowsConversation(t *testing.T) {
+	link := &domain.ConversationLink{ID: "00000000-0000-0000-0000-0000000000c1", State: "active", CanMessage: true}
+	for _, tc := range []struct {
+		name string
+		link *domain.ConversationLink
+	}{{"one exists", link}, {"none", nil}} {
+		t.Run(tc.name, func(t *testing.T) {
+			chats := &fakeConversations{link: tc.link}
+			svc := New(newFakeStore(testAccounts()...), WithConversations(chats))
+			p, err := svc.View(t.Context(), eveID, adaID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if p.Conversation != tc.link {
+				t.Errorf("Conversation = %+v, want %+v", p.Conversation, tc.link)
+			}
+			if len(chats.calls) != 1 || chats.calls[0] != [2]string{eveID, adaID} {
+				t.Errorf("Between calls %v, want one for eve viewing ada", chats.calls)
+			}
+		})
+	}
+}
+
+// One's own profile has no conversation and asks for none, by either route.
+func TestOwnProfileHasNoConversation(t *testing.T) {
+	chats := &fakeConversations{link: &domain.ConversationLink{ID: "x"}}
+	svc := New(newFakeStore(testAccounts()...), WithConversations(chats))
+	own, err := svc.GetOwn(t.Context(), adaID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	viewed, err := svc.View(t.Context(), adaID, adaID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if own.Conversation != nil || viewed.Conversation != nil || len(chats.calls) != 0 {
+		t.Errorf("own %+v, viewed %+v, %d lookups; want none", own.Conversation, viewed.Conversation, len(chats.calls))
+	}
+}
+
+// A failed lookup fails the view rather than hiding a conversation that exists.
+func TestConversationLookupError(t *testing.T) {
+	boom := errors.New("boom")
+	svc := New(newFakeStore(testAccounts()...), WithConversations(&fakeConversations{err: boom}))
+	if _, err := svc.View(t.Context(), eveID, adaID); !errors.Is(err, boom) {
+		t.Errorf("View error = %v, want boom", err)
+	}
+}

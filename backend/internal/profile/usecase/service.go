@@ -21,7 +21,8 @@ type Service struct {
 	lookup DOILookup
 	orcid  ORCIDImport
 	search PeopleSearch
-	conns  domain.ConnectionLookup // nil until WithConnections
+	conns  domain.ConnectionLookup   // nil until WithConnections
+	chats  domain.ConversationLookup // nil until WithConversations
 }
 
 // Option configures a Service.
@@ -42,6 +43,12 @@ func New(store domain.Store, opts ...Option) *Service {
 // number of connections (FR-7).
 func WithConnections(l domain.ConnectionLookup) Option {
 	return func(s *Service) { s.conns = l }
+}
+
+// WithConversations makes other people's profiles show the viewer's conversation with
+// them (FR-16.1, FR-16.2).
+func WithConversations(l domain.ConversationLookup) Option {
+	return func(s *Service) { s.chats = l }
 }
 
 // GetOwn returns the caller's profile. An account without a profile row gets an empty
@@ -79,6 +86,11 @@ func (s *Service) View(ctx context.Context, viewerID, userID string) (domain.Pro
 		return domain.Profile{}, err
 	}
 	p.BlockedByMe = blocks.ByViewer
+	if s.chats != nil && viewerID != userID {
+		if p.Conversation, err = s.chats.Between(ctx, viewerID, userID); err != nil {
+			return domain.Profile{}, err
+		}
+	}
 	return p, nil
 }
 

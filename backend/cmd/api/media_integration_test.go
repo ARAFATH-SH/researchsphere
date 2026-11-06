@@ -196,7 +196,8 @@ func wireEnv(t *testing.T, pool *pgxpool.Pool, rdb *goredis.Client, files *stora
 	profileStore := profilepg.NewStore(pool)
 	profileOpts := []profileusecase.Option{profileusecase.WithPeopleSearch(profileusecase.PeopleSearch{
 		Searcher: profileStore, Limiter: lookups.SearchLimiter(), Logger: logger,
-	}), profileusecase.WithConnections(connectionLookup{social: social})}
+	}), profileusecase.WithConnections(connectionLookup{social: social}),
+		profileusecase.WithConversations(conversationLookup{messaging: messaging})}
 	if orcidURL != "" {
 		profileOpts = append(profileOpts, profileusecase.WithORCIDImport(profileusecase.ORCIDImport{
 			Source:  orcid.New(orcid.Config{BaseURL: orcidURL, Timeout: time.Second, RetryDelay: time.Millisecond}),

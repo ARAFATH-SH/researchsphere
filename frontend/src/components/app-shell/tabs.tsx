@@ -7,7 +7,7 @@ import { HomeIcon, MeIcon, MessagingIcon, NetworkIcon, NotificationsIcon, PostIc
 export type Tab = { href: string; label: string; Icon: ComponentType; action?: boolean; countLabel?: string };
 
 // The signed-in top bar tabs, in order (docs/ui-guidelines.md, Signed-in pages). Pages
-// that later slices build (Messaging) may 404 until then. Events and the admin console are
+// that later slices build may 404 until then. Events and the admin console are
 // in the Me menu.
 export const tabs: Tab[] = [
   { href: "/home", label: "Home", Icon: HomeIcon },

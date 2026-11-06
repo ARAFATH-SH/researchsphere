@@ -291,7 +291,7 @@ func checkProfileBody(t *testing.T, rec *httptest.ResponseRecorder, wantID strin
 		"userId": wantID, "fullName": "Ada Lovelace", "headline": "Analyst", "bio": nil,
 		"institution": nil, "department": nil, "jobTitle": nil, "country": "GB", "city": "London", "orcidId": nil,
 		"interests": []any{}, "skills": []any{}, "education": []any{}, "experience": []any{}, "languages": []any{}, "publicationCount": float64(3),
-		"connectionStatus": "none", "connectionRequestId": nil, "connectionCount": float64(0), "blockedByMe": false,
+		"connectionStatus": "none", "connectionRequestId": nil, "connectionCount": float64(0), "blockedByMe": false, "conversation": nil,
 		"contact":  map[string]any{"links": []any{}},
 		"photoUrl": nil, "coverUrl": nil,
 	}

@@ -164,6 +164,7 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 			Logger:   logger,
 		}),
 		profileusecase.WithConnections(connectionLookup{social: social}),
+		profileusecase.WithConversations(conversationLookup{messaging: messaging}),
 	)
 
 	tokens := accesstoken.New(cfg.JWTSecret, accessTTL)

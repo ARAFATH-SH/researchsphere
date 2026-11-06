@@ -41,6 +41,7 @@ Run these from the repository root. `make help` prints the current list.
 | `make migrate-new name=add_users` | Create a new migration pair |
 | `make admin email=...` | Give that account the admin role (the only way to make an administrator; there is no API for it). Prints a message and fails if no account has the address. Takes effect at the user's next token refresh or login |
 | `make unadmin email=...` | Set that account back to the researcher role |
+| `make seed-ui-compare` | Create or refresh the fake accounts `npm run ui:compare` signs in with: Compare Alpha and Compare Beta, connected, with about 40 messages over several days, and Compare Gamma's pending message request to Alpha (`@compare.researchsphere.local`). Needs `make migrate` and `UI_COMPARE_PASSWORD`. Refuses a database name ending in `_test`, `APP_ENV=production` and any host but this machine |
 | `make api` | Run the API server (needs `make up`; settings from `.env`) |
 | `make web` | Run the web client dev server on port 3000; it forwards `/api/v1` to `API_URL` |
 | `make stop` | Stop this project's dev servers: the API on `API_PORT` (8080) and the Next.js dev server on ports 3000-3002. Stops only your own processes running inside this repository, prints what it stopped, and removes a stale `frontend/.next/dev/lock` when no dev server is left. Leaves the Docker containers running (use `make down` for those) |

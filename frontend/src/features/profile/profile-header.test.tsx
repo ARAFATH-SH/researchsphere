@@ -126,16 +126,19 @@ describe("ProfileHeader, connections", () => {
     const names = buttons.map((b) => b.getAttribute("aria-label") ?? b.textContent);
     expect(names.slice(-2)).toEqual(["Connect with Bob Babbage", "More"]);
     expect(screen.queryByText("Connected")).toBeNull();
+    // The design's order: Connect, Message request, More.
+    const row = within(card()).getByRole("link", { name: "Message request" });
+    expect(row.compareDocumentPosition(screen.getByRole("button", { name: "More" }))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(row.getAttribute("href")).toBe(`/messaging/new?to=${bobID}`);
   });
 
-  it("shows Connected as status text and offers Remove connection in More", async () => {
+  it("offers Message in place of Connected, and Remove connection in More", async () => {
     jest.mocked(removeConnection).mockResolvedValue({ ok: true, data: undefined });
     render(
       <ProfileHeader profile={bob({ connectionStatus: "connected", connectionCount: 5 })} />,
     );
-    const label = screen.getByText("Connected");
-    expect(label.tagName).toBe("SPAN");
-    expect(label.closest("button, a, [tabindex]")).toBeNull();
+    expect(screen.getByRole("link", { name: "Message" }).className).toContain("bg-rs-accent-strong");
+    expect(screen.queryByText("Connected")).toBeNull();
     expect(screen.queryByRole("button", { name: /connect with/i })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "More" }));
@@ -151,12 +154,21 @@ describe("ProfileHeader, connections", () => {
       fireEvent.click(within(menu).getByRole("button", { name: "Remove" })),
     );
     expect(removeConnection).toHaveBeenCalledWith(bobID);
-    expect(screen.queryByText("Connected")).toBeNull();
+    expect(screen.getByRole("link", { name: "Message request" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Connect with Bob Babbage" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "4 connections" })).toBeTruthy();
   });
 
-  it("shows Connected and counts one more after accepting their request", async () => {
+  it("keeps Connected as status text where there is no Message button", () => {
+    const conversation = { id: "c1", state: "declined" as const, requestedBy: bobID, canMessage: false };
+    render(<ProfileHeader profile={bob({ connectionStatus: "connected", conversation })} />);
+    const label = screen.getByText("Connected");
+    expect(label.tagName).toBe("SPAN");
+    expect(label.closest("button, a, [tabindex]")).toBeNull();
+    expect(screen.queryByRole("link", { name: /message/i })).toBeNull();
+  });
+
+  it("shows Message and counts one more after accepting their request", async () => {
     jest.mocked(acceptConnectionRequest).mockResolvedValue({
       ok: true,
       data: {
@@ -179,7 +191,7 @@ describe("ProfileHeader, connections", () => {
       fireEvent.click(screen.getByRole("button", { name: "Accept request from Bob Babbage" })),
     );
     expect(acceptConnectionRequest).toHaveBeenCalledWith(requestID);
-    expect(screen.getByText("Connected")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Message" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "1 connection" })).toBeTruthy();
   });
 });
