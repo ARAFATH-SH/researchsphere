@@ -1,19 +1,21 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-import { Avatar } from "@/components/avatar";
-
 import type { ConversationMember } from "./api";
+import { PresenceAvatar } from "./presence-avatar";
+import { TypingIndicator } from "./typing-indicator";
 
 type ThreadHeaderProps = {
   person: Pick<ConversationMember, "userId" | "fullName" | "photoUrl" | "headline">;
+  // typing shows that they are typing, in place of their headline.
+  typing?: boolean;
   // actions sits at the end of the row; 14A.6 puts its block and report menu here.
   actions?: ReactNode;
 };
 
 // ThreadHeader names the other person and links to their profile. Under 640px, where the
 // thread is a screen of its own, it starts with the way back to the list.
-export function ThreadHeader({ person, actions }: ThreadHeaderProps) {
+export function ThreadHeader({ person, typing = false, actions }: ThreadHeaderProps) {
   return (
     <div className="flex items-center gap-2.5 border-b border-rs-divider px-4 py-2.5">
       <Link
@@ -25,7 +27,7 @@ export function ThreadHeader({ person, actions }: ThreadHeaderProps) {
           <path d="M15 5l-7 7 7 7" />
         </svg>
       </Link>
-      <Avatar name={person.fullName} src={person.photoUrl} size="thread" decorative />
+      <PresenceAvatar userId={person.userId} name={person.fullName} src={person.photoUrl} size="thread" />
       <div className="min-w-0 flex-1">
         <Link
           href={`/profile/${person.userId}`}
@@ -33,7 +35,8 @@ export function ThreadHeader({ person, actions }: ThreadHeaderProps) {
         >
           {person.fullName}
         </Link>
-        {person.headline && <p className="truncate text-rs-caption text-rs-text-muted">{person.headline}</p>}
+        {person.headline && !typing && <p className="truncate text-rs-caption text-rs-text-muted">{person.headline}</p>}
+        <div role="status">{typing && <TypingIndicator name={person.fullName} />}</div>
       </div>
       {actions}
     </div>

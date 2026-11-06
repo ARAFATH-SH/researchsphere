@@ -15,6 +15,9 @@ decline, block and report stay REST. Delivery is at most once, and REST stays th
   profiles, ..." (SRS 2.3).
 - The `Origin` header must equal the origin of `APP_BASE_URL`. A missing one is refused.
 - When the upgrade answers 101, the user's event channel is already live.
+- The browser connects to this URL directly, not through the Next.js rewrite. The address comes
+  from `NEXT_PUBLIC_WS_URL`: `ws://localhost:8080/api/v1/ws` in development, and in production
+  `wss://<domain>/api/v1/ws` on the web client's own domain.
 
 | Status | `code` | Meaning |
 | --- | --- | --- |
@@ -34,11 +37,13 @@ to connect should refresh and try again with backoff, and go on polling meanwhil
   stored: anything sent while the socket was closed is gone.
 - **While a conversation is open, refresh presence every 60 s** with `GET /api/v1/presence`.
   This covers a crashed API instance, which cannot send `online: false`.
-- Keep the 60 s poll of the notification count as a fallback (FR-9.4).
+- Keep the 60 s poll of the notification and message counts as the fallback while the socket is
+  down, and stop it while connected, as events carry them (FR-9.4). The connection-request count
+  has no event, so it is polled either way.
 - Treat events as idempotent: `presence` can repeat, and the sending tab receives its own
   `message.created`, which it matches by `clientId`.
 - Clear a typing indicator on `conversation.updated`, and by itself if no `isTyping: false`
-  arrives within about 8 s.
+  arrives within 6 s of the last start.
 
 ## Close codes
 
@@ -49,10 +54,14 @@ to connect should refresh and try again with backoff, and go on polling meanwhil
 | 1013 | The send buffer filled up, or the connection died | Reconnect with backoff, then refetch |
 | 4401 | The access token expired | Refresh, then reconnect |
 | 4403 | The session ended: logout on any device, suspension, password change or reset, account deleted | Refresh. If that works, reconnect; if it is refused, the user is signed out |
-| 4409 | Replaced by a newer socket: the user has more than 5 | **Not reconnect**, or tabs would keep closing each other |
+| 4409 | Replaced by a newer socket: the user has more than 5 | **Not reconnect** until the person shows the tab again, or tabs would keep closing each other. Go on polling |
 
 An access token lasts 15 minutes, so expect 4401 about that often. A socket cannot take a new
 token; the client reconnects with the refreshed cookie.
+
+Every tab holds the same cookie, so all of a browser's sockets get 4401 at the same moment.
+Tabs must take turns refreshing: a retired refresh token ends the session at once
+(`docs/decisions.md`, 2026-10-13).
 
 ## Limits
 

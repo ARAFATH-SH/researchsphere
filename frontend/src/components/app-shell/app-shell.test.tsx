@@ -20,6 +20,7 @@ jest.mock("@/features/auth/api");
 jest.mock("@/features/social/pending-invitations", () => ({ usePendingInvitations: () => 0 }));
 // The badge poller has its own tests (features/notification/badges.test.tsx).
 jest.mock("@/features/notification/badge-poller", () => ({ BadgePoller: () => null }));
+jest.mock("@/features/realtime/realtime-connector", () => ({ RealtimeConnector: () => null }));
 // The Me menu fetches the signed-in user's own profile for its photo.
 jest.mock("@/features/profile/api");
 const mockGetMyProfile = jest.mocked(getMyProfile);

@@ -21,14 +21,18 @@ export type Outbox = {
   outgoing: Outgoing[];
   send: (body: string) => void;
   retry: (clientId: string) => void;
+  // confirm drops a message whose echo arrived on the socket, whether before the send's answer
+  // or instead of it.
+  confirm: (clientId: string) => void;
 };
 
 // useOutbox holds messages on their way. Each gets a clientId when written and keeps it on
-// every retry, so a retry after a lost answer stores nothing new; 14A.5 will use the same ID
-// to recognise the socket's echo of a message still listed here.
+// every retry, so a retry after a lost answer stores nothing new, and the socket's echo of a
+// message still listed here carries the same ID.
 export function useOutbox(options: OutboxOptions): Outbox {
   const [outgoing, setOutgoing] = useState<Outgoing[]>([]);
   const latest = useRef(options);
+  const confirmed = useRef(new Set<string>());
   useEffect(() => {
     latest.current = options;
   });
@@ -40,6 +44,7 @@ export function useOutbox(options: OutboxOptions): Outbox {
       setOutgoing((prev) => prev.filter((o) => o.clientId !== clientId));
       return;
     }
+    if (confirmed.current.has(clientId)) return;
     setOutgoing((prev) => prev.map((o) => (o.clientId === clientId ? { ...o, status: "failed" } : o)));
     latest.current.onFailed(res);
   }
@@ -57,7 +62,12 @@ export function useOutbox(options: OutboxOptions): Outbox {
     void run(item);
   }
 
-  return { outgoing, send, retry };
+  function confirm(clientId: string) {
+    confirmed.current.add(clientId);
+    setOutgoing((prev) => prev.filter((o) => o.clientId !== clientId));
+  }
+
+  return { outgoing, send, retry, confirm };
 }
 
 // outgoingMessages shows the outbox in a thread.

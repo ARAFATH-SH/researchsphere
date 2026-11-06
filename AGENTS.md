@@ -133,11 +133,15 @@ check, tests and a production build.
   | `lib/api/` | `client.ts`, the one API client (openapi-fetch), and `schema.gen.ts`, generated from `docs/openapi.yaml` (do not edit; run `make generate`) |
   | `lib/` | Other helpers that belong to no feature |
   | `features/<module>/` | Code for one feature, named after the backend module (health, auth, profile, social, project, event, notification, messaging); created when the module has code |
+  | `features/realtime/` | The one WebSocket client of a tab (`socket.ts`), its event types and React hooks; the stores of each feature listen to it |
   | `features/search/` | The search page, which spans modules: its People tab uses the profile module's search API; Projects and Posts tabs join it with their slices |
 
   Every API call goes through `lib/api/client.ts`, never a hand-written `fetch`. The browser
   calls `/api/v1` on its own origin and `next.config.ts` forwards it to `API_URL`, which is
-  read on the server only (never `NEXT_PUBLIC_`). Jest tests (`*.test.ts(x)`) sit beside the
+  read on the server only (never `NEXT_PUBLIC_`). The one exception is the WebSocket, which goes
+  straight to the API at `NEXT_PUBLIC_WS_URL`, because a rewrite is not known to carry it
+  (`docs/decisions.md`). Every session refresh goes through `refreshSession` in `lib/api/client.ts`,
+  so tabs take turns. Jest tests (`*.test.ts(x)`) sit beside the
   code they test and mock the API module, not the network. Pages except the workspace must
   work at 768 pixels wide (SRS 5.1).
 - **Layout widths:** Use Container for page width; never set max-width on a section.

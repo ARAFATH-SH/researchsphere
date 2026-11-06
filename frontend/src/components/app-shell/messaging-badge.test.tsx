@@ -1,7 +1,7 @@
 import { act, render, screen, within } from "@testing-library/react";
 
 import { getMessageUnreadCount } from "@/features/messaging/api";
-import { refreshUnreadMessages, resetUnreadMessages } from "@/features/messaging/unread-count";
+import { refreshUnreadMessages, resetUnreadMessages, setUnreadMessages } from "@/features/messaging/unread-count";
 
 import { CurrentTabList, PhoneMessagingLink } from "./tab-list";
 
@@ -59,5 +59,13 @@ describe("Messaging badge", () => {
     await setCounts(4, 0);
     const link = screen.getByRole("link", { name: "Messaging, 4 unread" });
     expect(within(link).getByText("4")).toBeTruthy();
+  });
+});
+
+describe("Messaging badge from an event", () => {
+  it("shows the counts unread.changed gives", async () => {
+    render(<PhoneMessagingLink />);
+    await act(async () => setUnreadMessages(adaID, { total: 2, requests: 1 }));
+    expect(screen.getByRole("link", { name: /Messaging/ }).textContent).toContain("3");
   });
 });

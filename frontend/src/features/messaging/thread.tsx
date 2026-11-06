@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { useSession } from "@/features/auth/session";
+import { useRealtimeEvent } from "@/features/realtime/use-realtime";
 
 import { acceptMessageRequest, type Conversation, declineMessageRequest, sendMessage, type SentMessage } from "./api";
 import { Composer } from "./composer";
@@ -13,10 +14,12 @@ import { isStale, sendNotice, type SendNotice } from "./send-errors";
 import { ThreadBanner } from "./thread-banner";
 import { ThreadHeader } from "./thread-header";
 import { refreshUnreadMessages } from "./unread-count";
+import { useIsTyping } from "./typing";
 import { useConversations } from "./use-conversations";
 import { useMarkRead } from "./use-mark-read";
 import { outgoingMessages, useOutbox } from "./use-outbox";
 import { type Thread as ThreadHandle, useThread } from "./use-thread";
+import { useTypingSender } from "./use-typing-sender";
 
 // Thread is the right column: one conversation (FR-16.1 to FR-16.3). Give it a key per
 // conversation, so nothing carries over from the last one.
@@ -84,6 +87,20 @@ function LoadedThread({ me, thread, state }: LoadedThreadProps) {
     },
   });
 
+  const typing = useTypingSender(conversation.id, status === "open");
+  const otherTyping = useIsTyping(conversation.id);
+
+  // The echo of a message this tab sent can arrive before the send's answer. useThread stores
+  // it under the clientId, so its row stays the same one.
+  useRealtimeEvent((event) => {
+    if (event.type === "message.created" && event.data.clientId) outbox.confirm(event.data.clientId);
+  });
+
+  function send(body: string) {
+    typing.stop();
+    outbox.send(body);
+  }
+
   // A request is not read until it is accepted, and a declined one never is (FR-16.2); the
   // sender's own message has moved their marker already.
   const newest = messages.at(-1);
@@ -112,7 +129,7 @@ function LoadedThread({ me, thread, state }: LoadedThreadProps) {
 
   return (
     <section aria-label={`Conversation with ${conversation.otherMember.fullName}`} className="flex h-full min-h-0 flex-col">
-      <ThreadHeader person={conversation.otherMember} />
+      <ThreadHeader person={conversation.otherMember} typing={otherTyping} />
       <MessageList
         messages={[...messages, ...outgoingMessages(outbox.outgoing, me)]}
         me={me}
@@ -134,7 +151,7 @@ function LoadedThread({ me, thread, state }: LoadedThreadProps) {
           onDecline={decline}
         />
       )}
-      <Composer disabled={status !== "open"} notice={notice} onSend={outbox.send} />
+      <Composer disabled={status !== "open"} notice={notice} onSend={send} onInput={typing.input} onBlur={typing.stop} />
     </section>
   );
 }

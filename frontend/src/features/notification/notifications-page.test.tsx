@@ -1,5 +1,7 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 
+import { FakeWebSocket } from "@/features/realtime/fake-websocket";
+import { startSocket, stopSocket } from "@/features/realtime/socket";
 import { acceptConnectionRequest, rejectConnectionRequest } from "@/features/social/api";
 import { fakeDate } from "@/test/fake-date";
 
@@ -314,5 +316,25 @@ describe("NotificationsPage", () => {
       fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     });
     expect(rows()).toHaveLength(1);
+  });
+});
+
+describe("a notification on the socket", () => {
+  beforeEach(() => {
+    FakeWebSocket.install();
+    startSocket({ url: "ws://test", refresh: jest.fn(), onSessionLost: jest.fn() });
+    FakeWebSocket.latest().accept();
+  });
+  afterEach(stopSocket);
+
+  it("goes on top of the open page, once", async () => {
+    mockList.mockResolvedValue(page([accepted("n-old", "Old Friend")]));
+    render(<NotificationsPage />);
+    await screen.findByRole("list", { name: "Notifications" });
+    const fresh = accepted("n-new", "New Friend", { read: false });
+    await act(async () => FakeWebSocket.latest().receive("notification.created", fresh));
+    await act(async () => FakeWebSocket.latest().receive("notification.created", fresh));
+    expect(rows()).toHaveLength(2);
+    expect(rows()[0].textContent).toContain("New Friend");
   });
 });

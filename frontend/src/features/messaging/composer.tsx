@@ -12,12 +12,16 @@ type ComposerProps = {
   disabled?: boolean;
   notice?: SendNotice | null;
   onSend: (body: string) => void;
+  // onInput gets the text after each change and onBlur tells the box lost focus; together they
+  // drive the typing indicator.
+  onInput?: (body: string) => void;
+  onBlur?: () => void;
 };
 
 // Composer writes a message: Enter sends, Shift+Enter adds a line, and the box grows to five
 // lines. A character being composed by an input method is not a send. The count appears near
 // the limit; the server trims, so the count does too.
-export function Composer({ disabled = false, notice = null, onSend }: ComposerProps) {
+export function Composer({ disabled = false, notice = null, onSend, onInput, onBlur }: ComposerProps) {
   const [body, setBody] = useState("");
   const box = useRef<HTMLTextAreaElement>(null);
   const inputId = useId();
@@ -71,7 +75,11 @@ export function Composer({ disabled = false, notice = null, onSend }: ComposerPr
             value={body}
             disabled={disabled}
             placeholder="Write a message…"
-            onChange={(e) => setBody(e.target.value)}
+            onChange={(e) => {
+              setBody(e.target.value);
+              onInput?.(e.target.value);
+            }}
+            onBlur={onBlur}
             onKeyDown={onKeyDown}
             className="block w-full resize-none rounded-card border border-rs-control bg-rs-surface px-3 py-2 text-rs-body text-rs-text placeholder:text-rs-text-muted focus-visible:shadow-focus focus-visible:outline-none disabled:cursor-not-allowed disabled:border-rs-control-disabled disabled:bg-rs-subtle"
           />

@@ -5,8 +5,9 @@ import { useSession } from "@/features/auth/session";
 import { getMessageUnreadCount, type MessageUnreadCount } from "./api";
 
 // The signed-in user's unread messages and pending message requests (FR-16.3), shown on the
-// Messaging tab and in the list's tabs. Only the badge poller (features/notification/badges.ts)
-// and the messaging pages refresh it; readers never fetch. 14A.5 moves it to socket events.
+// Messaging tab and in the list's tabs. The badge poller (features/notification/badges.ts) keeps
+// it current, from unread.changed events while the socket is open and by polling otherwise, and
+// the messaging pages refresh it; readers never fetch.
 
 type Entry = { userId: string; counts: MessageUnreadCount };
 
@@ -32,6 +33,12 @@ export async function refreshUnreadMessages(userId: string): Promise<void> {
   const res = await getMessageUnreadCount();
   if (mine !== generation) return;
   if (res.ok) set({ userId, counts: res.data });
+}
+
+// setUnreadMessages stores counts the caller already knows, as an unread.changed event gives them.
+export function setUnreadMessages(userId: string, counts: MessageUnreadCount): void {
+  generation++;
+  set({ userId, counts });
 }
 
 // useUnreadMessages returns the signed-in user's counts; zero until they are known or when

@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import { homeCard } from "@/features/home/cards";
 
 import { ConversationList } from "./conversation-list";
+import { ReconnectingNotice } from "./reconnecting-notice";
 import { ConversationsProvider } from "./use-conversations";
 
 // Heights under the signed-in shell, so the card fills the screen and its columns scroll on
@@ -20,16 +21,19 @@ export function MessagingShell({ children }: { children: ReactNode }) {
   const inThread = pathname.startsWith("/messaging/");
   return (
     <ConversationsProvider>
-      <div className={`${homeCard} ${height} flex overflow-hidden`}>
-        <section
-          aria-label="Conversations"
-          className={`flex w-[320px] min-w-0 shrink-0 flex-col border-r border-rs-border max-[640px]:w-full max-[640px]:border-r-0 ${
-            inThread ? "max-[640px]:hidden" : ""
-          }`}
-        >
-          <ConversationList />
-        </section>
-        <div className={`min-w-0 flex-1 ${inThread ? "" : "max-[640px]:hidden"}`}>{children}</div>
+      <div className={`${homeCard} ${height} flex flex-col overflow-hidden`}>
+        <ReconnectingNotice />
+        <div className="flex min-h-0 flex-1">
+          <section
+            aria-label="Conversations"
+            className={`flex w-[320px] min-w-0 shrink-0 flex-col border-r border-rs-border max-[640px]:w-full max-[640px]:border-r-0 ${
+              inThread ? "max-[640px]:hidden" : ""
+            }`}
+          >
+            <ConversationList />
+          </section>
+          <div className={`min-w-0 flex-1 ${inThread ? "" : "max-[640px]:hidden"}`}>{children}</div>
+        </div>
       </div>
     </ConversationsProvider>
   );

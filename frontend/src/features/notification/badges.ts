@@ -1,15 +1,19 @@
 import { useEffect } from "react";
 
 import { useSession } from "@/features/auth/session";
-import { refreshUnreadMessages, resetUnreadMessages } from "@/features/messaging/unread-count";
+import { refreshUnreadMessages, resetUnreadMessages, setUnreadMessages } from "@/features/messaging/unread-count";
+import type { RealtimeEvent } from "@/features/realtime/events";
+import { onConnected, onRealtimeEvent, socketStatus } from "@/features/realtime/socket";
 import { refreshPendingInvitations } from "@/features/social/pending-invitations";
 
-import { refreshUnreadNotifications, resetUnreadNotifications } from "./unread-count";
+import { refreshUnreadNotifications, resetUnreadNotifications, setUnreadNotifications } from "./unread-count";
 
 // The one badge poller of the app (FR-9.4). While a user is signed in and the browser tab
 // is visible it refreshes the Notifications, My Network and Messaging badges every 60
 // seconds; it pauses while the tab is hidden and refreshes at once when the tab is shown again.
-// Starting it twice for the same user changes nothing, so however many components mount
+// While the socket is open the Notifications and Messaging counts come as events instead, so only
+// My Network, which has no event, goes on being polled. After every connect all are fetched, as
+// events are not stored (docs/realtime.md). Starting it twice for the same user changes nothing, so however many components mount
 // it there is one timer.
 
 export const pollInterval = 60_000;
@@ -26,8 +30,24 @@ export function refreshBadges(userId: string): void {
 }
 
 function tick(): void {
+  if (!polling) return;
+  if (socketStatus() === "open") void refreshPendingInvitations(polling);
+  else refreshBadges(polling);
+}
+
+function onConnect(): void {
   if (polling) refreshBadges(polling);
 }
+
+function onEvent(event: RealtimeEvent): void {
+  if (!polling) return;
+  if (event.type === "unread.changed") setUnreadMessages(polling, event.data);
+  // Every notification is followed by this count, so notification.created need not touch it.
+  else if (event.type === "notifications.unread") setUnreadNotifications(polling, event.data.count);
+  else if (event.type === "notification.created" && event.data.type.startsWith("connection_request")) void refreshPendingInvitations(polling);
+}
+
+let stopListening: (() => void)[] = [];
 
 function startTimer(): void {
   if (timer === null) timer = setInterval(tick, pollInterval);
@@ -54,6 +74,7 @@ export function startBadgePolling(userId: string): void {
   if (polling !== null) stopBadgePolling();
   polling = userId;
   document.addEventListener("visibilitychange", onVisibilityChange);
+  stopListening = [onConnected(onConnect), onRealtimeEvent(onEvent)];
   if (document.visibilityState === "visible") {
     tick();
     startTimer();
@@ -66,6 +87,8 @@ export function stopBadgePolling(): void {
   polling = null;
   stopTimer();
   document.removeEventListener("visibilitychange", onVisibilityChange);
+  stopListening.forEach((stop) => stop());
+  stopListening = [];
   resetUnreadNotifications();
   resetUnreadMessages();
 }
