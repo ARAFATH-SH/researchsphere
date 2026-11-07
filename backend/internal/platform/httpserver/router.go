@@ -3,10 +3,13 @@
 package httpserver
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/api/gen"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpx"
@@ -26,15 +29,10 @@ func NewRouter(logger *slog.Logger, si gen.StrictServerInterface, auth func(http
 func newRouter(logger *slog.Logger, si gen.StrictServerInterface, auth func(http.Handler) http.Handler, extra func(*http.ServeMux)) http.Handler {
 	mux := http.NewServeMux()
 
-	strict := gen.NewStrictHandlerWithOptions(si, nil, gen.StrictHTTPServerOptions{
+	strict := gen.NewStrictHandlerWithOptions(si, []gen.StrictMiddlewareFunc{withRequest}, gen.StrictHTTPServerOptions{
 		RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
 			logger.WarnContext(r.Context(), "bad request", slog.Any("error", err))
-			message := "The request is not valid."
-			var unknown *gen.UnknownFieldError
-			if errors.As(err, &unknown) {
-				message = fmt.Sprintf("The request has an unknown field %q.", unknown.Field)
-			}
-			httpx.WriteError(w, http.StatusBadRequest, httpx.CodeBadRequest, message)
+			writeBodyError(w, err)
 		},
 		ResponseErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
 			logger.ErrorContext(r.Context(), "handler failed", slog.Any("error", err))
@@ -45,8 +43,15 @@ func newRouter(logger *slog.Logger, si gen.StrictServerInterface, auth func(http
 		BaseRouter:  mux,
 		Middlewares: []gen.MiddlewareFunc{auth},
 		ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
-			logger.WarnContext(r.Context(), "bad request parameters", slog.Any("error", err))
-			httpx.WriteError(w, http.StatusBadRequest, httpx.CodeBadRequest, "The request parameters are not valid.")
+			fe := paramError(err)
+			if fe == nil {
+				logger.WarnContext(r.Context(), "bad request parameters")
+				httpx.WriteError(w, http.StatusBadRequest, httpx.CodeBadRequest, "The request parameters are not valid.")
+				return
+			}
+			// The parameter's name only: err quotes the value that was sent.
+			logger.WarnContext(r.Context(), "bad request parameter", slog.String("field", fe.Field))
+			httpx.WriteFieldError(w, http.StatusBadRequest, httpx.CodeBadRequest, fe.Error(), fe.Field)
 		},
 	})
 	if extra != nil {
@@ -60,6 +65,62 @@ func newRouter(logger *slog.Logger, si gen.StrictServerInterface, auth func(http
 	handler = httpx.AccessLog(logger)(handler)
 	handler = httpx.RequestID(handler)
 	return handler
+}
+
+// withRequest gives a strict handler the HTTP request, which the generated request object
+// leaves out; a WebSocket upgrade needs its headers.
+func withRequest(f gen.StrictHandlerFunc, _ string) gen.StrictHandlerFunc {
+	return func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error) {
+		return f(httpx.WithRequest(ctx, r), w, r, request)
+	}
+}
+
+// writeBodyError answers a JSON body that the generated handlers could not decode, naming
+// the field when one is at fault. Nothing here repeats what was sent, apart from the name
+// of an unknown field.
+func writeBodyError(w http.ResponseWriter, err error) {
+	var (
+		field   *gen.FieldError
+		unknown *gen.UnknownFieldError
+	)
+	switch {
+	case errors.As(err, &field):
+		httpx.WriteFieldError(w, http.StatusBadRequest, httpx.CodeBadRequest, field.Error(), field.Field)
+	case errors.As(err, &unknown):
+		httpx.WriteFieldError(w, http.StatusBadRequest, httpx.CodeBadRequest,
+			fmt.Sprintf("The request has an unknown field %q.", unknown.Field), unknown.Field)
+	case errors.Is(err, gen.ErrMalformedBody):
+		httpx.WriteError(w, http.StatusBadRequest, httpx.CodeBadRequest, "The request body is not valid JSON.")
+	case errors.Is(err, gen.ErrBodyNotObject):
+		httpx.WriteError(w, http.StatusBadRequest, httpx.CodeBadRequest, "The request body must be a JSON object.")
+	case errors.Is(err, io.EOF):
+		httpx.WriteError(w, http.StatusBadRequest, httpx.CodeBadRequest, "The request body is required.")
+	default:
+		httpx.WriteError(w, http.StatusBadRequest, httpx.CodeBadRequest, "The request is not valid.")
+	}
+}
+
+// paramError says which path or query parameter is at fault and why, nil for any other
+// error. A parameter that is not a string fails on its number or boolean parsing.
+func paramError(err error) *gen.FieldError {
+	var (
+		required *gen.RequiredParamError
+		invalid  *gen.InvalidParamFormatError
+	)
+	switch {
+	case errors.As(err, &required):
+		return &gen.FieldError{Field: required.ParamName, Problem: "is required"}
+	case errors.As(err, &invalid):
+		var parse *strconv.NumError
+		if errors.As(invalid.Err, &parse) {
+			if parse.Func == "ParseBool" {
+				return &gen.FieldError{Field: invalid.ParamName, Problem: "must be true or false"}
+			}
+			return &gen.FieldError{Field: invalid.ParamName, Problem: "must be a whole number"}
+		}
+		return &gen.FieldError{Field: invalid.ParamName, Problem: "is not valid"}
+	}
+	return nil
 }
 
 // mountAPI registers every operation in the contract on opts.BaseRouter under BaseURL.

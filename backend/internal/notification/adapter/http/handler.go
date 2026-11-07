@@ -60,7 +60,7 @@ func (h *Handler) ListNotifications(ctx context.Context, req gen.ListNotificatio
 	}
 	items := make([]gen.Notification, len(p.Items))
 	for i, it := range p.Items {
-		n, err := notificationBody(it)
+		n, err := NotificationBody(it)
 		if err != nil {
 			return nil, err
 		}
@@ -111,18 +111,19 @@ func (h *Handler) MarkAllNotificationsRead(ctx context.Context, _ gen.MarkAllNot
 	return gen.MarkAllNotificationsRead200JSONResponse{Marked: n}, nil
 }
 
-func notificationBody(it domain.Item) (gen.Notification, error) {
+// NotificationBody is a notification as the API shows it, also in a real-time event.
+func NotificationBody(it domain.Item) (gen.Notification, error) {
 	nid, err := uuid(it.ID)
 	if err != nil {
 		return gen.Notification{}, err
 	}
-	actor, err := uuid(it.Actor.UserID)
-	if err != nil {
-		return gen.Notification{}, err
-	}
-	n := gen.Notification{
-		Id: nid, Type: gen.NotificationType(it.Type), CreatedAt: it.CreatedAt, Read: it.ReadAt != nil, Link: it.Link,
-		Actor: gen.NotificationActor{UserId: actor, FullName: it.Actor.FullName, PhotoUrl: mediaURL(it.Actor.PhotoFileID)},
+	n := gen.Notification{Id: nid, Type: gen.NotificationType(it.Type), CreatedAt: it.CreatedAt, Read: it.ReadAt != nil, Link: it.Link}
+	if it.Actor != nil {
+		actor, err := uuid(it.Actor.UserID)
+		if err != nil {
+			return gen.Notification{}, err
+		}
+		n.Actor = &gen.NotificationActor{UserId: actor, FullName: it.Actor.FullName, PhotoUrl: mediaURL(it.Actor.PhotoFileID)}
 	}
 	if it.Type == domain.TypeConnectionRequestReceived {
 		rid, err := uuid(it.SubjectID)

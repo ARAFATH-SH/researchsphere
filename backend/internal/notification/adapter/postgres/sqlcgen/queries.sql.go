@@ -14,9 +14,9 @@ import (
 const countUnreadNotifications = `-- name: CountUnreadNotifications :one
 SELECT count(*)
 FROM notifications n
-JOIN users a ON a.id = n.actor_id
+LEFT JOIN users a ON a.id = n.actor_id
 WHERE n.user_id = $1 AND n.read_at IS NULL
-  AND a.email_verified_at IS NOT NULL AND a.suspended_at IS NULL
+  AND (n.actor_id IS NULL OR (a.email_verified_at IS NOT NULL AND a.suspended_at IS NULL))
 `
 
 // notifications_unread_idx finds the unread rows.
@@ -27,8 +27,25 @@ func (q *Queries) CountUnreadNotifications(ctx context.Context, userID pgtype.UU
 	return count, err
 }
 
-const deleteNotificationsBySubject = `-- name: DeleteNotificationsBySubject :exec
+const deleteNotificationsBetween = `-- name: DeleteNotificationsBetween :exec
+DELETE FROM notifications
+WHERE (user_id = $1 AND actor_id = $2) OR (user_id = $2 AND actor_id = $1)
+`
+
+type DeleteNotificationsBetweenParams struct {
+	A pgtype.UUID
+	B pgtype.UUID
+}
+
+// Everything either user was told about the other, of any type (FR-16.9).
+func (q *Queries) DeleteNotificationsBetween(ctx context.Context, arg DeleteNotificationsBetweenParams) error {
+	_, err := q.db.Exec(ctx, deleteNotificationsBetween, arg.A, arg.B)
+	return err
+}
+
+const deleteNotificationsBySubject = `-- name: DeleteNotificationsBySubject :many
 DELETE FROM notifications WHERE type = $1 AND entity_id = $2
+RETURNING user_id
 `
 
 type DeleteNotificationsBySubjectParams struct {
@@ -36,9 +53,71 @@ type DeleteNotificationsBySubjectParams struct {
 	EntityID pgtype.UUID
 }
 
-func (q *Queries) DeleteNotificationsBySubject(ctx context.Context, arg DeleteNotificationsBySubjectParams) error {
-	_, err := q.db.Exec(ctx, deleteNotificationsBySubject, arg.Type, arg.EntityID)
-	return err
+func (q *Queries) DeleteNotificationsBySubject(ctx context.Context, arg DeleteNotificationsBySubjectParams) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, deleteNotificationsBySubject, arg.Type, arg.EntityID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var user_id pgtype.UUID
+		if err := rows.Scan(&user_id); err != nil {
+			return nil, err
+		}
+		items = append(items, user_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const findNotification = `-- name: FindNotification :one
+SELECT n.id, n.actor_id, n.type, n.entity_id, n.created_at, n.read_at,
+       COALESCE(p.full_name, '')::text AS full_name, p.photo_file_id,
+       COALESCE(c.status = 'pending', false)::boolean AS request_pending
+FROM notifications n
+LEFT JOIN users a ON a.id = n.actor_id
+LEFT JOIN profiles p ON p.user_id = a.id
+LEFT JOIN connections c ON n.type = 'connection_request_received' AND c.id = n.entity_id
+WHERE n.id = $1 AND n.user_id = $2
+  AND (n.actor_id IS NULL OR (a.email_verified_at IS NOT NULL AND a.suspended_at IS NULL))
+`
+
+type FindNotificationParams struct {
+	ID     pgtype.UUID
+	UserID pgtype.UUID
+}
+
+type FindNotificationRow struct {
+	ID             pgtype.UUID
+	ActorID        pgtype.UUID
+	Type           NotificationType
+	EntityID       pgtype.UUID
+	CreatedAt      pgtype.Timestamptz
+	ReadAt         pgtype.Timestamptz
+	FullName       string
+	PhotoFileID    pgtype.UUID
+	RequestPending bool
+}
+
+// One row of ListNotifications.
+func (q *Queries) FindNotification(ctx context.Context, arg FindNotificationParams) (FindNotificationRow, error) {
+	row := q.db.QueryRow(ctx, findNotification, arg.ID, arg.UserID)
+	var i FindNotificationRow
+	err := row.Scan(
+		&i.ID,
+		&i.ActorID,
+		&i.Type,
+		&i.EntityID,
+		&i.CreatedAt,
+		&i.ReadAt,
+		&i.FullName,
+		&i.PhotoFileID,
+		&i.RequestPending,
+	)
+	return i, err
 }
 
 const listNotifications = `-- name: ListNotifications :many
@@ -46,11 +125,11 @@ SELECT n.id, n.actor_id, n.type, n.entity_id, n.created_at, n.read_at,
        COALESCE(p.full_name, '')::text AS full_name, p.photo_file_id,
        COALESCE(c.status = 'pending', false)::boolean AS request_pending
 FROM notifications n
-JOIN users a ON a.id = n.actor_id
+LEFT JOIN users a ON a.id = n.actor_id
 LEFT JOIN profiles p ON p.user_id = a.id
 LEFT JOIN connections c ON n.type = 'connection_request_received' AND c.id = n.entity_id
 WHERE n.user_id = $1
-  AND a.email_verified_at IS NOT NULL AND a.suspended_at IS NULL
+  AND (n.actor_id IS NULL OR (a.email_verified_at IS NOT NULL AND a.suspended_at IS NULL))
   AND (NOT $2::boolean OR (n.created_at, n.id) < ($3::timestamptz, $4::uuid))
 ORDER BY n.created_at DESC, n.id DESC
 LIMIT $5
@@ -118,9 +197,10 @@ func (q *Queries) ListNotifications(ctx context.Context, arg ListNotificationsPa
 const markAllNotificationsRead = `-- name: MarkAllNotificationsRead :execrows
 UPDATE notifications n
 SET read_at = now()
-FROM users a
 WHERE n.user_id = $1 AND n.read_at IS NULL
-  AND a.id = n.actor_id AND a.email_verified_at IS NOT NULL AND a.suspended_at IS NULL
+  AND (n.actor_id IS NULL OR EXISTS (
+      SELECT 1 FROM users a
+      WHERE a.id = n.actor_id AND a.email_verified_at IS NOT NULL AND a.suspended_at IS NULL))
 `
 
 func (q *Queries) MarkAllNotificationsRead(ctx context.Context, userID pgtype.UUID) (int64, error) {
@@ -134,9 +214,10 @@ func (q *Queries) MarkAllNotificationsRead(ctx context.Context, userID pgtype.UU
 const markNotificationRead = `-- name: MarkNotificationRead :execrows
 UPDATE notifications n
 SET read_at = COALESCE(n.read_at, now())
-FROM users a
 WHERE n.id = $1 AND n.user_id = $2
-  AND a.id = n.actor_id AND a.email_verified_at IS NOT NULL AND a.suspended_at IS NULL
+  AND (n.actor_id IS NULL OR EXISTS (
+      SELECT 1 FROM users a
+      WHERE a.id = n.actor_id AND a.email_verified_at IS NOT NULL AND a.suspended_at IS NULL))
 `
 
 type MarkNotificationReadParams struct {
@@ -153,13 +234,14 @@ func (q *Queries) MarkNotificationRead(ctx context.Context, arg MarkNotification
 	return result.RowsAffected(), nil
 }
 
-const putNotification = `-- name: PutNotification :exec
+const putNotification = `-- name: PutNotification :one
 
 INSERT INTO notifications (user_id, actor_id, type, entity_id)
 VALUES ($1, $2, $3, $4)
 ON CONFLICT (user_id, actor_id, type)
     WHERE type IN ('connection_request_received', 'connection_request_accepted')
     DO UPDATE SET entity_id = EXCLUDED.entity_id, created_at = now(), read_at = NULL
+RETURNING id
 `
 
 type PutNotificationParams struct {
@@ -171,17 +253,20 @@ type PutNotificationParams struct {
 
 // Notifications (FR-9). user_id is the recipient and entity_id the item, whose kind the
 // type gives (notification/domain.Registry). A notification is visible while its actor is
-// verified and not suspended; every read and every mark-as-read leaves the others out, so
-// the unread count matches the list.
+// verified and not suspended, or when it has none: a system notification is never hidden.
+// Every read and every mark-as-read leaves the others out, so the unread count matches the
+// list.
 // For the connection types notifications_connection_pair_uq allows one per recipient,
 // actor and type: a new one replaces the old (new item, created now, unread). Other types
 // are not covered by that index and are simply inserted.
-func (q *Queries) PutNotification(ctx context.Context, arg PutNotificationParams) error {
-	_, err := q.db.Exec(ctx, putNotification,
+func (q *Queries) PutNotification(ctx context.Context, arg PutNotificationParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, putNotification,
 		arg.UserID,
 		arg.ActorID,
 		arg.Type,
 		arg.EntityID,
 	)
-	return err
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
 }

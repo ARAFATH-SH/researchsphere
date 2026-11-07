@@ -155,3 +155,162 @@ func TestResetPasswordSuspendedRefused(t *testing.T) {
 		t.Errorf("login with the old password: error = %v, want nil", err)
 	}
 }
+
+// suspendFor stores a suspension as the moderation module does (FR-15.7).
+func suspendFor(t *testing.T, e *env, id string, until *time.Time, reason string) {
+	t.Helper()
+	if err := e.svc.Suspend(context.Background(), id, start, until, reason); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLoginSuspendedSaysWhyAndUntilWhen(t *testing.T) {
+	end := start.Add(48 * time.Hour)
+	tests := []struct {
+		name  string
+		until *time.Time
+	}{
+		{"temporary", &end},
+		{"permanent", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newEnv()
+			id := verifiedUser(t, e, "ada@example.org")
+			suspendFor(t, e, id, tt.until, "Repeated spam in messages")
+
+			err := login(e, "ada@example.org")
+			var refused *domain.SuspendedError
+			if !errors.As(err, &refused) || !errors.Is(err, domain.ErrAccountSuspended) {
+				t.Fatalf("Login() error = %v, want *SuspendedError", err)
+			}
+			if refused.Reason == nil || *refused.Reason != "Repeated spam in messages" {
+				t.Errorf("Reason = %v", refused.Reason)
+			}
+			if (refused.Until == nil) != (tt.until == nil) || (tt.until != nil && !refused.Until.Equal(*tt.until)) {
+				t.Errorf("Until = %v, want %v", refused.Until, tt.until)
+			}
+		})
+	}
+}
+
+// A wrong password must not reveal a suspension or its reason (FR-3.4).
+func TestLoginSuspendedWrongPasswordRevealsNothing(t *testing.T) {
+	e := newEnv()
+	id := verifiedUser(t, e, "ada@example.org")
+	suspendFor(t, e, id, nil, "Repeated spam in messages")
+
+	_, err := e.svc.Login(context.Background(), LoginInput{Email: "ada@example.org", Password: "wrong-password"})
+	var refused *domain.SuspendedError
+	if errors.As(err, &refused) || !errors.Is(err, domain.ErrInvalidCredentials) {
+		t.Fatalf("Login() error = %v, want ErrInvalidCredentials", err)
+	}
+}
+
+// A temporary suspension ends at its exact end time, checked at login, which clears it
+// (FR-15.7).
+func TestLoginTemporarySuspensionEndsByItself(t *testing.T) {
+	e := newEnv()
+	id := verifiedUser(t, e, "ada@example.org")
+	end := start.Add(24 * time.Hour)
+	suspendFor(t, e, id, &end, "Repeated spam in messages")
+
+	e.clock.t = end.Add(-time.Nanosecond)
+	if err := login(e, "ada@example.org"); !errors.Is(err, domain.ErrAccountSuspended) {
+		t.Fatalf("just before the end: error = %v, want ErrAccountSuspended", err)
+	}
+	e.clock.t = end
+	if err := login(e, "ada@example.org"); err != nil {
+		t.Fatalf("at the end: error = %v, want nil", err)
+	}
+	u := e.store.users["ada@example.org"]
+	if u.SuspendedAt != nil || u.SuspendedUntil != nil || u.suspensionReason != nil {
+		t.Errorf("suspension not cleared: %+v", u)
+	}
+}
+
+// A session that outlived a temporary suspension (one set by hand revokes nothing) refreshes
+// once it has ended, and the refresh clears it (FR-15.7).
+func TestRefreshTemporarySuspensionEndsByItself(t *testing.T) {
+	e := newEnv()
+	ctx := context.Background()
+	verifiedUser(t, e, "ada@example.org")
+	ada := loggedIn(t, e, "ada@example.org")
+	u := e.store.users["ada@example.org"]
+	at, end := start, start.Add(time.Hour)
+	u.SuspendedAt, u.SuspendedUntil = &at, &end
+	e.store.users["ada@example.org"] = u
+
+	e.clock.t = end
+	if _, err := e.svc.Refresh(ctx, ada); err != nil {
+		t.Fatalf("Refresh() error = %v, want nil", err)
+	}
+	if got := e.store.users["ada@example.org"]; got.SuspendedAt != nil {
+		t.Errorf("suspension not cleared: %+v", got)
+	}
+}
+
+func TestRefreshDuringTemporarySuspensionEndsTheSession(t *testing.T) {
+	e := newEnv()
+	verifiedUser(t, e, "ada@example.org")
+	ada := loggedIn(t, e, "ada@example.org")
+	u := e.store.users["ada@example.org"]
+	at, end := start, start.Add(time.Hour)
+	u.SuspendedAt, u.SuspendedUntil = &at, &end
+	e.store.users["ada@example.org"] = u
+
+	e.clock.t = end.Add(-time.Second)
+	if _, err := e.svc.Refresh(context.Background(), ada); !errors.Is(err, domain.ErrSessionInvalid) {
+		t.Fatalf("Refresh() error = %v, want ErrSessionInvalid", err)
+	}
+}
+
+// A suspension that has ended by time must not stop the user getting back in by a reset, even
+// before a login clears it (FR-15.7).
+func TestPasswordResetAfterSuspensionEnded(t *testing.T) {
+	e := newEnv()
+	id := verifiedUser(t, e, "ada@example.org")
+	end := start.Add(time.Hour)
+	suspendFor(t, e, id, &end, "Repeated spam in messages")
+	before := len(e.mailer.resets)
+
+	if err := e.svc.RequestPasswordReset(context.Background(), "ada@example.org"); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(e.mailer.resets); got != before {
+		t.Fatalf("during the suspension: %d emails sent, want none", got-before)
+	}
+	e.clock.t = end
+	if err := e.svc.RequestPasswordReset(context.Background(), "ada@example.org"); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(e.mailer.resets); got != before+1 {
+		t.Errorf("after the end: %d emails sent, want 1", got-before)
+	}
+}
+
+func TestUserSuspendedByTime(t *testing.T) {
+	at, end := start, start.Add(time.Hour)
+	tests := []struct {
+		name      string
+		user      domain.User
+		now       time.Time
+		suspended bool
+		expired   bool
+	}{
+		{"never", domain.User{}, end, false, false},
+		{"permanent", domain.User{SuspendedAt: &at}, end.Add(1000 * time.Hour), true, false},
+		{"before the end", domain.User{SuspendedAt: &at, SuspendedUntil: &end}, end.Add(-time.Second), true, false},
+		{"at the end", domain.User{SuspendedAt: &at, SuspendedUntil: &end}, end, false, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.user.Suspended(tt.now); got != tt.suspended {
+				t.Errorf("Suspended = %v, want %v", got, tt.suspended)
+			}
+			if got := tt.user.SuspensionExpired(tt.now); got != tt.expired {
+				t.Errorf("SuspensionExpired = %v, want %v", got, tt.expired)
+			}
+		})
+	}
+}

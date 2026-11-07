@@ -254,9 +254,10 @@ paths:
         "403":
           description: |
             The password is right but the account is suspended (`account_suspended`,
-            FR-3.4) or its email address is not verified yet (`email_not_verified`,
-            FR-1.4). Suspension is checked first. A wrong password always gets 401, so
-            this answer never reveals a suspension to someone guessing.
+            FR-3.4, with `reason` and, when it is temporary, `until`) or its email address is
+            not verified yet (`email_not_verified`, FR-1.4). Suspension is checked first. A
+            wrong password always gets 401, so this answer never reveals a suspension to
+            someone guessing. A suspension whose `until` has passed no longer counts.
           content:
             application/json:
               schema:
@@ -401,7 +402,9 @@ paths:
     get:
       operationId: getCurrentUser
       summary: Return the logged-in user
-      description: Needs the access cookie.
+      description: |
+        Needs the access cookie. `messagingRestrictedUntil` lets the client show a restriction
+        (FR-15.6) before a send is refused.
       tags: [auth]
       responses:
         "200":
@@ -409,14 +412,14 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/CurrentUser"
+                $ref: "#/components/schemas/Me"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "500":
           $ref: "#/components/responses/InternalError"
 
-  /account:
-    delete:
+  /account/delete:
+    post:
       operationId: deleteAccount
       summary: Delete the logged-in user's account after entering the password (FR-2.8, FR-2.9)
       description: |
@@ -490,8 +493,7 @@ paths:
         Needs the access cookie and the platform action "Suspend a user account" (SRS 2.3),
         so only an administrator may call it; listing users is what an administrator needs
         before suspending one. A researcher gets 403 with the one refusal body and no user
-        data (FR-3.3). Users are sorted newest first. Read only: suspending comes with
-        slice 27.
+        data (FR-3.3). Users are sorted newest first.
       tags: [admin]
       parameters:
         - name: page
@@ -529,6 +531,438 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /admin/message-reports:
+    get:
+      operationId: listMessageReports
+      summary: List reports of conversations for an administrator (FR-16.9, NFR-14)
+      description: |
+        Needs the access cookie and the platform action "Review reported conversations"
+        (SRS 2.3). 20 per page, newest first. A report's `details` are the reporter's own
+        words; the list holds no messages, so reading it writes no audit row.
+      tags: [admin]
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: "`open` or `resolved`; `open` when left out. Any other value gets 400 `bad_request`."
+          schema:
+            type: string
+        - $ref: "#/components/parameters/PageFromOne"
+      responses:
+        "200":
+          description: One page of reports.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageReportPage"
+        "400":
+          description: "`status` or `page` is not valid (`bad_request`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /admin/message-reports/{reportId}:
+    get:
+      operationId: getMessageReport
+      summary: Read a report and its conversation up to the report (FR-16.9, NFR-14)
+      description: |
+        Needs the access cookie and the platform action "Review reported conversations"
+        (SRS 2.3). This is the only way an administrator can read a conversation, and only a
+        reported one (NFR-14): messages sent after the report are never returned. 100
+        messages per page, newest first; `before` loads earlier ones. Every request writes
+        one audit row (administrator, report, time) in the same transaction as the read.
+      tags: [admin]
+      parameters:
+        - $ref: "#/components/parameters/ReportId"
+        - name: before
+          in: query
+          required: false
+          description: |
+            `nextBefore` from the previous page; leave it out for the most recent messages. A
+            value that is not a UUID gets 400 `bad_request`.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The report and one page of its conversation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageReportDetail"
+        "400":
+          description: "`before` is not valid (`bad_request`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /admin/message-reports/{reportId}/resolve:
+    post:
+      operationId: resolveMessageReport
+      summary: Close a report with an outcome (FR-16.9)
+      description: |
+        Needs the access cookie and the platform action "Review reported conversations"
+        (SRS 2.3). A report is resolved once; it stays readable afterwards. Resolving changes
+        nothing else. A moderation action given this report's ID resolves it as `action_taken`
+        itself, so an action is the way to close a report with a consequence.
+      tags: [admin]
+      parameters:
+        - $ref: "#/components/parameters/ReportId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolveMessageReportRequest"
+      responses:
+        "200":
+          description: The report, now resolved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageReport"
+        "400":
+          description: "`outcome` or `note` is not valid (`bad_request`, with `field`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The report is already resolved (`report_already_resolved`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /admin/users/{userId}/warnings:
+    post:
+      operationId: warnUser
+      summary: Warn a user (FR-15.5)
+      description: |
+        Needs the access cookie and the platform action "Warn or restrict a user" (SRS 2.3).
+        In one transaction: stores the warning, an in-app notification (`account_warning`),
+        the audit row and, with `reportId`, resolves that report as `action_taken`. The user
+        then gets an email with the reason, never the internal note. A mail failure is logged
+        and does not undo the action.
+      tags: [admin]
+      parameters:
+        - $ref: "#/components/parameters/ModeratedUserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WarnUserRequest"
+      responses:
+        "201":
+          description: The warning is stored; the body is its audit row.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModerationAction"
+        "400":
+          $ref: "#/components/responses/ModerationInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/ModerationForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/ModerationConflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /admin/users/{userId}/restrictions:
+    post:
+      operationId: restrictUser
+      summary: Stop a user sending messages for a number of days (FR-15.6)
+      description: |
+        Needs the access cookie and the platform action "Warn or restrict a user" (SRS 2.3).
+        Until it ends, sending messages and message requests gets 403 `messaging_restricted`
+        with the end time; everything else works. It ends by itself at that time. A user has
+        at most one active restriction of a kind (409 `already_restricted`): to change one,
+        lift it first. Otherwise as for a warning, without a notification.
+      tags: [admin]
+      parameters:
+        - $ref: "#/components/parameters/ModeratedUserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RestrictUserRequest"
+      responses:
+        "201":
+          description: The restriction is active; the body is its audit row.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModerationAction"
+        "400":
+          $ref: "#/components/responses/ModerationInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/ModerationForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/ModerationConflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /admin/restrictions/{restrictionId}/lift:
+    post:
+      operationId: liftRestriction
+      summary: End a restriction early (FR-15.6)
+      description: |
+        Needs the access cookie and the platform action "Warn or restrict a user" (SRS 2.3).
+        Audited and emailed like any action. It resolves no report. A restriction that has
+        ended or been lifted gets 409 `restriction_not_active`.
+      tags: [admin]
+      parameters:
+        - name: restrictionId
+          in: path
+          required: true
+          description: |
+            The restriction's ID, a UUID. It is declared as a plain string so that the login and
+            role checks run before it is read (FR-3.1); a value that is not a UUID gets 404
+            `not_found`.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReverseActionRequest"
+      responses:
+        "204":
+          description: The restriction is lifted.
+        "400":
+          $ref: "#/components/responses/ModerationInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/ModerationForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/ModerationConflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /admin/users/{userId}/suspension:
+    post:
+      operationId: suspendUser
+      summary: Suspend an account, for a time or for good (FR-3.4, FR-15.3, FR-15.7)
+      description: |
+        Needs the access cookie and the platform action "Suspend a user account" (SRS 2.3).
+        In one transaction: suspends the account, revokes all its sessions, resolves the
+        report if one is given and writes the audit row. An access token already issued works
+        until it expires, except on the write paths that check the actor (decisions.md). A
+        suspension with `until` ends by itself at that time, checked at login and refresh. An
+        account already suspended gets 409 `already_suspended`: to change it, restore first.
+      tags: [admin]
+      parameters:
+        - $ref: "#/components/parameters/ModeratedUserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SuspendUserRequest"
+      responses:
+        "200":
+          description: The account is suspended; the body is the audit row.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModerationAction"
+        "400":
+          $ref: "#/components/responses/ModerationInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/ModerationForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/ModerationConflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /admin/users/{userId}/restore:
+    post:
+      operationId: restoreUser
+      summary: Restore a suspended account (FR-15.3)
+      description: |
+        Needs the access cookie and the platform action "Suspend a user account" (SRS 2.3).
+        Audited and emailed like any action. It resolves no report. An account that is not
+        suspended, also one whose suspension has ended by time, gets 409 `not_suspended`.
+      tags: [admin]
+      parameters:
+        - $ref: "#/components/parameters/ModeratedUserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReverseActionRequest"
+      responses:
+        "200":
+          description: The account is restored; the body is the audit row.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModerationAction"
+        "400":
+          $ref: "#/components/responses/ModerationInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/ModerationForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/ModerationConflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /admin/users/{userId}/moderation:
+    get:
+      operationId: getUserModeration
+      summary: A user's moderation history, newest first (FR-15.9)
+      description: |
+        Needs the access cookie and the platform action "Warn or restrict a user" (SRS 2.3).
+        Holds warnings, restrictions, suspensions, what reversed them and the linked reports,
+        with internal notes, and `user`, the account the page is about, which is also how an
+        administrator reads the name of a suspended user. 20 per page. Reading it about another
+        administrator is allowed: only acting on one is refused.
+      tags: [admin]
+      parameters:
+        - $ref: "#/components/parameters/ModeratedUserId"
+        - $ref: "#/components/parameters/PageFromOne"
+      responses:
+        "200":
+          description: One page of the history.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModerationHistory"
+        "400":
+          description: "`page` is below 1 or not a whole number (`bad_request`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /me/warnings/pending:
+    get:
+      operationId: listPendingWarnings
+      summary: The caller's warnings not yet acknowledged, newest first (FR-15.5)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed, events
+        and recommendations" (SRS 2.3). At most 50, enough for the banner. A warning shows
+        its reason and time, never the internal note or the administrator.
+      tags: [moderation]
+      responses:
+        "200":
+          description: The pending warnings.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountWarningList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /me/warnings/{warningId}:
+    get:
+      operationId: getMyWarning
+      summary: One of the caller's warnings, acknowledged or not (FR-15.5)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed, events
+        and recommendations" (SRS 2.3). Another user's warning gets the same 404 as an
+        unknown ID. The `account_warning` notification links to the page that reads this.
+      tags: [moderation]
+      parameters:
+        - $ref: "#/components/parameters/WarningId"
+      responses:
+        "200":
+          description: The warning.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountWarning"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /me/warnings/{warningId}/acknowledge:
+    post:
+      operationId: acknowledgeWarning
+      summary: Acknowledge one of the caller's warnings (FR-15.5)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed, events
+        and recommendations" (SRS 2.3): a user must be able to clear the banner, so this
+        stays open during a restriction. Acknowledging twice succeeds and keeps the first
+        time. Another user's warning gets the same 404 as an unknown ID.
+      tags: [moderation]
+      parameters:
+        - $ref: "#/components/parameters/WarningId"
+      responses:
+        "204":
+          description: The warning is acknowledged.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -601,7 +1035,9 @@ paths:
       description: |
         Needs the access cookie and the platform action "View profiles, search, feed,
         events and recommendations" (SRS 2.3). An unknown, suspended or unverified account
-        gets the same 404 `not_found`, so the answer does not reveal which it is.
+        gets the same 404 `not_found`, so the answer does not reveal which it is. So does a
+        viewer whom this user has blocked (FR-16.9); the blocker can still open the blocked
+        person's profile, with `blockedByMe` true.
       tags: [profile]
       parameters:
         - name: userId
@@ -1713,7 +2149,8 @@ paths:
         Needs the access cookie and the platform action "View profiles, search, feed,
         events and recommendations" (SRS 2.3). Only publications the user has confirmed
         are listed, in the order of `listMyPublications`. An unknown, suspended or
-        unverified account gets the same 404 `not_found`, as for the profile.
+        unverified account gets the same 404 `not_found`, as for the profile, and so does a
+        viewer whom this user has blocked (FR-16.9).
       tags: [profile]
       parameters:
         - name: userId
@@ -1756,8 +2193,10 @@ paths:
       description: |
         Needs the access cookie and the platform action "View profiles, search, feed,
         events and recommendations" (SRS 2.3). Lists the user's connections in the order
-        of `listMyConnections`, leaving out suspended and unverified accounts. An unknown,
-        suspended or unverified account gets the same 404 `not_found`, as for the profile.
+        of `listMyConnections`, leaving out suspended and unverified accounts and anyone who
+        has blocked the viewer (FR-16.9). An unknown, suspended or unverified account gets the
+        same 404 `not_found`, as for the profile, and so does a viewer whom this user has
+        blocked.
       tags: [connections]
       parameters:
         - name: userId
@@ -1997,8 +2436,10 @@ paths:
         like, comment" (SRS 2.3). Checks run in this order: a request to oneself
         (`cannot_connect_to_self`), the daily limit (`rate_limited`), the receiver (an
         unknown, suspended or unverified account gets 404 `not_found`, as for the
-        profile), then the existing requests and connections between the two, in either
-        direction (409). A rejected request does not block a new one (FR-7.6).
+        profile), a block (FR-16.9: the same 404 for the blocked person, 409
+        `you_blocked_this_user` for the blocker), then the existing requests and connections
+        between the two, in either direction (409). A rejected request does not block a new
+        one (FR-7.6).
 
         Each user may send 50 requests a day; only requests that were created count.
         Two users who send each other a request at the same moment get one request: the
@@ -2028,7 +2469,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/Forbidden"
+          $ref: "#/components/responses/AccountSuspendedOrForbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
@@ -2036,8 +2477,8 @@ paths:
             A request or connection already exists between the two (FR-7.2):
             `request_already_pending` (the caller's earlier request is still pending),
             `request_pending_from_them` (the other user has sent the caller a request that
-            is still pending; `requestId` names it, so the caller can accept it instead) or
-            `already_connected`.
+            is still pending; `requestId` names it, so the caller can accept it instead),
+            `already_connected`, or `you_blocked_this_user` (FR-16.9).
           content:
             application/json:
               schema:
@@ -2191,6 +2632,102 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /blocks:
+    get:
+      operationId: listBlockedPeople
+      summary: List the people the logged-in user has blocked (FR-16.9)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed,
+        events and recommendations" (SRS 2.3). 20 per page, most recently blocked first.
+        Suspended and unverified accounts are left out, as in every other list.
+      tags: [connections]
+      parameters:
+        - $ref: "#/components/parameters/PageFromOne"
+      responses:
+        "200":
+          description: One page of blocked people.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BlockedPersonPage"
+        "400":
+          description: "`page` is not a whole number of at least 1 (`bad_request`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      operationId: blockUser
+      summary: Block a user (FR-16.9)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Blocking someone already blocked succeeds and changes
+        nothing. In one transaction it removes the connection and the pending connection
+        requests between the two, in both directions, deletes the notifications between them
+        and declines a pending message request between them. Each of the two may block the
+        other.
+      tags: [connections]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BlockRequest"
+      responses:
+        "204":
+          description: The user is blocked.
+        "400":
+          description: |
+            `userId` is the caller's own ID (`cannot_block_self`), or the body is not valid
+            (`bad_request`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /blocks/{userId}:
+    delete:
+      operationId: unblockUser
+      summary: Unblock a user (FR-16.9)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Unblocking someone who is not blocked, or an unknown ID,
+        succeeds and changes nothing. No removed connection, request or notification comes
+        back.
+      tags: [connections]
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          description: |
+            The blocked user's ID, a UUID. It is declared as a plain string so that the login
+            check runs before it is read (FR-3.1).
+          schema:
+            type: string
+      responses:
+        "204":
+          description: The user is not blocked by the caller.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /notifications:
     get:
       operationId: listNotifications
@@ -2320,6 +2857,429 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /messages/direct:
+    post:
+      operationId: sendDirectMessage
+      summary: Send a message to a user, finding or creating the direct conversation (FR-16.1, FR-16.2, FR-16.10)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Two users have exactly one direct conversation. When none
+        exists it is created: `active` when the two are connected (FR-16.1), otherwise a
+        `request` that the receiver must accept (FR-16.2).
+
+        Checks run in this order: oneself (`cannot_message_self`), the body (`invalid_body`),
+        `clientId` (a value already used by the sender returns the original message with
+        200, whatever the conversation's state is now, and uses no quota), the message
+        limits (`rate_limited`), the receiver (404 `not_found` for unknown, suspended or
+        not verified), a block (FR-16.9), the request limits (`rate_limited`, only when this
+        message would create a request), then the conversation's state (`request_pending`,
+        `conversation_closed`). A pending request refuses both members until the receiver
+        accepts it; if they have connected meanwhile it becomes `active` and the message
+        is sent. A `declined` conversation stays closed, also after the two connect.
+
+        A block refuses both users. The blocker gets 409 `you_blocked_this_user`. The blocked
+        person gets 403 `cannot_message` when the two have a conversation, and otherwise the
+        same 404 `not_found` as for an unknown user. A caller who has blocked the other and
+        is also blocked by them gets the blocker's answer.
+      tags: [messaging]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendDirectMessageRequest"
+      responses:
+        "200":
+          description: This `clientId` was already used; the original message.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SentMessage"
+        "201":
+          description: The message is stored.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SentMessage"
+        "400":
+          $ref: "#/components/responses/InvalidMessage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/MessageForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/MessageRefused"
+        "429":
+          $ref: "#/components/responses/MessageRateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /messages/unread-count:
+    get:
+      operationId: getMessageUnreadCount
+      summary: Count unread messages and pending message requests (FR-16.3)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed,
+        events and recommendations" (SRS 2.3). `total` counts messages from others after
+        the caller's read marker in active conversations. `requests` counts the requests
+        the `requests` box shows. Messages create no notification; this is their badge.
+      tags: [messaging]
+      responses:
+        "200":
+          description: The two counts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageUnreadCount"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /conversations:
+    get:
+      operationId: listConversations
+      summary: List the logged-in user's conversations, newest activity first (FR-16.1 to FR-16.3)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed,
+        events and recommendations" (SRS 2.3). `inbox` holds active conversations and the
+        requests the caller sent; `requests` holds requests sent to the caller, leaving out
+        those whose sender is now suspended or not verified, since they cannot be answered.
+        A declined conversation is in neither box. A conversation whose other member is
+        suspended or not verified stays in the inbox, read-only: `otherMember.available` is
+        false. Ordered by last activity, then by ID, paged by cursor.
+      tags: [messaging]
+      parameters:
+        - name: box
+          in: query
+          required: false
+          description: Which box to list; `inbox` when left out. Any other value gets 400 `bad_request`.
+          schema:
+            type: string
+        - name: cursor
+          in: query
+          required: false
+          description: |
+            `nextCursor` from the previous page; leave it out for the first page. A value
+            the server did not issue gets 400 `bad_request`.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: |
+            Items to return, from 1. Defaults to 20. A larger value than 50 is reduced to
+            50; a value below 1 gets 400 `bad_request`.
+          schema:
+            type: integer
+            minimum: 1
+            default: 20
+      responses:
+        "200":
+          description: One page of conversations.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationPage"
+        "400":
+          description: "`box`, `cursor` or `limit` is not valid (`bad_request`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /conversations/{conversationId}:
+    get:
+      operationId: getConversation
+      summary: Get one of the logged-in user's conversations (FR-16.1, NFR-14)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed,
+        events and recommendations" (SRS 2.3). Anyone who is not a member gets 404
+        `not_found`, the same answer as for an unknown ID (NFR-14). This holds for
+        administrators too: they read a conversation only through a report on it
+        (`getMessageReport`).
+      tags: [messaging]
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+      responses:
+        "200":
+          description: The conversation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /conversations/{conversationId}/messages:
+    get:
+      operationId: listMessages
+      summary: List a conversation's messages, newest first (FR-16.1, FR-16.3, NFR-14)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed,
+        events and recommendations" (SRS 2.3). Anyone who is not a member gets 404
+        `not_found` (NFR-14). `otherLastReadMessageId` is the other member's read marker,
+        so the client can show "Seen" under the caller's latest message at or before it.
+      tags: [messaging]
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+        - name: before
+          in: query
+          required: false
+          description: |
+            `nextBefore` from the previous page; leave it out for the newest messages. A
+            value that is not a UUID gets 400 `bad_request`.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: |
+            Items to return, from 1. Defaults to 30. A larger value than 100 is reduced to
+            100; a value below 1 gets 400 `bad_request`.
+          schema:
+            type: integer
+            minimum: 1
+            default: 30
+      responses:
+        "200":
+          description: One page of messages.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessagePage"
+        "400":
+          description: "`before` or `limit` is not valid (`bad_request`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      operationId: sendMessage
+      summary: Send a message in a conversation (FR-16.1, FR-16.2, FR-16.10, NFR-14)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Checks run in this order: the body (`invalid_body`),
+        membership (404 `not_found`, NFR-14), `clientId` (a value already used by the sender
+        returns the original message with 200), the message limits (`rate_limited`), the
+        other member (404 `not_found` when suspended or not verified), a block (FR-16.9: 403
+        `cannot_message` for the blocked person, 409 `you_blocked_this_user` for the blocker),
+        then the conversation's state (`request_pending`, `conversation_closed`), as for
+        `POST /messages/direct`.
+      tags: [messaging]
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendMessageRequest"
+      responses:
+        "200":
+          description: This `clientId` was already used; the original message.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SentMessage"
+        "201":
+          description: The message is stored.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SentMessage"
+        "400":
+          $ref: "#/components/responses/InvalidMessage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/MessageForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/MessageRefused"
+        "429":
+          $ref: "#/components/responses/MessageRateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /conversations/{conversationId}/read:
+    post:
+      operationId: markConversationRead
+      summary: Move the logged-in user's read marker forward (FR-16.3, NFR-14)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). The marker only moves forward: a message at or before it
+        succeeds and changes nothing. A message that is not in this conversation, or a
+        caller who is not a member, gets 404 `not_found`.
+      tags: [messaging]
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarkConversationReadRequest"
+      responses:
+        "204":
+          description: The marker is at or after the message.
+        "400":
+          description: The request body is not valid (`bad_request`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /conversations/{conversationId}/accept:
+    post:
+      operationId: acceptMessageRequest
+      summary: Accept a message request (FR-16.2)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Only the receiver of a pending request may; the
+        conversation becomes `active`. The sender, a non-member, a conversation that is not
+        a pending request, or a sender who is now suspended or not verified all get the
+        same 404 `not_found`.
+      tags: [messaging]
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+      responses:
+        "200":
+          description: The conversation, now active.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/AccountSuspendedOrForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /conversations/{conversationId}/decline:
+    post:
+      operationId: declineMessageRequest
+      summary: Decline a message request (FR-16.2)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Under the same conditions as accepting, the conversation
+        becomes `declined`: it leaves both boxes and nobody can send in it again, also if
+        the two connect later (409 `conversation_closed`).
+      tags: [messaging]
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+      responses:
+        "200":
+          description: The conversation, now declined.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/AccountSuspendedOrForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /conversations/{conversationId}/reports:
+    post:
+      operationId: reportConversation
+      summary: Report a conversation or one of its messages (FR-16.9, NFR-14)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Anyone who is not a member gets 404 `not_found` (NFR-14).
+        Checks run in this order: membership, `reason`, `details` and `messageId`
+        (`bad_request`, with `field`), the message (404 `not_found` when it is not in this
+        conversation, 400 `cannot_report_own_message` when the caller sent it), then the
+        limit of 10 reports per user per day (`rate_limited`); only stored reports count.
+        An administrator can read this conversation's messages up to the moment of the report.
+
+        Reporting does not block the other user: `blockedByMe` says whether the caller has
+        blocked them, so the client can offer to block `reportedUserId` next.
+      tags: [messaging]
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReportConversationRequest"
+      responses:
+        "201":
+          description: The report is stored.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConversationReportReceipt"
+        "400":
+          description: |
+            A field is not valid (`bad_request`, with `field`), or the message is the caller's
+            own (`cannot_report_own_message`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/AccountSuspendedOrForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          description: The user has made 10 reports in the current day (`rate_limited`).
+          headers:
+            Retry-After:
+              description: Seconds until reports are accepted again.
+              required: true
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /search/people:
     get:
       operationId: searchPeople
@@ -2327,7 +3287,9 @@ paths:
       description: |
         Needs the access cookie and the platform action "View profiles, search, feed,
         events and recommendations" (SRS 2.3). Only verified accounts that are not
-        suspended are found, as with `GET /profiles/{userId}`. Only public profile fields
+        suspended are found, as with `GET /profiles/{userId}`, and never anyone who has
+        blocked the searcher (FR-16.9), in the results, the totals or the facets. Only public
+        profile fields
         are searched: full name, institution, research interest names and headline; never
         email, phone, birthday, links or bio.
 
@@ -2411,6 +3373,95 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /ws:
+    get:
+      operationId: openWebSocket
+      summary: Open the real-time connection (FR-16.1, FR-16.3, FR-16.4, FR-9.4)
+      description: |
+        Upgrades to WebSocket. OpenAPI cannot describe what follows the upgrade, so
+        `docs/realtime.md` is the full contract: the events and their payloads, close codes,
+        limits and what a client must do after a reconnect. The payloads are the `Realtime*`
+        schemas below.
+
+        Needs the access cookie and the platform action "View profiles, search, feed, events
+        and recommendations" (SRS 2.3). The `Origin` header must be the origin of the web
+        client (`APP_BASE_URL`); a request without one is refused. When the upgrade answers
+        101 the user's event channel is already live, so a client that refetches after it
+        misses nothing. The socket only pushes events and carries typing: sending messages,
+        read markers, accept, decline, block and report stay REST.
+      tags: [realtime]
+      responses:
+        "101":
+          description: The connection is now a WebSocket.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: |
+            `forbidden`: the user's role does not permit the action (FR-3.2).
+            `origin_not_allowed`: the `Origin` header is missing or is not the web client's.
+            `account_suspended`: the caller's account was suspended after this session began,
+            with `reason` and `until`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "426":
+          description: The request is not a WebSocket upgrade (`upgrade_required`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          description: Real-time delivery is down (`realtime_unavailable`). REST keeps working.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /presence:
+    get:
+      operationId: getPresence
+      summary: Read who is online (FR-16.4)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed, events
+        and recommendations" (SRS 2.3). A person's status is shown only to someone who shares
+        an active conversation with them, with no block either way. Everyone else reads
+        `online: false`, the same answer as for someone who is offline, so the reply says
+        nothing about who may be seen. Every ID asked for is answered, once.
+      tags: [realtime]
+      parameters:
+        - name: userIds
+          in: query
+          required: false
+          description: |
+            Comma-separated user IDs, 1 to 50. It is required: it is declared as an optional
+            string only so that the login check runs before it is read (FR-3.1). A missing,
+            empty or longer list, or a value that is not a UUID, gets 400 `bad_request` with
+            `field`.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The status of each ID.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PresenceList"
+        "400":
+          description: "`userIds` is not valid (`bad_request`, with `field`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
   securitySchemes:
     cookieAuth:
@@ -2420,6 +3471,52 @@ components:
       description: The access token set by `POST /auth/login`.
 
   parameters:
+    PageFromOne:
+      name: page
+      in: query
+      required: false
+      description: The page to return, from 1. Defaults to 1. A value below 1 gets 400 `bad_request`.
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    ModeratedUserId:
+      name: userId
+      in: path
+      required: true
+      description: |
+        The user's ID, a UUID. It is declared as a plain string so that the login and role
+        checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+      schema:
+        type: string
+    WarningId:
+      name: warningId
+      in: path
+      required: true
+      description: |
+        The warning's ID, a UUID. It is declared as a plain string so that the login and role
+        checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+      schema:
+        type: string
+    ReportId:
+      name: reportId
+      in: path
+      required: true
+      description: |
+        The report's ID, a UUID. It is declared as a plain string so that the login and role
+        checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+      schema:
+        type: string
+    ConversationId:
+      name: conversationId
+      in: path
+      required: true
+      description: |
+        The conversation's ID, a UUID. It is declared as a plain string so that the login
+        check runs before it is read (FR-3.1); a value that is not a UUID names no
+        conversation and gets 404 `not_found`.
+      schema:
+        type: string
     ConnectionListPage:
       name: page
       in: query
@@ -2583,6 +3680,24 @@ components:
           type: string
           description: Readable explanation for the user.
           example: The requested resource does not exist.
+        field:
+          type: string
+          description: |
+            On `bad_request`, the body field or parameter that broke the contract, when
+            one did. A nested field is a dotted path and a list item has its index, such as
+            `items[2].name`. The submitted value is never repeated.
+          example: clientId
+        reason:
+          type: string
+          description: |
+            On `account_suspended`, the reason the administrator gave the user. Absent for an
+            account suspended before reasons were recorded.
+        until:
+          type: string
+          format: date-time
+          description: |
+            On `account_suspended`, when a temporary suspension ends; absent when it is
+            permanent. On `messaging_restricted`, when the restriction ends.
 
     Health:
       type: object
@@ -2741,6 +3856,21 @@ components:
         role:
           $ref: "#/components/schemas/Role"
 
+    Me:
+      description: The logged-in user as `GET /auth/me` returns it.
+      allOf:
+        - $ref: "#/components/schemas/CurrentUser"
+        - type: object
+          required: [messagingRestrictedUntil]
+          properties:
+            messagingRestrictedUntil:
+              type: string
+              format: date-time
+              nullable: true
+              description: |
+                When the user's messaging restriction ends (FR-15.6); null when there is none,
+                also once it has ended or been lifted.
+
     Role:
       type: string
       description: |
@@ -2750,8 +3880,8 @@ components:
 
     AdminUser:
       type: object
-      description: One user account as an administrator sees it in the users list.
-      required: [id, fullName, email, role, verified, suspended, createdAt]
+      description: One user account as an administrator sees it.
+      required: [id, fullName, email, role, verified, suspended, suspensionReason, suspendedUntil, createdAt]
       properties:
         id:
           type: string
@@ -2767,7 +3897,20 @@ components:
           description: The email address is verified (FR-1.4).
         suspended:
           type: boolean
-          description: The account is suspended (FR-3.4).
+          description: |
+            The account is suspended now (FR-3.4). A suspension that has ended by time reads
+            false, also before the user's next login clears it.
+        suspensionReason:
+          type: string
+          nullable: true
+          description: |
+            What the user was told. Null unless `suspended` is true, and for an account
+            suspended before reasons were recorded.
+        suspendedUntil:
+          type: string
+          format: date-time
+          nullable: true
+          description: When a temporary suspension ends. Null unless `suspended` is true, and when it is permanent.
         createdAt:
           type: string
           format: date-time
@@ -2814,6 +3957,7 @@ components:
         - connectionStatus
         - connectionRequestId
         - connectionCount
+        - conversation
         - contact
         - photoUrl
         - coverUrl
@@ -2905,7 +4049,21 @@ components:
           type: integer
           description: |
             How many connections the user has (FR-7.4), counting only verified accounts
-            that are not suspended; the `total` of `listProfileConnections`.
+            that are not suspended, and leaving out people who blocked the viewer; the
+            `total` of `listProfileConnections`.
+        blockedByMe:
+          type: boolean
+          description: |
+            True when the viewer has blocked this user (FR-16.9), so the client can offer
+            Unblock instead of Connect and Message. Sent on every profile.
+        conversation:
+          nullable: true
+          description: |
+            The viewer's direct conversation with this user, so the client can open it or
+            say why it cannot be used (FR-16.1, FR-16.2). Null when they have none and on
+            the caller's own profile.
+          allOf:
+            - $ref: "#/components/schemas/ProfileConversation"
         contact:
           $ref: "#/components/schemas/PublicContact"
         photoUrl:
@@ -2917,6 +4075,25 @@ components:
           type: string
           nullable: true
           description: The cover image (FR-4.6) as `/api/v1/media/{fileId}`; null when not set.
+
+    ProfileConversation:
+      type: object
+      description: The viewer's conversation with a profile's owner.
+      required: [id, state, requestedBy, canMessage]
+      properties:
+        id:
+          type: string
+          format: uuid
+        state:
+          $ref: "#/components/schemas/ConversationState"
+        requestedBy:
+          type: string
+          format: uuid
+          nullable: true
+          description: Who sent the request; null when the conversation never was one.
+        canMessage:
+          type: boolean
+          description: As on `Conversation`, a message from the viewer would be accepted now.
 
     ProfileImage:
       type: object
@@ -3084,7 +4261,7 @@ components:
       properties:
         code:
           type: string
-          enum: [request_already_pending, request_pending_from_them, already_connected]
+          enum: [request_already_pending, request_pending_from_them, already_connected, you_blocked_this_user]
         message:
           type: string
         requestId:
@@ -3103,17 +4280,223 @@ components:
         sides (FR-7.6).
       enum: [none, pending_sent, pending_received, connected, self]
 
+    WarnUserRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          $ref: "#/components/schemas/ModerationReason"
+        note:
+          $ref: "#/components/schemas/ModerationNote"
+        reportId:
+          $ref: "#/components/schemas/ModerationReportId"
+
+    RestrictUserRequest:
+      type: object
+      required: [kind, days, reason]
+      properties:
+        kind:
+          type: string
+          enum: [messaging]
+        days:
+          type: integer
+          minimum: 1
+          maximum: 90
+        reason:
+          $ref: "#/components/schemas/ModerationReason"
+        note:
+          $ref: "#/components/schemas/ModerationNote"
+        reportId:
+          $ref: "#/components/schemas/ModerationReportId"
+
+    SuspendUserRequest:
+      type: object
+      required: [reason]
+      properties:
+        until:
+          type: string
+          format: date-time
+          description: |
+            When the suspension ends: 1 to 365 days from now, with 5 minutes of slack at each
+            end for the time the request takes. Left out, the suspension is permanent.
+        reason:
+          $ref: "#/components/schemas/ModerationReason"
+        note:
+          $ref: "#/components/schemas/ModerationNote"
+        reportId:
+          $ref: "#/components/schemas/ModerationReportId"
+
+    ReverseActionRequest:
+      type: object
+      description: Lifting and restoring reverse an action, so they name no report.
+      required: [reason]
+      properties:
+        reason:
+          $ref: "#/components/schemas/ModerationReason"
+        note:
+          $ref: "#/components/schemas/ModerationNote"
+
+    ModerationReason:
+      type: string
+      minLength: 10
+      maxLength: 1000
+      description: What the user is told, by email and in the app. 10 to 1000 characters, trimmed.
+
+    ModerationNote:
+      type: string
+      maxLength: 1000
+      description: For administrators only. It is never shown or sent to the user.
+
+    ModerationReportId:
+      type: string
+      description: |
+        A report about this user to resolve as `action_taken`. Unknown gets 404, about someone
+        else 400 with `field`, already resolved 409 `report_already_resolved`; each undoes the
+        action.
+
+    ModerationActionKind:
+      type: string
+      enum: [warning, restriction, restriction_lifted, suspension, restoration]
+
+    ModerationLinkedReport:
+      type: object
+      nullable: true
+      description: The report the action resolved. Null when none, or when it has since been deleted.
+      required: [id, reason, outcome, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        reason:
+          $ref: "#/components/schemas/ReportReason"
+        outcome:
+          type: string
+          enum: [dismissed, action_taken]
+        createdAt:
+          type: string
+          format: date-time
+
+    ModerationAction:
+      type: object
+      description: One row of the audit trail, as only an administrator sees it.
+      required: [id, userId, action, reason, note, adminId, adminName, reportId, report, warningId, restrictionId, endsAt, acknowledgedAt, liftedAt, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        action:
+          $ref: "#/components/schemas/ModerationActionKind"
+        reason:
+          type: string
+        note:
+          type: string
+          nullable: true
+        adminId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Null once the administrator's account is deleted.
+        adminName:
+          type: string
+          nullable: true
+        reportId:
+          type: string
+          format: uuid
+          nullable: true
+        report:
+          $ref: "#/components/schemas/ModerationLinkedReport"
+        warningId:
+          type: string
+          format: uuid
+          nullable: true
+        restrictionId:
+          type: string
+          format: uuid
+          nullable: true
+        endsAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: When a restriction or a temporary suspension ends. Null when permanent.
+        acknowledgedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the user acknowledged a warning.
+        liftedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: When a restriction was lifted early.
+        createdAt:
+          type: string
+          format: date-time
+
+    ModerationHistory:
+      type: object
+      required: [user, items, page, pageSize, total]
+      properties:
+        user:
+          $ref: "#/components/schemas/AdminUser"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ModerationAction"
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+
+    AccountWarning:
+      type: object
+      description: A warning as its user sees it. It holds no note and names no administrator.
+      required: [id, reason, createdAt, acknowledged, acknowledgedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        reason:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        acknowledged:
+          type: boolean
+        acknowledgedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the user first acknowledged it; null until then.
+
+    AccountWarningList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AccountWarning"
+
     NotificationType:
       type: string
       description: |
         What happened (FR-9.1). `connection_request_received`: the actor sent the caller a
         connection request. `connection_request_accepted`: the actor accepted the caller's
-        request. Later slices add the project, comment and like types.
-      enum: [connection_request_received, connection_request_accepted]
+        request. `account_warning`: an administrator warned the caller; a system notification,
+        with no actor. Later slices add the project, comment and like types.
+      enum: [connection_request_received, connection_request_accepted, account_warning]
 
     NotificationActor:
       type: object
-      description: The user who caused the notification.
+      description: |
+        The user who caused the notification. A system notification comes from ResearchSphere
+        and has no actor: the field is left out, and a client treats null the same way.
+      nullable: true
       required: [userId, fullName, photoUrl]
       properties:
         userId:
@@ -3128,7 +4511,7 @@ components:
 
     Notification:
       type: object
-      required: [id, type, createdAt, read, link, actor]
+      required: [id, type, createdAt, read, link]
       properties:
         id:
           type: string
@@ -3144,7 +4527,8 @@ components:
           type: string
           description: |
             The web client path of the item it is about (FR-9.5):
-            `/network` for a received request, `/profile/{actorId}` for an accepted one.
+            `/network` for a received request, `/profile/{actorId}` for an accepted one,
+            `/warnings/{warningId}` for a warning.
         actor:
           $ref: "#/components/schemas/NotificationActor"
         requestId:
@@ -3170,6 +4554,381 @@ components:
           nullable: true
           description: Pass as `cursor` to get the next page; null on the last page.
 
+    SendDirectMessageRequest:
+      type: object
+      required: [userId, body, clientId]
+      properties:
+        userId:
+          type: string
+          format: uuid
+          description: The receiver.
+        body:
+          type: string
+          description: 1 to 5,000 characters after trimming; line breaks are kept.
+        clientId:
+          type: string
+          format: uuid
+          description: Made by the client for each new message and sent again on a retry, so a retry stores nothing new.
+
+    SendMessageRequest:
+      type: object
+      required: [body, clientId]
+      properties:
+        body:
+          type: string
+          description: 1 to 5,000 characters after trimming; line breaks are kept.
+        clientId:
+          type: string
+          format: uuid
+          description: Made by the client for each new message and sent again on a retry, so a retry stores nothing new.
+
+    MarkConversationReadRequest:
+      type: object
+      required: [messageId]
+      properties:
+        messageId:
+          type: string
+          format: uuid
+          description: The latest message the caller has read.
+
+    ConversationState:
+      type: string
+      description: |
+        `active`: both members can send. `request`: waiting for the receiver to accept.
+        `declined`: closed for good.
+      enum: [active, request, declined]
+
+    Message:
+      type: object
+      required: [id, conversationId, senderId, body, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: A UUIDv7; within a conversation, a later message has a greater ID.
+        conversationId:
+          type: string
+          format: uuid
+        senderId:
+          type: string
+          format: uuid
+        body:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    SentMessage:
+      type: object
+      required: [message, conversationState]
+      properties:
+        message:
+          $ref: "#/components/schemas/Message"
+        conversationState:
+          $ref: "#/components/schemas/ConversationState"
+
+    ConversationMember:
+      type: object
+      description: The other member of a direct conversation.
+      required: [userId, fullName, photoUrl, headline, available]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        fullName:
+          type: string
+        photoUrl:
+          type: string
+          nullable: true
+          description: The member's profile photo as `/api/v1/media/{fileId}`; null when not set.
+        headline:
+          type: string
+          nullable: true
+        available:
+          type: boolean
+          description: False when the member is suspended or not verified; the conversation is then read-only.
+
+    MessagePreview:
+      type: object
+      required: [senderId, body, createdAt]
+      properties:
+        senderId:
+          type: string
+          format: uuid
+        body:
+          type: string
+          description: The first 120 characters of the message.
+        createdAt:
+          type: string
+          format: date-time
+
+    Conversation:
+      type: object
+      required: [id, state, otherMember, lastMessage, unreadCount, requestedBy, lastMessageAt, canMessage, blockedByMe]
+      properties:
+        id:
+          type: string
+          format: uuid
+        state:
+          $ref: "#/components/schemas/ConversationState"
+        otherMember:
+          $ref: "#/components/schemas/ConversationMember"
+        lastMessage:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/MessagePreview"
+        unreadCount:
+          type: integer
+          description: Messages from the other member after the caller's read marker.
+        requestedBy:
+          type: string
+          format: uuid
+          nullable: true
+          description: Who sent the request; null when the conversation never was one.
+        lastMessageAt:
+          type: string
+          format: date-time
+        canMessage:
+          type: boolean
+          description: |
+            True when a message from the caller would be accepted now: the conversation is
+            `active`, the other member is available and neither has blocked the other
+            (FR-16.9).
+        blockedByMe:
+          type: boolean
+          description: True when the caller has blocked the other member. A blocked person is never told.
+
+    ConversationPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Conversation"
+        nextCursor:
+          type: string
+          nullable: true
+          description: Pass as `cursor` to get the next page; null on the last page.
+
+    MessagePage:
+      type: object
+      required: [items, nextBefore, otherLastReadMessageId]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Message"
+        nextBefore:
+          type: string
+          nullable: true
+          description: Pass as `before` to get older messages; null on the last page.
+        otherLastReadMessageId:
+          type: string
+          format: uuid
+          nullable: true
+          description: The other member's read marker; null until they have read a message.
+
+    BlockRequest:
+      type: object
+      required: [userId]
+      properties:
+        userId:
+          type: string
+          format: uuid
+          description: The user to block.
+
+    BlockedPerson:
+      type: object
+      required: [userId, fullName, photoUrl, headline, blockedAt]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        fullName:
+          type: string
+        photoUrl:
+          type: string
+          nullable: true
+          description: The profile photo as `/api/v1/media/{fileId}`; null when not set.
+        headline:
+          type: string
+          nullable: true
+        blockedAt:
+          type: string
+          format: date-time
+
+    BlockedPersonPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/BlockedPerson"
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+          description: Blocked people on all pages.
+
+    ReportReason:
+      type: string
+      enum: [spam, harassment, inappropriate, other]
+
+    ReportConversationRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          $ref: "#/components/schemas/ReportReason"
+        details:
+          type: string
+          description: At most 1,000 characters after trimming; empty means none.
+          maxLength: 1000
+        messageId:
+          type: string
+          format: uuid
+          description: The message being reported, when it is one message. It must be in this conversation and not the caller's.
+
+    ConversationReportReceipt:
+      type: object
+      required: [id, createdAt, reportedUserId, blockedByMe]
+      properties:
+        id:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        reportedUserId:
+          type: string
+          format: uuid
+          description: The other member, whom the client can offer to block.
+        blockedByMe:
+          type: boolean
+          description: Whether the caller has blocked that user. Reporting never does it.
+
+    MessageReportPerson:
+      type: object
+      required: [userId, fullName, photoUrl, headline, role]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        fullName:
+          type: string
+        role:
+          $ref: "#/components/schemas/Role"
+        photoUrl:
+          type: string
+          nullable: true
+          description: The profile photo as `/api/v1/media/{fileId}`; null when not set.
+        headline:
+          type: string
+          nullable: true
+
+    MessageReport:
+      type: object
+      required: [id, conversationId, status, reason, details, messageId, reporter, reportedUser, createdAt, outcome, note, resolvedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        conversationId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [open, resolved]
+        reason:
+          $ref: "#/components/schemas/ReportReason"
+        details:
+          type: string
+          nullable: true
+          description: The reporter's own words.
+        messageId:
+          type: string
+          format: uuid
+          nullable: true
+          description: The reported message; null when the whole conversation was reported.
+        reporter:
+          $ref: "#/components/schemas/MessageReportPerson"
+        reportedUser:
+          $ref: "#/components/schemas/MessageReportPerson"
+        createdAt:
+          type: string
+          format: date-time
+          description: The moment of the report; an administrator sees messages only up to it.
+        outcome:
+          type: string
+          nullable: true
+          enum: [dismissed, action_taken]
+        note:
+          type: string
+          nullable: true
+        resolvedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    MessageReportPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/MessageReport"
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+          description: Reports with this status on all pages.
+
+    MessageReportDetail:
+      type: object
+      required: [report, messages, nextBefore]
+      properties:
+        report:
+          $ref: "#/components/schemas/MessageReport"
+        messages:
+          type: array
+          description: Newest first, none later than the report.
+          items:
+            $ref: "#/components/schemas/Message"
+        nextBefore:
+          type: string
+          nullable: true
+          description: Pass as `before` to load earlier messages; null on the last page.
+
+    ResolveMessageReportRequest:
+      type: object
+      required: [outcome]
+      properties:
+        outcome:
+          type: string
+          enum: [dismissed, action_taken]
+        note:
+          type: string
+          description: At most 1,000 characters after trimming; empty means none.
+          maxLength: 1000
+
+    MessageUnreadCount:
+      type: object
+      required: [total, requests]
+      properties:
+        total:
+          type: integer
+          description: Unread messages in active conversations.
+        requests:
+          type: integer
+          description: Pending message requests to the caller.
+
     UnreadNotificationCount:
       type: object
       required: [count]
@@ -3184,6 +4943,126 @@ components:
         marked:
           type: integer
           description: How many unread notifications were marked as read.
+
+    PresenceStatus:
+      type: object
+      required: [userId, online]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        online:
+          type: boolean
+          description: True when the user has at least one open socket and the caller may see it.
+
+    PresenceList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PresenceStatus"
+
+    RealtimeEventType:
+      type: string
+      description: The `type` of a server event. `docs/realtime.md` gives each one's `data`.
+      enum:
+        - message.created
+        - conversation.read
+        - conversation.updated
+        - unread.changed
+        - typing
+        - presence
+        - notification.created
+        - notifications.unread
+
+    RealtimeEvent:
+      type: object
+      description: |
+        One server-to-client WebSocket frame, as JSON text. `data` is `RealtimeMessageCreated`,
+        `RealtimeConversationRead`, `RealtimeConversationUpdated`, `MessageUnreadCount`,
+        `RealtimeTyping`, `PresenceStatus`, `Notification` or `UnreadNotificationCount`,
+        by `type`.
+      required: [type, data]
+      properties:
+        type:
+          $ref: "#/components/schemas/RealtimeEventType"
+        data:
+          type: object
+
+    RealtimeMessageCreated:
+      type: object
+      required: [message, conversationState]
+      properties:
+        message:
+          $ref: "#/components/schemas/Message"
+        conversationState:
+          $ref: "#/components/schemas/ConversationState"
+        clientId:
+          type: string
+          format: uuid
+          description: |
+            The sender's `clientId`, only in the copy sent to the sender's own sockets, so the
+            sending tab can match it. The other member never gets it.
+
+    RealtimeConversationRead:
+      type: object
+      description: The other member moved their read marker (FR-16.3).
+      required: [conversationId, messageId]
+      properties:
+        conversationId:
+          type: string
+          format: uuid
+        messageId:
+          type: string
+          format: uuid
+
+    RealtimeConversationUpdated:
+      type: object
+      description: |
+        The conversation's state or `canMessage` changed for the recipient, who gets their own
+        view of it. It never says why, so a blocked person is not told about a block.
+      required: [conversationId, state, canMessage]
+      properties:
+        conversationId:
+          type: string
+          format: uuid
+        state:
+          $ref: "#/components/schemas/ConversationState"
+        canMessage:
+          type: boolean
+
+    RealtimeTyping:
+      type: object
+      required: [conversationId, userId, isTyping]
+      properties:
+        conversationId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        isTyping:
+          type: boolean
+
+    RealtimeClientEvent:
+      type: object
+      description: |
+        One client-to-server WebSocket frame, as JSON text, at most 4 KB. Anything else is
+        ignored.
+      required: [type, data]
+      properties:
+        type:
+          type: string
+          enum: [typing.start, typing.stop]
+        data:
+          type: object
+          required: [conversationId]
+          properties:
+            conversationId:
+              type: string
+              format: uuid
 
     ProfileUpdate:
       type: object
@@ -4166,6 +6045,83 @@ components:
 
 
   responses:
+    InvalidMessage:
+      description: |
+        `cannot_message_self`, `invalid_body` (empty after trimming, over 5,000 characters,
+        or holding a NUL character), or `bad_request` for a body that is not JSON or a
+        missing or malformed `userId` or `clientId`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ModerationInvalid:
+      description: |
+        `reason`, `note`, `days`, `until`, `kind` or `reportId` is not valid (`bad_request`, with
+        `field`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ModerationForbidden:
+      description: |
+        `forbidden`: the user's role does not permit the action (FR-3.2).
+        `cannot_moderate_admin`: the target is an administrator, the caller included (FR-15.10).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ModerationConflict:
+      description: |
+        `already_restricted`, `already_suspended`, `not_suspended`, `restriction_not_active`, or
+        `report_already_resolved`. Nothing is changed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    AccountSuspendedOrForbidden:
+      description: |
+        `forbidden`: the user's role does not permit the action (FR-3.2).
+        `account_suspended`: the caller's account was suspended after this session began, with
+        `reason` and `until`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    MessageForbidden:
+      description: |
+        `forbidden`: the user's role does not permit the action (FR-3.2).
+        `cannot_message`: this person cannot be messaged. It does not say why (FR-16.9).
+        `account_suspended`: the caller's account was suspended after this session began, with
+        `reason` and `until`. `messaging_restricted`: the caller may not send messages until
+        `until` (FR-15.6).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    MessageRefused:
+      description: |
+        `request_pending`: the receiver has not accepted the request yet.
+        `conversation_closed`: the request was declined.
+        `you_blocked_this_user`: the caller has blocked the other user (FR-16.9).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    MessageRateLimited:
+      description: |
+        The user has sent too many messages or message requests (`rate_limited`). The
+        defaults are 30 messages a minute and 1,000 a day, and 5 new requests a minute and
+        20 a day (FR-16.10).
+      headers:
+        Retry-After:
+          description: Seconds until sending is accepted again.
+          required: true
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
     InvalidConnectionPage:
       description: "`page` is not a whole number of at least 1 (`bad_request`)."
       content:

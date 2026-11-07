@@ -6,6 +6,7 @@ import { type FormEvent, useState } from "react";
 
 import { rsButtonClass } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
+import { dateAndTime } from "@/lib/date-time";
 
 import { login, resendVerification } from "./api";
 import { authLinkClass } from "./auth-card";
@@ -17,7 +18,6 @@ import { type LoginErrors, type LoginValues, validateLogin } from "./validation"
 // One message for an unknown address and a wrong password, so the page does not reveal
 // which accounts exist (FR-2.1).
 export const INVALID_CREDENTIALS_MESSAGE = "The email address or password is incorrect.";
-const SUSPENDED_MESSAGE = "This account is suspended. Contact support.";
 
 // LoginForm signs a user in (FR-2.1) and goes to /home. An address that is not verified
 // yet is refused, with a button to send a new verification link (FR-1.4, FR-1.5). A
@@ -28,12 +28,14 @@ export function LoginForm() {
   const [errors, setErrors] = useState<LoginErrors>({});
   const [formError, setFormError] = useState<string>();
   const [unverified, setUnverified] = useState<{ message: string; email: string }>();
+  const [suspended, setSuspended] = useState<Suspension>();
   const [submitting, setSubmitting] = useState(false);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFormError(undefined);
     setUnverified(undefined);
+    setSuspended(undefined);
     const found = validateLogin(values);
     setErrors(found);
     if (Object.keys(found).length > 0) return;
@@ -48,7 +50,7 @@ export function LoginForm() {
     }
     setSubmitting(false);
     if (res.code === "invalid_credentials") setFormError(INVALID_CREDENTIALS_MESSAGE);
-    else if (res.code === "account_suspended") setFormError(SUSPENDED_MESSAGE); // FR-3.4
+    else if (res.code === "account_suspended") setSuspended({ reason: res.reason, until: res.until }); // FR-3.4
     else if (res.code === "email_not_verified") setUnverified({ message: res.message, email });
     // The server's message says when the lock ends (FR-2.7).
     else if (res.code === "account_locked") setFormError(res.message);
@@ -58,6 +60,7 @@ export function LoginForm() {
   return (
     <form noValidate onSubmit={onSubmit} className="flex flex-col gap-3.5">
       {formError ? <AuthAlert>{formError}</AuthAlert> : null}
+      {suspended ? <SuspendedNotice {...suspended} /> : null}
       <Field
         id="email"
         name="email"
@@ -89,6 +92,21 @@ export function LoginForm() {
       {/* Under the button, as in the design. */}
       {unverified ? <UnverifiedNotice {...unverified} /> : null}
     </form>
+  );
+}
+
+type Suspension = { reason?: string; until?: string };
+
+// SuspendedNotice says why the account is suspended and for how long (FR-3.4, FR-15.7). The
+// reason is absent for an account suspended before reasons were recorded.
+function SuspendedNotice({ reason, until }: Suspension) {
+  return (
+    <AuthAlert>
+      <strong className="font-medium">
+        {until ? `This account is suspended until ${dateAndTime(until)}.` : "This account is permanently suspended."}
+      </strong>
+      {reason ? ` Reason: ${reason}` : ""} Contact the ResearchSphere administrators if you think this is a mistake.
+    </AuthAlert>
   );
 }
 

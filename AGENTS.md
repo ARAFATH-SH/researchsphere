@@ -10,6 +10,8 @@ recommendations. One developer builds it in 30 slices over 12 weeks.
   refer to it. When code and the SRS disagree, stop and ask which one changes.
 - `docs/openapi.yaml` is the API contract (added in slice 4). Change it before a handler.
 - `docs/decisions.md` lists decisions already made. Do not reopen one without asking.
+- `docs/realtime.md` is the WebSocket contract: events, payloads, close codes and what a client
+  must do after a reconnect. OpenAPI covers only the upgrade.
 
 ## Layout
 
@@ -39,6 +41,7 @@ Run these from the repository root. `make help` prints the current list.
 | `make migrate-new name=add_users` | Create a new migration pair |
 | `make admin email=...` | Give that account the admin role (the only way to make an administrator; there is no API for it). Prints a message and fails if no account has the address. Takes effect at the user's next token refresh or login |
 | `make unadmin email=...` | Set that account back to the researcher role |
+| `make seed-ui-compare` | Create or refresh the fake accounts `npm run ui:compare` signs in with: Compare Alpha and Compare Beta, connected, with about 40 messages over several days and Beta's open report of a message from Alpha, Compare Gamma's pending message request to Alpha, and Compare Admin, an administrator (`@compare.researchsphere.local`). Needs `make migrate` and `UI_COMPARE_PASSWORD`. Refuses a database name ending in `_test`, `APP_ENV=production` and any host but this machine |
 | `make api` | Run the API server (needs `make up`; settings from `.env`) |
 | `make web` | Run the web client dev server on port 3000; it forwards `/api/v1` to `API_URL` |
 | `make stop` | Stop this project's dev servers: the API on `API_PORT` (8080) and the Next.js dev server on ports 3000-3002. Stops only your own processes running inside this repository, prints what it stopped, and removes a stale `frontend/.next/dev/lock` when no dev server is left. Leaves the Docker containers running (use `make down` for those) |
@@ -86,7 +89,7 @@ check, tests and a production build.
 ## Conventions
 
 - **Go:** one application (modular monolith). Modules live in `backend/internal/<module>`: health,
-  then auth, profile, media, social, project, event and notification. Return errors, do not panic.
+  then auth, profile, media, social, project, event, notification, messaging, moderation and realtime. Return errors, do not panic.
   Table-driven tests beside the code they test. Each module is split into layers (clean
   architecture); `backend/internal/health` is the example to copy:
 
@@ -114,7 +117,12 @@ check, tests and a production build.
   each store runs its queries on `postgres.Conn(ctx, pool)` (`internal/platform/postgres`),
   which is the context's transaction when there is one. Example: the `social` usecase
   stores a request and calls its `Notifier`, which `cmd/api/notifications.go` implements
-  with the `notification` usecase, in one transaction.
+  with the `notification` usecase, in one transaction. Real-time events are published after
+  the commit: a `cmd/api` publisher wraps its work in `postgres.AfterCommit`, which waits for
+  the transaction the context carries, drops the work on a rollback and runs at once outside a
+  transaction, so a usecase may call its `Publisher` even inside another module's transaction
+  (`cmd/api/realtime.go`). `internal/realtime/adapter/http` is the only code that imports the
+  WebSocket library.
 - **Frontend:** Next.js App Router, TypeScript in strict mode, Tailwind CSS, npm. The Node.js
   major version is pinned in `frontend/.nvmrc`. Layout of `frontend/src`:
 
@@ -124,12 +132,17 @@ check, tests and a production build.
   | `components/` | Shared components used by several features (header, footer, placeholders) |
   | `lib/api/` | `client.ts`, the one API client (openapi-fetch), and `schema.gen.ts`, generated from `docs/openapi.yaml` (do not edit; run `make generate`) |
   | `lib/` | Other helpers that belong to no feature |
-  | `features/<module>/` | Code for one feature, named after the backend module (health, auth, profile, social, project, event, notification); created when the module has code |
-  | `features/search/` | The search page, which spans modules: its People tab uses the profile module's search API; Projects and Posts tabs join it with their slices |
+  | `features/<module>/` | Code for one feature, named after the backend module (health, auth, profile, social, project, event, notification, messaging); created when the module has code |
+  | `features/realtime/` | The one WebSocket client of a tab (`socket.ts`), its event types and React hooks; the stores of each feature listen to it |
+  | `features/moderation/` | Warnings (banner and page) and the administrator's reports, actions and user history. It spans the backend's `moderation` module and the reports of `messaging` |
+| `features/search/` | The search page, which spans modules: its People tab uses the profile module's search API; Projects and Posts tabs join it with their slices |
 
   Every API call goes through `lib/api/client.ts`, never a hand-written `fetch`. The browser
   calls `/api/v1` on its own origin and `next.config.ts` forwards it to `API_URL`, which is
-  read on the server only (never `NEXT_PUBLIC_`). Jest tests (`*.test.ts(x)`) sit beside the
+  read on the server only (never `NEXT_PUBLIC_`). The one exception is the WebSocket, which goes
+  straight to the API at `NEXT_PUBLIC_WS_URL`, because a rewrite is not known to carry it
+  (`docs/decisions.md`). Every session refresh goes through `refreshSession` in `lib/api/client.ts`,
+  so tabs take turns. Jest tests (`*.test.ts(x)`) sit beside the
   code they test and mock the API module, not the network. Pages except the workspace must
   work at 768 pixels wide (SRS 5.1).
 - **Layout widths:** Use Container for page width; never set max-width on a section.
@@ -138,8 +151,9 @@ check, tests and a production build.
   `design/screens/` is the source of truth for look and spacing; restyled pages use the `rs-*`
   tokens. `cd frontend && npm run ui:compare -- <route> <design-file>` (dev only, needs
   `make web`) screenshots a route beside its design and prints the pixel difference.
-- **API:** JSON under `/api/v1`. Errors have the shape `{"code": "...", "message": "..."}`.
-  Lists are paginated and the server caps the page size at 50.
+- **API:** JSON under `/api/v1`. Errors have the shape `{"code": "...", "message": "..."}`;
+  a `bad_request` about one body field or parameter adds `"field"`, and never repeats the value.
+  Lists are paginated and the server caps the page size at 50 (a conversation's messages cap at 100).
 - **SQL:** each module's queries are in `internal/<module>/adapter/postgres/queries.sql`; sqlc
   generates `sqlcgen/` beside it (`backend/sqlc.yaml`, run by `make generate`). Repository tests
   that need the database carry the build tag `integration`.

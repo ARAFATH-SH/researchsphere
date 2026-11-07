@@ -16,6 +16,7 @@ import (
 
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/auth/adapter/postgres/sqlcgen"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/auth/domain"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/postgres"
 )
 
 // usersEmailKey is the unique constraint on users.email (a citext column, so the
@@ -60,6 +61,7 @@ func (s *Store) FindUserByEmail(ctx context.Context, email string) (domain.User,
 		FullName:        row.FullName,
 		EmailVerifiedAt: timePtr(row.EmailVerifiedAt),
 		SuspendedAt:     timePtr(row.SuspendedAt),
+		SuspendedUntil:  timePtr(row.SuspendedUntil),
 	}, nil
 }
 
@@ -74,12 +76,14 @@ func (s *Store) FindCredentialsByEmail(ctx context.Context, email string) (domai
 	}
 	return domain.Credentials{
 		User: domain.User{
-			ID:              uuidString(row.ID),
-			Email:           row.Email,
-			FullName:        row.FullName,
-			EmailVerifiedAt: timePtr(row.EmailVerifiedAt),
-			SuspendedAt:     timePtr(row.SuspendedAt),
-			Role:            string(row.Role),
+			ID:               uuidString(row.ID),
+			Email:            row.Email,
+			FullName:         row.FullName,
+			EmailVerifiedAt:  timePtr(row.EmailVerifiedAt),
+			SuspendedAt:      timePtr(row.SuspendedAt),
+			SuspendedUntil:   timePtr(row.SuspendedUntil),
+			SuspensionReason: textPtr(row.SuspensionReason),
+			Role:             string(row.Role),
 		},
 		PasswordHash: row.PasswordHash,
 	}, nil
@@ -99,13 +103,97 @@ func (s *Store) FindUserByID(ctx context.Context, userID string) (domain.User, e
 		return domain.User{}, fmt.Errorf("find user by id: %w", err)
 	}
 	return domain.User{
+		ID:               uuidString(row.ID),
+		Email:            row.Email,
+		FullName:         row.FullName,
+		EmailVerifiedAt:  timePtr(row.EmailVerifiedAt),
+		SuspendedAt:      timePtr(row.SuspendedAt),
+		SuspendedUntil:   timePtr(row.SuspendedUntil),
+		SuspensionReason: textPtr(row.SuspensionReason),
+		Role:             string(row.Role),
+		CreatedAt:        row.CreatedAt.Time,
+	}, nil
+}
+
+// conn returns the queries on the context's transaction, or on the pool. The methods moderation
+// calls use it, so they join moderation's transaction (platform/postgres.Transactor).
+func (s *Store) conn(ctx context.Context) *sqlcgen.Queries {
+	return sqlcgen.New(postgres.Conn(ctx, s.pool))
+}
+
+// ClearExpiredSuspension clears the suspension when it ended at or before now.
+func (s *Store) ClearExpiredSuspension(ctx context.Context, userID string, now time.Time) error {
+	return clearExpiredSuspension(ctx, s.q, userID, now)
+}
+
+func clearExpiredSuspension(ctx context.Context, q *sqlcgen.Queries, userID string, now time.Time) error {
+	id, err := parseUUID(userID)
+	if err != nil {
+		return err
+	}
+	if err := q.ClearExpiredSuspension(ctx, sqlcgen.ClearExpiredSuspensionParams{ID: id, Now: timestamptz(now)}); err != nil {
+		return fmt.Errorf("clear expired suspension: %w", err)
+	}
+	return nil
+}
+
+// LockUser returns domain.ErrNotFound when no user has the ID, or the ID is not a UUID.
+func (s *Store) LockUser(ctx context.Context, userID string) (domain.User, error) {
+	id, err := parseUUID(userID)
+	if err != nil {
+		return domain.User{}, domain.ErrNotFound
+	}
+	row, err := s.conn(ctx).LockUser(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.User{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.User{}, fmt.Errorf("lock user: %w", err)
+	}
+	return domain.User{
 		ID:              uuidString(row.ID),
 		Email:           row.Email,
 		FullName:        row.FullName,
 		EmailVerifiedAt: timePtr(row.EmailVerifiedAt),
 		SuspendedAt:     timePtr(row.SuspendedAt),
+		SuspendedUntil:  timePtr(row.SuspendedUntil),
 		Role:            string(row.Role),
 	}, nil
+}
+
+// Suspend stores the suspension and ends the user's sessions, both on the context's
+// transaction. The caller holds LockUser's row lock.
+func (s *Store) Suspend(ctx context.Context, userID string, at time.Time, until *time.Time, reason string) error {
+	id, err := parseUUID(userID)
+	if err != nil {
+		return err
+	}
+	q := s.conn(ctx)
+	var ends pgtype.Timestamptz
+	if until != nil {
+		ends = timestamptz(*until)
+	}
+	if err := q.SuspendUser(ctx, sqlcgen.SuspendUserParams{
+		ID: id, SuspendedAt: timestamptz(at), SuspendedUntil: ends, Reason: pgtype.Text{String: reason, Valid: true},
+	}); err != nil {
+		return fmt.Errorf("suspend user: %w", err)
+	}
+	if err := q.RevokeUserSessions(ctx, sqlcgen.RevokeUserSessionsParams{UserID: id, RevokedAt: timestamptz(at)}); err != nil {
+		return fmt.Errorf("revoke user sessions: %w", err)
+	}
+	return nil
+}
+
+// Restore clears the suspension on the context's transaction.
+func (s *Store) Restore(ctx context.Context, userID string) error {
+	id, err := parseUUID(userID)
+	if err != nil {
+		return err
+	}
+	if err := s.conn(ctx).RestoreUser(ctx, id); err != nil {
+		return fmt.Errorf("restore user: %w", err)
+	}
+	return nil
 }
 
 // ListUsers returns at most limit users after skipping offset, newest first.
@@ -125,13 +213,15 @@ func (s *Store) ListUsers(ctx context.Context, limit, offset int) ([]domain.User
 	users := make([]domain.User, 0, len(rows))
 	for _, row := range rows {
 		users = append(users, domain.User{
-			ID:              uuidString(row.ID),
-			Email:           row.Email,
-			FullName:        row.FullName,
-			EmailVerifiedAt: timePtr(row.EmailVerifiedAt),
-			SuspendedAt:     timePtr(row.SuspendedAt),
-			Role:            string(row.Role),
-			CreatedAt:       row.CreatedAt.Time,
+			ID:               uuidString(row.ID),
+			Email:            row.Email,
+			FullName:         row.FullName,
+			EmailVerifiedAt:  timePtr(row.EmailVerifiedAt),
+			SuspendedAt:      timePtr(row.SuspendedAt),
+			SuspendedUntil:   timePtr(row.SuspendedUntil),
+			SuspensionReason: textPtr(row.SuspensionReason),
+			Role:             string(row.Role),
+			CreatedAt:        row.CreatedAt.Time,
 		})
 	}
 	return users, nil
@@ -190,6 +280,7 @@ func (s *Store) FindCredentialsByID(ctx context.Context, userID string) (domain.
 			FullName:        row.FullName,
 			EmailVerifiedAt: timePtr(row.EmailVerifiedAt),
 			SuspendedAt:     timePtr(row.SuspendedAt),
+			SuspendedUntil:  timePtr(row.SuspendedUntil),
 		},
 		PasswordHash: row.PasswordHash,
 	}, nil
@@ -294,7 +385,8 @@ func (t tx) FindTokenForUpdate(ctx context.Context, hash string, purpose domain.
 		ExpiresAt: row.ExpiresAt.Time,
 		UsedAt:    timePtr(row.UsedAt),
 
-		UserSuspendedAt: timePtr(row.SuspendedAt),
+		UserSuspendedAt:    timePtr(row.SuspendedAt),
+		UserSuspendedUntil: timePtr(row.SuspendedUntil),
 	}, nil
 }
 
@@ -320,6 +412,10 @@ func (t tx) MarkEmailVerified(ctx context.Context, userID string, at time.Time) 
 	return nil
 }
 
+func (t tx) ClearExpiredSuspension(ctx context.Context, userID string, now time.Time) error {
+	return clearExpiredSuspension(ctx, t.q, userID, now)
+}
+
 func (t tx) FindSessionForUpdate(ctx context.Context, hash string) (domain.Session, error) {
 	row, err := t.q.FindSessionForUpdate(ctx, hash)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -330,6 +426,7 @@ func (t tx) FindSessionForUpdate(ctx context.Context, hash string) (domain.Sessi
 	}
 	sess := session(row.ID, row.UserID, row.ExpiresAt, row.RevokedAt)
 	sess.UserSuspendedAt = timePtr(row.SuspendedAt)
+	sess.UserSuspendedUntil = timePtr(row.SuspendedUntil)
 	sess.UserRole = string(row.Role)
 	return sess, nil
 }
@@ -509,6 +606,13 @@ func parseUUID(s string) (pgtype.UUID, error) {
 }
 
 func timestamptz(t time.Time) pgtype.Timestamptz { return pgtype.Timestamptz{Time: t, Valid: true} }
+
+func textPtr(t pgtype.Text) *string {
+	if !t.Valid {
+		return nil
+	}
+	return &t.String
+}
 
 func timePtr(t pgtype.Timestamptz) *time.Time {
 	if !t.Valid {

@@ -60,7 +60,10 @@ func searchPeople(ctx context.Context, q *sqlcgen.Queries, pq domain.PeopleQuery
 		return domain.PeopleResults{}, fmt.Errorf("set word similarity threshold: %w", err)
 	}
 	pattern := containsPattern(pq.Q)
-	literal, err := q.AnyVisibleNameContains(ctx, pattern)
+	// A viewer that is not a UUID is NULL here, which matches no block.
+	var viewer pgtype.UUID
+	_ = viewer.Scan(pq.ViewerID)
+	literal, err := q.AnyVisibleNameContains(ctx, sqlcgen.AnyVisibleNameContainsParams{Pattern: pattern, ViewerID: viewer})
 	if err != nil {
 		return domain.PeopleResults{}, fmt.Errorf("check name matches: %w", err)
 	}
@@ -68,10 +71,10 @@ func searchPeople(ctx context.Context, q *sqlcgen.Queries, pq domain.PeopleQuery
 	for i, name := range pq.Interests {
 		interests[i] = strings.ToLower(name)
 	}
-	f := filters{q: pq.Q, pattern: pattern, fuzzy: !literal, institution: text(pq.Institution), interests: interests}
+	f := filters{viewer: viewer, q: pq.Q, pattern: pattern, fuzzy: !literal, institution: text(pq.Institution), interests: interests}
 
 	sum, err := q.SearchPeopleSummary(ctx, sqlcgen.SearchPeopleSummaryParams{
-		Q: f.q, Fuzzy: f.fuzzy, Pattern: f.pattern, Institution: f.institution, Interests: f.interests,
+		ViewerID: f.viewer, Q: f.q, Fuzzy: f.fuzzy, Pattern: f.pattern, Institution: f.institution, Interests: f.interests,
 	})
 	if err != nil {
 		return domain.PeopleResults{}, fmt.Errorf("count results: %w", err)
@@ -88,7 +91,7 @@ func searchPeople(ctx context.Context, q *sqlcgen.Queries, pq domain.PeopleQuery
 
 	// The institution facet leaves out its own filter, so the other institutions stay.
 	insts, err := q.SearchInstitutionFacets(ctx, sqlcgen.SearchInstitutionFacetsParams{
-		MaxFacets: lim.facets, Q: f.q, Fuzzy: f.fuzzy, Pattern: f.pattern, Interests: f.interests,
+		MaxFacets: lim.facets, ViewerID: f.viewer, Q: f.q, Fuzzy: f.fuzzy, Pattern: f.pattern, Interests: f.interests,
 	})
 	if err != nil {
 		return domain.PeopleResults{}, fmt.Errorf("count institutions: %w", err)
@@ -99,8 +102,8 @@ func searchPeople(ctx context.Context, q *sqlcgen.Queries, pq domain.PeopleQuery
 	}
 
 	ints, err := q.SearchInterestFacets(ctx, sqlcgen.SearchInterestFacetsParams{
-		MaxResults: lim.interestFacets,
-		Q:          f.q, Fuzzy: f.fuzzy, Pattern: f.pattern, Institution: f.institution, Interests: f.interests,
+		MaxResults: lim.interestFacets, ViewerID: f.viewer,
+		Q: f.q, Fuzzy: f.fuzzy, Pattern: f.pattern, Institution: f.institution, Interests: f.interests,
 	})
 	if err != nil {
 		return domain.PeopleResults{}, fmt.Errorf("count interests: %w", err)
@@ -111,6 +114,7 @@ func searchPeople(ctx context.Context, q *sqlcgen.Queries, pq domain.PeopleQuery
 
 // filters are the parameters every search query shares.
 type filters struct {
+	viewer      pgtype.UUID
 	q, pattern  string
 	fuzzy       bool
 	institution pgtype.Text
@@ -146,6 +150,7 @@ func limitsOf(pq domain.PeopleQuery, maxFacets int) (limits, error) {
 // page returns the requested page with up to resultInterests interests per result.
 func page(ctx context.Context, q *sqlcgen.Queries, f filters, lim limits) ([]domain.PersonHit, error) {
 	rows, err := q.SearchPeoplePage(ctx, sqlcgen.SearchPeoplePageParams{
+		ViewerID:   f.viewer,
 		Q:          f.q,
 		PageOffset: lim.offset,
 		PageSize:   lim.pageSize,

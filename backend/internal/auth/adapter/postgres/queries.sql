@@ -8,7 +8,7 @@ INSERT INTO profiles (user_id, full_name)
 VALUES (@user_id, @full_name);
 
 -- name: FindUserByEmail :one
-SELECT u.id, u.email, u.email_verified_at, u.suspended_at, p.full_name
+SELECT u.id, u.email, u.email_verified_at, u.suspended_at, u.suspended_until, p.full_name
 FROM users u
 JOIN profiles p ON p.user_id = u.id
 WHERE u.email = @email;
@@ -22,7 +22,7 @@ DELETE FROM auth_tokens
 WHERE user_id = @user_id AND purpose = @purpose AND used_at IS NULL;
 
 -- name: FindTokenForUpdate :one
-SELECT t.id, t.user_id, t.expires_at, t.used_at, u.suspended_at
+SELECT t.id, t.user_id, t.expires_at, t.used_at, u.suspended_at, u.suspended_until
 FROM auth_tokens t
 JOIN users u ON u.id = t.user_id
 WHERE t.token_hash = @token_hash AND t.purpose = @purpose
@@ -36,13 +36,13 @@ UPDATE users SET email_verified_at = coalesce(email_verified_at, @verified_at)
 WHERE id = @id;
 
 -- name: FindCredentialsByEmail :one
-SELECT u.id, u.email, u.password_hash, u.email_verified_at, u.suspended_at, u.role, p.full_name
+SELECT u.id, u.email, u.password_hash, u.email_verified_at, u.suspended_at, u.suspended_until, u.suspension_reason, u.role, p.full_name
 FROM users u
 JOIN profiles p ON p.user_id = u.id
 WHERE u.email = @email;
 
 -- name: FindUserByID :one
-SELECT u.id, u.email, u.email_verified_at, u.suspended_at, u.role, p.full_name
+SELECT u.id, u.email, u.email_verified_at, u.suspended_at, u.suspended_until, u.suspension_reason, u.role, u.created_at, p.full_name
 FROM users u
 JOIN profiles p ON p.user_id = u.id
 WHERE u.id = @id;
@@ -52,7 +52,7 @@ INSERT INTO sessions (user_id, refresh_token_hash, expires_at)
 VALUES (@user_id, @refresh_token_hash, @expires_at);
 
 -- name: FindSessionForUpdate :one
-SELECT s.id, s.user_id, s.expires_at, s.revoked_at, u.suspended_at, u.role
+SELECT s.id, s.user_id, s.expires_at, s.revoked_at, u.suspended_at, u.suspended_until, u.role
 FROM sessions s
 JOIN users u ON u.id = s.user_id
 WHERE s.refresh_token_hash = @refresh_token_hash
@@ -91,7 +91,7 @@ WHERE refresh_token_hash = @refresh_token_hash AND revoked_at IS NULL
 RETURNING id, user_id, expires_at, revoked_at;
 
 -- name: FindCredentialsByID :one
-SELECT u.id, u.email, u.password_hash, u.email_verified_at, u.suspended_at, p.full_name
+SELECT u.id, u.email, u.password_hash, u.email_verified_at, u.suspended_at, u.suspended_until, p.full_name
 FROM users u
 JOIN profiles p ON p.user_id = u.id
 WHERE u.id = @id;
@@ -148,7 +148,7 @@ DELETE FROM users WHERE id = @id;
 
 -- name: ListUsers :many
 -- One page of users, newest first; the id breaks ties so pages never overlap.
-SELECT u.id, u.email, u.role, u.email_verified_at, u.suspended_at, u.created_at, p.full_name
+SELECT u.id, u.email, u.role, u.email_verified_at, u.suspended_at, u.suspended_until, u.suspension_reason, u.created_at, p.full_name
 FROM users u
 JOIN profiles p ON p.user_id = u.id
 ORDER BY u.created_at DESC, u.id DESC
@@ -156,6 +156,30 @@ LIMIT @page_limit OFFSET @page_offset;
 
 -- name: CountUsers :one
 SELECT count(*) FROM users;
+
+-- name: LockUser :one
+-- Moderation (FR-15.10): held until the action's transaction ends, so an action and a send that
+-- checks the actor run one after the other.
+SELECT u.id, u.email, u.email_verified_at, u.suspended_at, u.suspended_until, u.role, p.full_name
+FROM users u
+JOIN profiles p ON p.user_id = u.id
+WHERE u.id = @id
+FOR UPDATE OF u;
+
+-- name: SuspendUser :exec
+UPDATE users
+SET suspended_at = @suspended_at, suspended_until = sqlc.narg('suspended_until'), suspension_reason = @reason
+WHERE id = @id;
+
+-- name: RestoreUser :exec
+UPDATE users SET suspended_at = NULL, suspended_until = NULL, suspension_reason = NULL
+WHERE id = @id;
+
+-- name: ClearExpiredSuspension :exec
+-- A temporary suspension ends by time; nothing runs at that moment, so the next login or
+-- refresh clears it. A permanent one has no suspended_until and is never matched.
+UPDATE users SET suspended_at = NULL, suspended_until = NULL, suspension_reason = NULL
+WHERE id = @id AND suspended_until <= @now;
 
 -- name: SetUserRoleByEmail :execrows
 -- Only `make admin` and `make unadmin` (cmd/setrole) run it; no API operation does.

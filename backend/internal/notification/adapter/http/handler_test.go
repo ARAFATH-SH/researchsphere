@@ -97,12 +97,12 @@ func TestListNotifications(t *testing.T) {
 	svc := &fakeService{page: domain.Page{NextCursor: ptr("next"), Items: []domain.Item{
 		{
 			Notification:   domain.Notification{ID: notifID, ActorID: actorID, Type: domain.TypeConnectionRequestReceived, SubjectID: reqID, CreatedAt: at},
-			Actor:          domain.Actor{UserID: actorID, FullName: "Bob", PhotoFileID: ptr(photoID)},
+			Actor:          &domain.Actor{UserID: actorID, FullName: "Bob", PhotoFileID: ptr(photoID)},
 			RequestPending: ptr(true), Link: "/network",
 		},
 		{
 			Notification: domain.Notification{ID: notif2ID, ActorID: actorID, Type: domain.TypeConnectionRequestAccepted, SubjectID: reqID, CreatedAt: at, ReadAt: &read},
-			Actor:        domain.Actor{UserID: actorID, FullName: "Bob"},
+			Actor:        &domain.Actor{UserID: actorID, FullName: "Bob"},
 			Link:         "/profile/" + actorID,
 		},
 	}}}
@@ -205,5 +205,24 @@ func TestUnauthenticated(t *testing.T) {
 		if got := decode(t, rec); rec.Code != http.StatusUnauthorized || got["code"] != "unauthenticated" || svc.args != nil {
 			t.Errorf("%s %s: got %d %v, args %v", r[0], r[1], rec.Code, got, svc.args)
 		}
+	}
+}
+
+// A system notification has no actor: the client shows it as from ResearchSphere (FR-15.5).
+func TestListSystemNotification(t *testing.T) {
+	svc := &fakeService{page: domain.Page{Items: []domain.Item{{
+		Notification: domain.Notification{ID: notifID, Type: domain.TypeAccountWarning, SubjectID: reqID, CreatedAt: at},
+		Link:         "/warnings/" + reqID,
+	}}}}
+	rec := send(t, svc, http.MethodGet, "/api/v1/notifications", callerID)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	item := decode(t, rec)["items"].([]any)[0].(map[string]any)
+	if item["type"] != "account_warning" || item["link"] != "/warnings/"+reqID {
+		t.Errorf("item = %v", item)
+	}
+	if actor, ok := item["actor"]; ok && actor != nil {
+		t.Errorf("actor = %v, want none", actor)
 	}
 }

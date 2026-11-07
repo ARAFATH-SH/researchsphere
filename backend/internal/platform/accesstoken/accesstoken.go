@@ -19,8 +19,9 @@ var ErrInvalid = errors.New("access token is not valid")
 
 // Claims is what a valid token says about its holder.
 type Claims struct {
-	UserID string
-	Role   string // the platform role when the token was signed (users.role)
+	UserID    string
+	Role      string    // the platform role when the token was signed (users.role)
+	ExpiresAt time.Time // a WebSocket closes then (docs/realtime.md)
 }
 
 // claims is the token payload. A role change takes effect at the next refresh
@@ -73,5 +74,5 @@ func (s *Signer) Verify(token string, now time.Time) (Claims, error) {
 	if err != nil || c.Subject == "" || c.Role == "" {
 		return Claims{}, ErrInvalid
 	}
-	return Claims{UserID: c.Subject, Role: c.Role}, nil
+	return Claims{UserID: c.Subject, Role: c.Role, ExpiresAt: c.ExpiresAt.Time}, nil
 }

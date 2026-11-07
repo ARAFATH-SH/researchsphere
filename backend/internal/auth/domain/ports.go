@@ -24,6 +24,18 @@ type Store interface {
 	// FindCredentialsByID is FindUserByID with the password hash.
 	FindCredentialsByID(ctx context.Context, id string) (Credentials, error)
 	CreateSession(ctx context.Context, s NewSession) error
+	// ClearExpiredSuspension clears the user's suspension when it has an end time that is not
+	// after now, and changes nothing otherwise (FR-15.7).
+	ClearExpiredSuspension(ctx context.Context, userID string, now time.Time) error
+	// LockUser locks the user's row until the transaction the context carries ends, so a
+	// moderation action and the checks of a send run one after the other. It returns
+	// ErrNotFound when no user has the ID, or the ID is not a UUID.
+	LockUser(ctx context.Context, userID string) (User, error)
+	// Suspend suspends the user from at, until until or for good when until is nil, and ends
+	// every session of the user, in the transaction the context carries (FR-15.7).
+	Suspend(ctx context.Context, userID string, at time.Time, until *time.Time, reason string) error
+	// Restore ends the user's suspension, in the transaction the context carries (FR-15.3).
+	Restore(ctx context.Context, userID string) error
 	// RevokeSessionByToken ends the session whose current refresh token has this hash and
 	// returns it. It returns ErrNotFound, and changes nothing, when there is no such
 	// session or it has already ended.
@@ -59,6 +71,8 @@ type Tx interface {
 	RevokeSession(ctx context.Context, sessionID string, at time.Time) error
 	// UpdatePasswordHash replaces the user's stored password hash.
 	UpdatePasswordHash(ctx context.Context, userID, hash string) error
+	// ClearExpiredSuspension is Store.ClearExpiredSuspension inside this transaction.
+	ClearExpiredSuspension(ctx context.Context, userID string, now time.Time) error
 	// RevokeUserSessions ends every session of the user that has not ended yet (FR-2.5).
 	RevokeUserSessions(ctx context.Context, userID string, at time.Time) error
 	// RevokeOtherUserSessions is RevokeUserSessions except for the session with
@@ -117,4 +131,18 @@ type LoginAttempts interface {
 type Mailer interface {
 	SendVerification(ctx context.Context, msg VerificationEmail) error
 	SendPasswordReset(ctx context.Context, msg PasswordResetEmail) error
+}
+
+// RestrictionLookup says when a user's messaging restriction ends. The moderation module owns
+// restrictions; cmd/api implements this with its usecase.
+type RestrictionLookup interface {
+	// MessagingRestrictedUntil returns nil when the user has no active restriction.
+	MessagingRestrictedUntil(ctx context.Context, userID string) (*time.Time, error)
+}
+
+// SessionListener hears when a user's sessions end, after the commit. It cannot fail the change.
+// Access tokens name no session, so it hears only the user: every socket of that user closes,
+// and those of the sessions that remain refresh and reconnect (docs/decisions.md).
+type SessionListener interface {
+	SessionsEnded(ctx context.Context, userID string)
 }

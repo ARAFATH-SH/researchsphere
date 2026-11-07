@@ -1,9 +1,16 @@
 import Link from "next/link";
 
+const squareSizes = {
+  sm: "size-[22px] rounded-rs-chip text-rs-micro",
+  md: "size-[34px] rounded-rs-xs text-rs-body",
+  lg: "size-12 rounded-rs-xs text-rs-title-sm",
+};
+
 // LogoSquare is ResearchSphere's mark from the design: "RS" on a teal square. sm is the
-// footer size. It is decorative; the link around it carries the name.
-export function LogoSquare({ size = "md" }: { size?: "sm" | "md" }) {
-  const box = size === "sm" ? "size-[22px] rounded-rs-chip text-rs-micro" : "size-[34px] rounded-rs-xs text-rs-body";
+// footer size, lg stands in for a list avatar. It is decorative; what is around it carries
+// the name.
+export function LogoSquare({ size = "md" }: { size?: keyof typeof squareSizes }) {
+  const box = squareSizes[size];
   return (
     <span
       aria-hidden="true"

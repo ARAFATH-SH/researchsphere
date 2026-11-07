@@ -12,11 +12,14 @@ import (
 	mediahttp "github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/http"
 	mediadomain "github.com/ARAFATH-SH/researchsphere/backend/internal/media/domain"
 	mediausecase "github.com/ARAFATH-SH/researchsphere/backend/internal/media/usecase"
+	messaginghttp "github.com/ARAFATH-SH/researchsphere/backend/internal/messaging/adapter/http"
+	moderationhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/moderation/adapter/http"
 	notificationhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/notification/adapter/http"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/authz"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpserver"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpx"
 	profilehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/http"
+	realtimehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/realtime/adapter/http"
 	socialhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/social/adapter/http"
 )
 
@@ -29,6 +32,9 @@ type (
 	mediaHandler        = mediahttp.Handler
 	socialHandler       = socialhttp.Handler
 	notificationHandler = notificationhttp.Handler
+	messagingHandler    = messaginghttp.Handler
+	moderationHandler   = moderationhttp.Handler
+	realtimeHandler     = realtimehttp.Handler
 )
 
 // handlers implements every operation in the contract by embedding each module's HTTP
@@ -40,6 +46,9 @@ type handlers struct {
 	*mediaHandler
 	*socialHandler
 	*notificationHandler
+	*messagingHandler
+	*moderationHandler
+	*realtimeHandler
 }
 
 var _ gen.StrictServerInterface = handlers{}
@@ -49,6 +58,23 @@ var _ gen.StrictServerInterface = handlers{}
 // under /api/v1/admin/ must be listed (routes_test.go).
 var platformGuards = map[string]authz.Action{
 	"GET /api/v1/admin/users": authz.SuspendUser, // listing users comes before suspending one (FR-15.3)
+
+	// Moderation (FR-15.3, FR-15.5 to FR-15.9). Warnings are the user's own, so reading and
+	// acknowledging one needs what reading the app needs.
+	"POST /api/v1/admin/users/{userId}/warnings":           authz.ModerateUser,
+	"POST /api/v1/admin/users/{userId}/restrictions":       authz.ModerateUser,
+	"POST /api/v1/admin/restrictions/{restrictionId}/lift": authz.ModerateUser,
+	"POST /api/v1/admin/users/{userId}/suspension":         authz.SuspendUser,
+	"POST /api/v1/admin/users/{userId}/restore":            authz.SuspendUser,
+	"GET /api/v1/admin/users/{userId}/moderation":          authz.ModerateUser,
+	"GET /api/v1/me/warnings/pending":                      authz.ViewContent,
+	"GET /api/v1/me/warnings/{warningId}":                  authz.ViewContent,
+	"POST /api/v1/me/warnings/{warningId}/acknowledge":     authz.ViewContent,
+
+	// Reported conversations (FR-16.9, NFR-14): the only way an administrator reads messages.
+	"GET /api/v1/admin/message-reports":                     authz.ReviewMessageReports,
+	"GET /api/v1/admin/message-reports/{reportId}":          authz.ReviewMessageReports,
+	"POST /api/v1/admin/message-reports/{reportId}/resolve": authz.ReviewMessageReports,
 
 	// Profiles (FR-4.1, FR-4.5): reading any profile, the caller's own included, is the
 	// row "View profiles, ..."; editing is the row "Edit own profile, ...".
@@ -134,6 +160,33 @@ var platformGuards = map[string]authz.Action{
 	"GET /api/v1/notifications/unread-count":           authz.ViewContent,
 	"POST /api/v1/notifications/{notificationId}/read": authz.ViewContent,
 	"POST /api/v1/notifications/read-all":              authz.ViewContent,
+
+	// Messaging (FR-16): SRS 2.3 has no row for it. Reading one's own conversations is
+	// closest to "View ...", writing to "Edit own profile, connect, ...". Membership is
+	// checked on every operation by the usecase (NFR-14); no role gets more access on these
+	// routes. An administrator reads a reported conversation through /admin/message-reports.
+	"POST /api/v1/messages/direct":                         authz.ActAsMember,
+	"GET /api/v1/messages/unread-count":                    authz.ViewContent,
+	"GET /api/v1/conversations":                            authz.ViewContent,
+	"GET /api/v1/conversations/{conversationId}":           authz.ViewContent,
+	"GET /api/v1/conversations/{conversationId}/messages":  authz.ViewContent,
+	"POST /api/v1/conversations/{conversationId}/messages": authz.ActAsMember,
+	"POST /api/v1/conversations/{conversationId}/read":     authz.ActAsMember,
+	"POST /api/v1/conversations/{conversationId}/accept":   authz.ActAsMember,
+	"POST /api/v1/conversations/{conversationId}/decline":  authz.ActAsMember,
+	"POST /api/v1/conversations/{conversationId}/reports":  authz.ActAsMember,
+
+	// Blocks (FR-16.9): SRS 2.3 has no row for them. Blocking is closest to "Edit own
+	// profile, connect, ...", and reading one's own list to "View ...".
+	"POST /api/v1/blocks":            authz.ActAsMember,
+	"DELETE /api/v1/blocks/{userId}": authz.ActAsMember,
+	"GET /api/v1/blocks":             authz.ViewContent,
+
+	// Real-time (FR-16.1, FR-16.4): the socket only pushes the user's own events, and typing
+	// and presence follow the rules of the usecase, so both are the row "View ...". Writing
+	// stays on the REST routes above.
+	"GET /api/v1/ws":       authz.ViewContent,
+	"GET /api/v1/presence": authz.ViewContent,
 }
 
 // multipartOverhead is what a multipart body may hold besides the file: boundaries, part
@@ -184,7 +237,7 @@ func guardPlatform(next http.Handler) http.Handler {
 // Tests pass fakes; run passes the real PostgreSQL, Redis and SMTP adapters. requireAuth
 // guards the operations the contract secures (httpx.RequireAuth); guardPlatform runs
 // inside it, and limitBody inside that.
-func newRouter(logger *slog.Logger, db, redis, storage healthdomain.Pinger, auth *authhttp.Handler, profile *profilehttp.Handler, media *mediahttp.Handler, social *socialhttp.Handler, notifications *notificationhttp.Handler, requireAuth func(http.Handler) http.Handler) http.Handler {
+func newRouter(logger *slog.Logger, db, redis, storage healthdomain.Pinger, auth *authhttp.Handler, profile *profilehttp.Handler, media *mediahttp.Handler, social *socialhttp.Handler, notifications *notificationhttp.Handler, messaging *messaginghttp.Handler, moderation *moderationhttp.Handler, realtime *realtimehttp.Handler, requireAuth func(http.Handler) http.Handler) http.Handler {
 	checker := healthusecase.New(healthusecase.DefaultTimeout,
 		healthdomain.Dependency{Name: "database", Pinger: db},
 		healthdomain.Dependency{Name: "redis", Pinger: redis},
@@ -197,5 +250,8 @@ func newRouter(logger *slog.Logger, db, redis, storage healthdomain.Pinger, auth
 		mediaHandler:        media,
 		socialHandler:       social,
 		notificationHandler: notifications,
+		messagingHandler:    messaging,
+		moderationHandler:   moderation,
+		realtimeHandler:     realtime,
 	}, func(next http.Handler) http.Handler { return requireAuth(guardPlatform(limitBody(next))) })
 }

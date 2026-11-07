@@ -33,8 +33,10 @@ func ptr(s string) *string { return &s }
 
 // fakeService returns err from every operation and remembers its arguments.
 type fakeService struct {
-	err  error
-	args []any
+	err           error
+	args          []any
+	blocked       string
+	blockedPeople []domain.BlockedPerson
 }
 
 func (f *fakeService) Send(_ context.Context, requesterID, receiverID string) (domain.PendingRequest, error) {
@@ -60,6 +62,20 @@ func (f *fakeService) Cancel(_ context.Context, requesterID, id string) error {
 func (f *fakeService) Remove(_ context.Context, userID, otherID string) error {
 	f.args = []any{userID, otherID}
 	return f.err
+}
+
+func (f *fakeService) Block(_ context.Context, _, blockedID string) error {
+	f.blocked = blockedID
+	return f.err
+}
+
+func (f *fakeService) Unblock(_ context.Context, _, blockedID string) error {
+	f.blocked = blockedID
+	return f.err
+}
+
+func (f *fakeService) ListBlocks(_ context.Context, _ string, page int) (domain.BlockedPage, error) {
+	return domain.BlockedPage{Items: f.blockedPeople, Page: page, PageSize: 20, Total: len(f.blockedPeople)}, f.err
 }
 
 func (f *fakeService) ListConnections(_ context.Context, userID string, page int) (domain.ConnectionPage, error) {
@@ -159,6 +175,7 @@ func TestSendConnectionRequestErrors(t *testing.T) {
 		{"connected", domain.ErrAlreadyConnected, http.StatusConflict, "already_connected", ""},
 		{"theirs pending", &domain.PendingFromThemError{RequestID: requestID}, http.StatusConflict, "request_pending_from_them", "requestId"},
 		{"rate limited", &domain.RateLimitedError{RetryAfter: 90*time.Minute + 300*time.Millisecond}, http.StatusTooManyRequests, "rate_limited", ""},
+		{"suspended", &domain.SuspendedError{}, http.StatusForbidden, "account_suspended", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

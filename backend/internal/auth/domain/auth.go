@@ -24,10 +24,16 @@ type User struct {
 	FullName        string
 	EmailVerifiedAt *time.Time // nil until the address is verified (FR-1.4)
 	SuspendedAt     *time.Time // set while the account is suspended (FR-3.4)
+	// SuspendedUntil is when a temporary suspension ends; nil when permanent (FR-15.7).
+	SuspendedUntil *time.Time
+	// SuspensionReason is what the administrator told the user (FR-15.7); nil for an account
+	// suspended before reasons were recorded. FindCredentialsByEmail, FindUserByID and
+	// ListUsers fill it.
+	SuspensionReason *string
 	// Role is the platform role (users.role, SRS 2.3), signed into the access token.
 	// FindCredentialsByEmail, FindUserByID and ListUsers fill it.
 	Role string
-	// CreatedAt is when the account was registered. Only ListUsers fills it.
+	// CreatedAt is when the account was registered. FindUserByID and ListUsers fill it.
 	CreatedAt time.Time
 }
 
@@ -40,16 +46,34 @@ const (
 // UserPage is one page of the users list an administrator sees (FR-15.3).
 type UserPage struct {
 	Users    []User
-	Page     int // from 1
-	PageSize int // the size used, at most 50
-	Total    int // users on all pages
+	Page     int       // from 1
+	PageSize int       // the size used, at most 50
+	Total    int       // users on all pages
+	At       time.Time // the time the page was read, for User.Suspended
 }
 
 // Verified reports whether the user's email address has been verified.
 func (u User) Verified() bool { return u.EmailVerifiedAt != nil }
 
-// Suspended reports whether the account is suspended (FR-3.4).
-func (u User) Suspended() bool { return u.SuspendedAt != nil }
+// Suspended reports whether the account is suspended at now (FR-3.4, FR-15.7). A temporary
+// suspension no longer counts from its end time, though its columns stay until the next login
+// or refresh clears them.
+func (u User) Suspended(now time.Time) bool { return Suspended(u.SuspendedAt, u.SuspendedUntil, now) }
+
+// SuspensionExpired reports whether a temporary suspension has ended but is still stored.
+func (u User) SuspensionExpired(now time.Time) bool {
+	return SuspensionExpired(u.SuspendedAt, u.SuspendedUntil, now)
+}
+
+// Suspended reports whether a suspension with these times holds at now.
+func Suspended(at, until *time.Time, now time.Time) bool {
+	return at != nil && (until == nil || now.Before(*until))
+}
+
+// SuspensionExpired reports whether a suspension with these times has ended by time.
+func SuspensionExpired(at, until *time.Time, now time.Time) bool {
+	return at != nil && until != nil && !now.Before(*until)
+}
 
 // NewUser is what registration stores. PasswordHash is never the password itself.
 type NewUser struct {
@@ -74,7 +98,8 @@ type Token struct {
 	UsedAt    *time.Time // set once the token has been used
 	// UserSuspendedAt is the suspended time of the token's user (FR-3.4). Only
 	// FindTokenForUpdate fills it.
-	UserSuspendedAt *time.Time
+	UserSuspendedAt    *time.Time
+	UserSuspendedUntil *time.Time
 }
 
 // Credentials is a user with the stored password hash, read only to check a login.
@@ -99,7 +124,8 @@ type Session struct {
 	RevokedAt *time.Time // set once the session has ended
 	// UserSuspendedAt is the suspended time of the session's user (FR-3.4). Only
 	// FindSessionForUpdate fills it.
-	UserSuspendedAt *time.Time
+	UserSuspendedAt    *time.Time
+	UserSuspendedUntil *time.Time
 	// UserRole is the platform role of the session's user, signed into the new access
 	// token at refresh, so a role change takes effect there (SRS 2.3). Only
 	// FindSessionForUpdate fills it.
@@ -158,6 +184,17 @@ var (
 	// ErrNotFound is returned by a Store or Tx when the row does not exist.
 	ErrNotFound = errors.New("not found")
 )
+
+// SuspendedError refuses a login, after the right password, while the account is suspended
+// (FR-3.4, FR-15.7). It matches ErrAccountSuspended with errors.Is.
+type SuspendedError struct {
+	Reason *string    // nil for an account suspended before reasons were recorded
+	Until  *time.Time // nil when permanent
+}
+
+func (e *SuspendedError) Error() string { return ErrAccountSuspended.Error() }
+
+func (e *SuspendedError) Unwrap() error { return ErrAccountSuspended }
 
 // LockedError refuses a login while the account is locked (FR-2.7). It matches
 // ErrAccountLocked with errors.Is.

@@ -356,7 +356,7 @@ its state.
     `rs-nav-text` with a 2px `rs-accent` underline and `aria-current="page"`. Pages not
     built yet may 404.
   - **Badge:** a tab can show an unread count, a 16px `rs-danger` pill; screen readers hear
-    ", N unread". Nothing supplies counts until the messaging and notification slices.
+    ", N unread". Messaging shows unread messages plus message requests, from the shared badge poller.
 - **Me menu:** the Me tab shows the 24px avatar, "Me" and a chevron, and opens a 264px menu
   (`role="menu"`, `shadow-menu`, 8px radius but the top right): 48px avatar, name and
   headline (the email when there is no headline), a "View profile" outline pill, then

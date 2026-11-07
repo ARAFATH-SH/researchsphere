@@ -6,6 +6,7 @@ export type { ApiError, Result };
 export type RegisterRequest = components["schemas"]["RegisterRequest"];
 export type LoginRequest = components["schemas"]["LoginRequest"];
 export type CurrentUser = components["schemas"]["CurrentUser"];
+export type Me = components["schemas"]["Me"];
 export type ChangePasswordRequest = components["schemas"]["ChangePasswordRequest"];
 export type ProjectRef = components["schemas"]["ProjectRef"];
 export type Role = components["schemas"]["Role"];
@@ -62,7 +63,7 @@ export type DeleteAccountResult = { ok: true; data: undefined } | ({ ok: false; 
 export async function deleteAccount(password: string): Promise<DeleteAccountResult> {
   let projects: ProjectRef[] | undefined;
   const res = await call(async () => {
-    const reply = await api.DELETE("/account", { body: { password } });
+    const reply = await api.POST("/account/delete", { body: { password } });
     if (reply.error && "projects" in reply.error) projects = reply.error.projects;
     return reply;
   });
@@ -71,7 +72,7 @@ export async function deleteAccount(password: string): Promise<DeleteAccountResu
 }
 
 // withUser turns a successful reply that must carry the user into a Result.
-function withUser(res: Result<CurrentUser | undefined>): Result<CurrentUser> {
+function withUser<T>(res: Result<T | undefined>): Result<T> {
   if (!res.ok) return res;
   return res.data ? { ok: true, data: res.data } : { ok: false, ...unexpectedError };
 }
@@ -84,7 +85,7 @@ export async function login(body: LoginRequest): Promise<Result<CurrentUser>> {
 }
 
 // getCurrentUser returns the signed-in user, or an error when there is no session.
-export async function getCurrentUser(): Promise<Result<CurrentUser>> {
+export async function getCurrentUser(): Promise<Result<Me>> {
   return withUser(await call(() => api.GET("/auth/me")));
 }
 

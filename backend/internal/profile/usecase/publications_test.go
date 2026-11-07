@@ -444,7 +444,7 @@ func TestListPublicationsOrderAndConfirmedOnly(t *testing.T) {
 			return svc.ListOwnPublications(context.Background(), adaID, 1, 10)
 		},
 		"viewed": func() (domain.PublicationPage, error) {
-			return svc.ListPublications(context.Background(), adaID, 1, 10)
+			return svc.ListPublications(context.Background(), eveID, adaID, 1, 10)
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -490,7 +490,7 @@ func TestListPublicationsPagination(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := newPublicationService(store).ListPublications(context.Background(), adaID, tt.page, tt.size)
+			got, err := newPublicationService(store).ListPublications(context.Background(), eveID, adaID, tt.page, tt.size)
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("err = %v, want %v", err, tt.wantErr)
 			}
@@ -516,7 +516,7 @@ func TestListPublicationsHiddenAccounts(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			store := newFakeStore(testAccounts()...)
 			store.givePublication(domain.Publication{Title: "Hidden", Year: iptr(2020)}, true, id)
-			_, err := newPublicationService(store).ListPublications(context.Background(), id, 1, 10)
+			_, err := newPublicationService(store).ListPublications(context.Background(), eveID, id, 1, 10)
 			if !errors.Is(err, domain.ErrNotFound) {
 				t.Fatalf("err = %v, want ErrNotFound", err)
 			}

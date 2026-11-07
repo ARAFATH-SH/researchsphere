@@ -35,6 +35,10 @@ type fakeService struct {
 	users    []domain.User // returned by ListUsers
 	page     int           // given to ListUsers
 	pageSize int           // given to ListUsers
+
+	restrictedUntil *time.Time
+	restrictedErr   error
+	at              time.Time
 }
 
 func (f *fakeService) DeleteAccount(_ context.Context, in usecase.DeleteAccountInput) error {
@@ -92,12 +96,16 @@ func (f *fakeService) ListUsers(_ context.Context, page, pageSize int) (domain.U
 	if f.err != nil {
 		return domain.UserPage{}, f.err
 	}
-	return domain.UserPage{Users: f.users, Page: page, PageSize: min(pageSize, usecase.MaxPageSize), Total: len(f.users)}, nil
+	return domain.UserPage{Users: f.users, Page: page, PageSize: min(pageSize, usecase.MaxPageSize), Total: len(f.users), At: f.at}, nil
 }
 
 func (f *fakeService) CurrentUser(_ context.Context, id string) (domain.User, error) {
 	f.userID = id
 	return f.user, f.err
+}
+
+func (f *fakeService) MessagingRestrictedUntil(context.Context, string) (*time.Time, error) {
+	return f.restrictedUntil, f.restrictedErr
 }
 
 // server serves only the auth operations: Handler's methods are promoted from a
@@ -501,6 +509,28 @@ func TestGetCurrentUser(t *testing.T) {
 		}
 	})
 
+	t.Run("no restriction is null", func(t *testing.T) {
+		rec := me(t, &fakeService{user: domain.User{ID: userID}}, userID)
+		if !strings.Contains(rec.Body.String(), `"messagingRestrictedUntil":null`) {
+			t.Errorf("body = %s", rec.Body)
+		}
+	})
+
+	t.Run("restricted", func(t *testing.T) {
+		until := time.Date(2026, 12, 1, 9, 0, 0, 0, time.UTC)
+		got := decode(t, me(t, &fakeService{user: domain.User{ID: userID}, restrictedUntil: &until}, userID))
+		if got["messagingRestrictedUntil"] != "2026-12-01T09:00:00Z" {
+			t.Errorf("messagingRestrictedUntil = %v", got["messagingRestrictedUntil"])
+		}
+	})
+
+	t.Run("the restriction cannot be read", func(t *testing.T) {
+		rec := me(t, &fakeService{user: domain.User{ID: userID}, restrictedErr: errors.New("boom")}, userID)
+		if rec.Code != http.StatusInternalServerError {
+			t.Errorf("status = %d, want 500", rec.Code)
+		}
+	})
+
 	t.Run("account no longer exists", func(t *testing.T) {
 		rec := me(t, &fakeService{err: domain.ErrNotFound}, userID)
 		if rec.Code != http.StatusUnauthorized || decode(t, rec)["code"] != httpx.CodeUnauthenticated {
@@ -761,7 +791,7 @@ func deleteAccount(t *testing.T, svc *fakeService, ctxUser string) *httptest.Res
 	if ctxUser != "" {
 		ctx = httpx.WithUserID(ctx, ctxUser) // what the auth middleware does
 	}
-	req := httptest.NewRequestWithContext(ctx, http.MethodDelete, "/api/v1/account", strings.NewReader(`{"password":"password1"}`))
+	req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/account/delete", strings.NewReader(`{"password":"password1"}`))
 	req.Header.Set("Content-Type", "application/json")
 	return serve(NewHandler(svc, CookieConfig{}), req)
 }

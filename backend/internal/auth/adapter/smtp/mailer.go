@@ -72,6 +72,12 @@ stays the same.
 	return m.send(ctx, mail.Address{Name: name, Address: msg.To}, "Reset your ResearchSphere password", body)
 }
 
+// SendText sends a plain-text message that another module wrote (FR-15.8). The subject and body
+// are encoded by message, so neither can add headers. Errors never contain the message.
+func (m *Mailer) SendText(ctx context.Context, toAddress, toName, subject, body string) error {
+	return m.send(ctx, mail.Address{Name: oneLine(toName), Address: toAddress}, oneLine(subject), body)
+}
+
 func (m *Mailer) send(ctx context.Context, to mail.Address, subject, body string) error {
 	data, err := m.message(to, subject, body)
 	if err != nil {

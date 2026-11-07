@@ -47,10 +47,10 @@ func TestListUsers(t *testing.T) {
 	}
 	newest, middle := first[0], first[1]
 	if newest.Email != emails[2] || newest.FullName != "Newest" || newest.Role != domain.RoleResearcher ||
-		newest.Verified() || newest.Suspended() || !newest.CreatedAt.Equal(future.Add(2*time.Second)) {
+		newest.Verified() || newest.Suspended(time.Now()) || !newest.CreatedAt.Equal(future.Add(2*time.Second)) {
 		t.Errorf("newest = %+v", newest)
 	}
-	if middle.Role != domain.RoleAdmin || !middle.Verified() || !middle.Suspended() {
+	if middle.Role != domain.RoleAdmin || !middle.Verified() || !middle.Suspended(time.Now()) {
 		t.Errorf("middle = %+v, want a verified, suspended admin", middle)
 	}
 

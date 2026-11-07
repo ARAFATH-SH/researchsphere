@@ -39,6 +39,10 @@ const (
 	RemoveAnyPostOrComment Action = "remove_any_post_or_comment"
 	// SuspendUser is the row "Suspend a user account".
 	SuspendUser Action = "suspend_user"
+	// ModerateUser is the row "Warn or restrict a user, and read their moderation history".
+	ModerateUser Action = "moderate_user"
+	// ReviewMessageReports is the row "Review reported conversations".
+	ReviewMessageReports Action = "review_message_reports"
 )
 
 // platform is the "Platform level" table. A missing entry means No.
@@ -55,6 +59,8 @@ var platform = map[Role]map[Action]bool{
 		ManageVenues:           true,
 		RemoveAnyPostOrComment: true,
 		SuspendUser:            true,
+		ModerateUser:           true,
+		ReviewMessageReports:   true,
 	},
 }
 

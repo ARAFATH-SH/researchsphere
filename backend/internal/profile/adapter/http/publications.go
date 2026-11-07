@@ -69,13 +69,14 @@ func (h *Handler) ListMyPublications(ctx context.Context, req gen.ListMyPublicat
 
 // ListPublications returns one page of any user's confirmed publications to a logged-in
 // user (FR-5.5). Unknown, suspended and unverified accounts get the same 404 as their
-// profile.
+// profile, and so does a viewer the owner has blocked (FR-16.9).
 func (h *Handler) ListPublications(ctx context.Context, req gen.ListPublicationsRequestObject) (gen.ListPublicationsResponseObject, error) {
-	if _, ok := httpx.UserID(ctx); !ok {
+	viewer, ok := httpx.UserID(ctx)
+	if !ok {
 		return gen.ListPublications401JSONResponse{UnauthorizedJSONResponse: unauthenticated}, nil
 	}
 	page, pageSize := pageParams(req.Params.Page, req.Params.PageSize)
-	res, err := h.svc.ListPublications(ctx, req.UserId, page, pageSize)
+	res, err := h.svc.ListPublications(ctx, viewer, req.UserId, page, pageSize)
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
 		return gen.ListPublications404JSONResponse{NotFoundJSONResponse: gen.NotFoundJSONResponse{
@@ -104,7 +105,7 @@ func (h *Handler) AddMyPublication(ctx context.Context, req gen.AddMyPublication
 		return gen.AddMyPublication400JSONResponse{InvalidPublicationJSONResponse: badPublicationRequest}, nil
 	}
 	b := req.Body
-	year := b.Year // a missing year arrives as 0, which is out of range
+	year := b.Year
 	res, err := h.svc.AddPublication(ctx, id, usecase.PublicationInput{
 		Title:    b.Title,
 		Year:     &year,

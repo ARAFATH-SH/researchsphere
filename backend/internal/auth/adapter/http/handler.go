@@ -59,6 +59,7 @@ type service interface {
 	ResendVerification(ctx context.Context, email string) error
 	Login(ctx context.Context, in usecase.LoginInput) (usecase.LoginResult, error)
 	CurrentUser(ctx context.Context, id string) (domain.User, error)
+	MessagingRestrictedUntil(ctx context.Context, id string) (*time.Time, error)
 	Refresh(ctx context.Context, token string) (usecase.RefreshResult, error)
 	Logout(ctx context.Context, token string) error
 	RequestPasswordReset(ctx context.Context, email string) error
@@ -202,7 +203,7 @@ func (h *Handler) LoginUser(ctx context.Context, req gen.LoginUserRequestObject)
 	case errors.Is(err, domain.ErrInvalidCredentials):
 		return gen.LoginUser401JSONResponse{Code: CodeInvalidCredentials, Message: "The email address or password is wrong."}, nil
 	case errors.Is(err, domain.ErrAccountSuspended):
-		return gen.LoginUser403JSONResponse(accountSuspended), nil
+		return gen.LoginUser403JSONResponse(suspendedBody(err)), nil
 	case errors.Is(err, domain.ErrEmailNotVerified):
 		return gen.LoginUser403JSONResponse{
 			Code:    CodeEmailNotVerified,
@@ -228,6 +229,17 @@ func (h *Handler) LoginUser(ctx context.Context, req gen.LoginUserRequestObject)
 			h.cookie(httpx.RefreshCookie, res.RefreshToken, refreshCookiePath, res.RefreshExpiresAt.Sub(res.IssuedAt)),
 		},
 	}, nil
+}
+
+// suspendedBody refuses a login with the administrator's reason and, when the suspension is
+// temporary, its end (FR-15.7). This comes only after the right password.
+func suspendedBody(err error) gen.Error {
+	body := accountSuspended
+	var e *domain.SuspendedError
+	if errors.As(err, &e) {
+		body.Reason, body.Until = e.Reason, e.Until
+	}
+	return body
 }
 
 // accountSuspended refuses a login or a password reset of a suspended account (FR-3.4).
@@ -318,7 +330,13 @@ func (h *Handler) GetCurrentUser(ctx context.Context, _ gen.GetCurrentUserReques
 	if err != nil {
 		return nil, err
 	}
-	return gen.GetCurrentUser200JSONResponse(body), nil
+	until, err := h.svc.MessagingRestrictedUntil(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return gen.GetCurrentUser200JSONResponse{
+		Id: body.Id, Email: body.Email, FullName: body.FullName, Role: body.Role, MessagingRestrictedUntil: until,
+	}, nil
 }
 
 // ChangePassword sets a new password for the logged-in user and ends every other session
@@ -447,15 +465,19 @@ func (h *Handler) ListUsers(ctx context.Context, req gen.ListUsersRequestObject)
 		if err := id.UnmarshalText([]byte(u.ID)); err != nil {
 			return nil, fmt.Errorf("user id: %w", err)
 		}
-		items = append(items, gen.AdminUser{
+		item := gen.AdminUser{
 			Id:        id,
 			FullName:  u.FullName,
 			Email:     u.Email,
 			Role:      gen.Role(u.Role),
 			Verified:  u.Verified(),
-			Suspended: u.Suspended(),
+			Suspended: u.Suspended(res.At),
 			CreatedAt: u.CreatedAt,
-		})
+		}
+		if item.Suspended {
+			item.SuspensionReason, item.SuspendedUntil = u.SuspensionReason, u.SuspendedUntil
+		}
+		items = append(items, item)
 	}
 	return gen.ListUsers200JSONResponse{Items: items, Page: res.Page, PageSize: res.PageSize, Total: res.Total}, nil
 }

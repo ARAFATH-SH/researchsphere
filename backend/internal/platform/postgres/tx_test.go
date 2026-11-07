@@ -75,3 +75,72 @@ func TestInTx(t *testing.T) {
 		}
 	})
 }
+
+// Other people hear about a change only once it stands (real-time events).
+func TestAfterCommit(t *testing.T) {
+	pool := testenv.DB(t)
+	tr := NewTransactor(pool)
+
+	t.Run("runs after the commit, in order, with no transaction", func(t *testing.T) {
+		email := testenv.Email(t)
+		var order []string
+		err := tr.InTx(t.Context(), func(ctx context.Context) error {
+			if err := insertUser(ctx, Conn(ctx, pool), email); err != nil {
+				return err
+			}
+			AfterCommit(ctx, func(ctx context.Context) {
+				if countUsers(t, pool, email) != 1 {
+					t.Error("the hook ran before the commit")
+				}
+				if _, ok := Conn(ctx, pool).(interface{ Commit(context.Context) error }); ok {
+					t.Error("the hook's context still carries the transaction")
+				}
+				order = append(order, "first")
+			})
+			// A nested call joins the outer transaction, so it waits for the outer commit.
+			return tr.InTx(ctx, func(ctx context.Context) error {
+				AfterCommit(ctx, func(context.Context) { order = append(order, "second") })
+				if len(order) != 0 {
+					t.Error("a hook ran inside the transaction")
+				}
+				return nil
+			})
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(order) != 2 || order[0] != "first" || order[1] != "second" {
+			t.Errorf("order = %v", order)
+		}
+	})
+
+	t.Run("does not run after a rollback", func(t *testing.T) {
+		boom := errors.New("boom")
+		ran := false
+		err := tr.InTx(t.Context(), func(ctx context.Context) error {
+			AfterCommit(ctx, func(context.Context) { ran = true })
+			return boom
+		})
+		if !errors.Is(err, boom) {
+			t.Fatalf("err = %v", err)
+		}
+		if ran {
+			t.Error("the hook ran after a rollback")
+		}
+	})
+
+	t.Run("runs at once without a transaction, on a context that outlives the request", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		ran := false
+		AfterCommit(ctx, func(ctx context.Context) {
+			ran = true
+			if ctx.Err() != nil {
+				t.Errorf("ctx.Err() = %v", ctx.Err())
+			}
+		})
+		if !ran {
+			t.Error("the hook did not run")
+		}
+	})
+}

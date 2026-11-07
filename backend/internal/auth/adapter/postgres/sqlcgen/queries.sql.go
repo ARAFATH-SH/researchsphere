@@ -11,6 +11,23 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const clearExpiredSuspension = `-- name: ClearExpiredSuspension :exec
+UPDATE users SET suspended_at = NULL, suspended_until = NULL, suspension_reason = NULL
+WHERE id = $1 AND suspended_until <= $2
+`
+
+type ClearExpiredSuspensionParams struct {
+	ID  pgtype.UUID
+	Now pgtype.Timestamptz
+}
+
+// A temporary suspension ends by time; nothing runs at that moment, so the next login or
+// refresh clears it. A permanent one has no suspended_until and is never matched.
+func (q *Queries) ClearExpiredSuspension(ctx context.Context, arg ClearExpiredSuspensionParams) error {
+	_, err := q.db.Exec(ctx, clearExpiredSuspension, arg.ID, arg.Now)
+	return err
+}
+
 const countUsers = `-- name: CountUsers :one
 SELECT count(*) FROM users
 `
@@ -158,20 +175,22 @@ func (q *Queries) DeleteUserPublicationLinks(ctx context.Context, userID pgtype.
 }
 
 const findCredentialsByEmail = `-- name: FindCredentialsByEmail :one
-SELECT u.id, u.email, u.password_hash, u.email_verified_at, u.suspended_at, u.role, p.full_name
+SELECT u.id, u.email, u.password_hash, u.email_verified_at, u.suspended_at, u.suspended_until, u.suspension_reason, u.role, p.full_name
 FROM users u
 JOIN profiles p ON p.user_id = u.id
 WHERE u.email = $1
 `
 
 type FindCredentialsByEmailRow struct {
-	ID              pgtype.UUID
-	Email           string
-	PasswordHash    string
-	EmailVerifiedAt pgtype.Timestamptz
-	SuspendedAt     pgtype.Timestamptz
-	Role            UserRole
-	FullName        string
+	ID               pgtype.UUID
+	Email            string
+	PasswordHash     string
+	EmailVerifiedAt  pgtype.Timestamptz
+	SuspendedAt      pgtype.Timestamptz
+	SuspendedUntil   pgtype.Timestamptz
+	SuspensionReason pgtype.Text
+	Role             UserRole
+	FullName         string
 }
 
 func (q *Queries) FindCredentialsByEmail(ctx context.Context, email string) (FindCredentialsByEmailRow, error) {
@@ -183,6 +202,8 @@ func (q *Queries) FindCredentialsByEmail(ctx context.Context, email string) (Fin
 		&i.PasswordHash,
 		&i.EmailVerifiedAt,
 		&i.SuspendedAt,
+		&i.SuspendedUntil,
+		&i.SuspensionReason,
 		&i.Role,
 		&i.FullName,
 	)
@@ -190,7 +211,7 @@ func (q *Queries) FindCredentialsByEmail(ctx context.Context, email string) (Fin
 }
 
 const findCredentialsByID = `-- name: FindCredentialsByID :one
-SELECT u.id, u.email, u.password_hash, u.email_verified_at, u.suspended_at, p.full_name
+SELECT u.id, u.email, u.password_hash, u.email_verified_at, u.suspended_at, u.suspended_until, p.full_name
 FROM users u
 JOIN profiles p ON p.user_id = u.id
 WHERE u.id = $1
@@ -202,6 +223,7 @@ type FindCredentialsByIDRow struct {
 	PasswordHash    string
 	EmailVerifiedAt pgtype.Timestamptz
 	SuspendedAt     pgtype.Timestamptz
+	SuspendedUntil  pgtype.Timestamptz
 	FullName        string
 }
 
@@ -214,6 +236,7 @@ func (q *Queries) FindCredentialsByID(ctx context.Context, id pgtype.UUID) (Find
 		&i.PasswordHash,
 		&i.EmailVerifiedAt,
 		&i.SuspendedAt,
+		&i.SuspendedUntil,
 		&i.FullName,
 	)
 	return i, err
@@ -247,7 +270,7 @@ func (q *Queries) FindSessionByRetiredTokenForUpdate(ctx context.Context, tokenH
 }
 
 const findSessionForUpdate = `-- name: FindSessionForUpdate :one
-SELECT s.id, s.user_id, s.expires_at, s.revoked_at, u.suspended_at, u.role
+SELECT s.id, s.user_id, s.expires_at, s.revoked_at, u.suspended_at, u.suspended_until, u.role
 FROM sessions s
 JOIN users u ON u.id = s.user_id
 WHERE s.refresh_token_hash = $1
@@ -255,12 +278,13 @@ FOR UPDATE OF s
 `
 
 type FindSessionForUpdateRow struct {
-	ID          pgtype.UUID
-	UserID      pgtype.UUID
-	ExpiresAt   pgtype.Timestamptz
-	RevokedAt   pgtype.Timestamptz
-	SuspendedAt pgtype.Timestamptz
-	Role        UserRole
+	ID             pgtype.UUID
+	UserID         pgtype.UUID
+	ExpiresAt      pgtype.Timestamptz
+	RevokedAt      pgtype.Timestamptz
+	SuspendedAt    pgtype.Timestamptz
+	SuspendedUntil pgtype.Timestamptz
+	Role           UserRole
 }
 
 func (q *Queries) FindSessionForUpdate(ctx context.Context, refreshTokenHash string) (FindSessionForUpdateRow, error) {
@@ -272,6 +296,7 @@ func (q *Queries) FindSessionForUpdate(ctx context.Context, refreshTokenHash str
 		&i.ExpiresAt,
 		&i.RevokedAt,
 		&i.SuspendedAt,
+		&i.SuspendedUntil,
 		&i.Role,
 	)
 	return i, err
@@ -312,7 +337,7 @@ func (q *Queries) FindSharedOwnedProjects(ctx context.Context, userID pgtype.UUI
 }
 
 const findTokenForUpdate = `-- name: FindTokenForUpdate :one
-SELECT t.id, t.user_id, t.expires_at, t.used_at, u.suspended_at
+SELECT t.id, t.user_id, t.expires_at, t.used_at, u.suspended_at, u.suspended_until
 FROM auth_tokens t
 JOIN users u ON u.id = t.user_id
 WHERE t.token_hash = $1 AND t.purpose = $2
@@ -325,11 +350,12 @@ type FindTokenForUpdateParams struct {
 }
 
 type FindTokenForUpdateRow struct {
-	ID          pgtype.UUID
-	UserID      pgtype.UUID
-	ExpiresAt   pgtype.Timestamptz
-	UsedAt      pgtype.Timestamptz
-	SuspendedAt pgtype.Timestamptz
+	ID             pgtype.UUID
+	UserID         pgtype.UUID
+	ExpiresAt      pgtype.Timestamptz
+	UsedAt         pgtype.Timestamptz
+	SuspendedAt    pgtype.Timestamptz
+	SuspendedUntil pgtype.Timestamptz
 }
 
 func (q *Queries) FindTokenForUpdate(ctx context.Context, arg FindTokenForUpdateParams) (FindTokenForUpdateRow, error) {
@@ -341,12 +367,13 @@ func (q *Queries) FindTokenForUpdate(ctx context.Context, arg FindTokenForUpdate
 		&i.ExpiresAt,
 		&i.UsedAt,
 		&i.SuspendedAt,
+		&i.SuspendedUntil,
 	)
 	return i, err
 }
 
 const findUserByEmail = `-- name: FindUserByEmail :one
-SELECT u.id, u.email, u.email_verified_at, u.suspended_at, p.full_name
+SELECT u.id, u.email, u.email_verified_at, u.suspended_at, u.suspended_until, p.full_name
 FROM users u
 JOIN profiles p ON p.user_id = u.id
 WHERE u.email = $1
@@ -357,6 +384,7 @@ type FindUserByEmailRow struct {
 	Email           string
 	EmailVerifiedAt pgtype.Timestamptz
 	SuspendedAt     pgtype.Timestamptz
+	SuspendedUntil  pgtype.Timestamptz
 	FullName        string
 }
 
@@ -368,25 +396,29 @@ func (q *Queries) FindUserByEmail(ctx context.Context, email string) (FindUserBy
 		&i.Email,
 		&i.EmailVerifiedAt,
 		&i.SuspendedAt,
+		&i.SuspendedUntil,
 		&i.FullName,
 	)
 	return i, err
 }
 
 const findUserByID = `-- name: FindUserByID :one
-SELECT u.id, u.email, u.email_verified_at, u.suspended_at, u.role, p.full_name
+SELECT u.id, u.email, u.email_verified_at, u.suspended_at, u.suspended_until, u.suspension_reason, u.role, u.created_at, p.full_name
 FROM users u
 JOIN profiles p ON p.user_id = u.id
 WHERE u.id = $1
 `
 
 type FindUserByIDRow struct {
-	ID              pgtype.UUID
-	Email           string
-	EmailVerifiedAt pgtype.Timestamptz
-	SuspendedAt     pgtype.Timestamptz
-	Role            UserRole
-	FullName        string
+	ID               pgtype.UUID
+	Email            string
+	EmailVerifiedAt  pgtype.Timestamptz
+	SuspendedAt      pgtype.Timestamptz
+	SuspendedUntil   pgtype.Timestamptz
+	SuspensionReason pgtype.Text
+	Role             UserRole
+	CreatedAt        pgtype.Timestamptz
+	FullName         string
 }
 
 func (q *Queries) FindUserByID(ctx context.Context, id pgtype.UUID) (FindUserByIDRow, error) {
@@ -397,7 +429,10 @@ func (q *Queries) FindUserByID(ctx context.Context, id pgtype.UUID) (FindUserByI
 		&i.Email,
 		&i.EmailVerifiedAt,
 		&i.SuspendedAt,
+		&i.SuspendedUntil,
+		&i.SuspensionReason,
 		&i.Role,
+		&i.CreatedAt,
 		&i.FullName,
 	)
 	return i, err
@@ -421,7 +456,7 @@ func (q *Queries) InsertRetiredToken(ctx context.Context, arg InsertRetiredToken
 
 const listUsers = `-- name: ListUsers :many
 
-SELECT u.id, u.email, u.role, u.email_verified_at, u.suspended_at, u.created_at, p.full_name
+SELECT u.id, u.email, u.role, u.email_verified_at, u.suspended_at, u.suspended_until, u.suspension_reason, u.created_at, p.full_name
 FROM users u
 JOIN profiles p ON p.user_id = u.id
 ORDER BY u.created_at DESC, u.id DESC
@@ -434,13 +469,15 @@ type ListUsersParams struct {
 }
 
 type ListUsersRow struct {
-	ID              pgtype.UUID
-	Email           string
-	Role            UserRole
-	EmailVerifiedAt pgtype.Timestamptz
-	SuspendedAt     pgtype.Timestamptz
-	CreatedAt       pgtype.Timestamptz
-	FullName        string
+	ID               pgtype.UUID
+	Email            string
+	Role             UserRole
+	EmailVerifiedAt  pgtype.Timestamptz
+	SuspendedAt      pgtype.Timestamptz
+	SuspendedUntil   pgtype.Timestamptz
+	SuspensionReason pgtype.Text
+	CreatedAt        pgtype.Timestamptz
+	FullName         string
 }
 
 // Administration (FR-15.3).
@@ -460,6 +497,8 @@ func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]ListUse
 			&i.Role,
 			&i.EmailVerifiedAt,
 			&i.SuspendedAt,
+			&i.SuspendedUntil,
+			&i.SuspensionReason,
 			&i.CreatedAt,
 			&i.FullName,
 		); err != nil {
@@ -489,6 +528,41 @@ FOR UPDATE OF p
 func (q *Queries) LockOwnedProjects(ctx context.Context, userID pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, lockOwnedProjects, userID)
 	return err
+}
+
+const lockUser = `-- name: LockUser :one
+SELECT u.id, u.email, u.email_verified_at, u.suspended_at, u.suspended_until, u.role, p.full_name
+FROM users u
+JOIN profiles p ON p.user_id = u.id
+WHERE u.id = $1
+FOR UPDATE OF u
+`
+
+type LockUserRow struct {
+	ID              pgtype.UUID
+	Email           string
+	EmailVerifiedAt pgtype.Timestamptz
+	SuspendedAt     pgtype.Timestamptz
+	SuspendedUntil  pgtype.Timestamptz
+	Role            UserRole
+	FullName        string
+}
+
+// Moderation (FR-15.10): held until the action's transaction ends, so an action and a send that
+// checks the actor run one after the other.
+func (q *Queries) LockUser(ctx context.Context, id pgtype.UUID) (LockUserRow, error) {
+	row := q.db.QueryRow(ctx, lockUser, id)
+	var i LockUserRow
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.EmailVerifiedAt,
+		&i.SuspendedAt,
+		&i.SuspendedUntil,
+		&i.Role,
+		&i.FullName,
+	)
+	return i, err
 }
 
 const lockUserPublications = `-- name: LockUserPublications :many
@@ -546,6 +620,16 @@ type MarkTokenUsedParams struct {
 
 func (q *Queries) MarkTokenUsed(ctx context.Context, arg MarkTokenUsedParams) error {
 	_, err := q.db.Exec(ctx, markTokenUsed, arg.UsedAt, arg.ID)
+	return err
+}
+
+const restoreUser = `-- name: RestoreUser :exec
+UPDATE users SET suspended_at = NULL, suspended_until = NULL, suspension_reason = NULL
+WHERE id = $1
+`
+
+func (q *Queries) RestoreUser(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, restoreUser, id)
 	return err
 }
 
@@ -641,6 +725,29 @@ func (q *Queries) SetUserRoleByEmail(ctx context.Context, arg SetUserRoleByEmail
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const suspendUser = `-- name: SuspendUser :exec
+UPDATE users
+SET suspended_at = $1, suspended_until = $2, suspension_reason = $3
+WHERE id = $4
+`
+
+type SuspendUserParams struct {
+	SuspendedAt    pgtype.Timestamptz
+	SuspendedUntil pgtype.Timestamptz
+	Reason         pgtype.Text
+	ID             pgtype.UUID
+}
+
+func (q *Queries) SuspendUser(ctx context.Context, arg SuspendUserParams) error {
+	_, err := q.db.Exec(ctx, suspendUser,
+		arg.SuspendedAt,
+		arg.SuspendedUntil,
+		arg.Reason,
+		arg.ID,
+	)
+	return err
 }
 
 const updatePasswordHash = `-- name: UpdatePasswordHash :exec

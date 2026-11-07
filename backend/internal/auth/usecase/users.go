@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"math"
+	"time"
 
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/auth/domain"
 )
@@ -12,6 +13,23 @@ const (
 	DefaultPageSize = 20
 	MaxPageSize     = 50
 )
+
+// LockAccount locks the user's row until the context's transaction ends and returns the user,
+// for a moderation action. ErrNotFound when there is no such user.
+func (s *Service) LockAccount(ctx context.Context, userID string) (domain.User, error) {
+	return s.store.LockUser(ctx, userID)
+}
+
+// Suspend suspends the account and ends its sessions in the context's transaction (FR-15.7).
+// The caller, the moderation module, has checked who may be suspended.
+func (s *Service) Suspend(ctx context.Context, userID string, at time.Time, until *time.Time, reason string) error {
+	return s.store.Suspend(ctx, userID, at, until, reason)
+}
+
+// Restore ends the account's suspension in the context's transaction (FR-15.3).
+func (s *Service) Restore(ctx context.Context, userID string) error {
+	return s.store.Restore(ctx, userID)
+}
 
 // ListUsers returns one page of users, newest first, for an administrator (FR-15.3). The
 // caller has already checked the role (httpx.RequirePlatform). page counts from 1; a
@@ -36,5 +54,5 @@ func (s *Service) ListUsers(ctx context.Context, page, pageSize int) (domain.Use
 	if users == nil {
 		users = []domain.User{}
 	}
-	return domain.UserPage{Users: users, Page: page, PageSize: pageSize, Total: total}, nil
+	return domain.UserPage{Users: users, Page: page, PageSize: pageSize, Total: total, At: s.now()}, nil
 }

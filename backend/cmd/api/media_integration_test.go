@@ -26,12 +26,24 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	goredis "github.com/redis/go-redis/v9"
 
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/auth/adapter/argon2"
 	authhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/adapter/http"
+	authpg "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/adapter/postgres"
+	authredis "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/adapter/redis"
+	authdomain "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/domain"
+	authusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/usecase"
 	mediahttp "github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/http"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/imaging"
 	mediapg "github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/postgres"
 	mediaredis "github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/redis"
 	mediausecase "github.com/ARAFATH-SH/researchsphere/backend/internal/media/usecase"
+	messaginghttp "github.com/ARAFATH-SH/researchsphere/backend/internal/messaging/adapter/http"
+	messagingpg "github.com/ARAFATH-SH/researchsphere/backend/internal/messaging/adapter/postgres"
+	messagingredis "github.com/ARAFATH-SH/researchsphere/backend/internal/messaging/adapter/redis"
+	messagingusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/messaging/usecase"
+	moderationhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/moderation/adapter/http"
+	moderationpg "github.com/ARAFATH-SH/researchsphere/backend/internal/moderation/adapter/postgres"
+	moderationusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/moderation/usecase"
 	notificationhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/notification/adapter/http"
 	notificationpg "github.com/ARAFATH-SH/researchsphere/backend/internal/notification/adapter/postgres"
 	notificationusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/notification/usecase"
@@ -46,6 +58,8 @@ import (
 	profilepg "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/postgres"
 	profileredis "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/redis"
 	profileusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/usecase"
+	realtimehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/realtime/adapter/http"
+	realtimeusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/realtime/usecase"
 	socialhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/social/adapter/http"
 	socialpg "github.com/ARAFATH-SH/researchsphere/backend/internal/social/adapter/postgres"
 	socialredis "github.com/ARAFATH-SH/researchsphere/backend/internal/social/adapter/redis"
@@ -54,10 +68,16 @@ import (
 )
 
 type mediaEnv struct {
-	router http.Handler
-	pool   *pgxpool.Pool
-	files  *storage.S3
-	rdb    *goredis.Client
+	router     http.Handler
+	pool       *pgxpool.Pool
+	files      *storage.S3
+	rdb        *goredis.Client
+	auth       *authusecase.Service
+	moderation *moderationusecase.Service
+	standings  *moderationusecase.Standings
+	hub        *realtimeusecase.Hub
+	events     *realtimeEvents
+	opt        envOptions
 }
 
 func newMediaEnv(t *testing.T) mediaEnv {
@@ -85,6 +105,15 @@ func newMediaEnvWithSources(t *testing.T, openAlexURL, orcidURL string) mediaEnv
 type envOptions struct {
 	// wrapNotifier, when set, wraps the connection notifier the social usecase calls.
 	wrapNotifier func(socialdomain.Notifier) socialdomain.Notifier
+	// messageLimits, when set, replaces the production send limits (FR-16.10).
+	messageLimits *messagingusecase.Limits
+	// now, when set, is the clock of the auth and moderation modules. Access tokens are still
+	// checked by the real clock, so a test can move past an end time and stay logged in.
+	now func() time.Time
+	// mail, when set, receives moderation's emails.
+	mail textMailer
+	// realAuth serves the auth operations from the real usecase instead of okAuth.
+	realAuth bool
 }
 
 // newMediaEnvOnPool is newMediaEnvWithSources on a given pool to the test database, such
@@ -101,8 +130,6 @@ func newMediaEnvOnPool(t *testing.T, pool *pgxpool.Pool, openAlexURL, orcidURL s
 		}
 	}
 	rdb := testenv.Redis(t)
-	limiter := mediaredis.New(rdb)
-	t.Cleanup(func() { _ = limiter.Close() })
 	files, err := storage.NewS3(storage.Config{
 		Endpoint: os.Getenv("S3_ENDPOINT"), Region: os.Getenv("S3_REGION"), Bucket: os.Getenv("S3_BUCKET"),
 		AccessKey: os.Getenv("S3_ACCESS_KEY"), SecretKey: os.Getenv("S3_SECRET_KEY"), UseSSL: os.Getenv("S3_USE_SSL") == "true",
@@ -110,6 +137,15 @@ func newMediaEnvOnPool(t *testing.T, pool *pgxpool.Pool, openAlexURL, orcidURL s
 	if err != nil {
 		t.Fatal(err)
 	}
+	return wireEnv(t, pool, rdb, files, openAlexURL, orcidURL, opt)
+}
+
+// wireEnv builds one API instance on the given stores. A second call gives a second instance
+// of the same deployment, with sockets of its own.
+func wireEnv(t *testing.T, pool *pgxpool.Pool, rdb *goredis.Client, files *storage.S3, openAlexURL, orcidURL string, opt envOptions) mediaEnv {
+	t.Helper()
+	limiter := mediaredis.New(rdb)
+	t.Cleanup(func() { _ = limiter.Close() })
 	logger := slog.New(slog.DiscardHandler)
 	images := mediausecase.NewImages(mediapg.NewStore(pool), files, imaging.Codec{}, limiter, logger)
 	up := pingerFunc(func(context.Context) error { return nil })
@@ -117,16 +153,51 @@ func newMediaEnvOnPool(t *testing.T, pool *pgxpool.Pool, openAlexURL, orcidURL s
 	t.Cleanup(func() { _ = lookups.Close() })
 	connectLimiter := socialredis.New(rdb)
 	t.Cleanup(func() { _ = connectLimiter.Close() })
-	notifications := notificationusecase.New(notificationpg.NewStore(pool))
-	var notifier socialdomain.Notifier = connectionNotifier{notifications: notifications}
+	messageLimiter := messagingredis.New(rdb)
+	t.Cleanup(func() { _ = messageLimiter.Close() })
+	limits := messagingusecase.Limits{MessagesPerMinute: 30, MessagesPerDay: 1000, RequestsPerMinute: 5, RequestsPerDay: 20}
+	if opt.messageLimits != nil {
+		limits = *opt.messageLimits
+	}
+	now := time.Now
+	if opt.now != nil {
+		now = opt.now
+	}
+	moderationStore := moderationpg.NewStore(pool)
+	standings := moderationusecase.NewStandings(moderationStore, now)
+	realtimeConfig := realtimeusecase.DefaultConfig()
+	realtimeConfig.OfflineGrace = 50 * time.Millisecond
+	realtime := newRealtime(rdb, standings, realtimeConfig, logger)
+	hubCtx, stopHub := context.WithCancel(context.Background())
+	hubDone := make(chan struct{})
+	go func() {
+		defer close(hubDone)
+		realtime.hub.Run(hubCtx)
+	}()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		realtime.hub.Shutdown(ctx)
+		stopHub()
+		<-hubDone
+		realtime.close()
+	})
+	notifications := notificationusecase.New(notificationpg.NewStore(pool), notificationusecase.WithPublisher(realtime.events))
+	connected := &connectionChecker{}
+	messaging := messagingusecase.New(messagingpg.NewStore(pool), postgres.NewTransactor(pool), connected, connected, messagingActors{standings: standings}, messageLimiter,
+		realtime.events, limits, logger)
+	realtime.bind(messaging, notifications)
+	var notifier socialdomain.Notifier = connectionNotifier{notifications: notifications, messaging: messaging, events: realtime.events}
 	if opt.wrapNotifier != nil {
 		notifier = opt.wrapNotifier(notifier)
 	}
-	social := socialusecase.New(socialpg.NewStore(pool), postgres.NewTransactor(pool), connectLimiter, notifier, logger)
+	social := socialusecase.New(socialpg.NewStore(pool), postgres.NewTransactor(pool), connectLimiter, notifier, socialActors{standings: standings}, logger)
+	connected.social = social
 	profileStore := profilepg.NewStore(pool)
 	profileOpts := []profileusecase.Option{profileusecase.WithPeopleSearch(profileusecase.PeopleSearch{
 		Searcher: profileStore, Limiter: lookups.SearchLimiter(), Logger: logger,
-	}), profileusecase.WithConnections(connectionLookup{social: social})}
+	}), profileusecase.WithConnections(connectionLookup{social: social}),
+		profileusecase.WithConversations(conversationLookup{messaging: messaging})}
 	if orcidURL != "" {
 		profileOpts = append(profileOpts, profileusecase.WithORCIDImport(profileusecase.ORCIDImport{
 			Source:  orcid.New(orcid.Config{BaseURL: orcidURL, Timeout: time.Second, RetryDelay: time.Millisecond}),
@@ -143,14 +214,45 @@ func newMediaEnvOnPool(t *testing.T, pool *pgxpool.Pool, openAlexURL, orcidURL s
 			Logger:  logger,
 		}))
 	}
-	router := newRouter(logger, up, up, up, authhttp.NewHandler(okAuth{}, authhttp.CookieConfig{}),
+	attempts := authredis.New(rdb)
+	t.Cleanup(func() { _ = attempts.Close() })
+	auth := authusecase.New(authpg.NewStore(pool), argon2.New(argon2.DefaultParams), noAuthMail{},
+		accesstoken.New([]byte(testSecret), accessTTL), attempts, authusecase.Config{AppBaseURL: "http://localhost:3000", Sessions: realtime.events, Restrictions: standings}, now, logger)
+	var mail textMailer = noText{}
+	if opt.mail != nil {
+		mail = opt.mail
+	}
+	moderation := moderationusecase.New(moderationStore, postgres.NewTransactor(pool), moderationAccounts{auth: auth, events: realtime.events},
+		moderationReports{messaging: messaging}, moderationNotifier{notifications: notifications},
+		moderationMailer{mailer: mail}, now, logger)
+	authAPI := authhttp.NewHandler(okAuth{}, authhttp.CookieConfig{})
+	if opt.realAuth {
+		authAPI = authhttp.NewHandler(auth, authhttp.CookieConfig{})
+	}
+	router := newRouter(logger, up, up, up, authAPI,
 		profilehttp.NewHandler(profileusecase.New(profileStore, profileOpts...)),
 		mediahttp.NewHandler(images),
 		socialhttp.NewHandler(social),
 		notificationhttp.NewHandler(notifications),
+		messaginghttp.NewHandler(messaging),
+		moderationhttp.NewHandler(moderation),
+		realtimehttp.NewHandler(realtime.hub, testOrigin, logger),
 		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
-	return mediaEnv{router: router, pool: pool, files: files, rdb: rdb}
+	return mediaEnv{router: router, pool: pool, files: files, rdb: rdb, auth: auth, moderation: moderation, standings: standings, hub: realtime.hub, events: realtime.events, opt: opt}
 }
+
+// noAuthMail and noText send nothing.
+type noAuthMail struct{}
+
+func (noAuthMail) SendVerification(context.Context, authdomain.VerificationEmail) error { return nil }
+
+func (noAuthMail) SendPasswordReset(context.Context, authdomain.PasswordResetEmail) error {
+	return nil
+}
+
+type noText struct{}
+
+func (noText) SendText(context.Context, string, string, string, string) error { return nil }
 
 // newProfileUser stores a verified user with a profile. When the test ends it deletes the
 // user and then the stored objects its files left in the deletion queue: emptying the

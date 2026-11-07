@@ -64,7 +64,8 @@ WHERE LEAST(requester_id, receiver_id) = LEAST(@user_id::uuid, @other_id::uuid)
   AND status = 'accepted';
 
 -- name: ListConnections :many
--- Most recently connected first.
+-- Most recently connected first, leaving out anyone who blocked the viewer (FR-16.9). On
+-- the caller's own list the viewer is the user.
 SELECT c.id, c.responded_at, o.id AS other_id, COALESCE(p.full_name, '')::text AS full_name,
        p.headline, p.institution, p.photo_file_id
 FROM connections c
@@ -72,6 +73,7 @@ JOIN users o ON o.id = CASE WHEN c.requester_id = @user_id::uuid THEN c.receiver
 LEFT JOIN profiles p ON p.user_id = o.id
 WHERE (c.requester_id = @user_id::uuid OR c.receiver_id = @user_id::uuid) AND c.status = 'accepted'
   AND o.email_verified_at IS NOT NULL AND o.suspended_at IS NULL
+  AND NOT EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = o.id AND b.blocked_id = @viewer_id::uuid)
 ORDER BY c.responded_at DESC, c.id DESC
 LIMIT @lim OFFSET @off;
 
@@ -80,7 +82,8 @@ SELECT count(*)
 FROM connections c
 JOIN users o ON o.id = CASE WHEN c.requester_id = @user_id::uuid THEN c.receiver_id ELSE c.requester_id END
 WHERE (c.requester_id = @user_id::uuid OR c.receiver_id = @user_id::uuid) AND c.status = 'accepted'
-  AND o.email_verified_at IS NOT NULL AND o.suspended_at IS NULL;
+  AND o.email_verified_at IS NOT NULL AND o.suspended_at IS NULL
+  AND NOT EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = o.id AND b.blocked_id = @viewer_id::uuid);
 
 -- name: ListReceived :many
 -- Pending requests the user received, newest first; the other user is the sender.
@@ -118,4 +121,49 @@ SELECT count(*)
 FROM connections c
 JOIN users o ON o.id = c.receiver_id
 WHERE c.requester_id = @user_id AND c.status = 'pending'
+  AND o.email_verified_at IS NOT NULL AND o.suspended_at IS NULL;
+
+-- name: LockPair :exec
+-- Runs blocks, connection requests and sends between two users one at a time (FR-16.9):
+-- each takes this lock first in its transaction and reads the block in a later statement,
+-- so nothing can pass the check once a block has committed. The key is the same whichever
+-- way round the two are given.
+SELECT pg_advisory_xact_lock(hashtextextended(LEAST(@a::uuid, @b::uuid)::text || GREATEST(@a::uuid, @b::uuid)::text, 0));
+
+-- name: BlockBetween :one
+SELECT EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = @me::uuid AND b.blocked_id = @other::uuid)::boolean AS by_me,
+       EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = @other::uuid AND b.blocked_id = @me::uuid)::boolean AS by_them;
+
+-- name: AddBlock :execrows
+INSERT INTO blocks (blocker_id, blocked_id) VALUES (@blocker_id, @blocked_id)
+ON CONFLICT (blocker_id, blocked_id) DO NOTHING;
+
+-- name: RemoveBlock :exec
+DELETE FROM blocks WHERE blocker_id = @blocker_id AND blocked_id = @blocked_id;
+
+-- name: RemoveLiveLink :exec
+-- The pending request or connection between two users, in either direction. A rejected row
+-- stays as history (FR-7.6).
+DELETE FROM connections
+WHERE LEAST(requester_id, receiver_id) = LEAST(@a::uuid, @b::uuid)
+  AND GREATEST(requester_id, receiver_id) = GREATEST(@a::uuid, @b::uuid)
+  AND status IN ('pending', 'accepted');
+
+-- name: ListBlocks :many
+-- Most recently blocked first; suspended and unverified users are left out, as in every list.
+SELECT b.created_at, o.id AS other_id, COALESCE(p.full_name, '')::text AS full_name,
+       p.headline, p.institution, p.photo_file_id
+FROM blocks b
+JOIN users o ON o.id = b.blocked_id
+LEFT JOIN profiles p ON p.user_id = o.id
+WHERE b.blocker_id = @user_id
+  AND o.email_verified_at IS NOT NULL AND o.suspended_at IS NULL
+ORDER BY b.created_at DESC, o.id DESC
+LIMIT @lim OFFSET @off;
+
+-- name: CountBlocks :one
+SELECT count(*)
+FROM blocks b
+JOIN users o ON o.id = b.blocked_id
+WHERE b.blocker_id = @user_id
   AND o.email_verified_at IS NOT NULL AND o.suspended_at IS NULL;

@@ -5,12 +5,19 @@ import type { Notification } from "./api";
 const sentences: Partial<Record<string, (name: string) => string>> = {
   connection_request_received: (name) => `${name} sent you a connection request.`,
   connection_request_accepted: (name) => `${name} accepted your connection request.`,
+  account_warning: () => "You received a warning from ResearchSphere. Tap to read it.",
 };
+
+// senderName is who a notification is from: its actor, or ResearchSphere for a system
+// notification, which has none.
+export function senderName(n: Notification): string {
+  return n.actor?.fullName ?? "ResearchSphere";
+}
 
 // sentenceFor returns the notification's sentence, or null for an unknown type.
 export function sentenceFor(n: Notification): string | null {
   const sentence = sentences[n.type as string];
-  return sentence ? sentence(n.actor.fullName) : null;
+  return sentence ? sentence(senderName(n)) : null;
 }
 
 // hasPendingRequest reports whether the notification is a received connection request

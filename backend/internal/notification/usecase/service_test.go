@@ -36,30 +36,56 @@ func newFakeStore() *fakeStore {
 
 func (s *fakeStore) visible(n *domain.Notification) bool { return !s.hidden[n.ActorID] }
 
-func (s *fakeStore) Put(_ context.Context, n domain.Notification) error {
+func (s *fakeStore) DeleteBetween(_ context.Context, a, b string) error {
 	if s.err != nil {
 		return s.err
+	}
+	s.rows = slices.DeleteFunc(s.rows, func(n *domain.Notification) bool {
+		return (n.RecipientID == a && n.ActorID == b) || (n.RecipientID == b && n.ActorID == a)
+	})
+	return nil
+}
+
+func (s *fakeStore) Put(_ context.Context, n domain.Notification) (string, error) {
+	if s.err != nil {
+		return "", s.err
 	}
 	s.clock = s.clock.Add(time.Second)
 	for _, r := range s.rows {
 		if r.RecipientID == n.RecipientID && r.ActorID == n.ActorID && r.Type == n.Type {
 			r.SubjectID, r.CreatedAt, r.ReadAt = n.SubjectID, s.clock, nil
-			return nil
+			return r.ID, nil
 		}
 	}
 	s.next++
 	n.ID = fmt.Sprintf("00000000-0000-0000-0000-%012d", s.next)
 	n.CreatedAt, n.ReadAt = s.clock, nil
 	s.rows = append(s.rows, &n)
-	return nil
+	return n.ID, nil
 }
 
-func (s *fakeStore) DeleteBySubject(_ context.Context, t domain.Type, subjectID string) error {
-	if s.err != nil {
-		return s.err
+func (s *fakeStore) Find(_ context.Context, recipientID, id string) (domain.Item, error) {
+	for _, r := range s.rows {
+		if r.ID == id && r.RecipientID == recipientID && s.visible(r) {
+			return domain.Item{Notification: *r}, nil
+		}
 	}
-	s.rows = slices.DeleteFunc(s.rows, func(r *domain.Notification) bool { return r.Type == t && r.SubjectID == subjectID })
-	return nil
+	return domain.Item{}, domain.ErrNotFound
+}
+
+func (s *fakeStore) DeleteBySubject(_ context.Context, t domain.Type, subjectID string) ([]string, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	var recipients []string
+	s.rows = slices.DeleteFunc(s.rows, func(r *domain.Notification) bool {
+		hit := r.Type == t && r.SubjectID == subjectID
+		if hit {
+			recipients = append(recipients, r.RecipientID)
+		}
+		return hit
+	})
+	return recipients, nil
 }
 
 func (s *fakeStore) List(_ context.Context, recipientID string, after *domain.Cursor, limit int) ([]domain.Item, error) {
@@ -88,7 +114,11 @@ func (s *fakeStore) List(_ context.Context, recipientID string, after *domain.Cu
 			break
 		}
 		p := s.pending[r.SubjectID]
-		out = append(out, domain.Item{Notification: *r, Actor: domain.Actor{UserID: r.ActorID, FullName: "Name of " + r.ActorID}, RequestPending: &p})
+		item := domain.Item{Notification: *r, RequestPending: &p}
+		if r.ActorID != "" {
+			item.Actor = &domain.Actor{UserID: r.ActorID, FullName: "Name of " + r.ActorID}
+		}
+		out = append(out, item)
 	}
 	return out, nil
 }
@@ -445,5 +475,162 @@ func TestUnknownTypeFails(t *testing.T) {
 	s.rows = append(s.rows, &domain.Notification{ID: req1, RecipientID: bob, ActorID: ada, Type: "post_like", SubjectID: req2, CreatedAt: s.clock})
 	if _, err := svc.List(ctx, bob, "", nil); err == nil || !strings.Contains(err.Error(), "registry") {
 		t.Errorf("List: %v, want a missing registry entry error", err)
+	}
+}
+
+// FR-16.9: a block takes back what the two were told about each other, both ways and of
+// every type, and nothing about anyone else.
+func TestRemoveBetween(t *testing.T) {
+	store := newFakeStore()
+	svc := New(store)
+	ctx := t.Context()
+	for _, n := range []domain.Notification{
+		{RecipientID: "ada", ActorID: "bob", Type: domain.TypeConnectionRequestAccepted, SubjectID: "1"},
+		{RecipientID: "bob", ActorID: "ada", Type: domain.TypeConnectionRequestReceived, SubjectID: "2"},
+		{RecipientID: "ada", ActorID: "cy", Type: domain.TypeConnectionRequestAccepted, SubjectID: "3"},
+	} {
+		if _, err := store.Put(ctx, n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := svc.RemoveBetween(ctx, "bob", "ada"); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.rows) != 1 || store.rows[0].ActorID != "cy" {
+		t.Errorf("rows left: %+v, want only cy's", store.rows)
+	}
+}
+
+// A warning is a system notification that links to the warning (FR-15.5).
+func TestAccountWarned(t *testing.T) {
+	store := newFakeStore()
+	svc := New(store)
+	if err := svc.AccountWarned(context.Background(), "warning-1", "ada"); err != nil {
+		t.Fatal(err)
+	}
+	page, err := svc.List(context.Background(), "ada", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Items) != 1 {
+		t.Fatalf("items = %+v", page.Items)
+	}
+	it := page.Items[0]
+	if it.Type != domain.TypeAccountWarning || it.Actor != nil || it.ActorID != "" || it.Link != "/warnings/warning-1" {
+		t.Errorf("item = %+v", it)
+	}
+	if it.RequestPending != nil {
+		t.Errorf("RequestPending = %v, want nil", *it.RequestPending)
+	}
+}
+
+// fakePublisher records what it hears, one string per event.
+type fakePublisher struct{ events []string }
+
+func (p *fakePublisher) Created(_ context.Context, id, recipientID string) {
+	p.events = append(p.events, "created "+id+" for "+recipientID)
+}
+
+func (p *fakePublisher) UnreadChanged(_ context.Context, recipientID string) {
+	p.events = append(p.events, "unread "+recipientID)
+}
+
+// The bell updates at once: everything that can change the count reports it (FR-9.4).
+func TestPublisherHearsWhatChangesTheBell(t *testing.T) {
+	ctx := t.Context()
+	first := "00000000-0000-0000-0000-000000000001"
+	tests := []struct {
+		name string
+		act  func(t *testing.T, svc *Service, p *fakePublisher)
+		want []string
+	}{
+		{
+			name: "a new notification",
+			act: func(t *testing.T, svc *Service, _ *fakePublisher) {
+				if err := svc.ConnectionRequestSent(ctx, "r1", "ada", "bob"); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want: []string{"created " + first + " for bob", "unread bob"},
+		},
+		{
+			name: "a withdrawn request",
+			act: func(t *testing.T, svc *Service, p *fakePublisher) {
+				if err := svc.ConnectionRequestSent(ctx, "r1", "ada", "bob"); err != nil {
+					t.Fatal(err)
+				}
+				p.events = nil
+				if err := svc.ConnectionRequestWithdrawn(ctx, "r1"); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want: []string{"unread bob"},
+		},
+		{
+			name: "a block removes both sides",
+			act: func(t *testing.T, svc *Service, _ *fakePublisher) {
+				if err := svc.RemoveBetween(ctx, "ada", "bob"); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want: []string{"unread ada", "unread bob"},
+		},
+		{
+			name: "marking read",
+			act: func(t *testing.T, svc *Service, p *fakePublisher) {
+				if err := svc.ConnectionRequestSent(ctx, "r1", "ada", "bob"); err != nil {
+					t.Fatal(err)
+				}
+				p.events = nil
+				if err := svc.MarkRead(ctx, "bob", first); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := svc.MarkAllRead(ctx, "bob"); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want: []string{"unread bob", "unread bob"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &fakePublisher{}
+			tt.act(t, New(newFakeStore(), WithPublisher(p)), p)
+			if !slices.Equal(p.events, tt.want) {
+				t.Errorf("events = %v, want %v", p.events, tt.want)
+			}
+		})
+	}
+}
+
+func TestFailedChangesPublishNothing(t *testing.T) {
+	store := newFakeStore()
+	store.err = errors.New("boom")
+	p := &fakePublisher{}
+	svc := New(store, WithPublisher(p))
+	_ = svc.ConnectionRequestSent(t.Context(), "r1", "ada", "bob")
+	_ = svc.ConnectionRequestWithdrawn(t.Context(), "r1")
+	_ = svc.RemoveBetween(t.Context(), "ada", "bob")
+	if len(p.events) != 0 {
+		t.Errorf("events = %v", p.events)
+	}
+}
+
+func TestGet(t *testing.T) {
+	store := newFakeStore()
+	svc := New(store)
+	if err := svc.ConnectionRequestSent(t.Context(), "r1", "ada", "bob"); err != nil {
+		t.Fatal(err)
+	}
+	id := store.rows[0].ID
+	it, err := svc.Get(t.Context(), "bob", id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if it.Link != "/network" {
+		t.Errorf("link = %q", it.Link)
+	}
+	if _, err := svc.Get(t.Context(), "cy", id); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("another user's: %v", err)
 	}
 }

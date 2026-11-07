@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { useRealtimeEvent } from "@/features/realtime/use-realtime";
+
 import { listNotifications, type Notification } from "./api";
 
 export type NotificationListState =
@@ -21,7 +23,8 @@ export type NotificationList = {
 // useNotificationList loads the first page of the caller's notifications and appends the
 // next one, by the server's cursor, on "Show more". The cursor is a position in the
 // newest-first order, so removing an item here never skips one; items already shown are
-// not added twice. A new key (another user) loads again.
+// not added twice. A new key (another user) loads again. A notification that arrives on the
+// socket goes on top while the page is open.
 export function useNotificationList(key: string): NotificationList {
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<NotificationListState>({ status: "loading" });
@@ -41,6 +44,14 @@ export function useNotificationList(key: string): NotificationList {
       setState({ status: "loading" });
     };
   }, [key, attempt]);
+
+  useRealtimeEvent((event) => {
+    if (event.type !== "notification.created") return;
+    setState((prev) => {
+      if (prev.status !== "ok" || prev.items.some((n) => n.id === event.data.id)) return prev;
+      return { ...prev, items: [event.data, ...prev.items] };
+    });
+  });
 
   const loadMore = useCallback(() => {
     if (state.status !== "ok" || state.loadingMore || !state.nextCursor) return;

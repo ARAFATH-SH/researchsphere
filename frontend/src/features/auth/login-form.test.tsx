@@ -85,15 +85,44 @@ describe("LoginForm", () => {
     expect(mockReplace).not.toHaveBeenCalled();
   });
 
-  it("says the account is suspended (403, FR-3.4)", async () => {
+  it("says why a temporary suspension applies and until when (403, FR-3.4)", async () => {
+    mockLogin.mockResolvedValue({
+      ok: false,
+      code: "account_suspended",
+      message: "Suspended.",
+      reason: "Repeated spam in messages",
+      until: "2026-12-03T14:05:00",
+    });
+    render(<LoginForm />);
+    fill("ada@example.org", "right password");
+    submit();
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("This account is suspended until 3 Dec 2026, 2:05 PM.");
+    expect(alert.textContent).toContain("Reason: Repeated spam in messages");
+    expect(screen.queryByRole("button", { name: "Resend verification" })).toBeNull();
+    expect(mockSetSignedIn).not.toHaveBeenCalled();
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  it("says a suspension with no end is permanent", async () => {
+    mockLogin.mockResolvedValue({ ok: false, code: "account_suspended", message: "Suspended.", reason: "Harassment of other users" });
+    render(<LoginForm />);
+    fill("ada@example.org", "right password");
+    submit();
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("This account is permanently suspended.");
+    expect(alert.textContent).toContain("Reason: Harassment of other users");
+    expect(alert.textContent).not.toContain("until");
+    expect(mockSetSignedIn).not.toHaveBeenCalled();
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  it("leaves the reason out for a suspension from before reasons were recorded", async () => {
     mockLogin.mockResolvedValue({ ok: false, code: "account_suspended", message: "Suspended." });
     render(<LoginForm />);
     fill("ada@example.org", "right password");
     submit();
-    expect((await screen.findByRole("alert")).textContent).toBe("This account is suspended. Contact support.");
-    expect(screen.queryByRole("button", { name: "Resend verification" })).toBeNull();
-    expect(mockSetSignedIn).not.toHaveBeenCalled();
-    expect(mockReplace).not.toHaveBeenCalled();
+    expect((await screen.findByRole("alert")).textContent).not.toContain("Reason:");
   });
 
   it("says when to try again while the account is locked (429, FR-2.7)", async () => {

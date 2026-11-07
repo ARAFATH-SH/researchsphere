@@ -700,7 +700,7 @@ SELECT pg_temp.expect_ok('Connection: a new request is allowed after a rejection
 
 SELECT pg_temp.expect_error('Notification: an actor is required',
     $s$INSERT INTO notifications (user_id, type, entity_id)
-       VALUES ('00000000-0000-0000-0000-000000000002', 'connection_request_received', '00000000-0000-0000-0000-0000000000d1')$s$, '23502');
+       VALUES ('00000000-0000-0000-0000-000000000002', 'connection_request_received', '00000000-0000-0000-0000-0000000000d1')$s$, '23514');
 SELECT pg_temp.expect_error('Notification: an item is required',
     $s$INSERT INTO notifications (user_id, type, actor_id)
        VALUES ('00000000-0000-0000-0000-000000000002', 'connection_request_received', '00000000-0000-0000-0000-000000000001')$s$, '23502');
@@ -878,6 +878,82 @@ SELECT pg_temp.expect_error('Embedding: vector must have 768 dimensions',
        VALUES ('00000000-0000-0000-0000-000000000201', 'test-model', 'h1', '[1,2,3]')$s$, '22000');
 
 -- ---------------------------------------------------------------------------
+-- Messaging (FR-16.1, FR-16.2, NFR-14). Users 1 and 2 have one conversation.
+-- ---------------------------------------------------------------------------
+
+INSERT INTO conversations (id, state, user_low, user_high) VALUES
+    ('00000000-0000-0000-0000-0000000000f1', 'active',
+     '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002');
+INSERT INTO conversation_members (conversation_id, user_id) VALUES
+    ('00000000-0000-0000-0000-0000000000f1', '00000000-0000-0000-0000-000000000001'),
+    ('00000000-0000-0000-0000-0000000000f1', '00000000-0000-0000-0000-000000000002');
+INSERT INTO messages (id, conversation_id, sender_id, body, client_id) VALUES
+    ('00000000-0000-7000-8000-0000000000f2', '00000000-0000-0000-0000-0000000000f1',
+     '00000000-0000-0000-0000-000000000001', 'hello', '00000000-0000-0000-0000-0000000000f3');
+
+SELECT pg_temp.expect_error('Conversation: one per pair',
+    $s$INSERT INTO conversations (state, user_low, user_high) VALUES ('active',
+       '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002')$s$, '23505');
+SELECT pg_temp.expect_error('Conversation: a pair is stored low before high',
+    $s$INSERT INTO conversations (state, user_low, user_high) VALUES ('active',
+       '00000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000002')$s$, '23514');
+SELECT pg_temp.expect_error('Conversation: no self-conversation',
+    $s$INSERT INTO conversations (state, user_low, user_high) VALUES ('active',
+       '00000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-000000000003')$s$, '23514');
+SELECT pg_temp.expect_error('Conversation: a direct one names its pair',
+    $s$INSERT INTO conversations (state) VALUES ('active')$s$, '23514');
+SELECT pg_temp.expect_error('Conversation: a group names no pair',
+    $s$INSERT INTO conversations (kind, state, user_low, user_high) VALUES ('group', 'active',
+       '00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000003')$s$, '23514');
+SELECT pg_temp.expect_ok('Conversation: the schema allows a group (slice 14B)',
+    $s$INSERT INTO conversations (id, kind, state) VALUES ('00000000-0000-0000-0000-0000000000f4', 'group', 'active')$s$);
+SELECT pg_temp.expect_error('Conversation: unknown kind',
+    $s$INSERT INTO conversations (kind, state) VALUES ('channel', 'active')$s$, '23514');
+SELECT pg_temp.expect_error('Conversation: unknown state',
+    $s$UPDATE conversations SET state = 'archived' WHERE id = '00000000-0000-0000-0000-0000000000f1'$s$, '23514');
+SELECT pg_temp.expect_error('Conversation: a request names who requested it',
+    $s$UPDATE conversations SET state = 'request' WHERE id = '00000000-0000-0000-0000-0000000000f1'$s$, '23514');
+SELECT pg_temp.expect_error('Member: once per conversation',
+    $s$INSERT INTO conversation_members (conversation_id, user_id) VALUES
+       ('00000000-0000-0000-0000-0000000000f1', '00000000-0000-0000-0000-000000000001')$s$, '23505');
+SELECT pg_temp.expect_error('Message: empty body',
+    $s$INSERT INTO messages (conversation_id, sender_id, body, client_id) VALUES ('00000000-0000-0000-0000-0000000000f1',
+       '00000000-0000-0000-0000-000000000001', '', gen_random_uuid())$s$, '23514');
+SELECT pg_temp.expect_error('Message: 5,001 characters',
+    $s$INSERT INTO messages (conversation_id, sender_id, body, client_id) VALUES ('00000000-0000-0000-0000-0000000000f1',
+       '00000000-0000-0000-0000-000000000001', repeat('a', 5001), gen_random_uuid())$s$, '23514');
+SELECT pg_temp.expect_error('Message: not trimmed',
+    $s$INSERT INTO messages (conversation_id, sender_id, body, client_id) VALUES ('00000000-0000-0000-0000-0000000000f1',
+       '00000000-0000-0000-0000-000000000001', E'hi\n', gen_random_uuid())$s$, '23514');
+SELECT pg_temp.expect_ok('Message: 5,000 characters, multi-line',
+    $s$INSERT INTO messages (conversation_id, sender_id, body, client_id) VALUES ('00000000-0000-0000-0000-0000000000f1',
+       '00000000-0000-0000-0000-000000000001', repeat(E'a\nb', 1666) || 'cc', gen_random_uuid())$s$);
+SELECT pg_temp.expect_error('Message: a client ID once per sender',
+    $s$INSERT INTO messages (conversation_id, sender_id, body, client_id) VALUES ('00000000-0000-0000-0000-0000000000f1',
+       '00000000-0000-0000-0000-000000000001', 'again', '00000000-0000-0000-0000-0000000000f3')$s$, '23505');
+SELECT pg_temp.expect_ok('Message: another sender may use the same client ID',
+    $s$INSERT INTO messages (conversation_id, sender_id, body, client_id) VALUES ('00000000-0000-0000-0000-0000000000f1',
+       '00000000-0000-0000-0000-000000000002', 'mine', '00000000-0000-0000-0000-0000000000f3')$s$);
+SELECT pg_temp.expect_true('Message: IDs are UUIDv7 values', $q$
+    SELECT substr(uuid_v7()::text, 15, 1) = '7' AND substr(uuid_v7()::text, 20, 1) IN ('8', '9', 'a', 'b')$q$);
+SELECT pg_temp.expect_true('Message: a later ID sorts after an earlier one', $q$
+    SELECT bool_and(previous < id) FROM (
+        SELECT id, lag(id) OVER (ORDER BY n) AS previous
+        FROM (SELECT n, uuid_v7() AS id, pg_sleep(0.002) FROM generate_series(1, 4) n) made) ordered$q$);
+INSERT INTO conversation_members (conversation_id, user_id) VALUES
+    ('00000000-0000-0000-0000-0000000000f4', '00000000-0000-0000-0000-000000000002');
+SELECT pg_temp.expect_error('Read marker: must be a message of its own conversation (NFR-14)',
+    $s$UPDATE conversation_members SET last_read_message_id = '00000000-0000-7000-8000-0000000000f2'
+       WHERE conversation_id = '00000000-0000-0000-0000-0000000000f4'$s$, '23503');
+SELECT pg_temp.expect_ok('Read marker: can point at a message of its conversation',
+    $s$UPDATE conversation_members SET last_read_message_id = '00000000-0000-7000-8000-0000000000f2'
+       WHERE conversation_id = '00000000-0000-0000-0000-0000000000f1'$s$);
+DELETE FROM messages WHERE id = '00000000-0000-7000-8000-0000000000f2';
+SELECT pg_temp.expect_true('Read marker: deleting its message clears it, not the member', $q$
+    SELECT count(*) = 2 AND count(last_read_message_id) = 0 FROM conversation_members
+    WHERE conversation_id = '00000000-0000-0000-0000-0000000000f1'$q$);
+
+-- ---------------------------------------------------------------------------
 -- Account deletion (FR-2.8, SRS 7 Retention): user 3 owns no project.
 -- ---------------------------------------------------------------------------
 
@@ -922,6 +998,14 @@ INSERT INTO post_comments (post_id, author_id, body) VALUES
 INSERT INTO notifications (user_id, type, actor_id, entity_id) VALUES
     ('00000000-0000-0000-0000-000000000003', 'post_comment',                '00000000-0000-0000-0000-000000000002', gen_random_uuid()),
     ('00000000-0000-0000-0000-000000000002', 'connection_request_received', '00000000-0000-0000-0000-000000000003', gen_random_uuid());
+INSERT INTO conversations (id, state, requested_by, user_low, user_high) VALUES
+    ('00000000-0000-0000-0000-0000000000f5', 'request', '00000000-0000-0000-0000-000000000003',
+     '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000003');
+INSERT INTO conversation_members (conversation_id, user_id) VALUES
+    ('00000000-0000-0000-0000-0000000000f5', '00000000-0000-0000-0000-000000000001'),
+    ('00000000-0000-0000-0000-0000000000f5', '00000000-0000-0000-0000-000000000003');
+INSERT INTO messages (conversation_id, sender_id, body, client_id) VALUES
+    ('00000000-0000-0000-0000-0000000000f5', '00000000-0000-0000-0000-000000000003', 'may I?', gen_random_uuid());
 
 DELETE FROM users WHERE id = '00000000-0000-0000-0000-000000000003';
 
@@ -955,6 +1039,12 @@ SELECT pg_temp.expect_true('Deletion: profile and post embeddings removed (FR-2.
 SELECT pg_temp.expect_true('Deletion: notifications to and from the user removed', $q$
     SELECT NOT EXISTS (SELECT 1 FROM notifications
                        WHERE '00000000-0000-0000-0000-000000000003' IN (user_id, actor_id))$q$);
+SELECT pg_temp.expect_true('Deletion: direct conversations, their members and messages removed (FR-2.8)', $q$
+    SELECT NOT EXISTS (SELECT 1 FROM conversations WHERE id = '00000000-0000-0000-0000-0000000000f5')
+       AND NOT EXISTS (SELECT 1 FROM conversation_members WHERE conversation_id = '00000000-0000-0000-0000-0000000000f5')
+       AND NOT EXISTS (SELECT 1 FROM messages WHERE conversation_id = '00000000-0000-0000-0000-0000000000f5')$q$);
+SELECT pg_temp.expect_true('Deletion: the other member keeps their other conversations', $q$
+    SELECT EXISTS (SELECT 1 FROM conversations WHERE id = '00000000-0000-0000-0000-0000000000f1')$q$);
 SELECT pg_temp.expect_true('Deletion: a publication shared with a co-author stays for the co-author', $q$
     SELECT EXISTS (SELECT 1 FROM user_publications
                    WHERE publication_id = '00000000-0000-0000-0000-0000000000c1'
@@ -981,6 +1071,102 @@ SELECT pg_temp.expect_true('Project deletion: files, members, requests, compile 
        AND NOT EXISTS (SELECT 1 FROM project_embeddings    WHERE project_id = '00000000-0000-0000-0000-0000000000a1')$q$);
 SELECT pg_temp.expect_true('Project deletion: a post that linked to it stays, without the link', $q$
     SELECT project_id IS NULL FROM posts WHERE id = '00000000-0000-0000-0000-0000000000e4'$q$);
+
+-- Blocks and reports (FR-16.9, NFR-14). Users 1 and 2 have the conversation above.
+INSERT INTO blocks (blocker_id, blocked_id) VALUES
+    ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002');
+SELECT pg_temp.expect_ok('Block: each side may block the other',
+    $s$INSERT INTO blocks (blocker_id, blocked_id) VALUES
+        ('00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001')$s$);
+SELECT pg_temp.expect_error('Block: one per direction',
+    $s$INSERT INTO blocks (blocker_id, blocked_id) VALUES
+        ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002')$s$, '23505');
+SELECT pg_temp.expect_error('Block: not oneself',
+    $s$INSERT INTO blocks (blocker_id, blocked_id) VALUES
+        ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001')$s$, '23514');
+
+INSERT INTO message_reports (id, conversation_id, reporter_id, reported_id, reason) VALUES
+    ('00000000-0000-0000-0000-0000000000f1', (SELECT id FROM conversations ORDER BY created_at LIMIT 1),
+     '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002', 'spam');
+SELECT pg_temp.expect_error('Report: a known reason',
+    $s$UPDATE message_reports SET reason = 'rude'$s$, '23514');
+SELECT pg_temp.expect_error('Report: details of at most 1,000 characters',
+    $s$UPDATE message_reports SET details = repeat('x', 1001)$s$, '23514');
+SELECT pg_temp.expect_error('Report: not of oneself',
+    $s$UPDATE message_reports SET reported_id = reporter_id$s$, '23514');
+SELECT pg_temp.expect_error('Report: the message must be in the conversation',
+    $s$UPDATE message_reports SET message_id = '00000000-0000-0000-0000-00000000dead'$s$, '23503');
+SELECT pg_temp.expect_error('Report: resolved with an outcome',
+    $s$UPDATE message_reports SET resolved_at = now()$s$, '23514');
+SELECT pg_temp.expect_error('Report: an outcome only when resolved',
+    $s$UPDATE message_reports SET outcome = 'dismissed'$s$, '23514');
+SELECT pg_temp.expect_error('Report: a known outcome',
+    $s$UPDATE message_reports SET resolved_at = now(), outcome = 'closed'$s$, '23514');
+SELECT pg_temp.expect_error('Report: a note only when resolved',
+    $s$UPDATE message_reports SET resolution_note = 'early'$s$, '23514');
+SELECT pg_temp.expect_ok('Report: resolved with an outcome and a note',
+    $s$UPDATE message_reports SET resolved_at = now(), outcome = 'dismissed', resolution_note = 'ok'$s$);
+
+-- Moderation (FR-15.5 to FR-15.8).
+INSERT INTO users (id, email, password_hash)
+VALUES ('00000000-0000-4000-8000-0000000000a1', pg_temp.t('moderated@example.org'), 'hash');
+INSERT INTO account_warnings (id, user_id, reason)
+VALUES ('00000000-0000-4000-8000-0000000000a2', '00000000-0000-4000-8000-0000000000a1', 'A reason of ten or more');
+INSERT INTO account_restrictions (id, user_id, kind, starts_at, ends_at)
+VALUES ('00000000-0000-4000-8000-0000000000a3', '00000000-0000-4000-8000-0000000000a1', 'messaging', now(), now() + interval '1 day');
+
+SELECT pg_temp.expect_error('Notification: a warning has no actor',
+    $s$INSERT INTO notifications (user_id, actor_id, type, entity_id)
+       VALUES ('00000000-0000-4000-8000-0000000000a1', '00000000-0000-4000-8000-0000000000a1', 'account_warning', gen_random_uuid())$s$, '23514');
+SELECT pg_temp.expect_error('Notification: a connection type needs its actor',
+    $s$INSERT INTO notifications (user_id, type, entity_id)
+       VALUES ('00000000-0000-4000-8000-0000000000a1', 'connection_request_received', gen_random_uuid())$s$, '23514');
+SELECT pg_temp.expect_ok('Notification: a warning without an actor',
+    $s$INSERT INTO notifications (user_id, type, entity_id)
+       VALUES ('00000000-0000-4000-8000-0000000000a1', 'account_warning', gen_random_uuid())$s$);
+
+SELECT pg_temp.expect_error('User: an end time needs a suspension',
+    $s$UPDATE users SET suspended_until = now() WHERE id = '00000000-0000-4000-8000-0000000000a1'$s$, '23514');
+SELECT pg_temp.expect_error('User: a reason needs a suspension',
+    $s$UPDATE users SET suspension_reason = 'A reason of ten or more' WHERE id = '00000000-0000-4000-8000-0000000000a1'$s$, '23514');
+SELECT pg_temp.expect_error('User: a suspension ends after it starts',
+    $s$UPDATE users SET suspended_at = now(), suspended_until = now() - interval '1 day' WHERE id = '00000000-0000-4000-8000-0000000000a1'$s$, '23514');
+SELECT pg_temp.expect_error('User: a suspension reason of at least 10 characters',
+    $s$UPDATE users SET suspended_at = now(), suspension_reason = 'short' WHERE id = '00000000-0000-4000-8000-0000000000a1'$s$, '23514');
+
+SELECT pg_temp.expect_error('Warning: a reason of at least 10 characters',
+    $s$UPDATE account_warnings SET reason = 'short'$s$, '23514');
+SELECT pg_temp.expect_error('Warning: a reason of at most 1,000 characters',
+    $s$UPDATE account_warnings SET reason = repeat('x', 1001)$s$, '23514');
+
+SELECT pg_temp.expect_error('Restriction: a known kind',
+    $s$UPDATE account_restrictions SET kind = 'posting'$s$, '23514');
+SELECT pg_temp.expect_error('Restriction: ends after it starts',
+    $s$UPDATE account_restrictions SET ends_at = starts_at$s$, '23514');
+SELECT pg_temp.expect_error('Restriction: lifted by someone only when lifted',
+    $s$UPDATE account_restrictions SET lifted_by = user_id$s$, '23514');
+
+SELECT pg_temp.expect_error('Moderation action: a known action',
+    $s$INSERT INTO moderation_actions (user_id, action, reason)
+       VALUES ('00000000-0000-4000-8000-0000000000a1', 'banned', 'A reason of ten or more')$s$, '23514');
+SELECT pg_temp.expect_error('Moderation action: a warning names its warning',
+    $s$INSERT INTO moderation_actions (user_id, action, reason)
+       VALUES ('00000000-0000-4000-8000-0000000000a1', 'warning', 'A reason of ten or more')$s$, '23514');
+SELECT pg_temp.expect_error('Moderation action: a restriction names its restriction',
+    $s$INSERT INTO moderation_actions (user_id, action, reason, ends_at)
+       VALUES ('00000000-0000-4000-8000-0000000000a1', 'restriction', 'A reason of ten or more', now())$s$, '23514');
+SELECT pg_temp.expect_error('Moderation action: a restriction has an end',
+    $s$INSERT INTO moderation_actions (user_id, action, reason, restriction_id)
+       VALUES ('00000000-0000-4000-8000-0000000000a1', 'restriction', 'A reason of ten or more', '00000000-0000-4000-8000-0000000000a3')$s$, '23514');
+SELECT pg_temp.expect_error('Moderation action: a restoration resolves no report',
+    $s$INSERT INTO moderation_actions (user_id, action, reason, report_id)
+       VALUES ('00000000-0000-4000-8000-0000000000a1', 'restoration', 'A reason of ten or more', gen_random_uuid())$s$, '23514');
+SELECT pg_temp.expect_error('Moderation action: a note of at most 1,000 characters',
+    $s$INSERT INTO moderation_actions (user_id, action, reason, note)
+       VALUES ('00000000-0000-4000-8000-0000000000a1', 'suspension', 'A reason of ten or more', repeat('x', 1001))$s$, '23514');
+SELECT pg_temp.expect_ok('Moderation action: a permanent suspension, its report outliving it',
+    $s$INSERT INTO moderation_actions (user_id, action, reason, report_id)
+       VALUES ('00000000-0000-4000-8000-0000000000a1', 'suspension', 'A reason of ten or more', gen_random_uuid())$s$);
 
 ROLLBACK;
 

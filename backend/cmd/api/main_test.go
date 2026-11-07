@@ -17,6 +17,8 @@ import (
 	authdomain "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/domain"
 	authusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/usecase"
 	mediahttp "github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/http"
+	messaginghttp "github.com/ARAFATH-SH/researchsphere/backend/internal/messaging/adapter/http"
+	moderationhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/moderation/adapter/http"
 	notificationhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/notification/adapter/http"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/accesstoken"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpx"
@@ -24,6 +26,7 @@ import (
 	profilehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/http"
 	profiledomain "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/domain"
 	profileusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/usecase"
+	realtimehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/realtime/adapter/http"
 	socialhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/social/adapter/http"
 )
 
@@ -142,6 +145,9 @@ func testRouter() http.Handler {
 		mediahttp.NewHandler(okMedia{}),
 		socialhttp.NewHandler(okSocial{}),
 		notificationhttp.NewHandler(okNotifications{}),
+		messaginghttp.NewHandler(okMessaging{}),
+		moderationhttp.NewHandler(okModeration{}),
+		realtimehttp.NewHandler(okRealtime{}, "http://localhost:3000", slog.New(slog.DiscardHandler)),
 		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
 }
 
@@ -169,6 +175,9 @@ func TestHealthReportsStorageDown(t *testing.T) {
 		mediahttp.NewHandler(okMedia{}),
 		socialhttp.NewHandler(okSocial{}),
 		notificationhttp.NewHandler(okNotifications{}),
+		messaginghttp.NewHandler(okMessaging{}),
+		moderationhttp.NewHandler(okModeration{}),
+		realtimehttp.NewHandler(okRealtime{}, "http://localhost:3000", slog.New(slog.DiscardHandler)),
 		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
 
 	rec := httptest.NewRecorder()
@@ -233,6 +242,10 @@ func (okAuth) Login(context.Context, authusecase.LoginInput) (authusecase.LoginR
 
 func (okAuth) CurrentUser(_ context.Context, id string) (authdomain.User, error) {
 	return authdomain.User{ID: id, Email: "ada@example.org", FullName: "Ada"}, nil
+}
+
+func (okAuth) MessagingRestrictedUntil(context.Context, string) (*time.Time, error) {
+	return nil, nil
 }
 
 func (okAuth) Refresh(context.Context, string) (authusecase.RefreshResult, error) {
@@ -486,7 +499,7 @@ func TestCurrentUserThroughRouter(t *testing.T) {
 func TestDeleteAccountThroughRouter(t *testing.T) {
 	router := testRouter()
 	del := func(cookie string) *httptest.ResponseRecorder {
-		req := httptest.NewRequestWithContext(t.Context(), http.MethodDelete, "/api/v1/account", strings.NewReader(`{"password":"password1"}`))
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/account/delete", strings.NewReader(`{"password":"password1"}`))
 		req.Header.Set("Content-Type", "application/json")
 		if cookie != "" {
 			req.Header.Set("Cookie", cookie)

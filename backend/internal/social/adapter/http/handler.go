@@ -1,7 +1,7 @@
 // Package http serves the connection operations in docs/openapi.yaml: sending, accepting,
 // rejecting and cancelling requests (FR-7.1 to FR-7.3, FR-7.6), removing connections
-// (FR-7.5) and the lists of connections and requests (FR-7.4). It turns the usecase's
-// errors into the contract's codes. cmd/api guards each route with its platform action
+// (FR-7.5), the lists of connections and requests (FR-7.4) and blocks (FR-16.9). It turns
+// the usecase's errors into the contract's codes. cmd/api guards each route with its platform action
 // (SRS 2.3) before it gets here.
 package http
 
@@ -22,6 +22,8 @@ import (
 const (
 	CodeCannotConnectToSelf = "cannot_connect_to_self"
 	CodeRateLimited         = "rate_limited"
+	CodeCannotBlockSelf     = "cannot_block_self"
+	CodeAccountSuspended    = "account_suspended"
 )
 
 // Service is what the handler needs from the usecase.
@@ -35,6 +37,9 @@ type Service interface {
 	ListUserConnections(ctx context.Context, viewerID, userID string, page int) (domain.ConnectionPage, error)
 	ListReceived(ctx context.Context, userID string, page int) (domain.RequestPage, error)
 	ListSent(ctx context.Context, userID string, page int) (domain.RequestPage, error)
+	Block(ctx context.Context, blockerID, blockedID string) error
+	Unblock(ctx context.Context, blockerID, blockedID string) error
+	ListBlocks(ctx context.Context, userID string, page int) (domain.BlockedPage, error)
 }
 
 // Handler implements the connection operations of gen.StrictServerInterface.
@@ -65,12 +70,17 @@ func (h *Handler) SendConnectionRequest(ctx context.Context, req gen.SendConnect
 	}
 	r, err := h.svc.Send(ctx, id, req.Body.UserId)
 	var (
-		limited *domain.RateLimitedError
-		theirs  *domain.PendingFromThemError
+		limited   *domain.RateLimitedError
+		theirs    *domain.PendingFromThemError
+		suspended *domain.SuspendedError
 	)
 	switch {
 	case errors.Is(err, domain.ErrSelf):
 		return gen.SendConnectionRequest400JSONResponse{Code: CodeCannotConnectToSelf, Message: "You cannot connect with yourself."}, nil
+	case errors.As(err, &suspended):
+		return gen.SendConnectionRequest403JSONResponse{AccountSuspendedOrForbiddenJSONResponse: gen.AccountSuspendedOrForbiddenJSONResponse{
+			Code: CodeAccountSuspended, Message: "This account is suspended. Contact support.", Reason: suspended.Reason, Until: suspended.Until,
+		}}, nil
 	case errors.As(err, &limited):
 		return gen.SendConnectionRequest429JSONResponse{
 			Body:    gen.Error{Code: CodeRateLimited, Message: "You have sent 50 connection requests today. Try again later."},
@@ -78,6 +88,8 @@ func (h *Handler) SendConnectionRequest(ctx context.Context, req gen.SendConnect
 		}, nil
 	case errors.Is(err, domain.ErrNotFound):
 		return gen.SendConnectionRequest404JSONResponse{NotFoundJSONResponse: profileNotFound}, nil
+	case errors.Is(err, domain.ErrYouBlocked):
+		return gen.SendConnectionRequest409JSONResponse{Code: gen.YouBlockedThisUser, Message: "You have blocked this person. Unblock them to connect."}, nil
 	case errors.Is(err, domain.ErrAlreadyPending):
 		return gen.SendConnectionRequest409JSONResponse{Code: gen.RequestAlreadyPending, Message: "You have already sent this person a request."}, nil
 	case errors.Is(err, domain.ErrAlreadyConnected):

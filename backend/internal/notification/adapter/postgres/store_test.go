@@ -49,7 +49,7 @@ func newRequest(t *testing.T, pool *pgxpool.Pool, from, to string) string {
 
 func put(t *testing.T, s *Store, recipient, actor string, typ domain.Type, subject string) {
 	t.Helper()
-	if err := s.Put(t.Context(), domain.Notification{RecipientID: recipient, ActorID: actor, Type: typ, SubjectID: subject}); err != nil {
+	if _, err := s.Put(t.Context(), domain.Notification{RecipientID: recipient, ActorID: actor, Type: typ, SubjectID: subject}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -123,7 +123,7 @@ func TestDeleteBySubject(t *testing.T) {
 	put(t, s, bob, ada, domain.TypeConnectionRequestReceived, r1)
 	put(t, s, bob, cy, domain.TypeConnectionRequestReceived, r2)
 	put(t, s, ada, bob, domain.TypeConnectionRequestAccepted, r1)
-	if err := s.DeleteBySubject(t.Context(), domain.TypeConnectionRequestReceived, r1); err != nil {
+	if _, err := s.DeleteBySubject(t.Context(), domain.TypeConnectionRequestReceived, r1); err != nil {
 		t.Fatal(err)
 	}
 	if items := list(t, s, bob); len(items) != 1 || items[0].SubjectID != r2 {
@@ -132,7 +132,7 @@ func TestDeleteBySubject(t *testing.T) {
 	if len(list(t, s, ada)) != 1 {
 		t.Error("the accepted notification about the same item was deleted")
 	}
-	if err := s.DeleteBySubject(t.Context(), domain.TypeConnectionRequestReceived, "not-a-uuid"); err != nil {
+	if _, err := s.DeleteBySubject(t.Context(), domain.TypeConnectionRequestReceived, "not-a-uuid"); err != nil {
 		t.Errorf("DeleteBySubject of a malformed ID: %v", err)
 	}
 }
@@ -246,5 +246,75 @@ func TestMarkRead(t *testing.T) {
 	}
 	if n := unread(t, s, bob); n != 0 {
 		t.Errorf("unread %d, want 0", n)
+	}
+}
+
+// FR-16.9: both directions, every type, nobody else's.
+func TestDeleteBetween(t *testing.T) {
+	s, pool := newTestStore(t)
+	ctx := t.Context()
+	ada, bob, cy := newUser(t, pool), newUser(t, pool), newUser(t, pool)
+	put(t, s, ada, bob, domain.TypeConnectionRequestAccepted, newRequest(t, pool, ada, bob))
+	put(t, s, bob, ada, domain.TypeConnectionRequestReceived, newRequest(t, pool, ada, cy))
+	put(t, s, ada, cy, domain.TypeConnectionRequestAccepted, newRequest(t, pool, cy, bob))
+	if err := s.DeleteBetween(ctx, bob, ada); err != nil {
+		t.Fatal(err)
+	}
+	if got := list(t, s, bob); len(got) != 0 {
+		t.Errorf("bob keeps %+v", got)
+	}
+	if got := list(t, s, ada); len(got) != 1 || got[0].ActorID != cy {
+		t.Errorf("ada keeps %+v", got)
+	}
+	if err := s.DeleteBetween(ctx, "not-a-uuid", ada); err != nil {
+		t.Errorf("bad ID: %v", err)
+	}
+}
+
+// A system notification has no actor and is never hidden; an actor's is hidden while the actor
+// is suspended, so the count always matches the list (FR-9.5, FR-15.5).
+func TestSystemNotifications(t *testing.T) {
+	s, pool := newTestStore(t)
+	ada, bob := newUser(t, pool), newUser(t, pool)
+	warning := "00000000-0000-4000-8000-000000000001"
+	put(t, s, ada, "", domain.TypeAccountWarning, warning)
+	put(t, s, ada, bob, domain.TypeConnectionRequestReceived, newRequest(t, pool, bob, ada))
+
+	if got := list(t, s, ada); len(got) != 2 {
+		t.Fatalf("list = %+v", got)
+	}
+	exec(t, pool, "UPDATE users SET suspended_at = now() WHERE id = $1", bob)
+
+	items := list(t, s, ada)
+	if len(items) != 1 || items[0].Type != domain.TypeAccountWarning || items[0].Actor != nil || items[0].ActorID != "" {
+		t.Fatalf("list = %+v", items)
+	}
+	if got := unread(t, s, ada); got != 1 {
+		t.Errorf("unread = %d, want 1", got)
+	}
+	found, err := s.MarkRead(t.Context(), items[0].ID, ada)
+	if err != nil || !found {
+		t.Fatalf("MarkRead: found %v, error %v", found, err)
+	}
+	if got := unread(t, s, ada); got != 0 {
+		t.Errorf("unread after marking = %d, want 0", got)
+	}
+
+	put(t, s, ada, "", domain.TypeAccountWarning, warning)
+	n, err := s.MarkAllRead(t.Context(), ada)
+	if err != nil || n != 1 {
+		t.Errorf("MarkAllRead = %d, %v; want 1: the suspended actor's stays out", n, err)
+	}
+}
+
+func TestAnActorNotificationNeedsItsActor(t *testing.T) {
+	s, pool := newTestStore(t)
+	ada, bob := newUser(t, pool), newUser(t, pool)
+	warning := "00000000-0000-4000-8000-000000000001"
+	if _, err := s.Put(t.Context(), domain.Notification{RecipientID: ada, Type: domain.TypeConnectionRequestReceived, SubjectID: warning}); err == nil {
+		t.Error("a connection notification without an actor was stored")
+	}
+	if _, err := s.Put(t.Context(), domain.Notification{RecipientID: ada, ActorID: bob, Type: domain.TypeAccountWarning, SubjectID: warning}); err == nil {
+		t.Error("a system notification with an actor was stored")
 	}
 }

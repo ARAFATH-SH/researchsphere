@@ -64,6 +64,8 @@ const rsSizes = {
   form: "h-11 px-[23px] text-rs-body",
   // Small pills inside cards.
   sm: "px-[17px] py-[7px] text-rs-body",
+  // The 34px pills in a row of a list or a conversation's header.
+  xs: "h-[34px] px-[11px] text-rs-caption",
 };
 
 export function rsButtonClass({

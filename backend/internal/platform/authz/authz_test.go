@@ -19,6 +19,7 @@ func TestCan(t *testing.T) {
 		{ManageVenues, false, false, true},
 		{RemoveAnyPostOrComment, false, false, true},
 		{SuspendUser, false, false, true},
+		{ReviewMessageReports, false, false, true},
 	}
 	for _, row := range rows {
 		for _, cell := range []struct {

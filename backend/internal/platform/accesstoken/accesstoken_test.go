@@ -27,8 +27,8 @@ func TestSignThenVerify(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
-	if want := (Claims{UserID: "user-1", Role: "researcher"}); got != want {
-		t.Errorf("claims = %+v, want %+v", got, want)
+	if got.UserID != "user-1" || got.Role != "researcher" || !got.ExpiresAt.Equal(exp) {
+		t.Errorf("claims = %+v, want user-1, researcher, expiring at %v", got, exp)
 	}
 }
 

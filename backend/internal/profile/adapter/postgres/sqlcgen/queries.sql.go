@@ -18,11 +18,17 @@ SELECT EXISTS (
     JOIN users u ON u.id = p.user_id
     WHERE p.full_name ILIKE $1::text
       AND u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM blocks x WHERE x.blocker_id = p.user_id AND x.blocked_id = $2::uuid)
 )
 `
 
-func (q *Queries) AnyVisibleNameContains(ctx context.Context, pattern string) (bool, error) {
-	row := q.db.QueryRow(ctx, anyVisibleNameContains, pattern)
+type AnyVisibleNameContainsParams struct {
+	Pattern  string
+	ViewerID pgtype.UUID
+}
+
+func (q *Queries) AnyVisibleNameContains(ctx context.Context, arg AnyVisibleNameContainsParams) (bool, error) {
+	row := q.db.QueryRow(ctx, anyVisibleNameContains, arg.Pattern, arg.ViewerID)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
@@ -1387,12 +1393,13 @@ WITH hits AS (
     JOIN users u ON u.id = b.user_id
     JOIN profiles p ON p.user_id = b.user_id
     WHERE u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL
-      AND ($5::text IS NULL OR lower(p.institution) = lower($5::text))
-      AND (cardinality($6::text[]) = 0 OR cardinality($6::text[]) = (
+      AND NOT EXISTS (SELECT 1 FROM blocks x WHERE x.blocker_id = b.user_id AND x.blocked_id = $5::uuid)
+      AND ($6::text IS NULL OR lower(p.institution) = lower($6::text))
+      AND (cardinality($7::text[]) = 0 OR cardinality($7::text[]) = (
           SELECT count(*)
           FROM user_interests l
           WHERE l.user_id = b.user_id
-            AND l.interest_id IN (SELECT t.id FROM research_interests t WHERE lower(t.name::text) = ANY ($6::text[]))))
+            AND l.interest_id IN (SELECT t.id FROM research_interests t WHERE lower(t.name::text) = ANY ($7::text[]))))
 )
 SELECT (mode() WITHIN GROUP (ORDER BY m.institution))::text AS name, count(*)::int AS n
 FROM matches m
@@ -1407,6 +1414,7 @@ type SearchInstitutionFacetsParams struct {
 	Q           string
 	Fuzzy       bool
 	Pattern     string
+	ViewerID    pgtype.UUID
 	Institution pgtype.Text
 	Interests   []string
 }
@@ -1424,6 +1432,7 @@ func (q *Queries) SearchInstitutionFacets(ctx context.Context, arg SearchInstitu
 		arg.Q,
 		arg.Fuzzy,
 		arg.Pattern,
+		arg.ViewerID,
 		arg.Institution,
 		arg.Interests,
 	)
@@ -1472,7 +1481,8 @@ WITH hits AS (
     JOIN users u ON u.id = b.user_id
     JOIN profiles p ON p.user_id = b.user_id
     WHERE u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL
-      AND ($6::text IS NULL OR lower(p.institution) = lower($6::text))
+      AND NOT EXISTS (SELECT 1 FROM blocks x WHERE x.blocker_id = b.user_id AND x.blocked_id = $6::uuid)
+      AND ($7::text IS NULL OR lower(p.institution) = lower($7::text))
       AND (cardinality($1::text[]) = 0 OR cardinality($1::text[]) = (
           SELECT count(*)
           FROM user_interests l
@@ -1495,6 +1505,7 @@ type SearchInterestFacetsParams struct {
 	Q           string
 	Fuzzy       bool
 	Pattern     string
+	ViewerID    pgtype.UUID
 	Institution pgtype.Text
 }
 
@@ -1513,6 +1524,7 @@ func (q *Queries) SearchInterestFacets(ctx context.Context, arg SearchInterestFa
 		arg.Q,
 		arg.Fuzzy,
 		arg.Pattern,
+		arg.ViewerID,
 		arg.Institution,
 	)
 	if err != nil {
@@ -1560,12 +1572,13 @@ WITH hits AS (
     JOIN users u ON u.id = b.user_id
     JOIN profiles p ON p.user_id = b.user_id
     WHERE u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL
-      AND ($6::text IS NULL OR lower(p.institution) = lower($6::text))
-      AND (cardinality($7::text[]) = 0 OR cardinality($7::text[]) = (
+      AND NOT EXISTS (SELECT 1 FROM blocks x WHERE x.blocker_id = b.user_id AND x.blocked_id = $6::uuid)
+      AND ($7::text IS NULL OR lower(p.institution) = lower($7::text))
+      AND (cardinality($8::text[]) = 0 OR cardinality($8::text[]) = (
           SELECT count(*)
           FROM user_interests l
           WHERE l.user_id = b.user_id
-            AND l.interest_id IN (SELECT t.id FROM research_interests t WHERE lower(t.name::text) = ANY ($7::text[]))))
+            AND l.interest_id IN (SELECT t.id FROM research_interests t WHERE lower(t.name::text) = ANY ($8::text[]))))
 )
 SELECT m.user_id, m.rank::int AS rank, m.full_name, m.headline, m.institution, m.photo_file_id
 FROM matches m
@@ -1579,6 +1592,7 @@ type SearchPeoplePageParams struct {
 	PageSize    int32
 	Fuzzy       bool
 	Pattern     string
+	ViewerID    pgtype.UUID
 	Institution pgtype.Text
 	Interests   []string
 }
@@ -1601,6 +1615,7 @@ func (q *Queries) SearchPeoplePage(ctx context.Context, arg SearchPeoplePagePara
 		arg.PageSize,
 		arg.Fuzzy,
 		arg.Pattern,
+		arg.ViewerID,
 		arg.Institution,
 		arg.Interests,
 	)
@@ -1656,12 +1671,13 @@ WITH hits AS (
     JOIN users u ON u.id = b.user_id
     JOIN profiles p ON p.user_id = b.user_id
     WHERE u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL
-      AND ($4::text IS NULL OR lower(p.institution) = lower($4::text))
-      AND (cardinality($5::text[]) = 0 OR cardinality($5::text[]) = (
+      AND NOT EXISTS (SELECT 1 FROM blocks x WHERE x.blocker_id = b.user_id AND x.blocked_id = $4::uuid)
+      AND ($5::text IS NULL OR lower(p.institution) = lower($5::text))
+      AND (cardinality($6::text[]) = 0 OR cardinality($6::text[]) = (
           SELECT count(*)
           FROM user_interests l
           WHERE l.user_id = b.user_id
-            AND l.interest_id IN (SELECT t.id FROM research_interests t WHERE lower(t.name::text) = ANY ($5::text[]))))
+            AND l.interest_id IN (SELECT t.id FROM research_interests t WHERE lower(t.name::text) = ANY ($6::text[]))))
 )
 SELECT count(*)::int AS total,
        coalesce((array_agg(m.full_name ORDER BY word_similarity($1::text, m.full_name) DESC, similarity(m.full_name, $1::text) DESC, m.full_name, m.user_id)
@@ -1673,6 +1689,7 @@ type SearchPeopleSummaryParams struct {
 	Q           string
 	Fuzzy       bool
 	Pattern     string
+	ViewerID    pgtype.UUID
 	Institution pgtype.Text
 	Interests   []string
 }
@@ -1689,6 +1706,7 @@ func (q *Queries) SearchPeopleSummary(ctx context.Context, arg SearchPeopleSumma
 		arg.Q,
 		arg.Fuzzy,
 		arg.Pattern,
+		arg.ViewerID,
 		arg.Institution,
 		arg.Interests,
 	)
@@ -1741,7 +1759,8 @@ SELECT set_config('pg_trgm.word_similarity_threshold', $1::text, true)
 // profiles_institution_trgm_idx, research_interests_name_trgm_idx and
 // profiles_headline_trgm_idx. A result's rank is its best match: 0 exact name, 1 name
 // prefix, 2 name contains, 3 similar name, 4 institution, 5 research interest, 6 headline.
-// Visibility is the profile view rule: verified and not suspended.
+// Visibility is the profile view rule: verified and not suspended. Nobody finds a person
+// who has blocked them (FR-16.9).
 // Transaction-local (is_local true), so it ends with the search's transaction.
 func (q *Queries) SetWordSimilarityThreshold(ctx context.Context, threshold string) error {
 	_, err := q.db.Exec(ctx, setWordSimilarityThreshold, threshold)

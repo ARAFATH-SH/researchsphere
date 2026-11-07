@@ -1,6 +1,6 @@
 import createClient from "openapi-fetch";
 
-import { createAuthFetch } from "./auth-fetch";
+import { createAuthFetch, createSessionRefresher } from "./auth-fetch";
 import type { paths } from "./schema.gen";
 
 // Requests go to /api/v1 on the same origin; next.config.ts forwards them, so the auth
@@ -22,6 +22,15 @@ export function onSessionLost(listener: () => void): () => void {
   return () => sessionLostListeners.delete(listener);
 }
 
+// reportSessionLost tells the listeners that the session is over, as a refused refresh does.
+export function reportSessionLost(): void {
+  sessionLostListeners.forEach((listener) => listener());
+}
+
+// refreshSession renews the session. Everything that refreshes goes through it, the socket
+// included, because two refreshes at once end the session (lib/api/auth-fetch.ts).
+export const refreshSession = createSessionRefresher(async () => (await plain.POST("/auth/refresh")).response.status);
+
 // The one client for the ResearchSphere API. Paths, parameters and response
 // bodies are typed from docs/openapi.yaml (run `make generate` after changing it).
 // A 401 renews the session once and retries once (lib/api/auth-fetch.ts).
@@ -29,8 +38,8 @@ export const api = createClient<paths>({
   baseUrl,
   fetch: createAuthFetch({
     fetch: browserFetch,
-    refresh: async () => (await plain.POST("/auth/refresh")).response.ok,
-    onSessionLost: () => sessionLostListeners.forEach((listener) => listener()),
+    refresh: async () => (await refreshSession()) === "ok",
+    onSessionLost: reportSessionLost,
   }),
 });
 

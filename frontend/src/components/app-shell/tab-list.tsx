@@ -4,9 +4,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { useSession } from "@/features/auth/session";
+import { useUnreadMessages } from "@/features/messaging/unread-count";
 import { useUnreadNotifications } from "@/features/notification/unread-count";
 import { usePendingInvitations } from "@/features/social/pending-invitations";
 
+import { MessagingIcon } from "./icons";
 import { MeMenu } from "./me-menu";
 import { isActive, phoneTabs, type Tab, tabs, topLabel } from "./tabs";
 
@@ -14,23 +16,24 @@ import { isActive, phoneTabs, type Tab, tabs, topLabel } from "./tabs";
 // at 480px and narrower (docs/ui-guidelines.md, Signed-in pages).
 export type TabListVariant = "top" | "phone";
 
-// Counts are numbers by tab href, shown as a badge: the pending invitations on My Network
-// and the unread notifications; unread messages come with their slice.
+// Counts are numbers by tab href, shown as a badge: the pending invitations on My Network,
+// the unread messages and message requests on Messaging, and the unread notifications.
 export type TabCounts = Partial<Record<string, number>>;
 
 type TabListProps = { pathname: string; variant: TabListVariant; counts?: TabCounts };
 
-// CurrentTabList marks the tab of the current page and shows the pending invitations on My
-// Network and the unread notifications (kept current by BadgePoller). usePathname is only known at request time, so AppShell renders this inside
+// CurrentTabList marks the tab of the current page and shows the counts (kept current by
+// BadgePoller). usePathname is only known at request time, so AppShell renders this inside
 // <Suspense> with a plain TabList as the fallback.
 export function CurrentTabList({ variant }: { variant: TabListVariant }) {
   const pending = usePendingInvitations();
   const unread = useUnreadNotifications();
+  const messages = useUnreadMessages();
   return (
     <TabList
       pathname={usePathname() ?? ""}
       variant={variant}
-      counts={{ "/network": pending, "/notifications": unread }}
+      counts={{ "/network": pending, "/messaging": messages.total + messages.requests, "/notifications": unread }}
     />
   );
 }
@@ -105,6 +108,24 @@ function PhoneTabs({ pathname, counts }: { pathname: string; counts: TabCounts }
         );
       })}
     </ul>
+  );
+}
+
+// PhoneMessagingLink is the Messaging icon of the phone top bar, the only way to messaging at
+// 480px and narrower, with the same badge as the tab.
+export function PhoneMessagingLink() {
+  const { total, requests } = useUnreadMessages();
+  const count = total + requests;
+  const tab = tabs.find((t) => t.href === "/messaging");
+  return (
+    <Link
+      href="/messaging"
+      aria-label={count ? `Messaging, ${count} unread` : "Messaging"}
+      className="relative flex size-11 flex-none items-center justify-center rounded-full text-rs-nav-muted focus-visible:shadow-focus focus-visible:outline-none"
+    >
+      <MessagingIcon />
+      {tab && <Badge tab={tab} counts={{ "/messaging": count }} place="left-[calc(50%+6px)]" />}
+    </Link>
   );
 }
 

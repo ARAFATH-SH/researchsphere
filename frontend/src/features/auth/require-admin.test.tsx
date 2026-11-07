@@ -1,6 +1,9 @@
 import { act, render, screen } from "@testing-library/react";
 
 import AdminPage from "@/app/(app)/admin/page";
+import AdminReportPage from "@/app/(app)/admin/reports/[reportId]/page";
+import AdminUserPage from "@/app/(app)/admin/users/[userId]/page";
+import { getMessageReport, getUserModeration, listMessageReports } from "@/features/moderation/api";
 
 import { AccessNotice, noAccessMessage } from "./access-notice";
 import { listUsers } from "./api";
@@ -12,6 +15,8 @@ const mockUseSession = jest.mocked(useSession);
 
 jest.mock("./api");
 const mockListUsers = jest.mocked(listUsers);
+jest.mock("@/features/moderation/api");
+const mockListReports = jest.mocked(listMessageReports);
 
 const mockReplace = jest.fn();
 jest.mock("next/navigation", () => ({ useRouter: () => ({ replace: mockReplace }) }));
@@ -70,9 +75,28 @@ describe("/admin", () => {
   it("loads the users for an administrator", async () => {
     mockUseSession.mockReturnValue(signedInAs("admin"));
     mockListUsers.mockResolvedValue({ ok: true, data: { items: [], page: 1, pageSize: 20, total: 0 } });
+    mockListReports.mockResolvedValue({ ok: true, data: { items: [], page: 1, pageSize: 20, total: 0 } });
     render(<AdminPage />);
     expect(await screen.findByRole("table")).toBeTruthy();
+    await screen.findByText("No open reports.");
     expect(mockListUsers).toHaveBeenCalledWith(1, 20);
     expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["the admin page", () => Promise.resolve(AdminPage())],
+    ["a report", () => AdminReportPage({ params: Promise.resolve({ reportId: "r" }) } as never)],
+    ["a user's moderation page", () => AdminUserPage({ params: Promise.resolve({ userId: "u" }) } as never)],
+  ])("refuses a non-admin on %s, before any admin data is asked for", async (_, page) => {
+    mockUseSession.mockReturnValue(signedInAs("researcher"));
+    const element = await page();
+    await act(async () => {
+      render(element);
+    });
+    expect(mockReplace).toHaveBeenCalledWith("/home");
+    expect(getMessageReport).not.toHaveBeenCalled();
+    expect(getUserModeration).not.toHaveBeenCalled();
+    expect(listMessageReports).not.toHaveBeenCalled();
+    expect(mockListUsers).not.toHaveBeenCalled();
   });
 });

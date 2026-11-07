@@ -269,3 +269,33 @@ func TestLogoutPassesOnFailure(t *testing.T) {
 		t.Errorf("Logout() error = %v, want it to wrap %v", err, boom)
 	}
 }
+
+// endedSessions records who the listener heard about.
+type endedSessions struct{ users []string }
+
+func (l *endedSessions) SessionsEnded(_ context.Context, userID string) {
+	l.users = append(l.users, userID)
+}
+
+// Open sockets close whenever a session ends. Only the session that was found counts: a
+// logout that matches nothing tells nobody.
+func TestSessionListener(t *testing.T) {
+	e := newEnv()
+	l := &endedSessions{}
+	e.svc.cfg.Sessions = l
+	id := verifiedUser(t, e, "ada@example.org")
+	token := loggedIn(t, e, "ada@example.org")
+
+	if err := e.svc.Logout(context.Background(), strings.Repeat("a", 43)); err != nil {
+		t.Fatal(err)
+	}
+	if len(l.users) != 0 {
+		t.Fatalf("heard %v for an unknown session", l.users)
+	}
+	if err := e.svc.Logout(context.Background(), token); err != nil {
+		t.Fatal(err)
+	}
+	if len(l.users) != 1 || l.users[0] != id {
+		t.Errorf("heard %v, want [%s]", l.users, id)
+	}
+}

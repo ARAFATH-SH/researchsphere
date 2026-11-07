@@ -1,7 +1,7 @@
 // Package usecase holds the social module's logic: sending, accepting, rejecting and
 // cancelling connection requests (FR-7.1 to FR-7.3, FR-7.6), removing connections
 // (FR-7.5), the lists of connections and requests (FR-7.4), and the link between two
-// users that a profile shows. It imports only the social domain.
+// users that a profile shows, and blocks (FR-16.9). It imports only the social domain.
 package usecase
 
 import (
@@ -31,24 +31,29 @@ type Service struct {
 	tx       domain.Transactor
 	limiter  domain.RequestLimiter
 	notifier domain.Notifier
+	actors   domain.Actors
 	logger   *slog.Logger
 }
 
 // New returns a Service. notifier hears about sent, accepted, cancelled and rejected
 // requests inside the transaction tx opens for each change, so the change and its
 // notification are stored together or not at all (FR-9.1).
-func New(store domain.Store, tx domain.Transactor, limiter domain.RequestLimiter, notifier domain.Notifier, logger *slog.Logger) *Service {
-	return &Service{store: store, tx: tx, limiter: limiter, notifier: notifier, logger: logger}
+func New(store domain.Store, tx domain.Transactor, limiter domain.RequestLimiter, notifier domain.Notifier, actors domain.Actors, logger *slog.Logger) *Service {
+	return &Service{store: store, tx: tx, limiter: limiter, notifier: notifier, actors: actors, logger: logger}
 }
 
 // Send sends a connection request from requesterID to receiverID (FR-7.1). Checks run in
-// this order: ErrSelf, *RateLimitedError, ErrNotFound for a receiver who is unknown,
-// suspended or not verified, then the link between the two (FR-7.2): ErrAlreadyPending,
+// this order: ErrSelf, *SuspendedError, *RateLimitedError, ErrNotFound for a receiver who is unknown,
+// suspended or not verified, a block (FR-16.9: ErrYouBlocked for the blocker, ErrNotFound
+// for the blocked person), then the link between the two (FR-7.2): ErrAlreadyPending,
 // *PendingFromThemError or ErrAlreadyConnected. A rejected request does not block a new
 // one (FR-7.6). It returns the request and the receiver.
 func (s *Service) Send(ctx context.Context, requesterID, receiverID string) (domain.PendingRequest, error) {
 	if requesterID == receiverID {
 		return domain.PendingRequest{}, domain.ErrSelf
+	}
+	if err := s.refuseSuspended(ctx, requesterID); err != nil {
+		return domain.PendingRequest{}, err
 	}
 	if err := s.checkLimit(ctx, requesterID); err != nil {
 		return domain.PendingRequest{}, err
@@ -74,6 +79,20 @@ func (s *Service) Send(ctx context.Context, requesterID, receiverID string) (dom
 	return domain.PendingRequest{ID: req.ID, CreatedAt: req.CreatedAt, Other: other}, nil
 }
 
+// refuseSuspended returns *SuspendedError when the user's account is suspended now. It runs
+// before the limit, so a refusal uses no quota, and first in the transaction, where it holds
+// the user's row (domain.Actors), so a suspension that commits meanwhile cannot be passed.
+func (s *Service) refuseSuspended(ctx context.Context, userID string) error {
+	st, err := s.actors.Standing(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if st.Suspended {
+		return &domain.SuspendedError{Reason: st.SuspensionReason, Until: st.SuspendedUntil}
+	}
+	return nil
+}
+
 // create stores the request and its notification in one transaction, or explains with
 // the link that refused it. The database decides between two requests sent at the same
 // moment; when the refusing link is gone before it can be read, it tries again.
@@ -84,6 +103,12 @@ func (s *Service) create(ctx context.Context, requesterID, receiverID string) (d
 			created bool
 		)
 		err := s.tx.InTx(ctx, func(ctx context.Context) error {
+			if err := s.refuseSuspended(ctx, requesterID); err != nil {
+				return err
+			}
+			if err := s.refuseBlocked(ctx, requesterID, receiverID); err != nil {
+				return err
+			}
 			var err error
 			req, created, err = s.store.CreateRequest(ctx, requesterID, receiverID)
 			if err != nil || !created {
@@ -200,7 +225,7 @@ func (s *Service) Remove(ctx context.Context, userID, otherID string) error {
 // ListConnections returns one page of userID's connections (FR-7.4). userID is the
 // caller, so every item's Viewer is StatusConnected without another query.
 func (s *Service) ListConnections(ctx context.Context, userID string, page int) (domain.ConnectionPage, error) {
-	p, err := s.listConnections(ctx, userID, page)
+	p, err := s.listConnections(ctx, userID, userID, page)
 	if err != nil {
 		return domain.ConnectionPage{}, err
 	}
@@ -210,11 +235,11 @@ func (s *Service) ListConnections(ctx context.Context, userID string, page int) 
 	return p, nil
 }
 
-func (s *Service) listConnections(ctx context.Context, userID string, page int) (domain.ConnectionPage, error) {
+func (s *Service) listConnections(ctx context.Context, viewerID, userID string, page int) (domain.ConnectionPage, error) {
 	if page < 1 {
 		return domain.ConnectionPage{}, domain.ErrInvalidPage
 	}
-	items, total, err := s.store.ListConnections(ctx, userID, PageSize, (page-1)*PageSize)
+	items, total, err := s.store.ListConnections(ctx, viewerID, userID, PageSize, (page-1)*PageSize)
 	if err != nil {
 		return domain.ConnectionPage{}, err
 	}
@@ -223,7 +248,8 @@ func (s *Service) listConnections(ctx context.Context, userID string, page int) 
 
 // ListUserConnections returns one page of any user's connections to a logged-in viewer
 // (FR-7.4), each with the viewer's own Relation with that person, read for the whole page
-// at once. A user who is unknown, suspended or not verified gives ErrNotFound, as for the
+// at once, leaving out anyone who has blocked the viewer (FR-16.9). A user who is unknown,
+// suspended or not verified, or who has blocked the viewer, gives ErrNotFound, as for the
 // profile.
 func (s *Service) ListUserConnections(ctx context.Context, viewerID, userID string, page int) (domain.ConnectionPage, error) {
 	if page < 1 {
@@ -236,7 +262,14 @@ func (s *Service) ListUserConnections(ctx context.Context, viewerID, userID stri
 	if !visible {
 		return domain.ConnectionPage{}, domain.ErrNotFound
 	}
-	p, err := s.listConnections(ctx, userID, page)
+	blocks, err := s.store.BlockBetween(ctx, viewerID, userID)
+	if err != nil {
+		return domain.ConnectionPage{}, err
+	}
+	if blocks.ByThem {
+		return domain.ConnectionPage{}, domain.ErrNotFound
+	}
+	p, err := s.listConnections(ctx, viewerID, userID, page)
 	if err != nil {
 		return domain.ConnectionPage{}, err
 	}
@@ -335,7 +368,7 @@ func relationOf(viewerID string, l domain.LiveLink) domain.Relation {
 }
 
 // CountConnections returns how many connections userID has: the total of their
-// connections list.
-func (s *Service) CountConnections(ctx context.Context, userID string) (int, error) {
-	return s.store.CountConnections(ctx, userID)
+// connections list as viewerID sees it.
+func (s *Service) CountConnections(ctx context.Context, viewerID, userID string) (int, error) {
+	return s.store.CountConnections(ctx, viewerID, userID)
 }

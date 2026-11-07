@@ -34,7 +34,7 @@ func (s *Service) RequestPasswordReset(ctx context.Context, email string) error 
 		s.logger.ErrorContext(ctx, "request password reset: find user", slog.Any("error", err))
 		return nil
 	}
-	if user.Suspended() {
+	if user.Suspended(s.now()) {
 		s.logger.InfoContext(ctx, "password reset not sent: account suspended", slog.String("user_id", user.ID))
 		return nil
 	}
@@ -109,7 +109,7 @@ func (s *Service) ResetPassword(ctx context.Context, token, newPassword string) 
 		if !now.Before(t.ExpiresAt) {
 			return domain.ErrTokenExpired
 		}
-		if t.UserSuspendedAt != nil {
+		if domain.Suspended(t.UserSuspendedAt, t.UserSuspendedUntil, now) {
 			return domain.ErrAccountSuspended
 		}
 		if err := tx.MarkTokenUsed(ctx, t.ID, now); err != nil {
@@ -131,6 +131,7 @@ func (s *Service) ResetPassword(ctx context.Context, token, newPassword string) 
 		return err
 	}
 	s.logger.InfoContext(ctx, "password reset", slog.String("user_id", userID))
+	s.sessionsEnded(ctx, userID)
 	s.clearFailedLogins(ctx, userID)
 	return nil
 }
