@@ -133,6 +133,13 @@ type Mailer interface {
 	SendPasswordReset(ctx context.Context, msg PasswordResetEmail) error
 }
 
+// RestrictionLookup says when a user's messaging restriction ends. The moderation module owns
+// restrictions; cmd/api implements this with its usecase.
+type RestrictionLookup interface {
+	// MessagingRestrictedUntil returns nil when the user has no active restriction.
+	MessagingRestrictedUntil(ctx context.Context, userID string) (*time.Time, error)
+}
+
 // SessionListener hears when a user's sessions end, after the commit. It cannot fail the change.
 // Access tokens name no session, so it hears only the user: every socket of that user closes,
 // and those of the sessions that remain refresh and reconnect (docs/decisions.md).

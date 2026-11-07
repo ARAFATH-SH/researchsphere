@@ -3,6 +3,7 @@
 import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
 
 import { removeConnection } from "@/features/social/api";
+import { BlockDialog } from "@/features/social/block-dialog";
 
 import { Toast, toastDuration } from "./toast";
 
@@ -15,20 +16,25 @@ export function profileUrl(userId: string): string {
 // user's name for the confirmation, and what to do once the connection is gone.
 export type Connected = { name: string; onRemoved: () => void };
 
+// Blocking is what the menu needs to offer "Block" or "Unblock" (FR-16.9).
+export type Blocking = { name: string; blockedByMe: boolean; onBlocked: () => void; onUnblocked: () => void };
+
 // MoreMenu is the "…" button on the profile header and its menu: "Remove connection" when
-// connected (asked again inside the menu, then DELETE /connections/{userId}), and "Copy
-// profile link", which copies /profile/<userId> and confirms with a toast. Escape or a
+// connected (asked again inside the menu, then DELETE /connections/{userId}), "Block" or
+// "Unblock" when blocking is given, each asked in a dialog, and "Copy profile link", which copies /profile/<userId> and confirms with a toast. Escape or a
 // click outside closes it, and the focus goes back to the button. The profile card shows it
 // as the design's outlined "More" pill; the sticky bar, short of room, as a "…" icon.
 export function MoreMenu({
   userId,
   variant = "pill",
   connected,
+  blocking,
   label = "More",
 }: {
   userId: string;
   variant?: "pill" | "icon";
   connected?: Connected;
+  blocking?: Blocking;
   // label names the button and the menu, such as "More actions for Ada" in a list row.
   label?: string;
 }) {
@@ -37,6 +43,7 @@ export function MoreMenu({
   const [removing, setRemoving] = useState(false);
   const [failed, setFailed] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [asking, setAsking] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
@@ -115,6 +122,19 @@ export function MoreMenu({
 
   return (
     <div ref={root} className="relative">
+      {asking && blocking && (
+        <BlockDialog
+          action={blocking.blockedByMe ? "unblock" : "block"}
+          userId={userId}
+          name={blocking.name}
+          onClose={() => setAsking(false)}
+          onDone={() => {
+            setAsking(false);
+            if (blocking.blockedByMe) blocking.onUnblocked();
+            else blocking.onBlocked();
+          }}
+        />
+      )}
       <button
         ref={button}
         type="button"
@@ -161,6 +181,20 @@ export function MoreMenu({
               >
                 <RemoveIcon />
                 Remove connection
+              </button>
+            )}
+            {blocking && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  close();
+                  setAsking(true);
+                }}
+                className={menuItem}
+              >
+                <BlockIcon />
+                {blocking.blockedByMe ? "Unblock" : "Block"}
               </button>
             )}
             <button
@@ -257,6 +291,23 @@ function DotsIcon() {
       <circle cx="5" cy="12" r="1.75" />
       <circle cx="12" cy="12" r="1.75" />
       <circle cx="19" cy="12" r="1.75" />
+    </svg>
+  );
+}
+
+function BlockIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      className="size-5 shrink-0 text-rs-text-muted"
+    >
+      <circle cx="12" cy="12" r="9" />
+      <path d="M5.6 5.6l12.8 12.8" />
     </svg>
   );
 }

@@ -403,20 +403,22 @@ func (q *Queries) FindUserByEmail(ctx context.Context, email string) (FindUserBy
 }
 
 const findUserByID = `-- name: FindUserByID :one
-SELECT u.id, u.email, u.email_verified_at, u.suspended_at, u.suspended_until, u.role, p.full_name
+SELECT u.id, u.email, u.email_verified_at, u.suspended_at, u.suspended_until, u.suspension_reason, u.role, u.created_at, p.full_name
 FROM users u
 JOIN profiles p ON p.user_id = u.id
 WHERE u.id = $1
 `
 
 type FindUserByIDRow struct {
-	ID              pgtype.UUID
-	Email           string
-	EmailVerifiedAt pgtype.Timestamptz
-	SuspendedAt     pgtype.Timestamptz
-	SuspendedUntil  pgtype.Timestamptz
-	Role            UserRole
-	FullName        string
+	ID               pgtype.UUID
+	Email            string
+	EmailVerifiedAt  pgtype.Timestamptz
+	SuspendedAt      pgtype.Timestamptz
+	SuspendedUntil   pgtype.Timestamptz
+	SuspensionReason pgtype.Text
+	Role             UserRole
+	CreatedAt        pgtype.Timestamptz
+	FullName         string
 }
 
 func (q *Queries) FindUserByID(ctx context.Context, id pgtype.UUID) (FindUserByIDRow, error) {
@@ -428,7 +430,9 @@ func (q *Queries) FindUserByID(ctx context.Context, id pgtype.UUID) (FindUserByI
 		&i.EmailVerifiedAt,
 		&i.SuspendedAt,
 		&i.SuspendedUntil,
+		&i.SuspensionReason,
 		&i.Role,
+		&i.CreatedAt,
 		&i.FullName,
 	)
 	return i, err
@@ -452,7 +456,7 @@ func (q *Queries) InsertRetiredToken(ctx context.Context, arg InsertRetiredToken
 
 const listUsers = `-- name: ListUsers :many
 
-SELECT u.id, u.email, u.role, u.email_verified_at, u.suspended_at, u.suspended_until, u.created_at, p.full_name
+SELECT u.id, u.email, u.role, u.email_verified_at, u.suspended_at, u.suspended_until, u.suspension_reason, u.created_at, p.full_name
 FROM users u
 JOIN profiles p ON p.user_id = u.id
 ORDER BY u.created_at DESC, u.id DESC
@@ -465,14 +469,15 @@ type ListUsersParams struct {
 }
 
 type ListUsersRow struct {
-	ID              pgtype.UUID
-	Email           string
-	Role            UserRole
-	EmailVerifiedAt pgtype.Timestamptz
-	SuspendedAt     pgtype.Timestamptz
-	SuspendedUntil  pgtype.Timestamptz
-	CreatedAt       pgtype.Timestamptz
-	FullName        string
+	ID               pgtype.UUID
+	Email            string
+	Role             UserRole
+	EmailVerifiedAt  pgtype.Timestamptz
+	SuspendedAt      pgtype.Timestamptz
+	SuspendedUntil   pgtype.Timestamptz
+	SuspensionReason pgtype.Text
+	CreatedAt        pgtype.Timestamptz
+	FullName         string
 }
 
 // Administration (FR-15.3).
@@ -493,6 +498,7 @@ func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]ListUse
 			&i.EmailVerifiedAt,
 			&i.SuspendedAt,
 			&i.SuspendedUntil,
+			&i.SuspensionReason,
 			&i.CreatedAt,
 			&i.FullName,
 		); err != nil {

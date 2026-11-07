@@ -285,7 +285,11 @@ func (h *Handler) GetUserModeration(ctx context.Context, req gen.GetUserModerati
 			return nil, err
 		}
 	}
-	return gen.GetUserModeration200JSONResponse{Items: items, Page: res.Page, PageSize: res.PageSize, Total: res.Total}, nil
+	user, err := historyUser(res)
+	if err != nil {
+		return nil, err
+	}
+	return gen.GetUserModeration200JSONResponse{User: user, Items: items, Page: res.Page, PageSize: res.PageSize, Total: res.Total}, nil
 }
 
 // ListPendingWarnings lists the caller's warnings not yet acknowledged (FR-15.5).
@@ -348,7 +352,27 @@ func warningBody(w domain.Warning) (gen.AccountWarning, error) {
 	if err != nil {
 		return gen.AccountWarning{}, err
 	}
-	return gen.AccountWarning{Id: id, Reason: w.Reason, CreatedAt: w.CreatedAt, Acknowledged: w.AcknowledgedAt != nil}, nil
+	return gen.AccountWarning{Id: id, Reason: w.Reason, CreatedAt: w.CreatedAt, Acknowledged: w.AcknowledgedAt != nil, AcknowledgedAt: w.AcknowledgedAt}, nil
+}
+
+// historyUser is the account a history is about. A suspension that has ended by time shows
+// neither its reason nor its end, as the users list does not.
+func historyUser(h domain.History) (gen.AdminUser, error) {
+	id, err := uuid(h.User.ID)
+	if err != nil {
+		return gen.AdminUser{}, err
+	}
+	u := gen.AdminUser{
+		Id: id, FullName: h.User.FullName, Email: h.User.Email, Role: gen.Researcher,
+		Verified: h.User.Verified, Suspended: h.Suspended, CreatedAt: h.User.CreatedAt,
+	}
+	if h.User.Admin {
+		u.Role = gen.Admin
+	}
+	if h.Suspended {
+		u.SuspensionReason, u.SuspendedUntil = h.User.SuspensionReason, h.User.SuspendedUntil
+	}
+	return u, nil
 }
 
 func actionBody(a domain.Action) (gen.ModerationAction, error) {

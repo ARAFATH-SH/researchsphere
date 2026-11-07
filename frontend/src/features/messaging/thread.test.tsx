@@ -1,5 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
+import { getCurrentUser } from "@/features/auth/api";
+
 import {
   acceptMessageRequest,
   type Conversation,
@@ -17,6 +19,7 @@ import { ConversationsProvider } from "./use-conversations";
 
 jest.mock("./api");
 jest.mock("./unread-count");
+jest.mock("@/features/auth/api");
 jest.mock("@/features/auth/session", () => ({
   useSession: () => ({ status: "signedIn", user: { id: "0b8f4c1e-0000-4000-8000-000000000001" } }),
 }));
@@ -55,6 +58,7 @@ let focused: boolean;
 
 beforeEach(() => {
   focused = true;
+  jest.mocked(getCurrentUser).mockResolvedValue({ ok: false, code: "network_error", message: "No." });
   jest.spyOn(document, "hasFocus").mockImplementation(() => focused);
   mockRead.mockResolvedValue({ ok: true, data: undefined });
   jest.mocked(refreshUnreadMessages).mockResolvedValue();
@@ -89,7 +93,7 @@ describe("Messages", () => {
     load(conversation(), [message(1, bobID, "one"), message(2, bobID, "two"), message(3, bobID, "three")]);
     const { container } = await renderThread();
     expect(within(log()).getAllByText(/[AP]M$/)).toHaveLength(1);
-    expect(container.querySelectorAll('[role="log"] [aria-hidden="true"]')).toHaveLength(1); // one avatar
+    expect(container.querySelectorAll('[role="log"] span[aria-hidden="true"]')).toHaveLength(1); // one avatar
   });
 
   it("keeps line breaks and makes http(s) links safe", async () => {

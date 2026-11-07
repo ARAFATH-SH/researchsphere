@@ -59,6 +59,7 @@ type service interface {
 	ResendVerification(ctx context.Context, email string) error
 	Login(ctx context.Context, in usecase.LoginInput) (usecase.LoginResult, error)
 	CurrentUser(ctx context.Context, id string) (domain.User, error)
+	MessagingRestrictedUntil(ctx context.Context, id string) (*time.Time, error)
 	Refresh(ctx context.Context, token string) (usecase.RefreshResult, error)
 	Logout(ctx context.Context, token string) error
 	RequestPasswordReset(ctx context.Context, email string) error
@@ -329,7 +330,13 @@ func (h *Handler) GetCurrentUser(ctx context.Context, _ gen.GetCurrentUserReques
 	if err != nil {
 		return nil, err
 	}
-	return gen.GetCurrentUser200JSONResponse(body), nil
+	until, err := h.svc.MessagingRestrictedUntil(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return gen.GetCurrentUser200JSONResponse{
+		Id: body.Id, Email: body.Email, FullName: body.FullName, Role: body.Role, MessagingRestrictedUntil: until,
+	}, nil
 }
 
 // ChangePassword sets a new password for the logged-in user and ends every other session
@@ -458,7 +465,7 @@ func (h *Handler) ListUsers(ctx context.Context, req gen.ListUsersRequestObject)
 		if err := id.UnmarshalText([]byte(u.ID)); err != nil {
 			return nil, fmt.Errorf("user id: %w", err)
 		}
-		items = append(items, gen.AdminUser{
+		item := gen.AdminUser{
 			Id:        id,
 			FullName:  u.FullName,
 			Email:     u.Email,
@@ -466,7 +473,11 @@ func (h *Handler) ListUsers(ctx context.Context, req gen.ListUsersRequestObject)
 			Verified:  u.Verified(),
 			Suspended: u.Suspended(res.At),
 			CreatedAt: u.CreatedAt,
-		})
+		}
+		if item.Suspended {
+			item.SuspensionReason, item.SuspendedUntil = u.SuspensionReason, u.SuspendedUntil
+		}
+		items = append(items, item)
 	}
 	return gen.ListUsers200JSONResponse{Items: items, Page: res.Page, PageSize: res.PageSize, Total: res.Total}, nil
 }

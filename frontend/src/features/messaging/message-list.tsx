@@ -6,6 +6,7 @@ import { Avatar } from "@/components/avatar";
 
 import type { ConversationMember } from "./api";
 import { clockTime, groupMessages, type MessageGroup, type ThreadMessage } from "./format";
+import { MessageMenu } from "./message-menu";
 import { MessageText } from "./message-text";
 
 // Near the top a scroll loads earlier messages; near the bottom new ones keep it pinned there.
@@ -21,6 +22,8 @@ type MessageListProps = {
   earlierFailed?: boolean;
   onLoadEarlier?: () => void;
   onRetry: (key: string) => void;
+  // onReportMessage opens the report dialog for one of the other person's messages.
+  onReportMessage?: (messageId: string) => void;
 };
 
 // MessageList is a thread's messages, newest at the bottom, as design/screens/Messaging.html
@@ -37,6 +40,7 @@ export function MessageList({
   earlierFailed = false,
   onLoadEarlier,
   onRetry,
+  onReportMessage,
 }: MessageListProps) {
   const box = useRef<HTMLDivElement>(null);
   // heightBefore is the scroll height when earlier messages were asked for.
@@ -109,7 +113,7 @@ export function MessageList({
             group.senderId === me ? (
               <OwnGroup key={group.key} group={group} seenId={seenId} onRetry={onRetry} />
             ) : (
-              <TheirGroup key={group.key} group={group} other={other} />
+              <TheirGroup key={group.key} group={group} other={other} onReport={onReportMessage} />
             ),
           )}
         </div>
@@ -118,18 +122,29 @@ export function MessageList({
   );
 }
 
-function TheirGroup({ group, other }: { group: MessageGroup; other: MessageListProps["other"] }) {
+type TheirGroupProps = { group: MessageGroup; other: MessageListProps["other"]; onReport?: (messageId: string) => void };
+
+function TheirGroup({ group, other, onReport }: TheirGroupProps) {
   const lastKey = group.messages.at(-1)?.key;
   return (
     <div className="flex max-w-[80%] gap-2 self-start">
       <Avatar name={other.fullName} src={other.photoUrl} size="bubble" decorative />
       <div className="flex min-w-0 flex-col gap-1">
-        {group.messages.map((m) => (
-          <div key={m.key} className="rounded-[14px] rounded-tl-rs-xs bg-rs-subtle px-3 py-2 text-rs-body text-rs-text">
-            <MessageText body={m.body} />
-            {m.key === lastKey && <p className="mt-0.5 text-rs-tiny text-rs-text-muted">{clockTime(m.createdAt)}</p>}
-          </div>
-        ))}
+        {group.messages.map((m) => {
+          const bubble = (
+            <div className="min-w-0 rounded-[14px] rounded-tl-rs-xs bg-rs-subtle px-3 py-2 text-rs-body text-rs-text">
+              <MessageText body={m.body} />
+              {m.key === lastKey && <p className="mt-0.5 text-rs-tiny text-rs-text-muted">{clockTime(m.createdAt)}</p>}
+            </div>
+          );
+          return m.id && onReport ? (
+            <MessageMenu key={m.key} messageId={m.id} onReport={onReport}>
+              {bubble}
+            </MessageMenu>
+          ) : (
+            <div key={m.key}>{bubble}</div>
+          );
+        })}
       </div>
     </div>
   );

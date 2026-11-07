@@ -175,7 +175,7 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 		mailer,
 		tokens,
 		attempts,
-		authusecase.Config{AppBaseURL: cfg.AppBaseURL, Sessions: realtime.events},
+		authusecase.Config{AppBaseURL: cfg.AppBaseURL, Sessions: realtime.events, Restrictions: standings},
 		time.Now,
 		logger,
 	)

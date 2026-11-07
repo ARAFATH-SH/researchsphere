@@ -42,8 +42,8 @@ func moderationAccount(u authdomain.User, err error) (moderationdomain.Account, 
 		return moderationdomain.Account{}, err
 	}
 	return moderationdomain.Account{
-		ID: u.ID, Email: u.Email, FullName: u.FullName, Admin: u.Role == authdomain.RoleAdmin,
-		SuspendedAt: u.SuspendedAt, SuspendedUntil: u.SuspendedUntil,
+		ID: u.ID, Email: u.Email, FullName: u.FullName, Admin: u.Role == authdomain.RoleAdmin, Verified: u.Verified(),
+		SuspendedAt: u.SuspendedAt, SuspendedUntil: u.SuspendedUntil, SuspensionReason: u.SuspensionReason, CreatedAt: u.CreatedAt,
 	}, nil
 }
 

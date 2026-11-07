@@ -103,6 +103,25 @@ func (q *Queries) FindAction(ctx context.Context, id pgtype.UUID) (FindActionRow
 	return i, err
 }
 
+const findRestrictedUntil = `-- name: FindRestrictedUntil :one
+SELECT (SELECT max(r.ends_at) FROM account_restrictions r
+        WHERE r.user_id = $1 AND r.kind = 'messaging' AND r.lifted_at IS NULL AND r.ends_at > $2
+       )::timestamptz AS restricted_until
+`
+
+type FindRestrictedUntilParams struct {
+	UserID pgtype.UUID
+	Now    pgtype.Timestamptz
+}
+
+// Unlike FindStanding this locks nothing: the client reads it on every load and focus.
+func (q *Queries) FindRestrictedUntil(ctx context.Context, arg FindRestrictedUntilParams) (pgtype.Timestamptz, error) {
+	row := q.db.QueryRow(ctx, findRestrictedUntil, arg.UserID, arg.Now)
+	var restricted_until pgtype.Timestamptz
+	err := row.Scan(&restricted_until)
+	return restricted_until, err
+}
+
 const findStanding = `-- name: FindStanding :one
 SELECT u.suspended_at, u.suspended_until, u.suspension_reason,
        (SELECT max(r.ends_at) FROM account_restrictions r

@@ -53,6 +53,27 @@ func TestListUsers(t *testing.T) {
 	}
 }
 
+// A suspension's reason and end show only while it lasts.
+func TestListUsersSuspension(t *testing.T) {
+	past, why := time.Now().Add(-time.Hour), "Repeated spam"
+	future := time.Now().Add(time.Hour)
+	rec := listUsers(t, &fakeService{users: []domain.User{
+		{ID: userID, SuspendedAt: &past, SuspendedUntil: &future, SuspensionReason: &why, CreatedAt: past},
+		{ID: userID, SuspendedAt: &past, SuspendedUntil: &past, SuspensionReason: &why, CreatedAt: past},
+	}, at: time.Now()}, "")
+	var got gen.UserPage
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	now, ended := got.Items[0], got.Items[1]
+	if !now.Suspended || now.SuspensionReason == nil || *now.SuspensionReason != why || now.SuspendedUntil == nil {
+		t.Errorf("suspended now = %+v", now)
+	}
+	if ended.Suspended || ended.SuspensionReason != nil || ended.SuspendedUntil != nil {
+		t.Errorf("ended by time = %+v", ended)
+	}
+}
+
 func TestListUsersPageSize(t *testing.T) {
 	tests := []struct {
 		name               string

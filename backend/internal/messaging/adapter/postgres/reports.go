@@ -156,9 +156,9 @@ func report(r sqlcgen.FindReportRow) domain.Report {
 		ID: r.ID.String(), ConversationID: r.ConversationID.String(), Reason: domain.ReportReason(r.Reason),
 		Details: textPtr(r.Details), MessageID: uuidPtr(r.MessageID), CreatedAt: r.CreatedAt.Time, Note: textPtr(r.ResolutionNote),
 		Reporter: domain.ReportPerson{UserID: r.ReporterID.String(), FullName: r.ReporterName,
-			Headline: textPtr(r.ReporterHeadline), PhotoFileID: uuidPtr(r.ReporterPhoto)},
+			Headline: textPtr(r.ReporterHeadline), PhotoFileID: uuidPtr(r.ReporterPhoto), Role: r.ReporterRole},
 		Reported: domain.ReportPerson{UserID: r.ReportedID.String(), FullName: r.ReportedName,
-			Headline: textPtr(r.ReportedHeadline), PhotoFileID: uuidPtr(r.ReportedPhoto)},
+			Headline: textPtr(r.ReportedHeadline), PhotoFileID: uuidPtr(r.ReportedPhoto), Role: r.ReportedRole},
 	}
 	if r.Outcome.Valid {
 		o := domain.ReportOutcome(r.Outcome.String)

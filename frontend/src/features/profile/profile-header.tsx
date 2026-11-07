@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { type RefObject, useEffect, useRef, useState } from "react";
 
 import { Avatar } from "@/components/avatar";
@@ -152,7 +153,9 @@ export function connectionsLabel(count: number): string {
 type Connection = ConnectionLink & {
   self: boolean;
   count: number;
+  blockedByMe: boolean;
   change: (next: ConnectionLink) => void;
+  setBlockedByMe: (next: boolean) => void;
 };
 
 // useConnection keeps the viewer's link with the profile's owner and the owner's
@@ -163,6 +166,7 @@ function useConnection(profile: Profile): Connection {
     status: profile.connectionStatus,
     requestId: profile.connectionRequestId,
     count: profile.connectionCount,
+    blockedByMe: profile.blockedByMe ?? false,
   });
   const [state, setState] = useState(initial);
   const [source, setSource] = useState(profile);
@@ -178,8 +182,9 @@ function useConnection(profile: Profile): Connection {
         let count = prev.count;
         if (prev.status !== "connected" && next.status === "connected") count++;
         if (prev.status === "connected" && next.status !== "connected") count--;
-        return { ...next, count: Math.max(0, count) };
+        return { ...prev, ...next, count: Math.max(0, count) };
       }),
+    setBlockedByMe: (blockedByMe) => setState((prev) => ({ ...prev, blockedByMe })),
   };
 }
 
@@ -196,9 +201,10 @@ function Actions({
   variant: "pill" | "icon";
 }) {
   const session = useSession();
+  const router = useRouter();
   const me = session.status === "signedIn" ? session.user.id : null;
   const connected = connection.status === "connected";
-  const action = messageAction(profile, connected, me);
+  const action = messageAction({ ...profile, blockedByMe: connection.blockedByMe }, connected, me);
   const message = action && (variant === "pill" || action.kind === "filled") ? <MessageButton action={action} /> : null;
   return (
     <>
@@ -225,6 +231,17 @@ function Actions({
                 onRemoved: () => connection.change({ status: "none", requestId: null }),
               }
             : undefined
+        }
+        blocking={
+          connection.self
+            ? undefined
+            : {
+                name: profile.fullName,
+                blockedByMe: connection.blockedByMe,
+                // The profile has nothing left to do for the viewer, so go back where they came from.
+                onBlocked: () => router.back(),
+                onUnblocked: () => connection.setBlockedByMe(false),
+              }
         }
       />
     </>

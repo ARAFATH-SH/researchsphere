@@ -195,9 +195,11 @@ RETURNING id, created_at;
 -- an administrator must be able to review a report about a suspended user.
 SELECT r.id, r.conversation_id, r.reason, r.details, r.message_id, r.created_at,
        r.outcome, r.resolution_note, r.resolved_at,
-       r.reporter_id, COALESCE(rp.full_name, '')::text AS reporter_name, rp.headline AS reporter_headline, rp.photo_file_id AS reporter_photo,
-       r.reported_id, COALESCE(dp.full_name, '')::text AS reported_name, dp.headline AS reported_headline, dp.photo_file_id AS reported_photo
+       r.reporter_id, COALESCE(rp.full_name, '')::text AS reporter_name, rp.headline AS reporter_headline, rp.photo_file_id AS reporter_photo, ru.role::text AS reporter_role,
+       r.reported_id, COALESCE(dp.full_name, '')::text AS reported_name, dp.headline AS reported_headline, dp.photo_file_id AS reported_photo, du.role::text AS reported_role
 FROM message_reports r
+JOIN users ru ON ru.id = r.reporter_id
+JOIN users du ON du.id = r.reported_id
 LEFT JOIN profiles rp ON rp.user_id = r.reporter_id
 LEFT JOIN profiles dp ON dp.user_id = r.reported_id
 WHERE (r.resolved_at IS NULL) = @open::boolean
@@ -210,9 +212,11 @@ SELECT count(*) FROM message_reports r WHERE (r.resolved_at IS NULL) = @open::bo
 -- name: FindReport :one
 SELECT r.id, r.conversation_id, r.reason, r.details, r.message_id, r.created_at,
        r.outcome, r.resolution_note, r.resolved_at,
-       r.reporter_id, COALESCE(rp.full_name, '')::text AS reporter_name, rp.headline AS reporter_headline, rp.photo_file_id AS reporter_photo,
-       r.reported_id, COALESCE(dp.full_name, '')::text AS reported_name, dp.headline AS reported_headline, dp.photo_file_id AS reported_photo
+       r.reporter_id, COALESCE(rp.full_name, '')::text AS reporter_name, rp.headline AS reporter_headline, rp.photo_file_id AS reporter_photo, ru.role::text AS reporter_role,
+       r.reported_id, COALESCE(dp.full_name, '')::text AS reported_name, dp.headline AS reported_headline, dp.photo_file_id AS reported_photo, du.role::text AS reported_role
 FROM message_reports r
+JOIN users ru ON ru.id = r.reporter_id
+JOIN users du ON du.id = r.reported_id
 LEFT JOIN profiles rp ON rp.user_id = r.reporter_id
 LEFT JOIN profiles dp ON dp.user_id = r.reported_id
 WHERE r.id = @id;

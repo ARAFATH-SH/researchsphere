@@ -233,6 +233,9 @@ func TestWarningFlow(t *testing.T) {
 	if _, pending = e.call(t, ada, http.MethodGet, "/api/v1/me/warnings/pending", ""); len(pending["items"].([]any)) != 0 {
 		t.Errorf("pending after acknowledging = %v", pending)
 	}
+	if code, body = e.call(t, ada, http.MethodGet, path, ""); code != http.StatusOK || body["acknowledged"] != true || body["acknowledgedAt"] == nil {
+		t.Errorf("after acknowledging: %d %v", code, body)
+	}
 	code, body = e.call(t, ada, http.MethodGet, path, "")
 	if code != http.StatusOK || body["acknowledged"] != true || body["reason"] != modReason {
 		t.Errorf("warning after acknowledging: %d %v", code, body)
@@ -342,7 +345,27 @@ func TestLiftRestriction(t *testing.T) {
 	ada, bob := e.newProfileUser(t), e.newProfileUser(t)
 	e.link(t, ada, bob)
 	conversation, _ := e.startChat(t, ada, bob, "hello")
+	restrictedUntil := func() any {
+		t.Helper()
+		code, me := e.call(t, ada, http.MethodGet, "/api/v1/auth/me", "")
+		if code != http.StatusOK {
+			t.Fatalf("auth/me: %d %v", code, me)
+		}
+		v, ok := me["messagingRestrictedUntil"]
+		if !ok {
+			t.Fatalf("auth/me has no messagingRestrictedUntil: %v", me)
+		}
+		return v
+	}
+	if v := restrictedUntil(); v != nil {
+		t.Errorf("before the restriction: %v", v)
+	}
 	action := e.restrict(t, ada, 30)
+	if v := restrictedUntil(); v == nil {
+		t.Error("auth/me does not show the restriction")
+	} else if ends, err := time.Parse(time.RFC3339, v.(string)); err != nil || ends.Sub(e.clock.now()) < 29*24*time.Hour {
+		t.Errorf("restricted until %v: %v", v, err)
+	}
 	lift := "/api/v1/admin/restrictions/" + action["restrictionId"].(string) + "/lift"
 
 	code, body := e.adminDo(t, http.MethodPost, lift, `{"reason":"short"}`)
@@ -359,6 +382,9 @@ func TestLiftRestriction(t *testing.T) {
 	}
 	if code, body = e.inConversation(t, ada, conversation, "free", newClientID()); code != http.StatusCreated {
 		t.Errorf("after the lift: %d %v", code, body)
+	}
+	if v := restrictedUntil(); v != nil {
+		t.Errorf("after the lift: %v", v)
 	}
 	code, body = e.adminDo(t, http.MethodPost, lift, modBody)
 	wantError(t, "lift twice", code, body, http.StatusConflict, "restriction_not_active")
@@ -696,6 +722,13 @@ func TestHistoryAndAudit(t *testing.T) {
 		t.Fatalf("lift: %d %v", code, body)
 	}
 	e.suspend(t, ada, modBody)
+	// The history still names a suspended user, whom no profile shows.
+	if code, h := e.adminDo(t, http.MethodGet, userPath(ada, "moderation"), ""); code != http.StatusOK {
+		t.Fatalf("history while suspended: %d %v", code, h)
+	} else if u := h["user"].(map[string]any); u["fullName"] == "" || u["role"] != "researcher" || u["suspended"] != true ||
+		u["suspensionReason"] != modReason || u["suspendedUntil"] != nil {
+		t.Errorf("user while suspended = %v", u)
+	}
 	if code, body := e.adminDo(t, http.MethodPost, userPath(ada, "restore"), modBody); code != http.StatusOK {
 		t.Fatalf("restore: %d %v", code, body)
 	}
@@ -703,6 +736,12 @@ func TestHistoryAndAudit(t *testing.T) {
 	code, history := e.adminDo(t, http.MethodGet, userPath(ada, "moderation"), "")
 	if code != http.StatusOK {
 		t.Fatalf("history: %d %v", code, history)
+	}
+	if u := history["user"].(map[string]any); u["id"] != ada || u["suspended"] != false || u["suspensionReason"] != nil {
+		t.Errorf("user after restoring = %v", u)
+	}
+	if code, h := e.adminDo(t, http.MethodGet, userPath(e.admin, "moderation"), ""); code != http.StatusOK || h["user"].(map[string]any)["role"] != "admin" {
+		t.Errorf("history of an administrator: %d %v", code, h)
 	}
 	var kinds []string
 	var rows []map[string]any

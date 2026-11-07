@@ -20,7 +20,9 @@ const (
 
 // fakeService answers every action with err.
 type fakeService struct {
-	err error
+	err     error
+	history domain.History
+	warning *domain.Warning
 }
 
 var at = time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
@@ -42,12 +44,15 @@ func (f fakeService) Restore(context.Context, string, string, domain.ReverseInpu
 	return f.action()
 }
 func (f fakeService) History(context.Context, string, int) (domain.History, error) {
-	return domain.History{}, f.err
+	return f.history, f.err
 }
 func (f fakeService) PendingWarnings(context.Context, string) ([]domain.Warning, error) {
 	return nil, f.err
 }
 func (f fakeService) Warning(context.Context, string, string) (domain.Warning, error) {
+	if f.warning != nil {
+		return *f.warning, f.err
+	}
 	return domain.Warning{ID: item, Reason: "Repeated spam", CreatedAt: at}, f.err
 }
 func (f fakeService) Acknowledge(context.Context, string, string) error { return f.err }
@@ -169,7 +174,65 @@ func TestWarningBodyHasNoNoteOrAdmin(t *testing.T) {
 			t.Errorf("the body has %q: %s", k, raw)
 		}
 	}
-	if len(got) != 4 {
-		t.Errorf("fields = %v, want id, reason, createdAt, acknowledged", got)
+	if len(got) != 5 {
+		t.Errorf("fields = %v, want id, reason, createdAt, acknowledged, acknowledgedAt", got)
+	}
+	if v, ok := got["acknowledgedAt"]; !ok || v != nil {
+		t.Errorf("acknowledgedAt = %v, want null until acknowledged", v)
+	}
+}
+
+func TestWarningBodySaysWhenAcknowledged(t *testing.T) {
+	ctx := httpx.WithUserID(context.Background(), userID)
+	when := at.Add(time.Hour)
+	svc := fakeService{warning: &domain.Warning{ID: item, Reason: "Repeated spam", CreatedAt: at, AcknowledgedAt: &when}}
+	r, err := NewHandler(svc).GetMyWarning(ctx, gen.GetMyWarningRequestObject{WarningId: item})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := r.(gen.GetMyWarning200JSONResponse)
+	if !ok || !got.Acknowledged || got.AcknowledgedAt == nil || !got.AcknowledgedAt.Equal(when) {
+		t.Errorf("response = %+v", r)
+	}
+}
+
+func TestHistoryBodyHasTheUser(t *testing.T) {
+	why, ends := "Repeated spam", at.Add(time.Hour)
+	account := domain.Account{
+		ID: userID, Email: "ada@example.org", FullName: "Ada Lovelace", Verified: true, CreatedAt: at,
+		SuspendedAt: &at, SuspendedUntil: &ends, SuspensionReason: &why,
+	}
+	admin := account
+	admin.Admin = true
+	tests := []struct {
+		name       string
+		history    domain.History
+		wantRole   gen.Role
+		wantReason bool
+	}{
+		{"suspended now", domain.History{User: account, Suspended: true}, gen.Researcher, true},
+		{"the suspension has ended by time", domain.History{User: account}, gen.Researcher, false},
+		{"administrator", domain.History{User: admin}, gen.Admin, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := httpx.WithUserID(context.Background(), adminID)
+			r, err := NewHandler(fakeService{history: tt.history}).GetUserModeration(ctx, gen.GetUserModerationRequestObject{UserId: userID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, ok := r.(gen.GetUserModeration200JSONResponse)
+			if !ok {
+				t.Fatalf("response = %#v", r)
+			}
+			u := got.User
+			if u.Id.String() != userID || u.FullName != "Ada Lovelace" || u.Email != "ada@example.org" || !u.Verified ||
+				u.Role != tt.wantRole || u.Suspended != tt.history.Suspended || !u.CreatedAt.Equal(at) {
+				t.Errorf("user = %+v", u)
+			}
+			if (u.SuspensionReason != nil) != tt.wantReason || (u.SuspendedUntil != nil) != tt.wantReason {
+				t.Errorf("reason = %v, until = %v, want them shown: %v", u.SuspensionReason, u.SuspendedUntil, tt.wantReason)
+			}
+		})
 	}
 }

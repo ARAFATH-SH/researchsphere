@@ -254,14 +254,18 @@ func (s *Service) History(ctx context.Context, userID string, page int) (domain.
 	if page < 1 || page-1 > math.MaxInt32/HistoryPageSize {
 		return domain.History{}, domain.ErrInvalidPage
 	}
-	if _, err := s.accounts.Find(ctx, userID); err != nil {
+	account, err := s.accounts.Find(ctx, userID)
+	if err != nil {
 		return domain.History{}, err
 	}
 	items, total, err := s.store.ListActions(ctx, userID, HistoryPageSize, (page-1)*HistoryPageSize)
 	if err != nil {
 		return domain.History{}, err
 	}
-	return domain.History{Items: items, Page: page, PageSize: HistoryPageSize, Total: total}, nil
+	return domain.History{
+		User: account, Suspended: account.Suspended(s.now()),
+		Items: items, Page: page, PageSize: HistoryPageSize, Total: total,
+	}, nil
 }
 
 // PendingWarnings returns the warnings userID has not acknowledged, newest first (FR-15.5).
@@ -297,6 +301,12 @@ type Standings struct {
 // NewStandings returns a Standings.
 func NewStandings(store domain.Store, now func() time.Time) *Standings {
 	return &Standings{store: store, now: now}
+}
+
+// MessagingRestrictedUntil returns when the user's messaging restriction ends, nil when there
+// is none (FR-15.6). It is for showing the restriction; a send checks Standing.
+func (s *Standings) MessagingRestrictedUntil(ctx context.Context, userID string) (*time.Time, error) {
+	return s.store.RestrictedUntil(ctx, userID, s.now())
 }
 
 // Standing reads the user's suspension and restriction, both judged by time, so each ends by

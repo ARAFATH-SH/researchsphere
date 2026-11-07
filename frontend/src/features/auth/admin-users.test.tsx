@@ -13,6 +13,8 @@ const ada: AdminUser = {
   role: "admin",
   verified: true,
   suspended: false,
+  suspensionReason: null,
+  suspendedUntil: null,
   createdAt: "2026-10-01T09:30:00Z",
 };
 const bob: AdminUser = {
@@ -22,11 +24,20 @@ const bob: AdminUser = {
   role: "researcher",
   verified: false,
   suspended: true,
+  suspensionReason: null,
+  suspendedUntil: null,
   createdAt: "2026-09-15T12:00:00Z",
 };
 
 describe("AdminUsers", () => {
   afterEach(() => jest.resetAllMocks());
+
+  it("links each user to their moderation page", async () => {
+    mockListUsers.mockResolvedValue({ ok: true, data: { items: [ada, bob], page: 1, pageSize: 20, total: 2 } });
+    render(<AdminUsers />);
+    const link = await screen.findByRole("link", { name: "Bob Babbage" });
+    expect(link.getAttribute("href")).toBe(`/admin/users/${bob.id}`);
+  });
 
   it("shows every column for each user", async () => {
     mockListUsers.mockResolvedValue({ ok: true, data: { items: [ada, bob], page: 1, pageSize: 20, total: 2 } });

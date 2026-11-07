@@ -24,6 +24,8 @@ type Config struct {
 	AppBaseURL string
 	// Sessions, when set, hears when sessions end, so open sockets can close.
 	Sessions domain.SessionListener
+	// Restrictions, when set, says when a user's messaging restriction ends.
+	Restrictions domain.RestrictionLookup
 }
 
 // Service registers users, verifies their email addresses and logs them in.

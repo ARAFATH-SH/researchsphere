@@ -593,10 +593,13 @@ func (e Visibility) Valid() bool {
 
 // AccountWarning A warning as its user sees it. It holds no note and names no administrator.
 type AccountWarning struct {
-	Acknowledged bool               `json:"acknowledged"`
-	CreatedAt    time.Time          `json:"createdAt"`
-	Id           openapi_types.UUID `json:"id"`
-	Reason       string             `json:"reason"`
+	Acknowledged bool `json:"acknowledged"`
+
+	// AcknowledgedAt When the user first acknowledged it; null until then.
+	AcknowledgedAt *time.Time         `json:"acknowledgedAt"`
+	CreatedAt      time.Time          `json:"createdAt"`
+	Id             openapi_types.UUID `json:"id"`
+	Reason         string             `json:"reason"`
 }
 
 // AccountWarningList defines model for AccountWarningList.
@@ -623,7 +626,7 @@ type AddTagRequest struct {
 	Name string `json:"name"`
 }
 
-// AdminUser One user account as an administrator sees it in the users list.
+// AdminUser One user account as an administrator sees it.
 type AdminUser struct {
 	CreatedAt time.Time          `json:"createdAt"`
 	Email     string             `json:"email"`
@@ -637,6 +640,13 @@ type AdminUser struct {
 	// Suspended The account is suspended now (FR-3.4). A suspension that has ended by time reads
 	// false, also before the user's next login clears it.
 	Suspended bool `json:"suspended"`
+
+	// SuspendedUntil When a temporary suspension ends. Null unless `suspended` is true, and when it is permanent.
+	SuspendedUntil *time.Time `json:"suspendedUntil"`
+
+	// SuspensionReason What the user was told. Null unless `suspended` is true, and for an account
+	// suspended before reasons were recorded.
+	SuspensionReason *string `json:"suspensionReason"`
 
 	// Verified The email address is verified (FR-1.4).
 	Verified bool `json:"verified"`
@@ -1142,6 +1152,21 @@ type MarkConversationReadRequest struct {
 	MessageId openapi_types.UUID `json:"messageId"`
 }
 
+// Me The logged-in user as `GET /auth/me` returns it.
+type Me struct {
+	Email    string             `json:"email"`
+	FullName string             `json:"fullName"`
+	Id       openapi_types.UUID `json:"id"`
+
+	// MessagingRestrictedUntil When the user's messaging restriction ends (FR-15.6); null when there is none,
+	// also once it has ended or been lifted.
+	MessagingRestrictedUntil *time.Time `json:"messagingRestrictedUntil"`
+
+	// Role The platform role (SRS 2.2). Administrators are made only from the command line
+	// (`make admin`); no operation changes a role.
+	Role Role `json:"role"`
+}
+
 // Message defines model for Message.
 type Message struct {
 	Body           string             `json:"body"`
@@ -1226,8 +1251,12 @@ type MessageReportPerson struct {
 	Headline *string `json:"headline"`
 
 	// PhotoUrl The profile photo as `/api/v1/media/{fileId}`; null when not set.
-	PhotoUrl *string            `json:"photoUrl"`
-	UserId   openapi_types.UUID `json:"userId"`
+	PhotoUrl *string `json:"photoUrl"`
+
+	// Role The platform role (SRS 2.2). Administrators are made only from the command line
+	// (`make admin`); no operation changes a role.
+	Role   Role               `json:"role"`
+	UserId openapi_types.UUID `json:"userId"`
 }
 
 // MessageUnreadCount defines model for MessageUnreadCount.
@@ -1276,6 +1305,9 @@ type ModerationHistory struct {
 	Page     int                `json:"page"`
 	PageSize int                `json:"pageSize"`
 	Total    int                `json:"total"`
+
+	// User One user account as an administrator sees it.
+	User AdminUser `json:"user"`
 }
 
 // ModerationLinkedReport The report the action resolved. Null when none, or when it has since been deleted.
@@ -7238,7 +7270,7 @@ type GetCurrentUserResponseObject interface {
 	VisitGetCurrentUserResponse(w http.ResponseWriter) error
 }
 
-type GetCurrentUser200JSONResponse CurrentUser
+type GetCurrentUser200JSONResponse Me
 
 func (response GetCurrentUser200JSONResponse) VisitGetCurrentUserResponse(w http.ResponseWriter) error {
 

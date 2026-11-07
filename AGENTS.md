@@ -41,7 +41,7 @@ Run these from the repository root. `make help` prints the current list.
 | `make migrate-new name=add_users` | Create a new migration pair |
 | `make admin email=...` | Give that account the admin role (the only way to make an administrator; there is no API for it). Prints a message and fails if no account has the address. Takes effect at the user's next token refresh or login |
 | `make unadmin email=...` | Set that account back to the researcher role |
-| `make seed-ui-compare` | Create or refresh the fake accounts `npm run ui:compare` signs in with: Compare Alpha and Compare Beta, connected, with about 40 messages over several days, and Compare Gamma's pending message request to Alpha (`@compare.researchsphere.local`). Needs `make migrate` and `UI_COMPARE_PASSWORD`. Refuses a database name ending in `_test`, `APP_ENV=production` and any host but this machine |
+| `make seed-ui-compare` | Create or refresh the fake accounts `npm run ui:compare` signs in with: Compare Alpha and Compare Beta, connected, with about 40 messages over several days and Beta's open report of a message from Alpha, Compare Gamma's pending message request to Alpha, and Compare Admin, an administrator (`@compare.researchsphere.local`). Needs `make migrate` and `UI_COMPARE_PASSWORD`. Refuses a database name ending in `_test`, `APP_ENV=production` and any host but this machine |
 | `make api` | Run the API server (needs `make up`; settings from `.env`) |
 | `make web` | Run the web client dev server on port 3000; it forwards `/api/v1` to `API_URL` |
 | `make stop` | Stop this project's dev servers: the API on `API_PORT` (8080) and the Next.js dev server on ports 3000-3002. Stops only your own processes running inside this repository, prints what it stopped, and removes a stale `frontend/.next/dev/lock` when no dev server is left. Leaves the Docker containers running (use `make down` for those) |
@@ -134,7 +134,8 @@ check, tests and a production build.
   | `lib/` | Other helpers that belong to no feature |
   | `features/<module>/` | Code for one feature, named after the backend module (health, auth, profile, social, project, event, notification, messaging); created when the module has code |
   | `features/realtime/` | The one WebSocket client of a tab (`socket.ts`), its event types and React hooks; the stores of each feature listen to it |
-  | `features/search/` | The search page, which spans modules: its People tab uses the profile module's search API; Projects and Posts tabs join it with their slices |
+  | `features/moderation/` | Warnings (banner and page) and the administrator's reports, actions and user history. It spans the backend's `moderation` module and the reports of `messaging` |
+| `features/search/` | The search page, which spans modules: its People tab uses the profile module's search API; Projects and Posts tabs join it with their slices |
 
   Every API call goes through `lib/api/client.ts`, never a hand-written `fetch`. The browser
   calls `/api/v1` on its own origin and `next.config.ts` forwards it to `API_URL`, which is

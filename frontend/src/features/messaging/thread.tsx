@@ -4,19 +4,23 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { useSession } from "@/features/auth/session";
+import { BlockDialog } from "@/features/social/block-dialog";
 import { useRealtimeEvent } from "@/features/realtime/use-realtime";
 
 import { acceptMessageRequest, type Conversation, declineMessageRequest, sendMessage, type SentMessage } from "./api";
-import { Composer } from "./composer";
+import { Composer, RestrictedComposer } from "./composer";
 import { seenMessageId, threadStatus } from "./format";
 import { MessageList } from "./message-list";
+import { ReportDialog } from "./report-dialog";
 import { isStale, sendNotice, type SendNotice } from "./send-errors";
+import { ThreadActions } from "./thread-actions";
 import { ThreadBanner } from "./thread-banner";
 import { ThreadHeader } from "./thread-header";
 import { refreshUnreadMessages } from "./unread-count";
 import { useIsTyping } from "./typing";
 import { useConversations } from "./use-conversations";
 import { useMarkRead } from "./use-mark-read";
+import { useMessagingRestriction } from "./use-messaging-restriction";
 import { outgoingMessages, useOutbox } from "./use-outbox";
 import { type Thread as ThreadHandle, useThread } from "./use-thread";
 import { useTypingSender } from "./use-typing-sender";
@@ -59,6 +63,10 @@ export function Note({ role, children }: { role?: "status" | "alert"; children: 
   );
 }
 
+// ThreadDialog is the open dialog: a report of the conversation or of one message, or asking
+// before a block or an unblock.
+type ThreadDialog = { kind: "report"; messageId?: string } | { kind: "block" } | { kind: "unblock" };
+
 type LoadedThreadProps = {
   me: string;
   thread: ThreadHandle;
@@ -71,7 +79,10 @@ function LoadedThread({ me, thread, state }: LoadedThreadProps) {
   const [notice, setNotice] = useState<SendNotice | null>(null);
   const [answering, setAnswering] = useState(false);
   const [answerError, setAnswerError] = useState<string | null>(null);
+  const [dialog, setDialog] = useState<ThreadDialog | null>(null);
+  const restriction = useMessagingRestriction();
   const status = threadStatus(conversation, me);
+  const person = conversation.otherMember;
 
   const outbox = useOutbox({
     deliver: (body, clientId) => sendMessage(conversation.id, body, clientId),
@@ -82,6 +93,12 @@ function LoadedThread({ me, thread, state }: LoadedThreadProps) {
       void refreshUnreadMessages(me);
     },
     onFailed: (failure) => {
+      // The restriction may be newer than the last read of /auth/me.
+      if (failure.code === "messaging_restricted" && failure.until) {
+        restriction.refused(failure.until);
+        setNotice(null);
+        return;
+      }
       setNotice(sendNotice(failure));
       if (isStale(failure.code)) thread.reload();
     },
@@ -127,9 +144,36 @@ function LoadedThread({ me, thread, state }: LoadedThreadProps) {
   const accept = () => answer(acceptMessageRequest, "Couldn't accept the request. Try again.", (next) => list.put("inbox", next));
   const decline = () => answer(declineMessageRequest, "Couldn't decline the request. Try again.", (next) => list.remove(next.id));
 
+  // A block declines a pending request, which takes it out of both boxes.
+  function blocked() {
+    setDialog(null);
+    if (conversation.state === "request") list.remove(conversation.id);
+    else list.patch(conversation.id, { blockedByMe: true, canMessage: false });
+    thread.reload();
+  }
+
+  function unblocked() {
+    setDialog(null);
+    list.patch(conversation.id, { blockedByMe: false });
+    thread.reload();
+  }
+
   return (
-    <section aria-label={`Conversation with ${conversation.otherMember.fullName}`} className="flex h-full min-h-0 flex-col">
-      <ThreadHeader person={conversation.otherMember} typing={otherTyping} />
+    <section aria-label={`Conversation with ${person.fullName}`} className="flex h-full min-h-0 flex-col">
+      <ThreadHeader
+        person={person}
+        typing={otherTyping}
+        actions={
+          <ThreadActions
+            name={person.fullName}
+            available={person.available}
+            blockedByMe={conversation.blockedByMe}
+            onBlock={() => setDialog({ kind: "block" })}
+            onUnblock={() => setDialog({ kind: "unblock" })}
+            onReport={() => setDialog({ kind: "report" })}
+          />
+        }
+      />
       <MessageList
         messages={[...messages, ...outgoingMessages(outbox.outgoing, me)]}
         me={me}
@@ -140,6 +184,7 @@ function LoadedThread({ me, thread, state }: LoadedThreadProps) {
         earlierFailed={state.earlierFailed}
         onLoadEarlier={thread.loadEarlier}
         onRetry={outbox.retry}
+        onReportMessage={(messageId) => setDialog({ kind: "report", messageId })}
       />
       {status !== "open" && (
         <ThreadBanner
@@ -149,9 +194,33 @@ function LoadedThread({ me, thread, state }: LoadedThreadProps) {
           error={answerError}
           onAccept={accept}
           onDecline={decline}
+          onUnblock={() => setDialog({ kind: "unblock" })}
         />
       )}
-      <Composer disabled={status !== "open"} notice={notice} onSend={send} onInput={typing.input} onBlur={typing.stop} />
+      {restriction.until ? (
+        <RestrictedComposer until={restriction.until} />
+      ) : (
+        <Composer disabled={status !== "open"} notice={notice} onSend={send} onInput={typing.input} onBlur={typing.stop} />
+      )}
+      {dialog?.kind === "report" && (
+        <ReportDialog
+          conversationId={conversation.id}
+          messageId={dialog.messageId}
+          name={person.fullName}
+          canBlock={person.available && !conversation.blockedByMe}
+          onClose={() => setDialog(null)}
+          onBlock={() => setDialog({ kind: "block" })}
+        />
+      )}
+      {(dialog?.kind === "block" || dialog?.kind === "unblock") && (
+        <BlockDialog
+          action={dialog.kind}
+          userId={person.userId}
+          name={person.fullName}
+          onClose={() => setDialog(null)}
+          onDone={dialog.kind === "block" ? blocked : unblocked}
+        />
+      )}
     </section>
   );
 }

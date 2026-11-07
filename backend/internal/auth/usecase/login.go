@@ -205,3 +205,12 @@ func (s *Service) checkDummyPassword(password string) error {
 func (s *Service) CurrentUser(ctx context.Context, id string) (domain.User, error) {
 	return s.store.FindUserByID(ctx, id)
 }
+
+// MessagingRestrictedUntil returns when the user's messaging restriction ends, nil when there
+// is none (FR-15.6).
+func (s *Service) MessagingRestrictedUntil(ctx context.Context, id string) (*time.Time, error) {
+	if s.cfg.Restrictions == nil {
+		return nil, nil
+	}
+	return s.cfg.Restrictions.MessagingRestrictedUntil(ctx, id)
+}

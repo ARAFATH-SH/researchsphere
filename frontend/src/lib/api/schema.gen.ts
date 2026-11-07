@@ -245,7 +245,8 @@ export interface paths {
         };
         /**
          * Return the logged-in user
-         * @description Needs the access cookie.
+         * @description Needs the access cookie. `messagingRestrictedUntil` lets the client show a restriction
+         *     (FR-15.6) before a send is refused.
          */
         get: operations["getCurrentUser"];
         put?: never;
@@ -508,8 +509,9 @@ export interface paths {
          * A user's moderation history, newest first (FR-15.9)
          * @description Needs the access cookie and the platform action "Warn or restrict a user" (SRS 2.3).
          *     Holds warnings, restrictions, suspensions, what reversed them and the linked reports,
-         *     with internal notes. 20 per page. Reading it about another administrator is allowed:
-         *     only acting on one is refused.
+         *     with internal notes, and `user`, the account the page is about, which is also how an
+         *     administrator reads the name of a suspended user. 20 per page. Reading it about another
+         *     administrator is allowed: only acting on one is refused.
          */
         get: operations["getUserModeration"];
         put?: never;
@@ -2156,13 +2158,22 @@ export interface components {
             fullName: string;
             role: components["schemas"]["Role"];
         };
+        /** @description The logged-in user as `GET /auth/me` returns it. */
+        Me: components["schemas"]["CurrentUser"] & {
+            /**
+             * Format: date-time
+             * @description When the user's messaging restriction ends (FR-15.6); null when there is none,
+             *     also once it has ended or been lifted.
+             */
+            messagingRestrictedUntil: string | null;
+        };
         /**
          * @description The platform role (SRS 2.2). Administrators are made only from the command line
          *     (`make admin`); no operation changes a role.
          * @enum {string}
          */
         Role: "researcher" | "admin";
-        /** @description One user account as an administrator sees it in the users list. */
+        /** @description One user account as an administrator sees it. */
         AdminUser: {
             /** Format: uuid */
             id: string;
@@ -2176,6 +2187,16 @@ export interface components {
              *     false, also before the user's next login clears it.
              */
             suspended: boolean;
+            /**
+             * @description What the user was told. Null unless `suspended` is true, and for an account
+             *     suspended before reasons were recorded.
+             */
+            suspensionReason: string | null;
+            /**
+             * Format: date-time
+             * @description When a temporary suspension ends. Null unless `suspended` is true, and when it is permanent.
+             */
+            suspendedUntil: string | null;
             /** Format: date-time */
             createdAt: string;
         };
@@ -2498,6 +2519,7 @@ export interface components {
             createdAt: string;
         };
         ModerationHistory: {
+            user: components["schemas"]["AdminUser"];
             items: components["schemas"]["ModerationAction"][];
             page: number;
             pageSize: number;
@@ -2511,6 +2533,11 @@ export interface components {
             /** Format: date-time */
             createdAt: string;
             acknowledged: boolean;
+            /**
+             * Format: date-time
+             * @description When the user first acknowledged it; null until then.
+             */
+            acknowledgedAt: string | null;
         };
         AccountWarningList: {
             items: components["schemas"]["AccountWarning"][];
@@ -2729,6 +2756,7 @@ export interface components {
             /** Format: uuid */
             userId: string;
             fullName: string;
+            role: components["schemas"]["Role"];
             /** @description The profile photo as `/api/v1/media/{fileId}`; null when not set. */
             photoUrl: string | null;
             headline: string | null;
@@ -4286,7 +4314,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CurrentUser"];
+                    "application/json": components["schemas"]["Me"];
                 };
             };
             401: components["responses"]["Unauthorized"];

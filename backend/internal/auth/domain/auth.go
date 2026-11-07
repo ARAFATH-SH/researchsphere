@@ -26,10 +26,14 @@ type User struct {
 	SuspendedAt     *time.Time // set while the account is suspended (FR-3.4)
 	// SuspendedUntil is when a temporary suspension ends; nil when permanent (FR-15.7).
 	SuspendedUntil *time.Time
+	// SuspensionReason is what the administrator told the user (FR-15.7); nil for an account
+	// suspended before reasons were recorded. FindCredentialsByEmail, FindUserByID and
+	// ListUsers fill it.
+	SuspensionReason *string
 	// Role is the platform role (users.role, SRS 2.3), signed into the access token.
 	// FindCredentialsByEmail, FindUserByID and ListUsers fill it.
 	Role string
-	// CreatedAt is when the account was registered. Only ListUsers fills it.
+	// CreatedAt is when the account was registered. FindUserByID and ListUsers fill it.
 	CreatedAt time.Time
 }
 
@@ -102,9 +106,6 @@ type Token struct {
 type Credentials struct {
 	User
 	PasswordHash string
-	// SuspensionReason is what the administrator told the user (FR-15.7); nil for an account
-	// suspended before reasons were recorded.
-	SuspensionReason *string
 }
 
 // NewSession is a login to store: one row per login (FR-2.1). Only the hash of the

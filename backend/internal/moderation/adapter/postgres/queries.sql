@@ -78,6 +78,12 @@ LIMIT @lim OFFSET @off;
 -- name: CountActions :one
 SELECT count(*) FROM moderation_actions WHERE user_id = @user_id;
 
+-- name: FindRestrictedUntil :one
+-- Unlike FindStanding this locks nothing: the client reads it on every load and focus.
+SELECT (SELECT max(r.ends_at) FROM account_restrictions r
+        WHERE r.user_id = @user_id AND r.kind = 'messaging' AND r.lifted_at IS NULL AND r.ends_at > @now
+       )::timestamptz AS restricted_until;
+
 -- name: FindStanding :one
 -- FOR SHARE: an action holds this row FOR UPDATE, so a write that checks the actor in its
 -- transaction runs wholly before or wholly after the action (decisions.md, 2026-11-05).

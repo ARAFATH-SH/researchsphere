@@ -69,6 +69,9 @@ type ReportPerson struct {
 	FullName    string
 	Headline    *string
 	PhotoFileID *string
+	// Role is the platform role, so the client can leave out actions an administrator cannot
+	// be given. The moderation module still refuses them (FR-15.10).
+	Role string
 }
 
 // Report is a stored report. CreatedAt is its moment: an administrator sees the

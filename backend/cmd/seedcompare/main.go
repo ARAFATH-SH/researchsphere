@@ -52,7 +52,8 @@ func run(ctx context.Context) error {
 	if err := seed(ctx, pool, hash); err != nil {
 		return err
 	}
-	fmt.Printf("Seeded %s, %s and %s; sign in as %s.\n", alpha.email, beta.email, gamma.email, alpha.email)
+	fmt.Printf("Seeded %s, %s, %s and %s; sign in as %s, or as %s for the admin pages.\n",
+		alpha.email, beta.email, gamma.email, admin.email, alpha.email, admin.email)
 	return nil
 }
 

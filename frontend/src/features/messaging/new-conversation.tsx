@@ -7,13 +7,14 @@ import { useSession } from "@/features/auth/session";
 import { getProfile, type Profile } from "@/features/profile/api";
 
 import { getConversation, sendDirectMessage, type SentMessage } from "./api";
-import { Composer } from "./composer";
+import { Composer, RestrictedComposer } from "./composer";
 import { MessageList } from "./message-list";
 import { sendNotice, type SendNotice } from "./send-errors";
 import { Note } from "./thread";
 import { ThreadHeader } from "./thread-header";
 import { refreshUnreadMessages } from "./unread-count";
 import { useConversations } from "./use-conversations";
+import { useMessagingRestriction } from "./use-messaging-restriction";
 import { outgoingMessages, useOutbox } from "./use-outbox";
 
 type State = { status: "loading" } | { status: "unavailable" } | { status: "error" } | { status: "ok"; profile: Profile };
@@ -58,6 +59,7 @@ function FirstMessage({ me, profile }: { me: string; profile: Profile }) {
   const router = useRouter();
   const list = useConversations();
   const [notice, setNotice] = useState<SendNotice | null>(null);
+  const restriction = useMessagingRestriction();
 
   async function opened({ message }: SentMessage) {
     const res = await getConversation(message.conversationId);
@@ -72,7 +74,15 @@ function FirstMessage({ me, profile }: { me: string; profile: Profile }) {
       setNotice(null);
       void opened(sent);
     },
-    onFailed: (failure) => setNotice(sendNotice(failure)),
+    onFailed: (failure) => {
+      // The restriction may be newer than the last read of /auth/me.
+      if (failure.code === "messaging_restricted" && failure.until) {
+        restriction.refused(failure.until);
+        setNotice(null);
+      } else {
+        setNotice(sendNotice(failure));
+      }
+    },
   });
 
   return (
@@ -84,7 +94,7 @@ function FirstMessage({ me, profile }: { me: string; profile: Profile }) {
         other={profile}
         onRetry={outbox.retry}
       />
-      <Composer notice={notice} onSend={outbox.send} />
+      {restriction.until ? <RestrictedComposer until={restriction.until} /> : <Composer notice={notice} onSend={outbox.send} />}
     </section>
   );
 }

@@ -217,7 +217,7 @@ func wireEnv(t *testing.T, pool *pgxpool.Pool, rdb *goredis.Client, files *stora
 	attempts := authredis.New(rdb)
 	t.Cleanup(func() { _ = attempts.Close() })
 	auth := authusecase.New(authpg.NewStore(pool), argon2.New(argon2.DefaultParams), noAuthMail{},
-		accesstoken.New([]byte(testSecret), accessTTL), attempts, authusecase.Config{AppBaseURL: "http://localhost:3000", Sessions: realtime.events}, now, logger)
+		accesstoken.New([]byte(testSecret), accessTTL), attempts, authusecase.Config{AppBaseURL: "http://localhost:3000", Sessions: realtime.events, Restrictions: standings}, now, logger)
 	var mail textMailer = noText{}
 	if opt.mail != nil {
 		mail = opt.mail

@@ -195,5 +195,5 @@ func reportPerson(p domain.ReportPerson) (gen.MessageReportPerson, error) {
 	if err != nil {
 		return gen.MessageReportPerson{}, err
 	}
-	return gen.MessageReportPerson{UserId: id, FullName: p.FullName, Headline: p.Headline, PhotoUrl: mediaURL(p.PhotoFileID)}, nil
+	return gen.MessageReportPerson{UserId: id, FullName: p.FullName, Headline: p.Headline, PhotoUrl: mediaURL(p.PhotoFileID), Role: gen.Role(p.Role)}, nil
 }

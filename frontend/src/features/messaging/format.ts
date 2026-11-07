@@ -66,9 +66,12 @@ export function rowPreview(conversation: Conversation, me: string): string {
 }
 
 // ThreadStatus is what the caller may do in a conversation; open is the only one that sends.
-export type ThreadStatus = "open" | "waiting" | "received" | "closed" | "readOnly";
+export type ThreadStatus = "open" | "waiting" | "received" | "closed" | "readOnly" | "blocked";
 
 export function threadStatus(conversation: Conversation, me: string): ThreadStatus {
+  // A block comes first, as the caller can do something about it. A block by the other person
+  // is never told: it reads as readOnly.
+  if (conversation.blockedByMe) return "blocked";
   if (conversation.state === "declined") return "closed";
   if (conversation.state === "request") return conversation.requestedBy === me ? "waiting" : "received";
   return conversation.canMessage ? "open" : "readOnly";

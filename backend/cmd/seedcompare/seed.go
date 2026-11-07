@@ -16,11 +16,13 @@ type account struct {
 }
 
 // The fake accounts. Alpha and Beta are connected and share the long conversation; Gamma is
-// not connected to anyone, because a message request needs a pair who are not.
+// not connected to anyone, because a message request needs a pair who are not. Admin is an
+// administrator, for the admin pages, and takes part in nothing.
 var (
 	alpha = account{"compare-alpha@compare.researchsphere.local", "Compare Alpha", "Fake account for UI comparison"}
 	beta  = account{"compare-beta@compare.researchsphere.local", "Compare Beta", "Fake account for UI comparison"}
 	gamma = account{"compare-gamma@compare.researchsphere.local", "Compare Gamma", "Fake account for UI comparison"}
+	admin = account{"compare-admin@compare.researchsphere.local", "Compare Admin", "Fake account for UI comparison"}
 )
 
 // The lines of the long conversation; speaker says who writes each. Two of them show what
@@ -116,10 +118,14 @@ VALUES ($1, $2, $3, gen_random_uuid(), $4)
 RETURNING id`
 	touchConversation = `UPDATE conversations SET last_message_at = $2 WHERE id = $1`
 	moveMarker        = `UPDATE conversation_members SET last_read_message_id = $3, last_read_at = now() WHERE conversation_id = $1 AND user_id = $2`
+	makeAdmin         = `UPDATE users SET role = 'admin' WHERE id = $1`
+	insertReport      = `
+INSERT INTO message_reports (conversation_id, reporter_id, reported_id, message_id, reason, details)
+VALUES ($1, $2, $3, $4, 'harassment', 'Fake report for UI comparison.')`
 )
 
 // seed writes everything in one transaction, so a failed run changes nothing. hash is the
-// password's hash, the same for the three accounts.
+// password's hash, the same for every account.
 func seed(ctx context.Context, pool *pgxpool.Pool, hash string) error {
 	return pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
 		alphaID, err := addAccount(ctx, tx, alpha, hash)
@@ -133,6 +139,13 @@ func seed(ctx context.Context, pool *pgxpool.Pool, hash string) error {
 		gammaID, err := addAccount(ctx, tx, gamma, hash)
 		if err != nil {
 			return err
+		}
+		adminID, err := addAccount(ctx, tx, admin, hash)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, makeAdmin, adminID); err != nil {
+			return fmt.Errorf("make %s an administrator: %w", admin.email, err)
 		}
 		ids := []string{alphaID, betaID, gammaID}
 		if _, err := tx.Exec(ctx, deleteConversations, ids); err != nil {
@@ -192,7 +205,8 @@ func addMessage(ctx context.Context, tx pgx.Tx, conversationID, senderID, body s
 }
 
 // addLongConversation writes the script backwards from now, about five days of messages,
-// and sets each member's read marker.
+// sets each member's read marker, and has Beta report Alpha's last message, so the admin pages
+// have an open report. Deleting the conversation on the next run takes the report with it.
 func addLongConversation(ctx context.Context, tx pgx.Tx, alphaID, betaID string) error {
 	id, err := addConversation(ctx, tx, "active", nil, alphaID, betaID)
 	if err != nil {
@@ -216,7 +230,20 @@ func addLongConversation(ctx context.Context, tx pgx.Tx, alphaID, betaID string)
 	if _, err := tx.Exec(ctx, moveMarker, id, betaID, sent[len(sent)-1-seenByBeta]); err != nil {
 		return err
 	}
+	if _, err := tx.Exec(ctx, insertReport, id, betaID, alphaID, lastFromAlpha(sent)); err != nil {
+		return fmt.Errorf("add report: %w", err)
+	}
 	return nil
+}
+
+// lastFromAlpha returns the ID of the last script line Alpha wrote.
+func lastFromAlpha(sent []string) string {
+	for i := len(sent) - 1; i >= 0; i-- {
+		if speaker(i) {
+			return sent[i]
+		}
+	}
+	return ""
 }
 
 // addRequest writes one pending message request. Sending moves the sender's own marker.

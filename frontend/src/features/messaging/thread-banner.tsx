@@ -9,10 +9,21 @@ type ThreadBannerProps = {
   error: string | null;
   onAccept: () => void;
   onDecline: () => void;
+  onUnblock: () => void;
 };
 
-// ThreadBanner says why the composer is off. 14A.6 gives readOnly its exact reason.
-export function ThreadBanner({ status, name, busy, error, onAccept, onDecline }: ThreadBannerProps) {
+// ThreadBanner says why the composer is off. readOnly never says that they blocked the caller.
+export function ThreadBanner({ status, name, busy, error, onAccept, onDecline, onUnblock }: ThreadBannerProps) {
+  if (status === "blocked") {
+    return (
+      <div role="status" className="flex flex-wrap items-center justify-between gap-2 border-t border-rs-divider px-4 py-2.5">
+        <p className="text-rs-body text-rs-text">You blocked {name}.</p>
+        <button type="button" onClick={onUnblock} className={pillClass("outline", "row")}>
+          Unblock
+        </button>
+      </div>
+    );
+  }
   if (status === "received") {
     return (
       <div role="status" className="flex flex-col gap-2 border-t border-rs-divider px-4 py-2.5">

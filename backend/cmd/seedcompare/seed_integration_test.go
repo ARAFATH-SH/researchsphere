@@ -34,13 +34,20 @@ func TestSeedIsIdempotent(t *testing.T) {
 			what, sql string
 			want      int
 		}{
-			{"verified accounts", `SELECT count(*) FROM users WHERE email LIKE '%@compare.researchsphere.local' AND email_verified_at IS NOT NULL`, 3},
+			{"verified accounts", `SELECT count(*) FROM users WHERE email LIKE '%@compare.researchsphere.local' AND email_verified_at IS NOT NULL`, 4},
 			{"accepted connections", `SELECT count(*) FROM connections WHERE status = 'accepted'`, 1},
 			{"active conversations", `SELECT count(*) FROM conversations WHERE state = 'active'`, 1},
 			{"pending requests", `SELECT count(*) FROM conversations WHERE state = 'request'`, 1},
 			{"messages", `SELECT count(*) FROM messages`, len(script) + 1},
 			{"read markers", `SELECT count(*) FROM conversation_members WHERE last_read_message_id IS NOT NULL`, 3},
-			{"users", `SELECT count(*) FROM users`, 4},
+			{"users", `SELECT count(*) FROM users`, 5},
+			{"administrators", `SELECT count(*) FROM users WHERE role = 'admin' AND email LIKE 'compare-admin@%'`, 1},
+			{"researchers among the fake accounts", `SELECT count(*) FROM users WHERE role = 'researcher' AND email LIKE '%@compare.researchsphere.local'`, 3},
+			{"open reports", `SELECT count(*) FROM message_reports WHERE resolved_at IS NULL`, 1},
+			{"reports by Beta on a message of Alpha", `SELECT count(*) FROM message_reports r
+				JOIN users b ON b.id = r.reporter_id AND b.email LIKE 'compare-beta@%'
+				JOIN users a ON a.id = r.reported_id AND a.email LIKE 'compare-alpha@%'
+				JOIN messages m ON m.id = r.message_id AND m.sender_id = a.id`, 1},
 		} {
 			if got := count(t, pool, tc.sql); got != tc.want {
 				t.Errorf("run %d: %s = %d, want %d", run, tc.what, got, tc.want)

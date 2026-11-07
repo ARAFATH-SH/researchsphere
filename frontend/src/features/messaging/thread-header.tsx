@@ -9,7 +9,7 @@ type ThreadHeaderProps = {
   person: Pick<ConversationMember, "userId" | "fullName" | "photoUrl" | "headline">;
   // typing shows that they are typing, in place of their headline.
   typing?: boolean;
-  // actions sits at the end of the row; 14A.6 puts its block and report menu here.
+  // actions sits at the end of the row: the thread's Block and Report pills.
   actions?: ReactNode;
 };
 
@@ -17,7 +17,7 @@ type ThreadHeaderProps = {
 // thread is a screen of its own, it starts with the way back to the list.
 export function ThreadHeader({ person, typing = false, actions }: ThreadHeaderProps) {
   return (
-    <div className="flex items-center gap-2.5 border-b border-rs-divider px-4 py-2.5">
+    <div className="flex flex-wrap items-center gap-2.5 border-b border-rs-divider px-4 py-2.5">
       <Link
         href="/messaging"
         aria-label="Back to conversations"
@@ -28,7 +28,7 @@ export function ThreadHeader({ person, typing = false, actions }: ThreadHeaderPr
         </svg>
       </Link>
       <PresenceAvatar userId={person.userId} name={person.fullName} src={person.photoUrl} size="thread" />
-      <div className="min-w-0 flex-1">
+      <div className="min-w-[160px] flex-1">
         <Link
           href={`/profile/${person.userId}`}
           className="block truncate rounded-rs-2xs text-rs-body font-bold text-rs-text hover:text-rs-accent-hover hover:underline focus-visible:shadow-focus focus-visible:outline-none"

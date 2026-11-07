@@ -16,14 +16,18 @@ export const unexpectedError: ApiError = {
 };
 
 // call runs one request and turns every outcome, including a network failure or a
-// reply that is not in the error shape, into a Result.
+// reply that is not in the error shape, into a Result. It keeps a refusal's reason and end time
+// (account_suspended, messaging_restricted).
 export async function call<T>(
   request: () => Promise<{ data?: T; error?: ApiError; response: Response }>,
 ): Promise<Result<T | undefined>> {
   try {
     const { data, error, response } = await request();
     if (response.ok) return { ok: true, data };
-    if (error?.code && error.message) return { ok: false, code: error.code, message: error.message };
+    if (error?.code && error.message) {
+      const { code, message, reason, until } = error;
+      return { ok: false, code, message, ...(reason ? { reason } : {}), ...(until ? { until } : {}) };
+    }
     return { ok: false, ...unexpectedError };
   } catch {
     return { ok: false, ...networkError };

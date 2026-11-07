@@ -419,8 +419,8 @@ const reportID = "7f3a1c2e-7777-4e8b-b7c1-2d3e4f5a6b7c"
 
 var report = domain.Report{
 	ID: reportID, ConversationID: convID, Reason: domain.ReasonSpam, CreatedAt: at,
-	Reporter: domain.ReportPerson{UserID: caller, FullName: "Ada"},
-	Reported: domain.ReportPerson{UserID: otherID, FullName: "Bob"},
+	Reporter: domain.ReportPerson{UserID: caller, FullName: "Ada", Role: "researcher"},
+	Reported: domain.ReportPerson{UserID: otherID, FullName: "Bob", Role: "admin"},
 }
 
 // FR-16.9: the two refusals of a block, and the flags a conversation carries.
@@ -490,6 +490,7 @@ func TestMessageReportHandlers(t *testing.T) {
 		{"bad status", http.MethodGet, base + "?status=x", "", domain.ErrInvalidStatus, http.StatusBadRequest, `bad_request`},
 		{"bad page", http.MethodGet, base + "?page=0", "", domain.ErrInvalidPage, http.StatusBadRequest, `bad_request`},
 		{"detail", http.MethodGet, base + "/" + reportID, "", nil, http.StatusOK, `"messages":[`},
+		{"detail names the roles", http.MethodGet, base + "/" + reportID, "", nil, http.StatusOK, `"role":"admin"`},
 		{"no report", http.MethodGet, base + "/" + reportID, "", domain.ErrNotFound, http.StatusNotFound, `not_found`},
 		{"bad before", http.MethodGet, base + "/" + reportID + "?before=x", "", domain.ErrInvalidCursor, http.StatusBadRequest, `bad_request`},
 		{"resolve", http.MethodPost, base + "/" + reportID + "/resolve", `{"outcome":"dismissed"}`, nil, http.StatusOK, `"id"`},

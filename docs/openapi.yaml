@@ -402,7 +402,9 @@ paths:
     get:
       operationId: getCurrentUser
       summary: Return the logged-in user
-      description: Needs the access cookie.
+      description: |
+        Needs the access cookie. `messagingRestrictedUntil` lets the client show a restriction
+        (FR-15.6) before a send is refused.
       tags: [auth]
       responses:
         "200":
@@ -410,7 +412,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/CurrentUser"
+                $ref: "#/components/schemas/Me"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "500":
@@ -861,8 +863,9 @@ paths:
       description: |
         Needs the access cookie and the platform action "Warn or restrict a user" (SRS 2.3).
         Holds warnings, restrictions, suspensions, what reversed them and the linked reports,
-        with internal notes. 20 per page. Reading it about another administrator is allowed:
-        only acting on one is refused.
+        with internal notes, and `user`, the account the page is about, which is also how an
+        administrator reads the name of a suspended user. 20 per page. Reading it about another
+        administrator is allowed: only acting on one is refused.
       tags: [admin]
       parameters:
         - $ref: "#/components/parameters/ModeratedUserId"
@@ -3853,6 +3856,21 @@ components:
         role:
           $ref: "#/components/schemas/Role"
 
+    Me:
+      description: The logged-in user as `GET /auth/me` returns it.
+      allOf:
+        - $ref: "#/components/schemas/CurrentUser"
+        - type: object
+          required: [messagingRestrictedUntil]
+          properties:
+            messagingRestrictedUntil:
+              type: string
+              format: date-time
+              nullable: true
+              description: |
+                When the user's messaging restriction ends (FR-15.6); null when there is none,
+                also once it has ended or been lifted.
+
     Role:
       type: string
       description: |
@@ -3862,8 +3880,8 @@ components:
 
     AdminUser:
       type: object
-      description: One user account as an administrator sees it in the users list.
-      required: [id, fullName, email, role, verified, suspended, createdAt]
+      description: One user account as an administrator sees it.
+      required: [id, fullName, email, role, verified, suspended, suspensionReason, suspendedUntil, createdAt]
       properties:
         id:
           type: string
@@ -3882,6 +3900,17 @@ components:
           description: |
             The account is suspended now (FR-3.4). A suspension that has ended by time reads
             false, also before the user's next login clears it.
+        suspensionReason:
+          type: string
+          nullable: true
+          description: |
+            What the user was told. Null unless `suspended` is true, and for an account
+            suspended before reasons were recorded.
+        suspendedUntil:
+          type: string
+          format: date-time
+          nullable: true
+          description: When a temporary suspension ends. Null unless `suspended` is true, and when it is permanent.
         createdAt:
           type: string
           format: date-time
@@ -4408,8 +4437,10 @@ components:
 
     ModerationHistory:
       type: object
-      required: [items, page, pageSize, total]
+      required: [user, items, page, pageSize, total]
       properties:
+        user:
+          $ref: "#/components/schemas/AdminUser"
         items:
           type: array
           items:
@@ -4424,7 +4455,7 @@ components:
     AccountWarning:
       type: object
       description: A warning as its user sees it. It holds no note and names no administrator.
-      required: [id, reason, createdAt, acknowledged]
+      required: [id, reason, createdAt, acknowledged, acknowledgedAt]
       properties:
         id:
           type: string
@@ -4436,6 +4467,11 @@ components:
           format: date-time
         acknowledged:
           type: boolean
+        acknowledgedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the user first acknowledged it; null until then.
 
     AccountWarningList:
       type: object
@@ -4777,13 +4813,15 @@ components:
 
     MessageReportPerson:
       type: object
-      required: [userId, fullName, photoUrl, headline]
+      required: [userId, fullName, photoUrl, headline, role]
       properties:
         userId:
           type: string
           format: uuid
         fullName:
           type: string
+        role:
+          $ref: "#/components/schemas/Role"
         photoUrl:
           type: string
           nullable: true

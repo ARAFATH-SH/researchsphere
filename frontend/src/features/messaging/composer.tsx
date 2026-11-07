@@ -2,11 +2,22 @@
 
 import { type KeyboardEvent, useId, useLayoutEffect, useRef, useState } from "react";
 
+import { dateAndTime } from "@/lib/date-time";
+
 import { bodyLength, counterFrom, maxBody } from "./format";
 import type { SendNotice } from "./send-errors";
 
 // maxHeight is five 20px lines with the padding and border.
 const maxHeight = 118;
+
+// RestrictedComposer takes the composer's place while the user may not send (FR-15.6).
+export function RestrictedComposer({ until }: { until: string }) {
+  return (
+    <p role="status" className="border-t border-rs-divider px-4 py-2.5 text-rs-body text-rs-text-muted">
+      You can&apos;t send messages until {dateAndTime(until)}.
+    </p>
+  );
+}
 
 type ComposerProps = {
   disabled?: boolean;

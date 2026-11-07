@@ -142,6 +142,9 @@ func TestAdminReadsUpToTheReport(t *testing.T) {
 		t.Fatalf("%d %v", code, body)
 	}
 
+	if _, err := e.pool.Exec(t.Context(), "UPDATE users SET role = 'admin' WHERE id = $1", bob); err != nil {
+		t.Fatal(err)
+	}
 	code, d := e.asAdmin(t, admin, http.MethodGet, adminReports+"/"+rid, "")
 	if code != http.StatusOK {
 		t.Fatalf("detail: %d %v", code, d)
@@ -150,6 +153,9 @@ func TestAdminReadsUpToTheReport(t *testing.T) {
 		t.Errorf("messages = %s", got)
 	}
 	r := d["report"].(map[string]any)
+	if r["reporter"].(map[string]any)["role"] != "researcher" || r["reportedUser"].(map[string]any)["role"] != "admin" {
+		t.Errorf("roles = %v, %v", r["reporter"], r["reportedUser"])
+	}
 	if r["status"] != "open" || r["reason"] != "harassment" || r["details"] != "rude" || r["conversationId"] != id ||
 		r["reporter"].(map[string]any)["userId"] != ada || r["reportedUser"].(map[string]any)["userId"] != bob {
 		t.Errorf("report = %v", r)
@@ -165,6 +171,9 @@ func TestAdminReadsUpToTheReport(t *testing.T) {
 	code, list := e.asAdmin(t, admin, http.MethodGet, adminReports, "")
 	if code != http.StatusOK || list["total"] != float64(1) || strings.Contains(fmt.Sprint(list), "before one") {
 		t.Errorf("list: %d %v", code, list)
+	}
+	if got := list["items"].([]any)[0].(map[string]any)["reportedUser"].(map[string]any)["role"]; got != "admin" {
+		t.Errorf("role in the list = %v", got)
 	}
 	if n := e.countRows(t, "SELECT count(*) FROM message_report_views"); n != 2 {
 		t.Errorf("%d audit rows after the list", n)

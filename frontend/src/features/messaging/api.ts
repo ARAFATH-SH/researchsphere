@@ -9,6 +9,9 @@ export type Message = components["schemas"]["Message"];
 export type MessagePage = components["schemas"]["MessagePage"];
 export type MessageUnreadCount = components["schemas"]["MessageUnreadCount"];
 export type SentMessage = components["schemas"]["SentMessage"];
+export type ReportReason = components["schemas"]["ReportReason"];
+export type ReportConversationRequest = components["schemas"]["ReportConversationRequest"];
+export type ConversationReportReceipt = components["schemas"]["ConversationReportReceipt"];
 
 // Box is one of the two lists of conversations (FR-16.2).
 export type Box = "inbox" | "requests";
@@ -40,13 +43,13 @@ export async function listMessages(conversationId: string, before?: string): Pro
   return res.data ? { ok: true, data: res.data } : { ok: false, ...unexpectedError };
 }
 
-// SendResult adds, to a refused send, how many seconds the rate limit lasts.
-export type SendResult = Result<SentMessage> & { retryAfter?: number };
+// LimitedResult adds, to a refused request, how many seconds the rate limit lasts.
+export type LimitedResult<T> = Result<T> & { retryAfter?: number };
 
-type RawSend = Parameters<typeof call<SentMessage>>[0];
+export type SendResult = LimitedResult<SentMessage>;
 
-// deliver reads Retry-After itself, since call() keeps only code and message.
-async function deliver(request: RawSend): Promise<SendResult> {
+// deliver reads Retry-After itself, since call() keeps only code, message, reason and until.
+async function deliver<T>(request: Parameters<typeof call<T>>[0]): Promise<LimitedResult<T>> {
   let retryAfter: number | undefined;
   const res = await call(async () => {
     const raw = await request();
@@ -72,6 +75,14 @@ export function sendMessage(conversationId: string, body: string, clientId: stri
 // sendDirectMessage sends a first message to a user, finding or creating their conversation.
 export function sendDirectMessage(userId: string, body: string, clientId: string): Promise<SendResult> {
   return deliver(() => api.POST("/messages/direct", { body: { userId, body, clientId } }));
+}
+
+// reportConversation reports a conversation, or one message of it, to the administrators
+// (FR-16.9). Reporting blocks nobody; the receipt says whether the caller has blocked them.
+export function reportConversation(conversationId: string, body: ReportConversationRequest): Promise<LimitedResult<ConversationReportReceipt>> {
+  return deliver(() =>
+    api.POST("/conversations/{conversationId}/reports", { params: { path: { conversationId } }, body }),
+  );
 }
 
 // markConversationRead moves the caller's read marker forward (FR-16.3).

@@ -58,8 +58,13 @@ type Account struct {
 	Email          string
 	FullName       string
 	Admin          bool
+	Verified       bool
 	SuspendedAt    *time.Time
 	SuspendedUntil *time.Time
+	// SuspensionReason is what the user was told; nil for an account suspended before reasons
+	// were recorded.
+	SuspensionReason *string
+	CreatedAt        time.Time
 }
 
 // Suspended reports whether the account is suspended at now. A temporary suspension no longer
@@ -109,12 +114,15 @@ type Action struct {
 	CreatedAt      time.Time
 }
 
-// History is one page of a user's actions, newest first.
+// History is one page of a user's actions, newest first, and the account it is about.
+// Suspended is judged by time, as Account.Suspended does.
 type History struct {
-	Items    []Action
-	Page     int
-	PageSize int
-	Total    int
+	User      Account
+	Suspended bool
+	Items     []Action
+	Page      int
+	PageSize  int
+	Total     int
 }
 
 // Warning is a warning as its user sees it: no note and no administrator.
@@ -175,6 +183,9 @@ type Store interface {
 	// Standing reads the user's row FOR SHARE, so that inside a transaction no moderation
 	// action on the user can commit until it ends. A missing user has the zero value.
 	Standing(ctx context.Context, userID string, now time.Time) (StoredStanding, error)
+	// RestrictedUntil returns the end of the user's messaging restriction, nil when none. It
+	// takes no lock: it only informs the client, and the checks on a send stay in Standing.
+	RestrictedUntil(ctx context.Context, userID string, now time.Time) (*time.Time, error)
 }
 
 // Accounts reads and changes accounts. The auth module owns them; cmd/api implements this with

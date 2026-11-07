@@ -240,6 +240,11 @@ func (f *fakes) Standing(_ context.Context, user string, now time.Time) (domain.
 	return st, nil
 }
 
+func (f *fakes) RestrictedUntil(ctx context.Context, user string, now time.Time) (*time.Time, error) {
+	st, err := f.Standing(ctx, user, now)
+	return st.RestrictedUntil, err
+}
+
 type env struct {
 	*fakes
 	svc   *Service
@@ -730,6 +735,58 @@ func TestHistory(t *testing.T) {
 	// Reading about an administrator is allowed; only acting is refused.
 	if _, err := e.svc.History(ctx, "other", 1); err != nil {
 		t.Errorf("history of an administrator: %v", err)
+	}
+}
+
+// The history names its account and judges the suspension by time, also for a suspended
+// user, whom no profile shows.
+func TestHistoryUser(t *testing.T) {
+	e := newEnv()
+	ctx := context.Background()
+	h, err := e.svc.History(ctx, userID, 1)
+	if err != nil || h.User.FullName != "Ada Lovelace" || h.User.Email != "ada@example.org" || h.User.Admin || h.Suspended {
+		t.Fatalf("not suspended: %+v, error = %v", h, err)
+	}
+	if h, err = e.svc.History(ctx, "other", 1); err != nil || !h.User.Admin {
+		t.Errorf("administrator: %+v, error = %v", h.User, err)
+	}
+	ends := start.Add(24 * time.Hour)
+	a := e.accounts[userID]
+	a.SuspendedAt, a.SuspendedUntil = &start, &ends
+	e.accounts[userID] = a
+	if h, err = e.svc.History(ctx, userID, 1); err != nil || !h.Suspended {
+		t.Errorf("suspended: %+v, error = %v", h, err)
+	}
+	e.nowIs(ends)
+	if h, err = e.svc.History(ctx, userID, 1); err != nil || h.Suspended {
+		t.Errorf("after its end: %+v, error = %v", h, err)
+	}
+}
+
+// The client reads this to show a restriction before any send (FR-15.6).
+func TestMessagingRestrictedUntil(t *testing.T) {
+	e := newEnv()
+	ctx := context.Background()
+	standings := NewStandings(e.fakes, func() time.Time { return *e.clock })
+	if got, err := standings.MessagingRestrictedUntil(ctx, userID); err != nil || got != nil {
+		t.Fatalf("no restriction: %v, %v", got, err)
+	}
+	a, err := e.svc.Restrict(ctx, adminID, userID, domain.RestrictInput{Input: domain.Input{Reason: reason}, Kind: domain.KindMessaging, Days: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ends := start.Add(48 * time.Hour)
+	if got, err := standings.MessagingRestrictedUntil(ctx, userID); err != nil || got == nil || !got.Equal(ends) {
+		t.Errorf("restricted: %v, %v, want %v", got, err, ends)
+	}
+	if got, err := standings.MessagingRestrictedUntil(ctx, "other"); err != nil || got != nil {
+		t.Errorf("someone else: %v, %v", got, err)
+	}
+	if err := e.svc.Lift(ctx, adminID, *a.RestrictionID, domain.ReverseInput{Reason: reason}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := standings.MessagingRestrictedUntil(ctx, userID); err != nil || got != nil {
+		t.Errorf("lifted: %v, %v", got, err)
 	}
 }
 

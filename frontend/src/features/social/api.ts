@@ -6,6 +6,8 @@ export type ConnectionRequest = components["schemas"]["ConnectionRequest"];
 export type Connection = components["schemas"]["Connection"];
 export type ConnectionPage = components["schemas"]["ConnectionPage"];
 export type ConnectionRequestPage = components["schemas"]["ConnectionRequestPage"];
+export type BlockedPerson = components["schemas"]["BlockedPerson"];
+export type BlockedPersonPage = components["schemas"]["BlockedPersonPage"];
 
 // SendResult is the answer to a connection request. A 409 request_pending_from_them
 // carries the other user's requestId, so the caller can offer Accept instead (FR-7.2).
@@ -87,4 +89,23 @@ export function listProfileConnections(userId: string, n: number): Promise<Resul
   return page(() =>
     api.GET("/profiles/{userId}/connections", { params: { path: { userId }, query: { page: n } } }),
   );
+}
+
+// blockUser blocks someone (FR-16.9). Blocking them twice changes nothing.
+export async function blockUser(userId: string): Promise<Result<undefined>> {
+  const res = await call(() => api.POST("/blocks", { body: { userId } }));
+  return res.ok ? { ok: true, data: undefined } : res;
+}
+
+// unblockUser ends a block. Nothing the block removed comes back.
+export async function unblockUser(userId: string): Promise<Result<undefined>> {
+  const res = await call(() => api.DELETE("/blocks/{userId}", { params: { path: { userId } } }));
+  return res.ok ? { ok: true, data: undefined } : res;
+}
+
+// listBlockedPeople returns one page of the people the caller has blocked, newest first.
+export async function listBlockedPeople(page: number): Promise<Result<BlockedPersonPage>> {
+  const res = await call(() => api.GET("/blocks", { params: { query: { page } } }));
+  if (!res.ok) return res;
+  return res.data ? { ok: true, data: res.data } : { ok: false, ...unexpectedError };
 }

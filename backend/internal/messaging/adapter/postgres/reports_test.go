@@ -59,6 +59,7 @@ func TestReportRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	if r.Reporter.FullName != "Ada" || r.Reported.FullName != "Bob" || r.Reported.Headline == nil ||
+		r.Reporter.Role != "researcher" || r.Reported.Role != "researcher" ||
 		r.MessageID == nil || *r.MessageID != m.ID || r.ResolvedAt != nil || r.Outcome != nil {
 		t.Errorf("report = %+v", r)
 	}

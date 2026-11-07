@@ -1,6 +1,8 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 
-import { acceptConnectionRequest, removeConnection } from "@/features/social/api";
+import "@/test/dialog-polyfill";
+
+import { acceptConnectionRequest, blockUser, removeConnection, unblockUser } from "@/features/social/api";
 
 import type { Profile } from "./api";
 import { ProfileHeader } from "./profile-header";
@@ -20,6 +22,8 @@ jest.mock("@/features/auth/session", () => ({
     user: { id: adaID, email: "ada@example.org", fullName: "Ada Lovelace", role: "researcher" },
   }),
 }));
+const mockBack = jest.fn();
+jest.mock("next/navigation", () => ({ useRouter: () => ({ back: mockBack }) }));
 jest.mock("@/features/social/api");
 jest.mock("@/features/social/pending-invitations");
 jest.mock("@/features/notification/badges");
@@ -86,6 +90,57 @@ describe("ProfileHeader", () => {
   });
 });
 
+describe("ProfileHeader, blocking (FR-16.9)", () => {
+  const more = () => screen.getAllByRole("button", { name: "More" })[0];
+  const item = (name: string) => within(screen.getAllByRole("menu", { name: "More", hidden: true })[0]).getByRole("menuitem", { name });
+
+  it("asks before blocking, and goes back once blocked", async () => {
+    jest.mocked(blockUser).mockResolvedValue({ ok: true, data: undefined });
+    render(<ProfileHeader profile={{ ...fullProfile(bobID, "Bob Babbage"), connectionStatus: "connected" }} />);
+    fireEvent.click(more());
+    fireEvent.click(item("Block"));
+    const dialog = screen.getByRole("dialog", { name: "Block Bob Babbage?" });
+    expect(dialog.textContent).toContain(
+      "They won't be able to message you, see your profile or find you in search. Your connection will be removed. They won't be told.",
+    );
+    expect(blockUser).not.toHaveBeenCalled();
+    await act(async () => fireEvent.click(within(dialog).getByRole("button", { name: "Block" })));
+    expect(blockUser).toHaveBeenCalledWith(bobID);
+    expect(mockBack).toHaveBeenCalledTimes(1);
+  });
+
+  it("stays on the profile when the block is cancelled or refused", async () => {
+    jest.mocked(blockUser).mockResolvedValue({ ok: false, code: "not_found", message: "Not found." });
+    render(<ProfileHeader profile={fullProfile(bobID, "Bob Babbage")} />);
+    fireEvent.click(more());
+    fireEvent.click(item("Block"));
+    const dialog = screen.getByRole("dialog", { name: "Block Bob Babbage?" });
+    await act(async () => fireEvent.click(within(dialog).getByRole("button", { name: "Block" })));
+    expect(within(dialog).getByRole("alert").textContent).toBe("Not found.");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(mockBack).not.toHaveBeenCalled();
+  });
+
+  it("offers Unblock when blocked, and then Block again without leaving", async () => {
+    jest.mocked(unblockUser).mockResolvedValue({ ok: true, data: undefined });
+    render(<ProfileHeader profile={{ ...fullProfile(bobID, "Bob Babbage"), blockedByMe: true }} />);
+    fireEvent.click(more());
+    fireEvent.click(item("Unblock"));
+    const dialog = screen.getByRole("dialog", { name: "Unblock Bob Babbage?" });
+    await act(async () => fireEvent.click(within(dialog).getByRole("button", { name: "Unblock" })));
+    expect(unblockUser).toHaveBeenCalledWith(bobID);
+    expect(mockBack).not.toHaveBeenCalled();
+    fireEvent.click(more());
+    expect(item("Block")).toBeTruthy();
+  });
+
+  it("does not offer it on my own profile", () => {
+    render(<ProfileHeader profile={{ ...fullProfile(adaID, "Ada Lovelace"), connectionStatus: "self" }} />);
+    expect(screen.queryByRole("menuitem", { name: "Block", hidden: true })).toBeNull();
+  });
+});
+
 describe("ProfileHeader, connections", () => {
   const requestID = "7a1d2c3e-0000-4000-8000-0000000000bb";
   const bob = (over: Partial<Profile> = {}): Profile => ({
@@ -145,7 +200,7 @@ describe("ProfileHeader, connections", () => {
     const menu = screen.getByRole("menu", { name: "More" });
     expect(
       within(menu).getAllByRole("menuitem").map((item) => item.textContent),
-    ).toEqual(["Remove connection", "Copy profile link"]);
+    ).toEqual(["Remove connection", "Block", "Copy profile link"]);
     fireEvent.click(within(menu).getByRole("menuitem", { name: "Remove connection" }));
     expect(within(menu).getByText("Remove Bob Babbage from your connections?")).toBeTruthy();
     expect(removeConnection).not.toHaveBeenCalled();

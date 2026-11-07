@@ -30,7 +30,7 @@ func (okModeration) Restore(context.Context, string, string, moderationdomain.Re
 }
 
 func (okModeration) History(context.Context, string, int) (moderationdomain.History, error) {
-	return moderationdomain.History{}, nil
+	return moderationdomain.History{User: moderationdomain.Account{ID: okUserID}}, nil
 }
 
 func (okModeration) PendingWarnings(context.Context, string) ([]moderationdomain.Warning, error) {

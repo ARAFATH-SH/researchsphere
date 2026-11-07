@@ -76,16 +76,16 @@ func (s *Store) FindCredentialsByEmail(ctx context.Context, email string) (domai
 	}
 	return domain.Credentials{
 		User: domain.User{
-			ID:              uuidString(row.ID),
-			Email:           row.Email,
-			FullName:        row.FullName,
-			EmailVerifiedAt: timePtr(row.EmailVerifiedAt),
-			SuspendedAt:     timePtr(row.SuspendedAt),
-			SuspendedUntil:  timePtr(row.SuspendedUntil),
-			Role:            string(row.Role),
+			ID:               uuidString(row.ID),
+			Email:            row.Email,
+			FullName:         row.FullName,
+			EmailVerifiedAt:  timePtr(row.EmailVerifiedAt),
+			SuspendedAt:      timePtr(row.SuspendedAt),
+			SuspendedUntil:   timePtr(row.SuspendedUntil),
+			SuspensionReason: textPtr(row.SuspensionReason),
+			Role:             string(row.Role),
 		},
-		PasswordHash:     row.PasswordHash,
-		SuspensionReason: textPtr(row.SuspensionReason),
+		PasswordHash: row.PasswordHash,
 	}, nil
 }
 
@@ -103,13 +103,15 @@ func (s *Store) FindUserByID(ctx context.Context, userID string) (domain.User, e
 		return domain.User{}, fmt.Errorf("find user by id: %w", err)
 	}
 	return domain.User{
-		ID:              uuidString(row.ID),
-		Email:           row.Email,
-		FullName:        row.FullName,
-		EmailVerifiedAt: timePtr(row.EmailVerifiedAt),
-		SuspendedAt:     timePtr(row.SuspendedAt),
-		SuspendedUntil:  timePtr(row.SuspendedUntil),
-		Role:            string(row.Role),
+		ID:               uuidString(row.ID),
+		Email:            row.Email,
+		FullName:         row.FullName,
+		EmailVerifiedAt:  timePtr(row.EmailVerifiedAt),
+		SuspendedAt:      timePtr(row.SuspendedAt),
+		SuspendedUntil:   timePtr(row.SuspendedUntil),
+		SuspensionReason: textPtr(row.SuspensionReason),
+		Role:             string(row.Role),
+		CreatedAt:        row.CreatedAt.Time,
 	}, nil
 }
 
@@ -211,14 +213,15 @@ func (s *Store) ListUsers(ctx context.Context, limit, offset int) ([]domain.User
 	users := make([]domain.User, 0, len(rows))
 	for _, row := range rows {
 		users = append(users, domain.User{
-			ID:              uuidString(row.ID),
-			Email:           row.Email,
-			FullName:        row.FullName,
-			EmailVerifiedAt: timePtr(row.EmailVerifiedAt),
-			SuspendedAt:     timePtr(row.SuspendedAt),
-			SuspendedUntil:  timePtr(row.SuspendedUntil),
-			Role:            string(row.Role),
-			CreatedAt:       row.CreatedAt.Time,
+			ID:               uuidString(row.ID),
+			Email:            row.Email,
+			FullName:         row.FullName,
+			EmailVerifiedAt:  timePtr(row.EmailVerifiedAt),
+			SuspendedAt:      timePtr(row.SuspendedAt),
+			SuspendedUntil:   timePtr(row.SuspendedUntil),
+			SuspensionReason: textPtr(row.SuspensionReason),
+			Role:             string(row.Role),
+			CreatedAt:        row.CreatedAt.Time,
 		})
 	}
 	return users, nil

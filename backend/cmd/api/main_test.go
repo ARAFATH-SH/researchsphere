@@ -244,6 +244,10 @@ func (okAuth) CurrentUser(_ context.Context, id string) (authdomain.User, error)
 	return authdomain.User{ID: id, Email: "ada@example.org", FullName: "Ada"}, nil
 }
 
+func (okAuth) MessagingRestrictedUntil(context.Context, string) (*time.Time, error) {
+	return nil, nil
+}
+
 func (okAuth) Refresh(context.Context, string) (authusecase.RefreshResult, error) {
 	now := time.Now()
 	return authusecase.RefreshResult{

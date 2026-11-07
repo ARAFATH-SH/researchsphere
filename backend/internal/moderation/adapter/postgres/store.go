@@ -231,6 +231,19 @@ func (s *Store) ListActions(ctx context.Context, userID string, limit, offset in
 	return out, int(total), nil
 }
 
+// RestrictedUntil is nil for a user that does not exist.
+func (s *Store) RestrictedUntil(ctx context.Context, userID string, now time.Time) (*time.Time, error) {
+	user, ok := parseUUID(userID)
+	if !ok {
+		return nil, nil
+	}
+	until, err := s.q(ctx).FindRestrictedUntil(ctx, sqlcgen.FindRestrictedUntilParams{UserID: user, Now: timestamptz(now)})
+	if err != nil {
+		return nil, fmt.Errorf("find restricted until: %w", err)
+	}
+	return timePtr(until), nil
+}
+
 // Standing has the zero value for a user that does not exist.
 func (s *Store) Standing(ctx context.Context, userID string, now time.Time) (domain.StoredStanding, error) {
 	user, ok := parseUUID(userID)

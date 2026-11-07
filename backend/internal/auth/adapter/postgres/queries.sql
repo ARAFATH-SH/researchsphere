@@ -42,7 +42,7 @@ JOIN profiles p ON p.user_id = u.id
 WHERE u.email = @email;
 
 -- name: FindUserByID :one
-SELECT u.id, u.email, u.email_verified_at, u.suspended_at, u.suspended_until, u.role, p.full_name
+SELECT u.id, u.email, u.email_verified_at, u.suspended_at, u.suspended_until, u.suspension_reason, u.role, u.created_at, p.full_name
 FROM users u
 JOIN profiles p ON p.user_id = u.id
 WHERE u.id = @id;
@@ -148,7 +148,7 @@ DELETE FROM users WHERE id = @id;
 
 -- name: ListUsers :many
 -- One page of users, newest first; the id breaks ties so pages never overlap.
-SELECT u.id, u.email, u.role, u.email_verified_at, u.suspended_at, u.suspended_until, u.created_at, p.full_name
+SELECT u.id, u.email, u.role, u.email_verified_at, u.suspended_at, u.suspended_until, u.suspension_reason, u.created_at, p.full_name
 FROM users u
 JOIN profiles p ON p.user_id = u.id
 ORDER BY u.created_at DESC, u.id DESC

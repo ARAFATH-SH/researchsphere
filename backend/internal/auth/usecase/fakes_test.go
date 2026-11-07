@@ -126,7 +126,9 @@ func (s *fakeStore) FindCredentialsByEmail(_ context.Context, email string) (dom
 	if !ok {
 		return domain.Credentials{}, domain.ErrNotFound
 	}
-	return domain.Credentials{User: u.User, PasswordHash: u.passwordHash, SuspensionReason: u.suspensionReason}, nil
+	user := u.User
+	user.SuspensionReason = u.suspensionReason
+	return domain.Credentials{User: user, PasswordHash: u.passwordHash}, nil
 }
 
 func (s *fakeStore) FindUserByID(_ context.Context, id string) (domain.User, error) {
