@@ -54,6 +54,8 @@ async function renderThread() {
 }
 
 const composer = () => screen.queryByRole("textbox", { name: "Write a message" });
+// The restriction comes from its own read, which can settle after the thread has loaded.
+const restrictionLoaded = () => screen.findByText("You can't send messages until 3 Dec 2026, 2:05 PM.");
 
 beforeEach(() => {
   jest.useFakeTimers({ now: new Date("2026-11-06T10:00:00"), doNotFake: ["nextTick", "queueMicrotask", "setTimeout", "clearTimeout"] });
@@ -210,7 +212,7 @@ describe("Messaging restriction", () => {
     restricted(until);
     load(conversation());
     await renderThread();
-    expect(screen.getByText("You can't send messages until 3 Dec 2026, 2:05 PM.")).toBeTruthy();
+    await restrictionLoaded();
     expect(composer()).toBeNull();
     expect(sendMessage).not.toHaveBeenCalled();
   });
@@ -228,6 +230,7 @@ describe("Messaging restriction", () => {
     restricted(until);
     load(conversation());
     await renderThread();
+    await restrictionLoaded();
     expect(composer()).toBeNull();
     restricted(null);
     await act(async () => reconnect());
@@ -238,6 +241,7 @@ describe("Messaging restriction", () => {
     restricted(until);
     load(conversation());
     await renderThread();
+    await restrictionLoaded();
     mockMe.mockResolvedValue({ ok: false, code: "network_error", message: "No." });
     await act(async () => fireEvent.focus(window));
     expect(composer()).toBeNull();

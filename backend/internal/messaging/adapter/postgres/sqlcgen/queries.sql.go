@@ -464,17 +464,22 @@ func (q *Queries) FindSent(ctx context.Context, arg FindSentParams) (FindSentRow
 }
 
 const insertMessage = `-- name: InsertMessage :one
-INSERT INTO messages (conversation_id, sender_id, body, client_id)
-VALUES ($1, $2, $3, $4)
+INSERT INTO messages (id, conversation_id, sender_id, body, client_id, created_at)
+SELECT uuid_v7_at(t.instant), c.id, $1::uuid, $2::text, $3::uuid, t.instant
+FROM conversations c
+CROSS JOIN LATERAL (
+    SELECT GREATEST(clock_timestamp(), c.last_message_at + interval '1 microsecond') AS instant
+) t
+WHERE c.id = $4::uuid
 ON CONFLICT (sender_id, client_id) DO NOTHING
 RETURNING id, conversation_id, sender_id, body, client_id, created_at
 `
 
 type InsertMessageParams struct {
-	ConversationID pgtype.UUID
 	SenderID       pgtype.UUID
 	Body           string
 	ClientID       pgtype.UUID
+	ConversationID pgtype.UUID
 }
 
 type InsertMessageRow struct {
@@ -486,15 +491,17 @@ type InsertMessageRow struct {
 	CreatedAt      pgtype.Timestamptz
 }
 
-// ON CONFLICT also settles two sends of one client_id at the same moment. The ID comes
-// from uuid_v7() here, after the conversation's row is locked, so IDs follow commit order
-// within a conversation.
+// The caller holds the conversation's row, so this reads the last send's time and no other
+// send runs. The ID and created_at come from one instant, after that lock, and always later
+// than the last message, even in the same microsecond or if the clock steps back: the ID
+// alone decides the order of a conversation's messages, and created_at agrees with it.
+// ON CONFLICT also settles two sends of one client_id at the same moment.
 func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (InsertMessageRow, error) {
 	row := q.db.QueryRow(ctx, insertMessage,
-		arg.ConversationID,
 		arg.SenderID,
 		arg.Body,
 		arg.ClientID,
+		arg.ConversationID,
 	)
 	var i InsertMessageRow
 	err := row.Scan(

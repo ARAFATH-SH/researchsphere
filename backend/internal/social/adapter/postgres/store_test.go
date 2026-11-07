@@ -3,12 +3,14 @@
 package postgres
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/postgres"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/testenv"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/social/domain"
 )
@@ -348,6 +350,38 @@ func TestListOrderAndPages(t *testing.T) {
 	}
 	if len(senders) != 3 || senders[0] != want[0] || senders[1] != want[1] || senders[2] != want[2] {
 		t.Errorf("connections in order %v, want %v", senders, want)
+	}
+}
+
+// responded_at comes from the clock, so requests accepted in one transaction do not tie.
+func TestAcceptedInOneTransactionKeepOrder(t *testing.T) {
+	s, pool := newTestStore(t)
+	ada := newUser(t, pool, "Ada")
+	people := make([]string, 6)
+	requests := make([]string, len(people))
+	for i := range people {
+		people[i] = newUser(t, pool, testenv.Word(t))
+		requests[i] = create(t, s, people[i], ada).ID
+	}
+	err := postgres.NewTransactor(pool).InTx(t.Context(), func(ctx context.Context) error {
+		for _, id := range requests {
+			if _, _, err := s.AcceptRequest(ctx, id, ada); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, total, err := s.ListConnections(t.Context(), ada, ada, 10, 0)
+	if err != nil || total != len(people) {
+		t.Fatalf("%d connections, %v", total, err)
+	}
+	for i, c := range got {
+		if want := people[len(people)-1-i]; c.Other.UserID != want {
+			t.Errorf("position %d is %s, want %s", i, c.Other.UserID, want)
+		}
 	}
 }
 

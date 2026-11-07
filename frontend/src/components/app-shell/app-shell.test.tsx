@@ -21,6 +21,8 @@ jest.mock("@/features/social/pending-invitations", () => ({ usePendingInvitation
 // The badge poller has its own tests (features/notification/badges.test.tsx).
 jest.mock("@/features/notification/badge-poller", () => ({ BadgePoller: () => null }));
 jest.mock("@/features/realtime/realtime-connector", () => ({ RealtimeConnector: () => null }));
+// The warning banner has its own tests (features/moderation/warning-banner.test.tsx).
+jest.mock("@/features/moderation/warning-banner", () => ({ WarningBanner: () => null }));
 // The Me menu fetches the signed-in user's own profile for its photo.
 jest.mock("@/features/profile/api");
 const mockGetMyProfile = jest.mocked(getMyProfile);
@@ -44,6 +46,8 @@ const links = (nav: HTMLElement) =>
   within(nav)
     .getAllByRole("link")
     .map((l) => [l.textContent, l.getAttribute("href")]);
+// The Me menu shows the photo once the own profile has loaded.
+const profileLoaded = () => waitFor(() => expect(topBar().querySelector("img")?.getAttribute("src")).toBe(photoUrl));
 
 describe("AppShell", () => {
   it("has the design's tabs and the Me menu in the top bar", () => {
@@ -114,11 +118,12 @@ describe("AppShell", () => {
     ["/profile/edit", true],
     [`/profile/${ownID}`, true],
     ["/profile/7e9d7526-3053-4ade-bb3e-8db0b1a34689", false],
-  ])("on %s marks the Me tab: %s (another user's profile marks no tab)", (path, current) => {
+  ])("on %s marks the Me tab: %s (another user's profile marks no tab)", async (path, current) => {
     mockPathname.mockReturnValue(path);
     mockSession.mockReturnValue(signedInAs("researcher"));
-    mockGetMyProfile.mockResolvedValue({ status: "ok", profile: emptyProfile(adaID, "Ada Lovelace") });
+    mockGetMyProfile.mockResolvedValue({ status: "ok", profile: { ...emptyProfile(adaID, "Ada Lovelace"), photoUrl } });
     render(<AppShell>x</AppShell>);
+    await profileLoaded();
     const me = within(topBar()).getByRole("button", { name: "Me" });
     expect(me.className.includes("after:bg-rs-accent")).toBe(current);
     const others = within(topBar()).getAllByRole("link").filter((l) => l.getAttribute("aria-current") === "page");
@@ -130,7 +135,7 @@ describe("AppShell", () => {
     mockSession.mockReturnValue(signedInAs("admin"));
     mockGetMyProfile.mockResolvedValue({ status: "ok", profile: { ...emptyProfile(adaID, "Ada Lovelace"), photoUrl } });
     render(<AppShell>x</AppShell>);
-    await waitFor(() => expect(topBar().querySelector("img")?.getAttribute("src")).toBe(photoUrl));
+    await profileLoaded();
     for (const bar of screen.getAllByRole("navigation", { name: "Main" })) {
       expect(within(bar).queryByRole("link", { name: "Admin" })).toBeNull();
     }

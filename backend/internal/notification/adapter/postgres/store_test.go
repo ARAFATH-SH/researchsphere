@@ -3,11 +3,13 @@
 package postgres
 
 import (
+	"context"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/notification/domain"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/postgres"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/testenv"
 )
 
@@ -173,6 +175,43 @@ func TestHiddenActors(t *testing.T) {
 
 // Pages of 20 over 25 notifications, some created at the same moment, are newest first,
 // do not overlap and end with the 5 oldest (FR-9.5).
+// Times come from the clock, so notifications of one transaction do not tie, and one that
+// replaces an older one moves to the top.
+func TestOneTransactionKeepsOrder(t *testing.T) {
+	s, pool := newTestStore(t)
+	ada := newUser(t, pool)
+	senders := make([]string, 6)
+	for i := range senders {
+		senders[i] = newUser(t, pool)
+	}
+	send := func(ctx context.Context, sender string) error {
+		_, err := s.Put(ctx, domain.Notification{RecipientID: ada, ActorID: sender, Type: domain.TypeConnectionRequestReceived, SubjectID: newRequest(t, pool, sender, ada)})
+		return err
+	}
+	err := postgres.NewTransactor(pool).InTx(t.Context(), func(ctx context.Context) error {
+		for _, sender := range senders {
+			if err := send(ctx, sender); err != nil {
+				return err
+			}
+		}
+		exec(t, pool, "DELETE FROM connections WHERE requester_id = $1", senders[0])
+		return send(ctx, senders[0])
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{senders[0], senders[5], senders[4], senders[3], senders[2], senders[1]}
+	items := list(t, s, ada)
+	if len(items) != len(want) {
+		t.Fatalf("%d items", len(items))
+	}
+	for i, item := range items {
+		if item.ActorID != want[i] {
+			t.Errorf("position %d is from %s, want %s", i, item.ActorID, want[i])
+		}
+	}
+}
+
 func TestListCursorPaging(t *testing.T) {
 	s, pool := newTestStore(t)
 	bob := newUser(t, pool)

@@ -53,11 +53,18 @@ WHERE user_low = LEAST(@a::uuid, @b::uuid) AND user_high = GREATEST(@a::uuid, @b
   AND state = 'request';
 
 -- name: InsertMessage :one
--- ON CONFLICT also settles two sends of one client_id at the same moment. The ID comes
--- from uuid_v7() here, after the conversation's row is locked, so IDs follow commit order
--- within a conversation.
-INSERT INTO messages (conversation_id, sender_id, body, client_id)
-VALUES (@conversation_id, @sender_id, @body, @client_id)
+-- The caller holds the conversation's row, so this reads the last send's time and no other
+-- send runs. The ID and created_at come from one instant, after that lock, and always later
+-- than the last message, even in the same microsecond or if the clock steps back: the ID
+-- alone decides the order of a conversation's messages, and created_at agrees with it.
+-- ON CONFLICT also settles two sends of one client_id at the same moment.
+INSERT INTO messages (id, conversation_id, sender_id, body, client_id, created_at)
+SELECT uuid_v7_at(t.instant), c.id, @sender_id::uuid, @body::text, @client_id::uuid, t.instant
+FROM conversations c
+CROSS JOIN LATERAL (
+    SELECT GREATEST(clock_timestamp(), c.last_message_at + interval '1 microsecond') AS instant
+) t
+WHERE c.id = @conversation_id::uuid
 ON CONFLICT (sender_id, client_id) DO NOTHING
 RETURNING id, conversation_id, sender_id, body, client_id, created_at;
 

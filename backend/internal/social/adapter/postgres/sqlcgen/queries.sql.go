@@ -31,7 +31,7 @@ func (q *Queries) AddBlock(ctx context.Context, arg AddBlockParams) (int64, erro
 
 const answerRequest = `-- name: AnswerRequest :one
 UPDATE connections c
-SET status = $1, responded_at = now()
+SET status = $1, responded_at = clock_timestamp()
 FROM users s
 WHERE c.id = $2 AND c.receiver_id = $3 AND c.status = 'pending'
   AND s.id = c.requester_id AND s.email_verified_at IS NOT NULL AND s.suspended_at IS NULL

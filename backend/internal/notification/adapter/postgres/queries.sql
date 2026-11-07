@@ -12,7 +12,7 @@ INSERT INTO notifications (user_id, actor_id, type, entity_id)
 VALUES (@user_id, sqlc.narg('actor_id'), @type, @entity_id)
 ON CONFLICT (user_id, actor_id, type)
     WHERE type IN ('connection_request_received', 'connection_request_accepted')
-    DO UPDATE SET entity_id = EXCLUDED.entity_id, created_at = now(), read_at = NULL
+    DO UPDATE SET entity_id = EXCLUDED.entity_id, created_at = clock_timestamp(), read_at = NULL
 RETURNING id;
 
 -- name: DeleteNotificationsBySubject :many
