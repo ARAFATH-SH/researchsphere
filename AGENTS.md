@@ -53,6 +53,7 @@ Run these from the repository root. `make help` prints the current list.
 | `make test-db` | Run the database constraint tests on the test database (runs `test-prepare` first; needs `make up`) |
 | `make test-go` | Run the backend Go tests (`go test -race`); needs no database |
 | `make test-integration` | Run the Go repository tests and the end-to-end tests in `cmd/api` (build tag `integration`) against the test database (`TEST_DATABASE_URL`), Redis DB 15 (`TEST_REDIS_URL`) and MinIO, one package at a time (`-p 1`). Runs `test-prepare` first; needs `make up` |
+| `make test-one pkg=./internal/x/ run=TestName [count=1]` | Run one integration test, or the tests `run` matches (a `go test -run` pattern), with the same settings as `test-integration`: `-race`, `-p 1`, the build tag and the test environment. `pkg` is relative to `backend/`; `count` repeats it to find a flaky test. Runs `test-prepare` first; needs `make up` |
 | `make test-web` | Run the frontend tests (Jest) |
 | `make lint` | Run all linters: `lint-go` and `lint-web` |
 | `make lint-go` | Run golangci-lint for the backend |

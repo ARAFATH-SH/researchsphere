@@ -45,7 +45,7 @@ JOIN connections c
 -- name: AnswerRequest :one
 -- Accepts or rejects a pending request the receiver received from a visible sender.
 UPDATE connections c
-SET status = @status, responded_at = now()
+SET status = @status, responded_at = clock_timestamp()
 FROM users s
 WHERE c.id = @id AND c.receiver_id = @receiver_id AND c.status = 'pending'
   AND s.id = c.requester_id AND s.email_verified_at IS NOT NULL AND s.suspended_at IS NULL

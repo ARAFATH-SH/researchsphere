@@ -3,17 +3,20 @@
 package postgres
 
 import (
+	"context"
 	"crypto/rand"
 	"errors"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/messaging/domain"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/postgres"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/testenv"
 )
 
@@ -193,37 +196,105 @@ func TestLocksAndActivation(t *testing.T) {
 	}
 }
 
-// A second send waits for the first one's lock, so IDs follow the order of the sends.
+// idMicrosecond splits a message ID into its Unix millisecond and its 12 sub-millisecond bits.
+func idMicrosecond(t *testing.T, id string) (ms int64, fraction int64) {
+	t.Helper()
+	plain := strings.ReplaceAll(id, "-", "")
+	ms, err := strconv.ParseInt(plain[:12], 16, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fraction, err = strconv.ParseInt(plain[13:16], 16, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ms, fraction
+}
+
+// A send takes the lock, then makes its ID and its time from one instant, so the order the
+// lock grants, the IDs and the times always agree. Ten sends rarely share a millisecond by
+// chance, so the second case forces it: with last_message_at ahead of the clock, each send
+// lands one microsecond after the last, the way it would if the clock had stepped back.
 func TestLockedSendsAreInOrder(t *testing.T) {
-	s, pool := newTestStore(t)
-	ada, bob := newUser(t, pool, "Ada"), newUser(t, pool, "Bob")
-	c := create(t, s, ada, bob, domain.StateActive, nil)
-	var wg sync.WaitGroup
-	for range 10 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			err := pgx.BeginFunc(t.Context(), pool, func(tx pgx.Tx) error {
-				if _, err := tx.Exec(t.Context(), "SELECT 1 FROM conversations WHERE id = $1 FOR UPDATE", c.ID); err != nil {
-					return err
+	cases := []struct {
+		name string
+		lead string
+	}{
+		{"on the clock", ""},
+		{"in one millisecond", "UPDATE conversations SET last_message_at = date_trunc('milliseconds', now()) + interval '1 hour' WHERE id = $1"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s, pool := newTestStore(t)
+			tx := postgres.NewTransactor(pool)
+			ada, bob := newUser(t, pool, "Ada"), newUser(t, pool, "Bob")
+			c := create(t, s, ada, bob, domain.StateActive, nil)
+			if tc.lead != "" {
+				if _, err := pool.Exec(t.Context(), tc.lead, c.ID); err != nil {
+					t.Fatal(err)
 				}
-				_, err := tx.Exec(t.Context(), "INSERT INTO messages (conversation_id, sender_id, body, client_id) VALUES ($1, $2, 'x', gen_random_uuid())", c.ID, ada)
-				return err
-			})
-			if err != nil {
-				t.Error(err)
 			}
-		}()
-	}
-	wg.Wait()
-	byID, err := s.ListMessages(t.Context(), c.ID, "", 10)
-	if err != nil || len(byID) != 10 {
-		t.Fatalf("%d messages, %v", len(byID), err)
-	}
-	for i := 1; i < len(byID); i++ {
-		if byID[i].CreatedAt.After(byID[i-1].CreatedAt) {
-			t.Errorf("message %d is newer than the one with the greater ID", i)
-		}
+			const sends = 10
+			var (
+				wg      sync.WaitGroup
+				mu      sync.Mutex
+				granted []string // Bodies, in the order the lock was granted.
+			)
+			for i := range sends {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					body := strconv.Itoa(i)
+					err := tx.InTx(t.Context(), func(ctx context.Context) error {
+						if _, err := s.LockConversation(ctx, c.ID); err != nil {
+							return err
+						}
+						mu.Lock()
+						granted = append(granted, body)
+						mu.Unlock()
+						_, _, err := s.AddMessage(ctx, domain.Message{ConversationID: c.ID, SenderID: ada, Body: body, ClientID: clientID()})
+						return err
+					})
+					if err != nil {
+						t.Error(err)
+					}
+				}()
+			}
+			wg.Wait()
+			newestFirst, err := s.ListMessages(t.Context(), c.ID, "", sends)
+			if err != nil || len(newestFirst) != sends {
+				t.Fatalf("%d messages, %v", len(newestFirst), err)
+			}
+			for i, m := range newestFirst {
+				if want := granted[sends-1-i]; m.Body != want {
+					t.Errorf("position %d holds send %s, want %s (lock order %v)", i, m.Body, want, granted)
+				}
+				ms, fraction := idMicrosecond(t, m.ID)
+				at := m.CreatedAt.UnixMicro()
+				if ms != at/1000 || fraction != (at%1000)*4096/1000 {
+					t.Errorf("ID %s does not carry created_at %s", m.ID, m.CreatedAt.Format(time.RFC3339Nano))
+				}
+				if i == 0 {
+					continue
+				}
+				if newer := newestFirst[i-1]; m.ID >= newer.ID || !m.CreatedAt.Before(newer.CreatedAt) {
+					t.Errorf("message %d (%s, %s) is not older than the one before it (%s, %s)", i, m.ID, m.CreatedAt.Format(time.RFC3339Nano), newer.ID, newer.CreatedAt.Format(time.RFC3339Nano))
+				}
+			}
+			if tc.lead != "" && newestFirst[0].CreatedAt.UnixMilli() != newestFirst[sends-1].CreatedAt.UnixMilli() {
+				t.Errorf("the sends left the millisecond: %s to %s", newestFirst[sends-1].CreatedAt, newestFirst[0].CreatedAt)
+			}
+			got, err := s.FindConversation(t.Context(), c.ID, bob)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !got.LastMessageAt.Equal(newestFirst[0].CreatedAt) {
+				t.Errorf("last_message_at = %s, want %s", got.LastMessageAt, newestFirst[0].CreatedAt)
+			}
+			if got.OtherReadID == nil || *got.OtherReadID != newestFirst[0].ID {
+				t.Errorf("the sender's read marker = %v, want the newest message %s", got.OtherReadID, newestFirst[0].ID)
+			}
+		})
 	}
 }
 

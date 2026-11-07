@@ -113,8 +113,8 @@ VALUES ($1, $2, LEAST($3::uuid, $4::uuid), GREATEST($3::uuid, $4::uuid))
 RETURNING id`
 	insertMember  = `INSERT INTO conversation_members (conversation_id, user_id) VALUES ($1, $2)`
 	insertMessage = `
-INSERT INTO messages (conversation_id, sender_id, body, client_id, created_at)
-VALUES ($1, $2, $3, gen_random_uuid(), $4)
+INSERT INTO messages (id, conversation_id, sender_id, body, client_id, created_at)
+VALUES (uuid_v7_at($4), $1, $2, $3, gen_random_uuid(), $4)
 RETURNING id`
 	touchConversation = `UPDATE conversations SET last_message_at = $2 WHERE id = $1`
 	moveMarker        = `UPDATE conversation_members SET last_read_message_id = $3, last_read_at = now() WHERE conversation_id = $1 AND user_id = $2`

@@ -940,6 +940,20 @@ SELECT pg_temp.expect_true('Message: a later ID sorts after an earlier one', $q$
     SELECT bool_and(previous < id) FROM (
         SELECT id, lag(id) OVER (ORDER BY n) AS previous
         FROM (SELECT n, uuid_v7() AS id, pg_sleep(0.002) FROM generate_series(1, 4) n) made) ordered$q$);
+SELECT pg_temp.expect_true('Message: IDs made a microsecond apart in one millisecond sort in time order', $q$
+    SELECT bool_and(previous < id) FROM (
+        SELECT id, lag(id) OVER (ORDER BY n) AS previous
+        FROM (SELECT n, uuid_v7_at(timestamptz '2026-11-07 10:00:00.5+00' + n * interval '1 microsecond') AS id
+              FROM generate_series(0, 999) n) made) ordered$q$);
+SELECT pg_temp.expect_true('Message: uuid_v7_at keeps the version and variant bits', $q$
+    SELECT substr(id::text, 15, 1) = '7' AND substr(id::text, 20, 1) IN ('8', '9', 'a', 'b')
+    FROM (SELECT uuid_v7_at(timestamptz '2026-11-07 10:00:00.999999+00') AS id) made$q$);
+SELECT pg_temp.expect_true('Paged lists: creation times use the clock, not the start of the transaction', $q$
+    SELECT bool_and(pg_get_expr(d.adbin, d.adrelid) = 'clock_timestamp()') AND count(*) = 4
+    FROM pg_attrdef d
+    JOIN pg_attribute a ON a.attrelid = d.adrelid AND a.attnum = d.adnum
+    WHERE a.attname = 'created_at'
+      AND d.adrelid IN ('users'::regclass, 'connections'::regclass, 'blocks'::regclass, 'notifications'::regclass)$q$);
 INSERT INTO conversation_members (conversation_id, user_id) VALUES
     ('00000000-0000-0000-0000-0000000000f4', '00000000-0000-0000-0000-000000000002');
 SELECT pg_temp.expect_error('Read marker: must be a message of its own conversation (NFR-14)',

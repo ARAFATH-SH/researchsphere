@@ -20,7 +20,7 @@ TEST_REDIS_URL    ?= redis://localhost:6379/15
 MIGRATIONS_DIR := backend/db/migrations
 
 .DEFAULT_GOAL := help
-.PHONY: help up down logs ps psql check migrate migrate-down migrate-new admin unadmin seed-ui-compare api web stop web-clean generate check-generated test test-prepare test-db test-go test-integration test-web lint lint-go lint-web
+.PHONY: help up down logs ps psql check migrate migrate-down migrate-new admin unadmin seed-ui-compare api web stop web-clean generate check-generated test test-prepare test-db test-go test-integration test-one test-web lint lint-go lint-web
 
 help: ## List the available commands
 	@grep -hE '^[a-zA-Z_-]+:.*## ' $(firstword $(MAKEFILE_LIST)) | awk 'BEGIN {FS = ":.*## "} {printf "  make %-16s %s\n", $$1, $$2}'
@@ -121,6 +121,13 @@ test-go: ## Run the backend Go tests
 # package at a time.
 test-integration: test-prepare ## Run the Go repository and end-to-end tests against the test database, test Redis DB and MinIO (needs make up)
 	cd backend && go test -race -count=1 -p 1 -tags=integration ./internal/... ./cmd/...
+
+# One integration test, set up as test-integration is. run is a go test -run pattern; pkg is
+# relative to backend/, for example ./internal/messaging/adapter/postgres/.
+count ?= 1
+test-one: test-prepare ## Run one integration test: make test-one pkg=./internal/x/ run=TestName [count=1]
+	@if [[ -z "$(pkg)" || -z "$(run)" ]]; then echo "usage: make test-one pkg=./internal/x/ run=TestName [count=1]" >&2; exit 2; fi
+	cd backend && go test -race -count="$(count)" -p 1 -tags=integration -run "$(run)" "$(pkg)"
 
 test-web: ## Run the frontend tests (Jest)
 	cd frontend && npm test
