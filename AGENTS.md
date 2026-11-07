@@ -143,7 +143,9 @@ check, tests and a production build.
   straight to the API at `NEXT_PUBLIC_WS_URL`, because a rewrite is not known to carry it
   (`docs/decisions.md`). Every session refresh goes through `refreshSession` in `lib/api/client.ts`,
   so tabs take turns. Jest tests (`*.test.ts(x)`) sit beside the
-  code they test and mock the API module, not the network. Pages except the workspace must
+  code they test and mock the API module, not the network. `frontend/jest.setup.ts` fails any test that
+  calls `console.error`; its allowlist is only for documented third-party noise. The default
+  multi-file run does not show console output, so use `npx jest --verbose` to read it. Pages except the workspace must
   work at 768 pixels wide (SRS 5.1).
 - **Layout widths:** Use Container for page width; never set max-width on a section.
 - **UI:** follow `docs/ui-guidelines.md` (colors, cards, pill buttons, signed-out and signed-in
