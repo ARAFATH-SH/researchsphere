@@ -272,7 +272,7 @@ function Message({ message, report }: { message: ReportedMessage; report: Messag
         <strong className="font-medium text-rs-text">{sender.fullName}</strong> · {dateAndTime(message.createdAt)}
         {reported && " · Reported message"}
       </p>
-      <MessageText body={message.body} />
+      <MessageText body={message.body ?? ""} />
     </li>
   );
 }

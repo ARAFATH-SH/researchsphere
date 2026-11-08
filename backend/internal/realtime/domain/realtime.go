@@ -13,6 +13,8 @@ import (
 // Event types a client receives.
 const (
 	EventMessageCreated      = "message.created"
+	EventMessageUpdated      = "message.updated"
+	EventMessageDeleted      = "message.deleted"
 	EventConversationRead    = "conversation.read"
 	EventConversationUpdated = "conversation.updated"
 	EventUnreadChanged       = "unread.changed"

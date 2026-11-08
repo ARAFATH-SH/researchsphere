@@ -54,7 +54,7 @@ describe("ConversationList", () => {
   });
 
   it("shows a read row plainly, with You: before my own message", async () => {
-    const lastMessage = { senderId: adaID, body: "Hello", createdAt: "2026-11-05T09:00:00Z" };
+    const lastMessage = { senderId: adaID, body: "Hello", deleted: false, createdAt: "2026-11-05T09:00:00Z" };
     mockList.mockResolvedValue(page([conversation({ lastMessage })]));
     renderList();
     const preview = await screen.findByText("You: Hello");

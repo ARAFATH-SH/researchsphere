@@ -133,12 +133,34 @@ func (s *Service) ReportDetail(ctx context.Context, adminID, id, before string) 
 			last := d.Messages[ReportMessagePageSize-1].ID
 			d.NextBefore = &last
 		}
-		return nil
+		return s.attachVersions(ctx, id, d.Messages)
 	})
 	if err != nil {
 		return domain.ReportDetail{}, err
 	}
 	return d, nil
+}
+
+// attachVersions fills each message's Versions, oldest first, as the store returns them.
+func (s *Service) attachVersions(ctx context.Context, reportID string, messages []domain.ReportedMessage) error {
+	if len(messages) == 0 {
+		return nil
+	}
+	ids := make([]string, len(messages))
+	at := make(map[string]int, len(messages))
+	for i, m := range messages {
+		ids[i], at[m.ID] = m.ID, i
+	}
+	versions, err := s.store.ListReportedVersions(ctx, reportID, ids)
+	if err != nil {
+		return err
+	}
+	for _, v := range versions {
+		if i, ok := at[v.MessageID]; ok {
+			messages[i].Versions = append(messages[i].Versions, v)
+		}
+	}
+	return nil
 }
 
 // ResolveReport closes an open report (FR-16.9) and returns it. *InvalidFieldError for the

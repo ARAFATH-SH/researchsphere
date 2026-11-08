@@ -117,13 +117,38 @@ func (h *Handler) GetMessageReport(ctx context.Context, req gen.GetMessageReport
 	if err != nil {
 		return nil, err
 	}
-	messages := make([]gen.Message, len(d.Messages))
+	messages := make([]gen.ReportedMessage, len(d.Messages))
 	for i, m := range d.Messages {
-		if messages[i], err = MessageBody(m); err != nil {
+		if messages[i], err = reportedMessageBody(m); err != nil {
 			return nil, err
 		}
 	}
 	return gen.GetMessageReport200JSONResponse{Report: report, Messages: messages, NextBefore: d.NextBefore}, nil
+}
+
+// reportedMessageBody is a message as the administrator sees it: the text at the report's
+// moment and the versions shown up to it (NFR-14).
+func reportedMessageBody(m domain.ReportedMessage) (gen.ReportedMessage, error) {
+	id, err := uuid(m.ID)
+	if err != nil {
+		return gen.ReportedMessage{}, err
+	}
+	conversation, err := uuid(m.ConversationID)
+	if err != nil {
+		return gen.ReportedMessage{}, err
+	}
+	sender, err := uuid(m.SenderID)
+	if err != nil {
+		return gen.ReportedMessage{}, err
+	}
+	versions := make([]gen.MessageVersion, len(m.Versions))
+	for i, v := range m.Versions {
+		versions[i] = gen.MessageVersion{Body: v.Body, ShownFrom: v.ShownFrom, ShownUntil: v.ShownUntil, EndedBy: gen.MessageVersionEndedBy(v.EndedBy)}
+	}
+	return gen.ReportedMessage{
+		Id: id, ConversationId: conversation, SenderId: sender, CreatedAt: m.CreatedAt, Body: m.Body,
+		EditedAt: m.EditedAt, DeletedAt: m.DeletedAt, ChangedAfterReport: m.ChangedAfterReport, Versions: versions,
+	}, nil
 }
 
 // ResolveMessageReport closes a report with an outcome (FR-16.9).

@@ -332,6 +332,14 @@ func (fakeAPI) MarkConversationRead(context.Context, gen.MarkConversationReadReq
 	return gen.MarkConversationRead204Response{}, nil
 }
 
+func (fakeAPI) EditMessage(context.Context, gen.EditMessageRequestObject) (gen.EditMessageResponseObject, error) {
+	return gen.EditMessage200JSONResponse{}, nil
+}
+
+func (fakeAPI) DeleteMessage(context.Context, gen.DeleteMessageRequestObject) (gen.DeleteMessageResponseObject, error) {
+	return gen.DeleteMessage204Response{}, nil
+}
+
 func (fakeAPI) AcceptMessageRequest(context.Context, gen.AcceptMessageRequestRequestObject) (gen.AcceptMessageRequestResponseObject, error) {
 	return gen.AcceptMessageRequest200JSONResponse{}, nil
 }
@@ -768,8 +776,8 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 
 func TestRoutes(t *testing.T) {
 	got := Routes()
-	if len(got) != 91 {
-		t.Errorf("Routes() returned %d routes, want the 91 operations in the contract: %v", len(got), got)
+	if len(got) != 93 {
+		t.Errorf("Routes() returned %d routes, want the 93 operations in the contract: %v", len(got), got)
 	}
 	seen := map[string]bool{}
 	for _, p := range got {

@@ -47,6 +47,7 @@ var jsonBodyRoutes = []struct {
 	{http.MethodPost, "/api/v1/messages/direct", "body", `{"body":5}`, "body", "body must be a string."},
 	{http.MethodPost, "/api/v1/conversations/" + okConversationID + "/messages", "body", `{"body":5}`, "body", "body must be a string."},
 	{http.MethodPost, "/api/v1/conversations/" + okConversationID + "/read", "messageId", `{"messageId":5}`, "messageId", "messageId must be a UUID."},
+	{http.MethodPatch, "/api/v1/conversations/" + okConversationID + "/messages/" + okMessageID, "body", `{"body":5}`, "body", "body must be a string."},
 	{http.MethodPost, "/api/v1/admin/users/" + okUserID + "/warnings", "reason", `{"reason":5}`, "reason", "reason must be a string."},
 	{http.MethodPost, "/api/v1/admin/users/" + okUserID + "/suspension", "reason", `{"reason":5}`, "reason", "reason must be a string."},
 	{http.MethodPost, "/api/v1/admin/users/" + okUserID + "/restore", "reason", `{"reason":5}`, "reason", "reason must be a string."},

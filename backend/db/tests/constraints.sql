@@ -967,6 +967,45 @@ SELECT pg_temp.expect_true('Read marker: deleting its message clears it, not the
     SELECT count(*) = 2 AND count(last_read_message_id) = 0 FROM conversation_members
     WHERE conversation_id = '00000000-0000-0000-0000-0000000000f1'$q$);
 
+-- Editing and deleting (FR-16.5, NFR-14): message f5 by user 1 in conversation f1.
+INSERT INTO messages (id, conversation_id, sender_id, body, client_id) VALUES
+    ('00000000-0000-7000-8000-0000000000f5', '00000000-0000-0000-0000-0000000000f1',
+     '00000000-0000-0000-0000-000000000001', 'first text', gen_random_uuid());
+SELECT pg_temp.expect_error('Message: a live message has a body',
+    $s$UPDATE messages SET body = NULL WHERE id = '00000000-0000-7000-8000-0000000000f5'$s$, '23514');
+SELECT pg_temp.expect_error('Message: a deleted message keeps no body',
+    $s$UPDATE messages SET deleted_at = clock_timestamp() WHERE id = '00000000-0000-7000-8000-0000000000f5'$s$, '23514');
+SELECT pg_temp.expect_error('Message: edited after it was sent',
+    $s$UPDATE messages SET edited_at = created_at - interval '1 second' WHERE id = '00000000-0000-7000-8000-0000000000f5'$s$, '23514');
+SELECT pg_temp.expect_error('Message: deleted after it was sent',
+    $s$UPDATE messages SET body = NULL, deleted_at = created_at - interval '1 second' WHERE id = '00000000-0000-7000-8000-0000000000f5'$s$, '23514');
+SELECT pg_temp.expect_error('Message version: belongs to a message of its conversation',
+    $s$INSERT INTO message_versions (conversation_id, message_id, body, shown_from, ended_by)
+       VALUES ('00000000-0000-0000-0000-0000000000f4', '00000000-0000-7000-8000-0000000000f5', 'first text', now(), 'edited')$s$, '23503');
+SELECT pg_temp.expect_error('Message version: a known ending',
+    $s$INSERT INTO message_versions (conversation_id, message_id, body, shown_from, ended_by)
+       VALUES ('00000000-0000-0000-0000-0000000000f1', '00000000-0000-7000-8000-0000000000f5', 'first text', now(), 'hidden')$s$, '23514');
+SELECT pg_temp.expect_error('Message version: shown before it was replaced',
+    $s$INSERT INTO message_versions (conversation_id, message_id, body, shown_from, shown_until, ended_by)
+       VALUES ('00000000-0000-0000-0000-0000000000f1', '00000000-0000-7000-8000-0000000000f5', 'first text', now(), now() - interval '1 second', 'edited')$s$, '23514');
+SELECT pg_temp.expect_error('Message version: 1 to 5,000 characters',
+    $s$INSERT INTO message_versions (conversation_id, message_id, body, shown_from, ended_by)
+       VALUES ('00000000-0000-0000-0000-0000000000f1', '00000000-0000-7000-8000-0000000000f5', '', now(), 'edited')$s$, '23514');
+SELECT pg_temp.expect_ok('Message: an edit keeps the earlier text',
+    $s$WITH v AS (INSERT INTO message_versions (conversation_id, message_id, body, shown_from, ended_by)
+                  SELECT conversation_id, id, body, created_at, 'edited' FROM messages WHERE id = '00000000-0000-7000-8000-0000000000f5')
+       UPDATE messages SET body = 'second text', edited_at = clock_timestamp() WHERE id = '00000000-0000-7000-8000-0000000000f5'$s$);
+SELECT pg_temp.expect_ok('Message: a deletion keeps the last text and leaves a tombstone',
+    $s$WITH v AS (INSERT INTO message_versions (conversation_id, message_id, body, shown_from, ended_by)
+                  SELECT conversation_id, id, body, edited_at, 'deleted' FROM messages WHERE id = '00000000-0000-7000-8000-0000000000f5')
+       UPDATE messages SET body = NULL, deleted_at = clock_timestamp() WHERE id = '00000000-0000-7000-8000-0000000000f5'$s$);
+SELECT pg_temp.expect_error('Message version: a message is deleted once',
+    $s$INSERT INTO message_versions (conversation_id, message_id, body, shown_from, ended_by)
+       VALUES ('00000000-0000-0000-0000-0000000000f1', '00000000-0000-7000-8000-0000000000f5', 'second text', now(), 'deleted')$s$, '23505');
+DELETE FROM messages WHERE id = '00000000-0000-7000-8000-0000000000f5';
+SELECT pg_temp.expect_true('Message version: goes with its message', $q$
+    SELECT count(*) = 0 FROM message_versions WHERE message_id = '00000000-0000-7000-8000-0000000000f5'$q$);
+
 -- ---------------------------------------------------------------------------
 -- Account deletion (FR-2.8, SRS 7 Retention): user 3 owns no project.
 -- ---------------------------------------------------------------------------

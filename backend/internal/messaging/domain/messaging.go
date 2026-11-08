@@ -30,15 +30,22 @@ const (
 	BoxRequests Box = "requests"
 )
 
-// Message is one stored message.
+// Message is one stored message, as its members see it (FR-16.5).
 type Message struct {
 	ID             string
 	ConversationID string
 	SenderID       string
-	Body           string
-	ClientID       string
-	CreatedAt      time.Time
+	// Body is the latest text. It is nil for a deleted message; only DeletedAt says a message
+	// was deleted, as a later message may have no text (attachments, slice 14B.3).
+	Body      *string
+	ClientID  string
+	CreatedAt time.Time
+	EditedAt  *time.Time // the latest edit, nil when never edited
+	DeletedAt *time.Time // nil unless the sender deleted it
 }
+
+// Deleted reports whether the sender deleted the message.
+func (m Message) Deleted() bool { return m.DeletedAt != nil }
 
 // Sent is the result of sending: the message and its conversation's state. Replayed is
 // true when the client ID had been used before and Message is the original.
@@ -70,7 +77,8 @@ type Person struct {
 // Preview is the start of a conversation's latest message.
 type Preview struct {
 	SenderID  string
-	Body      string // the first PreviewLength characters
+	Body      *string // the first 120 characters of the latest text, nil when deleted
+	Deleted   bool
 	CreatedAt time.Time
 }
 
@@ -159,6 +167,17 @@ type Store interface {
 	// ListMessages returns a conversation's messages newest first, before the message ID
 	// before when it is not empty. The caller has checked membership.
 	ListMessages(ctx context.Context, conversationID, before string, limit int) ([]Message, error)
+	// FindOwnMessage returns the message when senderID sent it in the conversation, deleted or
+	// not, otherwise ErrNotFound (NFR-14).
+	FindOwnMessage(ctx context.Context, conversationID, messageID, senderID string) (Message, error)
+	// LockOwnMessage is FindOwnMessage holding the message's row until the transaction ends.
+	LockOwnMessage(ctx context.Context, conversationID, messageID, senderID string) (Message, error)
+	// EditMessage replaces a message's text, keeps the text it replaces as a version and sets
+	// edited_at. ErrNotFound when the message is deleted or unknown.
+	EditMessage(ctx context.Context, messageID, body string) (Message, error)
+	// DeleteMessage leaves a message in place with no body, keeps its last text as a version
+	// and sets deleted_at. ErrNotFound when it is already deleted or unknown.
+	DeleteMessage(ctx context.Context, messageID string) (Message, error)
 	// MessageIn reports whether the message belongs to the conversation.
 	MessageIn(ctx context.Context, conversationID, messageID string) (bool, error)
 	// MoveReadMarker moves the member's marker to messageID when that is later than the
@@ -236,6 +255,9 @@ type Limiter interface {
 // name the members to tell. cmd/api implements it with the realtime module.
 type Publisher interface {
 	MessageSent(ctx context.Context, sent Sent, to []string)
+	// MessageEdited and MessageDeleted tell the to list and the sender's own tabs.
+	MessageEdited(ctx context.Context, m Message, to []string)
+	MessageDeleted(ctx context.Context, m Message, to []string)
 	ReadMoved(ctx context.Context, conversationID, readerID, messageID string, to []string)
 	RequestAccepted(ctx context.Context, conversationID string, to []string)
 	RequestDeclined(ctx context.Context, conversationID string, to []string)
@@ -262,6 +284,8 @@ var (
 	ErrInvalidLimit   = errors.New("messaging: limit is not a whole number of at least 1")
 	ErrCannotMessage  = errors.New("messaging: this person cannot be messaged")
 	ErrYouBlocked     = errors.New("messaging: the caller has blocked this user")
+	// ErrEditWindowClosed refuses an edit of a message older than the edit window (FR-16.5).
+	ErrEditWindowClosed = errors.New("messaging: the message can no longer be edited")
 )
 
 // SuspendedError refuses a write by a user whose account was suspended after their access token

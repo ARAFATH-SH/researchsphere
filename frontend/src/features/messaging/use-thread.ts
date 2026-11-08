@@ -23,7 +23,7 @@ function shown(message: Message, key = message.id): ThreadMessage {
     key,
     id: message.id,
     senderId: message.senderId,
-    body: message.body,
+    body: message.body ?? "",
     createdAt: message.createdAt,
     delivery: "sent",
   };

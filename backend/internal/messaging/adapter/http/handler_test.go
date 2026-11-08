@@ -28,11 +28,11 @@ const (
 
 var (
 	at      = time.Date(2026, 11, 4, 10, 0, 0, 0, time.UTC)
-	message = domain.Message{ID: msgID, ConversationID: convID, SenderID: caller, Body: "hi", ClientID: clientID, CreatedAt: at}
+	message = domain.Message{ID: msgID, ConversationID: convID, SenderID: caller, Body: ptr("hi"), ClientID: clientID, CreatedAt: at}
 	item    = domain.Item{
 		Conversation: domain.Conversation{ID: convID, State: domain.StateRequest, RequestedBy: ptr(otherID), LastMessageAt: at},
 		Other:        domain.Person{UserID: otherID, FullName: "Bob", Headline: ptr("Chemist"), PhotoFileID: ptr(fileID), Available: true},
-		LastMessage:  &domain.Preview{SenderID: otherID, Body: "may I?", CreatedAt: at},
+		LastMessage:  &domain.Preview{SenderID: otherID, Body: ptr("may I?"), CreatedAt: at},
 		UnreadCount:  2,
 	}
 )
@@ -46,6 +46,8 @@ type fakeService struct {
 	sent domain.Sent
 	read *string
 	next *string
+	// edited is what Edit answers.
+	edited domain.Message
 }
 
 func (f *fakeService) SendDirect(_ context.Context, senderID, recipientID, body, cid string) (domain.Sent, error) {
@@ -100,7 +102,17 @@ func (f *fakeService) ListReports(_ context.Context, status string, page int) (d
 
 func (f *fakeService) ReportDetail(_ context.Context, adminID, id, before string) (domain.ReportDetail, error) {
 	f.args = []any{adminID, id, before}
-	return domain.ReportDetail{Report: report, Messages: []domain.Message{message}, NextBefore: f.next}, f.err
+	return domain.ReportDetail{Report: report, Messages: []domain.ReportedMessage{reported}, NextBefore: f.next}, f.err
+}
+
+func (f *fakeService) Edit(_ context.Context, editorID, id, messageID, body string) (domain.Message, error) {
+	f.args = []any{editorID, id, messageID, body}
+	return f.edited, f.err
+}
+
+func (f *fakeService) Delete(_ context.Context, deleterID, id, messageID string) error {
+	f.args = []any{deleterID, id, messageID}
+	return f.err
 }
 
 func (f *fakeService) ResolveReport(_ context.Context, adminID, id string, outcome domain.ReportOutcome, note *string) (domain.Report, error) {
@@ -408,6 +420,8 @@ func TestEveryOperationNeedsALogin(t *testing.T) {
 		{http.MethodPost, base + "/accept", ""},
 		{http.MethodPost, base + "/decline", ""},
 		{http.MethodGet, "/api/v1/messages/unread-count", ""},
+		{http.MethodPatch, base + "/messages/" + msgID, `{"body":"hi"}`},
+		{http.MethodDelete, base + "/messages/" + msgID, ""},
 	} {
 		if rec := send(t, &fakeService{}, r.method, r.path, r.body, ""); rec.Code != http.StatusUnauthorized {
 			t.Errorf("%s %s: %d", r.method, r.path, rec.Code)

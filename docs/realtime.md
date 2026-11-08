@@ -82,6 +82,8 @@ Each frame is JSON text with `type` and `data`.
 | `type` | Sent to | `data` |
 | --- | --- | --- |
 | `message.created` | The other member, and the sender's own tabs | `RealtimeMessageCreated`: `{message, conversationState, clientId?}` |
+| `message.updated` | The other member, and the sender's own tabs | `RealtimeMessageUpdated`: `{message}`, the REST `Message` with the new `body` and `editedAt` |
+| `message.deleted` | The other member, and the sender's own tabs | `RealtimeMessageDeleted`: `{conversationId, messageId}` |
 | `conversation.read` | The other member, when a read marker moves | `{conversationId, messageId}` |
 | `conversation.updated` | Both members | `{conversationId, state, canMessage}`, each their own view |
 | `unread.changed` | The user whose counts may have changed | `{total, requests}` |
@@ -100,11 +102,26 @@ Each frame is JSON text with `type` and `data`.
 }}
 ```
 
+`message.updated` follows an edit (FR-16.5) and `message.deleted` a deletion. Both go out after
+the commit, to every tab of both members, the editing tab included. An unchanged edit and a
+second deletion send nothing. Replace or mark the message in place, keeping its position; ignore
+one that is not loaded. A deleted message keeps its place with `deleted: true` and a null
+`body`; the event carries no text, so a client that missed it learns of the deletion on its next
+fetch.
+
+```json
+{"type": "message.updated", "data": {
+  "message": {"id": "...", "conversationId": "...", "senderId": "...", "body": "Hello again",
+              "createdAt": "2026-11-05T12:00:00Z", "editedAt": "2026-11-05T12:03:00Z", "deleted": false}
+}}
+{"type": "message.deleted", "data": {"conversationId": "...", "messageId": "..."}}
+```
+
 `conversation.updated` follows a request being accepted or declined, a connection activating a
 request, a block or unblock, and the suspension or restoration of either member. It does not
 say why, so a blocked person is not told about a block.
 
-`unread.changed` follows a message, a read marker, an answered request, a block that declines a
+`unread.changed` follows a message, a deleted message (it no longer counts as unread), a read marker, an answered request, a block that declines a
 request, and the suspension or restoration of a conversation partner.
 
 ### Client to server

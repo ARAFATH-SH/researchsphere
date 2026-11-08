@@ -3127,6 +3127,79 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /conversations/{conversationId}/messages/{messageId}:
+    patch:
+      operationId: editMessage
+      summary: Edit one's own message (FR-16.5, FR-16.10, NFR-14)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Only the sender may edit, within `MESSAGE_EDIT_WINDOW`
+        (15 minutes by default) of sending, and only while they could send in the
+        conversation. Checks run in this order: the body (`invalid_body`), the message (404
+        `not_found` unless it is the caller's, in this conversation and not deleted: anyone
+        else learns nothing, NFR-14), the window (409 `edit_window_closed`), an unchanged body
+        (200 with the message as it is: nothing changes, no quota is used and no event goes
+        out), then the checks of `POST /conversations/{conversationId}/messages`: the caller's
+        standing, the message limits (an edit counts as a message), the other member, a block
+        and the conversation's state. The earlier text is kept for moderation and shown only
+        through `GET /admin/message-reports/{reportId}`.
+      tags: [messaging]
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+        - $ref: "#/components/parameters/MessageId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditMessageRequest"
+      responses:
+        "200":
+          description: The message, with the new text and `editedAt`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "400":
+          $ref: "#/components/responses/InvalidMessage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/MessageForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/MessageEditRefused"
+        "429":
+          $ref: "#/components/responses/MessageRateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: deleteMessage
+      summary: Delete one's own message (FR-16.5, NFR-14)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Only the sender may delete, at any time, also in a closed
+        conversation or after a block. The message stays in its place with `deleted: true`
+        and a null `body`. Deleting it again changes nothing. Anyone else, and an unknown
+        message, gets 404 `not_found` (NFR-14). The text is kept for moderation and shown only
+        through `GET /admin/message-reports/{reportId}`.
+      tags: [messaging]
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+        - $ref: "#/components/parameters/MessageId"
+      responses:
+        "204":
+          description: The message is deleted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /conversations/{conversationId}/read:
     post:
       operationId: markConversationRead
@@ -3505,6 +3578,16 @@ components:
       description: |
         The report's ID, a UUID. It is declared as a plain string so that the login and role
         checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+      schema:
+        type: string
+    MessageId:
+      name: messageId
+      in: path
+      required: true
+      description: |
+        The message's ID, a UUID. It is declared as a plain string so that the login check
+        runs before it is read (FR-3.1); a value that is not a UUID names no message and gets
+        404 `not_found`.
       schema:
         type: string
     ConversationId:
@@ -4582,6 +4665,14 @@ components:
           format: uuid
           description: Made by the client for each new message and sent again on a retry, so a retry stores nothing new.
 
+    EditMessageRequest:
+      type: object
+      required: [body]
+      properties:
+        body:
+          type: string
+          description: 1 to 5,000 characters after trimming; line breaks are kept.
+
     MarkConversationReadRequest:
       type: object
       required: [messageId]
@@ -4600,7 +4691,7 @@ components:
 
     Message:
       type: object
-      required: [id, conversationId, senderId, body, createdAt]
+      required: [id, conversationId, senderId, body, createdAt, editedAt, deleted]
       properties:
         id:
           type: string
@@ -4614,9 +4705,21 @@ components:
           format: uuid
         body:
           type: string
+          nullable: true
+          description: |
+            The latest text. Null for a deleted message; only `deleted` says a message was
+            deleted, as a later message may have no text.
         createdAt:
           type: string
           format: date-time
+        editedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the text was last edited; null when never (FR-16.5).
+        deleted:
+          type: boolean
+          description: True when the sender deleted the message. It stays in its place, with no body.
 
     SentMessage:
       type: object
@@ -4650,14 +4753,18 @@ components:
 
     MessagePreview:
       type: object
-      required: [senderId, body, createdAt]
+      required: [senderId, body, createdAt, deleted]
       properties:
         senderId:
           type: string
           format: uuid
         body:
           type: string
-          description: The first 120 characters of the message.
+          nullable: true
+          description: The first 120 characters of the message's latest text; null when deleted.
+        deleted:
+          type: boolean
+          description: True when the latest message was deleted; the client says so.
         createdAt:
           type: string
           format: date-time
@@ -4900,11 +5007,73 @@ components:
           type: array
           description: Newest first, none later than the report.
           items:
-            $ref: "#/components/schemas/Message"
+            $ref: "#/components/schemas/ReportedMessage"
         nextBefore:
           type: string
           nullable: true
           description: Pass as `before` to load earlier messages; null on the last page.
+
+    ReportedMessage:
+      type: object
+      description: |
+        A message of a reported conversation as the administrator sees it (NFR-14): the text
+        at the report's moment and the texts shown before it. Text written after the report is
+        never shown; `changedAfterReport` only says there was some.
+      required: [id, conversationId, senderId, createdAt, body, editedAt, deletedAt, changedAfterReport, versions]
+      properties:
+        id:
+          type: string
+          format: uuid
+        conversationId:
+          type: string
+          format: uuid
+        senderId:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        body:
+          type: string
+          nullable: true
+          description: The text shown at the report's moment; null when the message was deleted by then.
+        editedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: The latest edit, also one after the report; null when never edited.
+        deletedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the sender deleted the message, also after the report; null when not deleted.
+        changedAfterReport:
+          type: boolean
+          description: The message was edited or deleted after the report. The later text is not shown.
+        versions:
+          type: array
+          description: |
+            Earlier texts that were shown at or before the report's moment, oldest first. Each
+            ended with an edit or with the deletion. Empty when the text never changed by then.
+          items:
+            $ref: "#/components/schemas/MessageVersion"
+
+    MessageVersion:
+      type: object
+      required: [body, shownFrom, shownUntil, endedBy]
+      properties:
+        body:
+          type: string
+        shownFrom:
+          type: string
+          format: date-time
+        shownUntil:
+          type: string
+          format: date-time
+        endedBy:
+          type: string
+          enum: [edited, deleted]
+          description: "`edited`: a new text replaced it. `deleted`: the sender deleted the message."
 
     ResolveMessageReportRequest:
       type: object
@@ -4969,6 +5138,8 @@ components:
       description: The `type` of a server event. `docs/realtime.md` gives each one's `data`.
       enum:
         - message.created
+        - message.updated
+        - message.deleted
         - conversation.read
         - conversation.updated
         - unread.changed
@@ -4981,7 +5152,7 @@ components:
       type: object
       description: |
         One server-to-client WebSocket frame, as JSON text. `data` is `RealtimeMessageCreated`,
-        `RealtimeConversationRead`, `RealtimeConversationUpdated`, `MessageUnreadCount`,
+        `RealtimeMessageUpdated`, `RealtimeMessageDeleted`, `RealtimeConversationRead`, `RealtimeConversationUpdated`, `MessageUnreadCount`,
         `RealtimeTyping`, `PresenceStatus`, `Notification` or `UnreadNotificationCount`,
         by `type`.
       required: [type, data]
@@ -5005,6 +5176,26 @@ components:
           description: |
             The sender's `clientId`, only in the copy sent to the sender's own sockets, so the
             sending tab can match it. The other member never gets it.
+
+    RealtimeMessageUpdated:
+      type: object
+      description: The sender edited a message (FR-16.5). `message` is the REST `Message` with the new text.
+      required: [message]
+      properties:
+        message:
+          $ref: "#/components/schemas/Message"
+
+    RealtimeMessageDeleted:
+      type: object
+      description: The sender deleted a message (FR-16.5). It stays in its place with no text.
+      required: [conversationId, messageId]
+      properties:
+        conversationId:
+          type: string
+          format: uuid
+        messageId:
+          type: string
+          format: uuid
 
     RealtimeConversationRead:
       type: object
@@ -6107,11 +6298,21 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+    MessageEditRefused:
+      description: |
+        `edit_window_closed`: the message is older than the edit window (FR-16.5).
+        `request_pending`: the receiver has not accepted the request yet.
+        `conversation_closed`: the request was declined.
+        `you_blocked_this_user`: the caller has blocked the other user (FR-16.9).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
     MessageRateLimited:
       description: |
         The user has sent too many messages or message requests (`rate_limited`). The
         defaults are 30 messages a minute and 1,000 a day, and 5 new requests a minute and
-        20 a day (FR-16.10).
+        20 a day (FR-16.10). An edit counts as a message.
       headers:
         Retry-After:
           description: Seconds until sending is accepted again.

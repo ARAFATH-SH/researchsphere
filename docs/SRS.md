@@ -498,7 +498,8 @@ The database holds the 32 kinds of record below. The rules below are enforced by
 | Assistant request | User, project, kind, accepted or not | The suggestion text is not stored |
 | Conversation | Kind (direct or group), state (active, request or declined), who requested it, the pair of users, last message time | One direct conversation per pair of users; a request names who requested it |
 | Conversation member | Conversation, user, joined time, read marker and its time | One row per user per conversation; the read marker is a message of the same conversation |
-| Message | Conversation, sender, text, client ID, times | 1 to 5,000 characters, trimmed; a client ID is used once per sender |
+| Message | Conversation, sender, text, client ID, sent, edited and deleted times | 1 to 5,000 characters, trimmed; a client ID is used once per sender; a deleted message keeps its place with no text; edited and deleted after it was sent |
+| Message version | Message, text, shown from, shown until, ended by (edit or deletion) | One per replaced text, at most one deletion per message; read only through an administrator's report (NFR-14); deleted with the message |
 | Block | Blocker, blocked user, time | One per direction; no self-block; deleted with either user |
 | Message report | Conversation, reporter, reported user, message, reason, details, time, resolution (time, administrator, outcome, note) | A reported message belongs to the conversation; deleted with the conversation |
 | Report view | Report, administrator, time | One per administrator's read; holds no message text and outlives the report |
@@ -511,6 +512,9 @@ The database holds the 32 kinds of record below. The rules below are enforced by
 - Deleting an account removes the user's personal data at once (FR-2.8). Publications shared with a co-author stay for that co-author.
 - Deleting an account deletes the user's direct conversations with all their messages, also the other member's copy.
 - The compile log and PDF are kept for the latest compile of each project only.
+- Earlier versions of edited messages and the text of deleted ones are deleted 30 days after they
+  were replaced. A version of a conversation that was reported while or after that text was shown
+  is kept until 30 days after the report is resolved (purge job: slice 29A).
 
 ## 8. Out of Scope and Open Questions
 

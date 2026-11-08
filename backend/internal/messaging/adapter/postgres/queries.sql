@@ -9,7 +9,7 @@ SELECT EXISTS (
 )::boolean AS visible;
 
 -- name: FindSent :one
-SELECT m.id, m.conversation_id, m.sender_id, m.body, m.client_id, m.created_at, c.state
+SELECT m.id, m.conversation_id, m.sender_id, m.body, m.client_id, m.created_at, m.edited_at, m.deleted_at, c.state
 FROM messages m
 JOIN conversations c ON c.id = m.conversation_id
 WHERE m.sender_id = @sender_id AND m.client_id = @client_id;
@@ -66,7 +66,7 @@ CROSS JOIN LATERAL (
 ) t
 WHERE c.id = @conversation_id::uuid
 ON CONFLICT (sender_id, client_id) DO NOTHING
-RETURNING id, conversation_id, sender_id, body, client_id, created_at;
+RETURNING id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at;
 
 -- name: TouchConversation :exec
 UPDATE conversations SET last_message_at = @last_message_at WHERE id = @id;
@@ -92,6 +92,7 @@ SELECT c.id, c.state, c.requested_by, c.last_message_at,
        COALESCE(p.full_name, '')::text AS full_name, p.headline, p.photo_file_id,
        (u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL)::boolean AS other_available,
        lm.sender_id AS last_sender_id, COALESCE(lm.preview, '')::text AS last_preview, lm.created_at AS last_created_at,
+       COALESCE(lm.deleted, false)::boolean AS last_deleted,
        unread.n AS unread_count,
        EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = me.user_id AND b.blocked_id = o.user_id)::boolean AS blocked_by_me,
        EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = o.user_id AND b.blocked_id = me.user_id)::boolean AS blocked_me
@@ -101,14 +102,14 @@ JOIN conversation_members o ON o.conversation_id = c.id AND o.user_id <> me.user
 JOIN users u ON u.id = o.user_id
 LEFT JOIN profiles p ON p.user_id = u.id
 LEFT JOIN LATERAL (
-    SELECT m.sender_id, left(m.body, 120) AS preview, m.created_at
+    SELECT m.sender_id, left(m.body, 120) AS preview, m.created_at, m.deleted_at IS NOT NULL AS deleted
     FROM messages m WHERE m.conversation_id = c.id
     ORDER BY m.id DESC LIMIT 1
 ) lm ON true
 CROSS JOIN LATERAL (
     SELECT count(*) AS n
     FROM messages m
-    WHERE m.conversation_id = c.id AND m.sender_id <> me.user_id
+    WHERE m.conversation_id = c.id AND m.sender_id <> me.user_id AND m.deleted_at IS NULL
       AND (me.last_read_message_id IS NULL OR m.id > me.last_read_message_id)
 ) unread
 WHERE me.conversation_id = @id AND me.user_id = @user_id;
@@ -121,6 +122,7 @@ SELECT c.id, c.state, c.requested_by, c.last_message_at,
        COALESCE(p.full_name, '')::text AS full_name, p.headline, p.photo_file_id,
        (u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL)::boolean AS other_available,
        lm.sender_id AS last_sender_id, COALESCE(lm.preview, '')::text AS last_preview, lm.created_at AS last_created_at,
+       COALESCE(lm.deleted, false)::boolean AS last_deleted,
        unread.n AS unread_count,
        EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = me.user_id AND b.blocked_id = o.user_id)::boolean AS blocked_by_me,
        EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = o.user_id AND b.blocked_id = me.user_id)::boolean AS blocked_me
@@ -130,14 +132,14 @@ JOIN conversation_members o ON o.conversation_id = c.id AND o.user_id <> me.user
 JOIN users u ON u.id = o.user_id
 LEFT JOIN profiles p ON p.user_id = u.id
 LEFT JOIN LATERAL (
-    SELECT m.sender_id, left(m.body, 120) AS preview, m.created_at
+    SELECT m.sender_id, left(m.body, 120) AS preview, m.created_at, m.deleted_at IS NOT NULL AS deleted
     FROM messages m WHERE m.conversation_id = c.id
     ORDER BY m.id DESC LIMIT 1
 ) lm ON true
 CROSS JOIN LATERAL (
     SELECT count(*) AS n
     FROM messages m
-    WHERE m.conversation_id = c.id AND m.sender_id <> me.user_id
+    WHERE m.conversation_id = c.id AND m.sender_id <> me.user_id AND m.deleted_at IS NULL
       AND (me.last_read_message_id IS NULL OR m.id > me.last_read_message_id)
 ) unread
 WHERE me.user_id = @user_id
@@ -151,13 +153,64 @@ ORDER BY c.last_message_at DESC, c.id DESC
 LIMIT @lim;
 
 -- name: ListMessages :many
--- messages_conversation_id_uq, scanned backward, serves this.
-SELECT id, conversation_id, sender_id, body, client_id, created_at
+-- messages_conversation_id_uq, scanned backward, serves this. A deleted message is listed in
+-- its place with no body; message_versions is never read for a member (NFR-14).
+SELECT id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at
 FROM messages
 WHERE conversation_id = @conversation_id
   AND (NOT @has_before::boolean OR id < @before_id::uuid)
 ORDER BY id DESC
 LIMIT @lim;
+
+-- name: LockOwnMessage :one
+-- The sender's message in the conversation, held until the transaction ends so an edit and a
+-- deletion of one message run one at a time. No row for anyone else's (NFR-14).
+SELECT id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at
+FROM messages
+WHERE conversation_id = @conversation_id AND id = @id AND sender_id = @sender_id
+FOR UPDATE;
+
+-- name: FindOwnMessage :one
+-- LockOwnMessage without the lock, for the checks before the transaction.
+SELECT id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at
+FROM messages
+WHERE conversation_id = @conversation_id AND id = @id AND sender_id = @sender_id;
+
+-- name: EditMessage :one
+-- Keeps the text it replaces in message_versions, shown from the previous edit (or the send)
+-- until this one, at one instant. GREATEST keeps edited_at after created_at, which a send may
+-- have set a microsecond ahead of the clock (InsertMessage).
+WITH old AS (
+    SELECT m.id, m.conversation_id, m.body, COALESCE(m.edited_at, m.created_at) AS shown_from,
+           GREATEST(clock_timestamp(), m.created_at, m.edited_at) AS instant
+    FROM messages m
+    WHERE m.id = @id AND m.deleted_at IS NULL
+), kept AS (
+    INSERT INTO message_versions (conversation_id, message_id, body, shown_from, shown_until, ended_by)
+    SELECT old.conversation_id, old.id, old.body, old.shown_from, old.instant, 'edited' FROM old
+)
+UPDATE messages m
+SET body = @body::text, edited_at = old.instant
+FROM old
+WHERE m.id = old.id
+RETURNING m.id, m.conversation_id, m.sender_id, m.body, m.client_id, m.created_at, m.edited_at, m.deleted_at;
+
+-- name: DeleteMessage :one
+-- Leaves a tombstone and keeps the last text in message_versions, as EditMessage does.
+WITH old AS (
+    SELECT m.id, m.conversation_id, m.body, COALESCE(m.edited_at, m.created_at) AS shown_from,
+           GREATEST(clock_timestamp(), m.created_at, m.edited_at) AS instant
+    FROM messages m
+    WHERE m.id = @id AND m.deleted_at IS NULL
+), kept AS (
+    INSERT INTO message_versions (conversation_id, message_id, body, shown_from, shown_until, ended_by)
+    SELECT old.conversation_id, old.id, old.body, old.shown_from, old.instant, 'deleted' FROM old
+)
+UPDATE messages m
+SET body = NULL, deleted_at = old.instant
+FROM old
+WHERE m.id = old.id
+RETURNING m.id, m.conversation_id, m.sender_id, m.body, m.client_id, m.created_at, m.edited_at, m.deleted_at;
 
 -- name: MessageIn :one
 SELECT EXISTS (
@@ -177,7 +230,7 @@ RETURNING c.requested_by;
 SELECT count(*)
 FROM conversation_members me
 JOIN conversations c ON c.id = me.conversation_id AND c.state = 'active'
-JOIN messages m ON m.conversation_id = c.id AND m.sender_id <> me.user_id
+JOIN messages m ON m.conversation_id = c.id AND m.sender_id <> me.user_id AND m.deleted_at IS NULL
     AND (me.last_read_message_id IS NULL OR m.id > me.last_read_message_id)
 WHERE me.user_id = @user_id;
 
@@ -230,14 +283,40 @@ WHERE r.id = @id;
 
 -- name: ListReportedMessages :many
 -- The one way an administrator reads a conversation (NFR-14): it starts from a report, so a
--- conversation without one is out of reach, and stops at the report's moment.
-SELECT m.id, m.conversation_id, m.sender_id, m.body, m.client_id, m.created_at
+-- conversation without one is out of reach, and stops at the report's moment. at_report is
+-- the text shown at that moment: none when deleted by then, else the kept version that was
+-- showing, else the current text, which has shown since before the report. Text written after
+-- the report never leaves the database.
+SELECT m.id, m.conversation_id, m.sender_id, m.created_at, m.edited_at, m.deleted_at,
+       COALESCE(at_report.body, '')::text AS body_at_report,
+       (at_report.body IS NOT NULL)::boolean AS has_body_at_report,
+       (COALESCE(m.edited_at > r.created_at, false) OR COALESCE(m.deleted_at > r.created_at, false))::boolean AS changed_after_report
 FROM message_reports r
 JOIN messages m ON m.conversation_id = r.conversation_id AND m.created_at <= r.created_at
+CROSS JOIN LATERAL (
+    SELECT CASE
+        WHEN m.deleted_at IS NOT NULL AND m.deleted_at <= r.created_at THEN NULL
+        ELSE COALESCE(
+            (SELECT v.body FROM message_versions v
+             WHERE v.conversation_id = m.conversation_id AND v.message_id = m.id
+               AND v.shown_from <= r.created_at AND v.shown_until > r.created_at
+             ORDER BY v.shown_until LIMIT 1),
+            CASE WHEN COALESCE(m.edited_at, m.created_at) <= r.created_at THEN m.body END)
+    END AS body
+) at_report
 WHERE r.id = @report_id
   AND (NOT @has_before::boolean OR m.id < @before_id::uuid)
 ORDER BY m.id DESC
 LIMIT @lim;
+
+-- name: ListReportedVersions :many
+-- The kept texts of the listed messages that were shown at or before the report's moment,
+-- oldest first. Like ListReportedMessages it starts from the report (NFR-14).
+SELECT v.message_id, v.body, v.shown_from, v.shown_until, v.ended_by
+FROM message_reports r
+JOIN message_versions v ON v.conversation_id = r.conversation_id AND v.shown_from <= r.created_at
+WHERE r.id = @report_id AND v.message_id = ANY(@message_ids::uuid[])
+ORDER BY v.message_id, v.shown_from, v.shown_until;
 
 -- name: InsertReportView :exec
 INSERT INTO message_report_views (report_id, admin_id) VALUES (@report_id, @admin_id);

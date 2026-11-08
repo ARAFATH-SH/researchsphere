@@ -37,6 +37,8 @@ type Limits struct {
 	MessagesPerDay    int
 	RequestsPerMinute int // new message requests
 	RequestsPerDay    int
+	// EditWindow is how long after sending a message its sender may edit it (FR-16.5).
+	EditWindow time.Duration
 }
 
 // window is one fixed-window limit; name is its Limiter counter.
@@ -63,6 +65,12 @@ func (NopPublisher) MessageSent(context.Context, domain.Sent, []string) {}
 // ReadMoved does nothing.
 func (NopPublisher) ReadMoved(context.Context, string, string, string, []string) {}
 
+// MessageEdited does nothing.
+func (NopPublisher) MessageEdited(context.Context, domain.Message, []string) {}
+
+// MessageDeleted does nothing.
+func (NopPublisher) MessageDeleted(context.Context, domain.Message, []string) {}
+
 // RequestAccepted does nothing.
 func (NopPublisher) RequestAccepted(context.Context, string, []string) {}
 
@@ -84,15 +92,18 @@ type Service struct {
 	messages    []window
 	requests    []window
 	reports     []window
+	editWindow  time.Duration
+	now         func() time.Time
 	logger      *slog.Logger
 }
 
-// New returns a Service.
+// New returns a Service. now is time.Now in production and a fixed clock in tests.
 func New(store domain.Store, tx domain.Transactor, connections domain.Connections, blocks domain.Blocks, actors domain.Actors,
-	limiter domain.Limiter, publisher domain.Publisher, limits Limits, logger *slog.Logger,
+	limiter domain.Limiter, publisher domain.Publisher, limits Limits, now func() time.Time, logger *slog.Logger,
 ) *Service {
 	return &Service{
 		store: store, tx: tx, connections: connections, blocks: blocks, actors: actors, limiter: limiter, publisher: publisher, logger: logger,
+		editWindow: limits.EditWindow, now: now,
 		messages: []window{
 			{"messages:minute", limits.MessagesPerMinute, time.Minute},
 			{"messages:day", limits.MessagesPerDay, day},
@@ -341,7 +352,7 @@ func (s *Service) admit(ctx context.Context, c *domain.Conversation, senderID, o
 
 // add stores the message in c.
 func (s *Service) add(ctx context.Context, c domain.Conversation, senderID, text, clientID string) (domain.Sent, error) {
-	m, added, err := s.store.AddMessage(ctx, domain.Message{ConversationID: c.ID, SenderID: senderID, Body: text, ClientID: clientID})
+	m, added, err := s.store.AddMessage(ctx, domain.Message{ConversationID: c.ID, SenderID: senderID, Body: &text, ClientID: clientID})
 	if err != nil {
 		return domain.Sent{}, err
 	}

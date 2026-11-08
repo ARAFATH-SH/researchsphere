@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 )
 
 const (
@@ -402,6 +403,23 @@ func TestLoadORCIDSettings(t *testing.T) {
 				t.Errorf("ORCIDBaseURL = %q, want %q", cfg.ORCIDBaseURL, tt.wantBase)
 			}
 		})
+	}
+}
+
+func TestLoadMessageEditWindow(t *testing.T) {
+	cfg, err := Load(env(map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL}))
+	if err != nil || cfg.MessageEditWindow != 15*time.Minute {
+		t.Errorf("default = %v (%v)", cfg.MessageEditWindow, err)
+	}
+	cfg, err = Load(env(map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL, "MESSAGE_EDIT_WINDOW": " 90s "}))
+	if err != nil || cfg.MessageEditWindow != 90*time.Second {
+		t.Errorf("set = %v (%v)", cfg.MessageEditWindow, err)
+	}
+	for _, bad := range []string{"0", "-1m", "15", "soon"} {
+		v := map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL, "MESSAGE_EDIT_WINDOW": bad}
+		if _, err := Load(env(v)); err == nil || !strings.Contains(err.Error(), "MESSAGE_EDIT_WINDOW") {
+			t.Errorf("MESSAGE_EDIT_WINDOW=%s: error = %v", bad, err)
+		}
 	}
 }
 

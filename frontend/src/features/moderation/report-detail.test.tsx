@@ -16,7 +16,17 @@ afterEach(() => jest.resetAllMocks());
 const reason = "Repeated spam in messages";
 
 function msg(n: number, senderId: string, body: string): ReportedMessage {
-  return { id: `m${n}`, conversationId: "c", senderId, body, createdAt: "2026-11-05T08:00:00Z" };
+  return {
+    id: `m${n}`,
+    conversationId: "c",
+    senderId,
+    body,
+    createdAt: "2026-11-05T08:00:00Z",
+    editedAt: null,
+    deletedAt: null,
+    changedAfterReport: false,
+    versions: [],
+  };
 }
 
 function load(r: MessageReport, messages: ReportedMessage[] = [msg(2, bobID, "second"), msg(1, cyd.userId, "first")], nextBefore: string | null = null) {

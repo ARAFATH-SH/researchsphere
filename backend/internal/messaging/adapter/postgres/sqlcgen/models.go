@@ -3,3 +3,18 @@
 //   sqlc v1.31.1
 
 package sqlcgen
+
+import (
+	"github.com/jackc/pgx/v5/pgtype"
+)
+
+type Message struct {
+	ID             pgtype.UUID
+	ConversationID pgtype.UUID
+	SenderID       pgtype.UUID
+	Body           pgtype.Text
+	ClientID       pgtype.UUID
+	CreatedAt      pgtype.Timestamptz
+	EditedAt       pgtype.Timestamptz
+	DeletedAt      pgtype.Timestamptz
+}

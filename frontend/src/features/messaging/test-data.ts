@@ -11,7 +11,7 @@ export function conversation(overrides: Partial<Conversation> = {}): Conversatio
     id: conversationID,
     state: "active",
     otherMember: { userId: bobID, fullName: "Bob Babbage", photoUrl: null, headline: "Analyst", available: true },
-    lastMessage: { senderId: bobID, body: "See you", createdAt: "2026-11-05T09:00:00Z" },
+    lastMessage: { senderId: bobID, body: "See you", deleted: false, createdAt: "2026-11-05T09:00:00Z" },
     unreadCount: 0,
     requestedBy: null,
     lastMessageAt: "2026-11-05T09:00:00Z",
@@ -29,5 +29,7 @@ export function message(n: number, senderId: string, body = `message ${n}`, crea
     senderId,
     body,
     createdAt,
+    editedAt: null,
+    deleted: false,
   };
 }

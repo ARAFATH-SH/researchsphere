@@ -98,11 +98,45 @@ type ReportPage struct {
 	Total    int // reports with this status on all pages
 }
 
+// VersionEnd is what replaced a kept text.
+type VersionEnd string
+
+// Endings.
+const (
+	EndedByEdit     VersionEnd = "edited"
+	EndedByDeletion VersionEnd = "deleted"
+)
+
+// MessageVersion is a text of a message that an edit or the deletion replaced. Only an
+// administrator's report read shows it (NFR-14).
+type MessageVersion struct {
+	MessageID  string
+	Body       string
+	ShownFrom  time.Time
+	ShownUntil time.Time
+	EndedBy    VersionEnd
+}
+
+// ReportedMessage is a message of a reported conversation as an administrator sees it: the text
+// at the report's moment and the versions shown up to it. Nothing written after the report is
+// here; ChangedAfterReport only says there was a later edit or the deletion.
+type ReportedMessage struct {
+	ID                 string
+	ConversationID     string
+	SenderID           string
+	CreatedAt          time.Time
+	Body               *string // the text at the report's moment, nil when deleted by then
+	EditedAt           *time.Time
+	DeletedAt          *time.Time
+	ChangedAfterReport bool
+	Versions           []MessageVersion // oldest first
+}
+
 // ReportDetail is a report and one page of its conversation, newest first. NextBefore is nil
 // on the last page.
 type ReportDetail struct {
 	Report     Report
-	Messages   []Message
+	Messages   []ReportedMessage
 	NextBefore *string
 }
 
@@ -121,7 +155,11 @@ type ReportStore interface {
 	FindReport(ctx context.Context, id string) (Report, error)
 	// ListReportedMessages returns the report's conversation newest first, none later than
 	// the report, before the message ID before when it is not empty.
-	ListReportedMessages(ctx context.Context, reportID, before string, limit int) ([]Message, error)
+	ListReportedMessages(ctx context.Context, reportID, before string, limit int) ([]ReportedMessage, error)
+	// ListReportedVersions returns the kept versions of the listed messages that were shown at
+	// or before the report's moment, oldest first per message, without Versions filled in on
+	// the messages.
+	ListReportedVersions(ctx context.Context, reportID string, messageIDs []string) ([]MessageVersion, error)
 	// AddReportView records that adminID read the report's conversation.
 	AddReportView(ctx context.Context, reportID, adminID string) error
 	// ResolveReport closes an open report. resolved is false when no open report has the ID.

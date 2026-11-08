@@ -152,7 +152,12 @@ export function ConversationsProvider({ children }: { children: ReactNode }) {
       });
       return;
     }
-    const lastMessage = { senderId: message.senderId, body: [...message.body].slice(0, 120).join(""), createdAt: message.createdAt };
+    const lastMessage = {
+      senderId: message.senderId,
+      body: [...(message.body ?? "")].slice(0, 120).join(""),
+      deleted: message.deleted,
+      createdAt: message.createdAt,
+    };
     setBoxes((prev) => {
       const found = findRow(prev, id);
       if (!found) return prev;

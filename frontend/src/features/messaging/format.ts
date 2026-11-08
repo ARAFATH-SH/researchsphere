@@ -62,7 +62,8 @@ export function rowPreview(conversation: Conversation, me: string): string {
   }
   const last = conversation.lastMessage;
   if (!last) return "";
-  return last.senderId === me ? `You: ${last.body}` : last.body;
+  const text = last.body ?? "";
+  return last.senderId === me ? `You: ${text}` : text;
 }
 
 // ThreadStatus is what the caller may do in a conversation; open is the only one that sends.

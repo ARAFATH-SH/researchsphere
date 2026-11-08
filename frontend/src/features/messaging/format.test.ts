@@ -51,7 +51,7 @@ describe("waitText", () => {
 describe("rowPreview", () => {
   it("shows the last message, with You: before my own", () => {
     expect(rowPreview(conversation(), adaID)).toBe("See you");
-    const mine = conversation({ lastMessage: { senderId: adaID, body: "Hello", createdAt: "2026-11-05T09:00:00Z" } });
+    const mine = conversation({ lastMessage: { senderId: adaID, body: "Hello", deleted: false, createdAt: "2026-11-05T09:00:00Z" } });
     expect(rowPreview(mine, adaID)).toBe("You: Hello");
     expect(rowPreview(conversation({ lastMessage: null }), adaID)).toBe("");
   });

@@ -312,6 +312,24 @@ func (e MessageReportStatus) Valid() bool {
 	}
 }
 
+// Defines values for MessageVersionEndedBy.
+const (
+	Deleted MessageVersionEndedBy = "deleted"
+	Edited  MessageVersionEndedBy = "edited"
+)
+
+// Valid indicates whether the value is a known member of the MessageVersionEndedBy enum.
+func (e MessageVersionEndedBy) Valid() bool {
+	switch e {
+	case Deleted:
+		return true
+	case Edited:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ModerationActionKind.
 const (
 	Restoration       ModerationActionKind = "restoration"
@@ -467,6 +485,8 @@ const (
 	ConversationRead    RealtimeEventType = "conversation.read"
 	ConversationUpdated RealtimeEventType = "conversation.updated"
 	MessageCreated      RealtimeEventType = "message.created"
+	MessageDeleted      RealtimeEventType = "message.deleted"
+	MessageUpdated      RealtimeEventType = "message.updated"
 	NotificationCreated RealtimeEventType = "notification.created"
 	NotificationsUnread RealtimeEventType = "notifications.unread"
 	Presence            RealtimeEventType = "presence"
@@ -482,6 +502,10 @@ func (e RealtimeEventType) Valid() bool {
 	case ConversationUpdated:
 		return true
 	case MessageCreated:
+		return true
+	case MessageDeleted:
+		return true
+	case MessageUpdated:
 		return true
 	case NotificationCreated:
 		return true
@@ -913,6 +937,12 @@ type DeleteAccountRequest struct {
 	Password string `json:"password"`
 }
 
+// EditMessageRequest defines model for EditMessageRequest.
+type EditMessageRequest struct {
+	// Body 1 to 5,000 characters after trimming; line breaks are kept.
+	Body string `json:"body"`
+}
+
 // Education One education entry (FR-4.4). The optional fields are always present and null when not set.
 type Education struct {
 	// Degree Example: PhD
@@ -1169,9 +1199,17 @@ type Me struct {
 
 // Message defines model for Message.
 type Message struct {
-	Body           string             `json:"body"`
+	// Body The latest text. Null for a deleted message; only `deleted` says a message was
+	// deleted, as a later message may have no text.
+	Body           *string            `json:"body"`
 	ConversationId openapi_types.UUID `json:"conversationId"`
 	CreatedAt      time.Time          `json:"createdAt"`
+
+	// Deleted True when the sender deleted the message. It stays in its place, with no body.
+	Deleted bool `json:"deleted"`
+
+	// EditedAt When the text was last edited; null when never (FR-16.5).
+	EditedAt *time.Time `json:"editedAt"`
 
 	// Id A UUIDv7; within a conversation, a later message has a greater ID.
 	Id       openapi_types.UUID `json:"id"`
@@ -1191,10 +1229,13 @@ type MessagePage struct {
 
 // MessagePreview defines model for MessagePreview.
 type MessagePreview struct {
-	// Body The first 120 characters of the message.
-	Body      string             `json:"body"`
-	CreatedAt time.Time          `json:"createdAt"`
-	SenderId  openapi_types.UUID `json:"senderId"`
+	// Body The first 120 characters of the message's latest text; null when deleted.
+	Body      *string   `json:"body"`
+	CreatedAt time.Time `json:"createdAt"`
+
+	// Deleted True when the latest message was deleted; the client says so.
+	Deleted  bool               `json:"deleted"`
+	SenderId openapi_types.UUID `json:"senderId"`
 }
 
 // MessageReport defines model for MessageReport.
@@ -1228,7 +1269,7 @@ type MessageReportStatus string
 // MessageReportDetail defines model for MessageReportDetail.
 type MessageReportDetail struct {
 	// Messages Newest first, none later than the report.
-	Messages []Message `json:"messages"`
+	Messages []ReportedMessage `json:"messages"`
 
 	// NextBefore Pass as `before` to load earlier messages; null on the last page.
 	NextBefore *string       `json:"nextBefore"`
@@ -1267,6 +1308,19 @@ type MessageUnreadCount struct {
 	// Total Unread messages in active conversations.
 	Total int `json:"total"`
 }
+
+// MessageVersion defines model for MessageVersion.
+type MessageVersion struct {
+	Body string `json:"body"`
+
+	// EndedBy `edited`: a new text replaced it. `deleted`: the sender deleted the message.
+	EndedBy    MessageVersionEndedBy `json:"endedBy"`
+	ShownFrom  time.Time             `json:"shownFrom"`
+	ShownUntil time.Time             `json:"shownUntil"`
+}
+
+// MessageVersionEndedBy `edited`: a new text replaced it. `deleted`: the sender deleted the message.
+type MessageVersionEndedBy string
 
 // ModerationAction One row of the audit trail, as only an administrator sees it.
 type ModerationAction struct {
@@ -1914,7 +1968,7 @@ type RealtimeConversationUpdated struct {
 }
 
 // RealtimeEvent One server-to-client WebSocket frame, as JSON text. `data` is `RealtimeMessageCreated`,
-// `RealtimeConversationRead`, `RealtimeConversationUpdated`, `MessageUnreadCount`,
+// `RealtimeMessageUpdated`, `RealtimeMessageDeleted`, `RealtimeConversationRead`, `RealtimeConversationUpdated`, `MessageUnreadCount`,
 // `RealtimeTyping`, `PresenceStatus`, `Notification` or `UnreadNotificationCount`,
 // by `type`.
 type RealtimeEvent struct {
@@ -1937,6 +1991,17 @@ type RealtimeMessageCreated struct {
 	// `declined`: closed for good.
 	ConversationState ConversationState `json:"conversationState"`
 	Message           Message           `json:"message"`
+}
+
+// RealtimeMessageDeleted The sender deleted a message (FR-16.5). It stays in its place with no text.
+type RealtimeMessageDeleted struct {
+	ConversationId openapi_types.UUID `json:"conversationId"`
+	MessageId      openapi_types.UUID `json:"messageId"`
+}
+
+// RealtimeMessageUpdated The sender edited a message (FR-16.5). `message` is the REST `Message` with the new text.
+type RealtimeMessageUpdated struct {
+	Message Message `json:"message"`
 }
 
 // RealtimeTyping defines model for RealtimeTyping.
@@ -1978,6 +2043,31 @@ type ReportConversationRequest struct {
 
 // ReportReason defines model for ReportReason.
 type ReportReason string
+
+// ReportedMessage A message of a reported conversation as the administrator sees it (NFR-14): the text
+// at the report's moment and the texts shown before it. Text written after the report is
+// never shown; `changedAfterReport` only says there was some.
+type ReportedMessage struct {
+	// Body The text shown at the report's moment; null when the message was deleted by then.
+	Body *string `json:"body"`
+
+	// ChangedAfterReport The message was edited or deleted after the report. The later text is not shown.
+	ChangedAfterReport bool               `json:"changedAfterReport"`
+	ConversationId     openapi_types.UUID `json:"conversationId"`
+	CreatedAt          time.Time          `json:"createdAt"`
+
+	// DeletedAt When the sender deleted the message, also after the report; null when not deleted.
+	DeletedAt *time.Time `json:"deletedAt"`
+
+	// EditedAt The latest edit, also one after the report; null when never edited.
+	EditedAt *time.Time         `json:"editedAt"`
+	Id       openapi_types.UUID `json:"id"`
+	SenderId openapi_types.UUID `json:"senderId"`
+
+	// Versions Earlier texts that were shown at or before the report's moment, oldest first. Each
+	// ended with an edit or with the deletion. Empty when the text never changed by then.
+	Versions []MessageVersion `json:"versions"`
+}
 
 // ResendVerificationRequest defines model for ResendVerificationRequest.
 type ResendVerificationRequest struct {
@@ -2171,6 +2261,9 @@ type LanguageID = string
 // LinkID defines model for LinkID.
 type LinkID = string
 
+// MessageId defines model for MessageId.
+type MessageId = string
+
 // ModeratedUserId defines model for ModeratedUserId.
 type ModeratedUserId = string
 
@@ -2245,6 +2338,9 @@ type InvalidPublication = Error
 
 // LookupRateLimited The shape of every error response (SRS 5.3).
 type LookupRateLimited = Error
+
+// MessageEditRefused The shape of every error response (SRS 5.3).
+type MessageEditRefused = Error
 
 // MessageForbidden The shape of every error response (SRS 5.3).
 type MessageForbidden = Error
@@ -2558,6 +2654,9 @@ type SendConnectionRequestJSONRequestBody = ConnectionRequestCreate
 // SendMessageJSONRequestBody defines body for SendMessage for application/json ContentType.
 type SendMessageJSONRequestBody = SendMessageRequest
 
+// EditMessageJSONRequestBody defines body for EditMessage for application/json ContentType.
+type EditMessageJSONRequestBody = EditMessageRequest
+
 // MarkConversationReadJSONRequestBody defines body for MarkConversationRead for application/json ContentType.
 type MarkConversationReadJSONRequestBody = MarkConversationReadRequest
 
@@ -2737,6 +2836,12 @@ type ServerInterface interface {
 	// SendMessage Send a message in a conversation (FR-16.1, FR-16.2, FR-16.10, NFR-14)
 	// (POST /conversations/{conversationId}/messages)
 	SendMessage(w http.ResponseWriter, r *http.Request, conversationId ConversationId)
+	// DeleteMessage Delete one's own message (FR-16.5, NFR-14)
+	// (DELETE /conversations/{conversationId}/messages/{messageId})
+	DeleteMessage(w http.ResponseWriter, r *http.Request, conversationId ConversationId, messageId MessageId)
+	// EditMessage Edit one's own message (FR-16.5, FR-16.10, NFR-14)
+	// (PATCH /conversations/{conversationId}/messages/{messageId})
+	EditMessage(w http.ResponseWriter, r *http.Request, conversationId ConversationId, messageId MessageId)
 	// MarkConversationRead Move the logged-in user's read marker forward (FR-16.3, NFR-14)
 	// (POST /conversations/{conversationId}/read)
 	MarkConversationRead(w http.ResponseWriter, r *http.Request, conversationId ConversationId)
@@ -4135,6 +4240,88 @@ func (siw *ServerInterfaceWrapper) SendMessage(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SendMessage(w, r, conversationId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteMessage operation middleware
+func (siw *ServerInterfaceWrapper) DeleteMessage(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "conversationId" -------------
+	var conversationId ConversationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "conversationId", r.PathValue("conversationId"), &conversationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "conversationId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "messageId" -------------
+	var messageId MessageId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "messageId", r.PathValue("messageId"), &messageId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "messageId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteMessage(w, r, conversationId, messageId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// EditMessage operation middleware
+func (siw *ServerInterfaceWrapper) EditMessage(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "conversationId" -------------
+	var conversationId ConversationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "conversationId", r.PathValue("conversationId"), &conversationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "conversationId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "messageId" -------------
+	var messageId MessageId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "messageId", r.PathValue("messageId"), &messageId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "messageId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.EditMessage(w, r, conversationId, messageId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -5911,6 +6098,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/conversations/{conversationId}", wrapper.GetConversation)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/conversations/{conversationId}/messages", wrapper.ListMessages)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/conversations/{conversationId}/messages", wrapper.SendMessage)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/conversations/{conversationId}/messages/{messageId}", wrapper.DeleteMessage)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/conversations/{conversationId}/messages/{messageId}", wrapper.EditMessage)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/conversations/{conversationId}/read", wrapper.MarkConversationRead)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/conversations/{conversationId}/accept", wrapper.AcceptMessageRequest)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/conversations/{conversationId}/decline", wrapper.DeclineMessageRequest)
@@ -5956,6 +6145,8 @@ type LookupRateLimitedJSONResponse struct {
 
 	Headers LookupRateLimitedResponseHeaders
 }
+
+type MessageEditRefusedJSONResponse Error
 
 type MessageForbiddenJSONResponse Error
 
@@ -9131,6 +9322,202 @@ func (response SendMessage429JSONResponse) VisitSendMessageResponse(w http.Respo
 type SendMessage500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response SendMessage500JSONResponse) VisitSendMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMessageRequestObject struct {
+	ConversationId ConversationId `json:"conversationId"`
+	MessageId      MessageId      `json:"messageId"`
+}
+
+type DeleteMessageResponseObject interface {
+	VisitDeleteMessageResponse(w http.ResponseWriter) error
+}
+
+type DeleteMessage204Response struct {
+}
+
+func (response DeleteMessage204Response) VisitDeleteMessageResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteMessage401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response DeleteMessage401JSONResponse) VisitDeleteMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMessage403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response DeleteMessage403JSONResponse) VisitDeleteMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMessage404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DeleteMessage404JSONResponse) VisitDeleteMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMessage500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response DeleteMessage500JSONResponse) VisitDeleteMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type EditMessageRequestObject struct {
+	ConversationId ConversationId `json:"conversationId"`
+	MessageId      MessageId      `json:"messageId"`
+	Body           *EditMessageJSONRequestBody
+}
+
+type EditMessageResponseObject interface {
+	VisitEditMessageResponse(w http.ResponseWriter) error
+}
+
+type EditMessage200JSONResponse Message
+
+func (response EditMessage200JSONResponse) VisitEditMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type EditMessage400JSONResponse struct{ InvalidMessageJSONResponse }
+
+func (response EditMessage400JSONResponse) VisitEditMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type EditMessage401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response EditMessage401JSONResponse) VisitEditMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type EditMessage403JSONResponse struct{ MessageForbiddenJSONResponse }
+
+func (response EditMessage403JSONResponse) VisitEditMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type EditMessage404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response EditMessage404JSONResponse) VisitEditMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type EditMessage409JSONResponse struct{ MessageEditRefusedJSONResponse }
+
+func (response EditMessage409JSONResponse) VisitEditMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type EditMessage429JSONResponse struct{ MessageRateLimitedJSONResponse }
+
+func (response EditMessage429JSONResponse) VisitEditMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type EditMessage500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response EditMessage500JSONResponse) VisitEditMessageResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -13887,6 +14274,12 @@ type StrictServerInterface interface {
 	// SendMessage Send a message in a conversation (FR-16.1, FR-16.2, FR-16.10, NFR-14)
 	// (POST /conversations/{conversationId}/messages)
 	SendMessage(ctx context.Context, request SendMessageRequestObject) (SendMessageResponseObject, error)
+	// DeleteMessage Delete one's own message (FR-16.5, NFR-14)
+	// (DELETE /conversations/{conversationId}/messages/{messageId})
+	DeleteMessage(ctx context.Context, request DeleteMessageRequestObject) (DeleteMessageResponseObject, error)
+	// EditMessage Edit one's own message (FR-16.5, FR-16.10, NFR-14)
+	// (PATCH /conversations/{conversationId}/messages/{messageId})
+	EditMessage(ctx context.Context, request EditMessageRequestObject) (EditMessageResponseObject, error)
 	// MarkConversationRead Move the logged-in user's read marker forward (FR-16.3, NFR-14)
 	// (POST /conversations/{conversationId}/read)
 	MarkConversationRead(ctx context.Context, request MarkConversationReadRequestObject) (MarkConversationReadResponseObject, error)
@@ -15170,6 +15563,67 @@ func (sh *strictHandler) SendMessage(w http.ResponseWriter, r *http.Request, con
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SendMessageResponseObject); ok {
 		if err := validResponse.VisitSendMessageResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteMessage operation middleware
+func (sh *strictHandler) DeleteMessage(w http.ResponseWriter, r *http.Request, conversationId ConversationId, messageId MessageId) {
+	var request DeleteMessageRequestObject
+
+	request.ConversationId = conversationId
+	request.MessageId = messageId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteMessage(ctx, request.(DeleteMessageRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteMessage")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteMessageResponseObject); ok {
+		if err := validResponse.VisitDeleteMessageResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// EditMessage operation middleware
+func (sh *strictHandler) EditMessage(w http.ResponseWriter, r *http.Request, conversationId ConversationId, messageId MessageId) {
+	var request EditMessageRequestObject
+
+	request.ConversationId = conversationId
+	request.MessageId = messageId
+
+	var body EditMessageJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.EditMessage(ctx, request.(EditMessageRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "EditMessage")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(EditMessageResponseObject); ok {
+		if err := validResponse.VisitEditMessageResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -18,7 +18,9 @@ const (
 	okMessageID      = "019a5c2e-9a4d-7e8b-b7c1-2d3e4f5a6b7c"
 )
 
-var okMessage = messagingdomain.Message{ID: okMessageID, ConversationID: okConversationID, SenderID: okUserID, Body: "hi"}
+var okMessage = messagingdomain.Message{ID: okMessageID, ConversationID: okConversationID, SenderID: okUserID, Body: &okBody}
+
+var okBody = "hi"
 
 var okItem = messagingdomain.Item{
 	Conversation: messagingdomain.Conversation{ID: okConversationID, State: messagingdomain.StateActive},
@@ -27,6 +29,12 @@ var okItem = messagingdomain.Item{
 
 // okMessaging is a messaging service for which every operation succeeds.
 type okMessaging struct{}
+
+func (okMessaging) Edit(context.Context, string, string, string, string) (messagingdomain.Message, error) {
+	return okMessage, nil
+}
+
+func (okMessaging) Delete(context.Context, string, string, string) error { return nil }
 
 func (okMessaging) SendDirect(context.Context, string, string, string, string) (messagingdomain.Sent, error) {
 	return messagingdomain.Sent{Message: okMessage, State: messagingdomain.StateActive}, nil
@@ -102,6 +110,8 @@ func TestMessagingRoutesThroughRouter(t *testing.T) {
 		{http.MethodPost, base + "/read", `{"messageId":"` + okMessageID + `"}`, http.StatusNoContent},
 		{http.MethodPost, base + "/accept", "", http.StatusOK},
 		{http.MethodPost, base + "/decline", "", http.StatusOK},
+		{http.MethodPatch, base + "/messages/" + okMessageID, `{"body":"edited"}`, http.StatusOK},
+		{http.MethodDelete, base + "/messages/" + okMessageID, "", http.StatusNoContent},
 	}
 	for _, r := range routes {
 		call := func(t *testing.T, role string) *httptest.ResponseRecorder {
@@ -135,15 +145,17 @@ func TestMessagingRoutesThroughRouter(t *testing.T) {
 
 func TestMessagingRoutesAreGuarded(t *testing.T) {
 	want := map[string]authz.Action{
-		"POST /api/v1/messages/direct":                         authz.ActAsMember,
-		"GET /api/v1/messages/unread-count":                    authz.ViewContent,
-		"GET /api/v1/conversations":                            authz.ViewContent,
-		"GET /api/v1/conversations/{conversationId}":           authz.ViewContent,
-		"GET /api/v1/conversations/{conversationId}/messages":  authz.ViewContent,
-		"POST /api/v1/conversations/{conversationId}/messages": authz.ActAsMember,
-		"POST /api/v1/conversations/{conversationId}/read":     authz.ActAsMember,
-		"POST /api/v1/conversations/{conversationId}/accept":   authz.ActAsMember,
-		"POST /api/v1/conversations/{conversationId}/decline":  authz.ActAsMember,
+		"POST /api/v1/messages/direct":                                       authz.ActAsMember,
+		"GET /api/v1/messages/unread-count":                                  authz.ViewContent,
+		"GET /api/v1/conversations":                                          authz.ViewContent,
+		"GET /api/v1/conversations/{conversationId}":                         authz.ViewContent,
+		"GET /api/v1/conversations/{conversationId}/messages":                authz.ViewContent,
+		"POST /api/v1/conversations/{conversationId}/messages":               authz.ActAsMember,
+		"POST /api/v1/conversations/{conversationId}/read":                   authz.ActAsMember,
+		"POST /api/v1/conversations/{conversationId}/accept":                 authz.ActAsMember,
+		"POST /api/v1/conversations/{conversationId}/decline":                authz.ActAsMember,
+		"PATCH /api/v1/conversations/{conversationId}/messages/{messageId}":  authz.ActAsMember,
+		"DELETE /api/v1/conversations/{conversationId}/messages/{messageId}": authz.ActAsMember,
 	}
 	registered := map[string]bool{}
 	for _, r := range httpserver.Routes() {

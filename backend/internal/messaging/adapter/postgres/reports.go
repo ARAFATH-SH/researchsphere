@@ -96,7 +96,7 @@ func (s *Store) FindReport(ctx context.Context, id string) (domain.Report, error
 }
 
 // ListReportedMessages finds nothing for a report that is not a UUID.
-func (s *Store) ListReportedMessages(ctx context.Context, reportID, before string, limit int) ([]domain.Message, error) {
+func (s *Store) ListReportedMessages(ctx context.Context, reportID, before string, limit int) ([]domain.ReportedMessage, error) {
 	rid, ok := parseUUID(reportID)
 	if !ok {
 		return nil, nil
@@ -113,11 +113,44 @@ func (s *Store) ListReportedMessages(ctx context.Context, reportID, before strin
 	if err != nil {
 		return nil, fmt.Errorf("list reported messages: %w", err)
 	}
-	items := make([]domain.Message, len(rows))
+	items := make([]domain.ReportedMessage, len(rows))
 	for i, r := range rows {
-		items[i] = message(r.ID, r.ConversationID, r.SenderID, r.Body, r.ClientID, r.CreatedAt)
+		items[i] = domain.ReportedMessage{
+			ID: r.ID.String(), ConversationID: r.ConversationID.String(), SenderID: r.SenderID.String(), CreatedAt: r.CreatedAt.Time,
+			EditedAt: timePtr(r.EditedAt), DeletedAt: timePtr(r.DeletedAt), ChangedAfterReport: r.ChangedAfterReport,
+		}
+		if r.HasBodyAtReport {
+			body := r.BodyAtReport
+			items[i].Body = &body
+		}
 	}
 	return items, nil
+}
+
+// ListReportedVersions skips IDs that are not UUIDs.
+func (s *Store) ListReportedVersions(ctx context.Context, reportID string, messageIDs []string) ([]domain.MessageVersion, error) {
+	rid, ok := parseUUID(reportID)
+	if !ok {
+		return nil, nil
+	}
+	ids := make([]pgtype.UUID, 0, len(messageIDs))
+	for _, m := range messageIDs {
+		if id, ok := parseUUID(m); ok {
+			ids = append(ids, id)
+		}
+	}
+	rows, err := s.q(ctx).ListReportedVersions(ctx, sqlcgen.ListReportedVersionsParams{ReportID: rid, MessageIds: ids})
+	if err != nil {
+		return nil, fmt.Errorf("list reported versions: %w", err)
+	}
+	out := make([]domain.MessageVersion, len(rows))
+	for i, r := range rows {
+		out[i] = domain.MessageVersion{
+			MessageID: r.MessageID.String(), Body: r.Body, ShownFrom: r.ShownFrom.Time, ShownUntil: r.ShownUntil.Time,
+			EndedBy: domain.VersionEnd(r.EndedBy),
+		}
+	}
+	return out, nil
 }
 
 // AddReportView records the view. The caller found the report first.

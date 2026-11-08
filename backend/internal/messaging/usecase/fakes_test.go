@@ -24,6 +24,9 @@ type fakeStore struct {
 	failView      error
 	duplicateAdd  bool // AddMessage reports a client ID used by a racing send
 	calls         []string
+	versions      []domain.MessageVersion
+	clock         func() time.Time // the time of edits and deletions
+	onLockMessage func()           // runs inside LockOwnMessage, for a change that commits meanwhile
 }
 
 // fakeActors gives each user a standing; nobody listed is in good standing.
@@ -42,7 +45,8 @@ type fakeConversation struct {
 }
 
 func newFakeStore() *fakeStore {
-	return &fakeStore{hidden: map[string]bool{}, conversations: map[string]*fakeConversation{}}
+	return &fakeStore{hidden: map[string]bool{}, conversations: map[string]*fakeConversation{},
+		clock: func() time.Time { return time.Date(2026, 11, 4, 10, 5, 0, 0, time.UTC) }}
 }
 
 func (f *fakeStore) pair(a, b string) *fakeConversation {
@@ -156,8 +160,8 @@ func (f *fakeStore) item(c *fakeConversation, memberID string) domain.Item {
 	it.Other = domain.Person{UserID: it.OtherID, Available: !f.hidden[it.OtherID]}
 	for _, m := range f.messages {
 		if m.ConversationID == c.id {
-			it.LastMessage = &domain.Preview{SenderID: m.SenderID, Body: m.Body, CreatedAt: m.CreatedAt}
-			if m.SenderID != memberID && m.ID > c.read[memberID] {
+			it.LastMessage = &domain.Preview{SenderID: m.SenderID, Body: m.Body, Deleted: m.Deleted(), CreatedAt: m.CreatedAt}
+			if m.SenderID != memberID && m.ID > c.read[memberID] && !m.Deleted() {
 				it.UnreadCount++
 			}
 		}
@@ -255,10 +259,10 @@ func (t fakeTx) InTx(ctx context.Context, fn func(context.Context) error) error 
 	for id, c := range s.conversations {
 		saved[id] = *c
 	}
-	n := len(s.messages)
+	messages, versions := slices.Clone(s.messages), len(s.versions)
 	err := fn(ctx)
 	if err != nil {
-		s.messages = s.messages[:n]
+		s.messages, s.versions = messages, s.versions[:versions]
 		s.conversations = map[string]*fakeConversation{}
 		for id, c := range saved {
 			s.conversations[id] = &c
@@ -327,6 +331,14 @@ type fakePublisher struct{ events []string }
 
 func (f *fakePublisher) MessageSent(_ context.Context, s domain.Sent, to []string) {
 	f.events = append(f.events, fmt.Sprintf("sent %s to %v", s.Message.ID, to))
+}
+
+func (f *fakePublisher) MessageEdited(_ context.Context, m domain.Message, to []string) {
+	f.events = append(f.events, fmt.Sprintf("edited %s to %v", m.ID, to))
+}
+
+func (f *fakePublisher) MessageDeleted(_ context.Context, m domain.Message, to []string) {
+	f.events = append(f.events, fmt.Sprintf("deleted %s to %v", m.ID, to))
 }
 
 func (f *fakePublisher) ReadMoved(_ context.Context, _, readerID, messageID string, to []string) {
@@ -405,13 +417,87 @@ func (f *fakeStore) FindReport(_ context.Context, id string) (domain.Report, err
 	return domain.Report{}, domain.ErrNotFound
 }
 
-// ListReportedMessages ignores the moment: the real query's cut-off has its own test.
-func (f *fakeStore) ListReportedMessages(ctx context.Context, reportID, before string, limit int) ([]domain.Message, error) {
+// ListReportedMessages ignores the moment and shows the current text: the real query's cut-off
+// and text at the report's moment have their own tests.
+func (f *fakeStore) ListReportedMessages(ctx context.Context, reportID, before string, limit int) ([]domain.ReportedMessage, error) {
 	r, err := f.FindReport(ctx, reportID)
 	if err != nil {
 		return nil, err
 	}
-	return f.ListMessages(ctx, r.ConversationID, before, limit)
+	ms, err := f.ListMessages(ctx, r.ConversationID, before, limit)
+	out := make([]domain.ReportedMessage, len(ms))
+	for i, m := range ms {
+		out[i] = domain.ReportedMessage{ID: m.ID, ConversationID: m.ConversationID, SenderID: m.SenderID, CreatedAt: m.CreatedAt,
+			Body: m.Body, EditedAt: m.EditedAt, DeletedAt: m.DeletedAt}
+	}
+	return out, err
+}
+
+// ListReportedVersions ignores the moment, as ListReportedMessages does.
+func (f *fakeStore) ListReportedVersions(_ context.Context, _ string, messageIDs []string) ([]domain.MessageVersion, error) {
+	var out []domain.MessageVersion
+	for _, v := range f.versions {
+		if slices.Contains(messageIDs, v.MessageID) {
+			out = append(out, v)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeStore) message(id string) *domain.Message {
+	for i := range f.messages {
+		if f.messages[i].ID == id {
+			return &f.messages[i]
+		}
+	}
+	return nil
+}
+
+func (f *fakeStore) FindOwnMessage(_ context.Context, conversationID, messageID, senderID string) (domain.Message, error) {
+	m := f.message(messageID)
+	if m == nil || m.ConversationID != conversationID || m.SenderID != senderID {
+		return domain.Message{}, domain.ErrNotFound
+	}
+	return *m, nil
+}
+
+func (f *fakeStore) LockOwnMessage(ctx context.Context, conversationID, messageID, senderID string) (domain.Message, error) {
+	f.calls = append(f.calls, "lock message")
+	if f.onLockMessage != nil {
+		f.onLockMessage()
+		f.onLockMessage = nil
+	}
+	return f.FindOwnMessage(ctx, conversationID, messageID, senderID)
+}
+
+// replace keeps the message's text as a version ended by end, as the real queries do.
+func (f *fakeStore) replace(messageID string, end domain.VersionEnd, body *string) (domain.Message, error) {
+	m := f.message(messageID)
+	if m == nil || m.Deleted() {
+		return domain.Message{}, domain.ErrNotFound
+	}
+	at, from := f.clock(), m.CreatedAt
+	if m.EditedAt != nil {
+		from = *m.EditedAt
+	}
+	f.versions = append(f.versions, domain.MessageVersion{MessageID: m.ID, Body: *m.Body, ShownFrom: from, ShownUntil: at, EndedBy: end})
+	m.Body = body
+	if end == domain.EndedByEdit {
+		m.EditedAt = &at
+	} else {
+		m.DeletedAt = &at
+	}
+	return *m, nil
+}
+
+func (f *fakeStore) EditMessage(_ context.Context, messageID, body string) (domain.Message, error) {
+	f.calls = append(f.calls, "edit")
+	return f.replace(messageID, domain.EndedByEdit, &body)
+}
+
+func (f *fakeStore) DeleteMessage(_ context.Context, messageID string) (domain.Message, error) {
+	f.calls = append(f.calls, "delete")
+	return f.replace(messageID, domain.EndedByDeletion, nil)
 }
 
 func (f *fakeStore) AddReportView(_ context.Context, reportID, adminID string) error {

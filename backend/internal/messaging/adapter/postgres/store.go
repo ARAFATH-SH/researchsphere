@@ -62,7 +62,7 @@ func (s *Store) FindSent(ctx context.Context, senderID, clientID string) (domain
 	if err != nil {
 		return domain.Sent{}, false, fmt.Errorf("find sent message: %w", err)
 	}
-	m := message(r.ID, r.ConversationID, r.SenderID, r.Body, r.ClientID, r.CreatedAt)
+	m := message(r.ID, r.ConversationID, r.SenderID, r.Body, r.ClientID, r.CreatedAt, r.EditedAt, r.DeletedAt)
 	return domain.Sent{Message: m, State: domain.State(r.State)}, true, nil
 }
 
@@ -168,8 +168,11 @@ func (s *Store) AddMessage(ctx context.Context, m domain.Message) (domain.Messag
 	if !ok1 || !ok2 || !ok3 {
 		return domain.Message{}, false, fmt.Errorf("add message: conversation %q, sender %q or client ID %q is not a UUID", m.ConversationID, m.SenderID, m.ClientID)
 	}
+	if m.Body == nil {
+		return domain.Message{}, false, errors.New("add message: no body")
+	}
 	q := s.q(ctx)
-	r, err := q.InsertMessage(ctx, sqlcgen.InsertMessageParams{ConversationID: conv, SenderID: sender, Body: m.Body, ClientID: client})
+	r, err := q.InsertMessage(ctx, sqlcgen.InsertMessageParams{ConversationID: conv, SenderID: sender, Body: *m.Body, ClientID: client})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Message{}, false, nil
 	}
@@ -182,7 +185,7 @@ func (s *Store) AddMessage(ctx context.Context, m domain.Message) (domain.Messag
 	if _, err := q.MoveReadMarker(ctx, sqlcgen.MoveReadMarkerParams{MessageID: r.ID, ConversationID: conv, UserID: sender}); err != nil {
 		return domain.Message{}, false, fmt.Errorf("move sender's read marker: %w", err)
 	}
-	return message(r.ID, r.ConversationID, r.SenderID, r.Body, r.ClientID, r.CreatedAt), true, nil
+	return message(r.ID, r.ConversationID, r.SenderID, r.Body, r.ClientID, r.CreatedAt, r.EditedAt, r.DeletedAt), true, nil
 }
 
 // FindConversation returns domain.ErrNotFound for a bad ID or a non-member.
@@ -269,9 +272,70 @@ func (s *Store) ListMessages(ctx context.Context, conversationID, before string,
 	}
 	items := make([]domain.Message, len(rows))
 	for i, r := range rows {
-		items[i] = message(r.ID, r.ConversationID, r.SenderID, r.Body, r.ClientID, r.CreatedAt)
+		items[i] = message(r.ID, r.ConversationID, r.SenderID, r.Body, r.ClientID, r.CreatedAt, r.EditedAt, r.DeletedAt)
 	}
 	return items, nil
+}
+
+// FindOwnMessage returns domain.ErrNotFound for IDs that are not UUIDs.
+func (s *Store) FindOwnMessage(ctx context.Context, conversationID, messageID, senderID string) (domain.Message, error) {
+	return s.ownMessage(ctx, conversationID, messageID, senderID, false)
+}
+
+// LockOwnMessage holds the row until the transaction the context carries ends.
+func (s *Store) LockOwnMessage(ctx context.Context, conversationID, messageID, senderID string) (domain.Message, error) {
+	return s.ownMessage(ctx, conversationID, messageID, senderID, true)
+}
+
+func (s *Store) ownMessage(ctx context.Context, conversationID, messageID, senderID string, lock bool) (domain.Message, error) {
+	conv, ok1 := parseUUID(conversationID)
+	id, ok2 := parseUUID(messageID)
+	sender, ok3 := parseUUID(senderID)
+	if !ok1 || !ok2 || !ok3 {
+		return domain.Message{}, domain.ErrNotFound
+	}
+	var (
+		r   sqlcgen.Message
+		err error
+	)
+	if lock {
+		r, err = s.q(ctx).LockOwnMessage(ctx, sqlcgen.LockOwnMessageParams{ConversationID: conv, ID: id, SenderID: sender})
+	} else {
+		r, err = s.q(ctx).FindOwnMessage(ctx, sqlcgen.FindOwnMessageParams{ConversationID: conv, ID: id, SenderID: sender})
+	}
+	return stored(r, err, "find own message")
+}
+
+// EditMessage needs a transaction in the context only to run with the caller's locks; its
+// two writes are one statement.
+func (s *Store) EditMessage(ctx context.Context, messageID, body string) (domain.Message, error) {
+	id, ok := parseUUID(messageID)
+	if !ok {
+		return domain.Message{}, domain.ErrNotFound
+	}
+	r, err := s.q(ctx).EditMessage(ctx, sqlcgen.EditMessageParams{ID: id, Body: body})
+	return stored(r, err, "edit message")
+}
+
+// DeleteMessage keeps the text and leaves the tombstone in one statement.
+func (s *Store) DeleteMessage(ctx context.Context, messageID string) (domain.Message, error) {
+	id, ok := parseUUID(messageID)
+	if !ok {
+		return domain.Message{}, domain.ErrNotFound
+	}
+	r, err := s.q(ctx).DeleteMessage(ctx, id)
+	return stored(r, err, "delete message")
+}
+
+// stored maps a row of messages, and no row to domain.ErrNotFound.
+func stored(r sqlcgen.Message, err error, what string) (domain.Message, error) {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Message{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.Message{}, fmt.Errorf("%s: %w", what, err)
+	}
+	return message(r.ID, r.ConversationID, r.SenderID, r.Body, r.ClientID, r.CreatedAt, r.EditedAt, r.DeletedAt), nil
 }
 
 // MessageIn is false for IDs that are not UUIDs.
@@ -355,11 +419,21 @@ func conversation(id pgtype.UUID, state string, requestedBy pgtype.UUID, last pg
 	return domain.Conversation{ID: id.String(), State: domain.State(state), RequestedBy: uuidPtr(requestedBy), LastMessageAt: last.Time}
 }
 
-func message(id, conversationID, senderID pgtype.UUID, body string, clientID pgtype.UUID, createdAt pgtype.Timestamptz) domain.Message {
+func message(id, conversationID, senderID pgtype.UUID, body pgtype.Text, clientID pgtype.UUID,
+	createdAt, editedAt, deletedAt pgtype.Timestamptz,
+) domain.Message {
 	return domain.Message{
 		ID: id.String(), ConversationID: conversationID.String(), SenderID: senderID.String(),
-		Body: body, ClientID: clientID.String(), CreatedAt: createdAt.Time,
+		Body: textPtr(body), ClientID: clientID.String(), CreatedAt: createdAt.Time,
+		EditedAt: timePtr(editedAt), DeletedAt: timePtr(deletedAt),
 	}
+}
+
+func timePtr(t pgtype.Timestamptz) *time.Time {
+	if !t.Valid {
+		return nil
+	}
+	return &t.Time
 }
 
 func item(r sqlcgen.ListItemsRow) domain.Item {
@@ -373,7 +447,12 @@ func item(r sqlcgen.ListItemsRow) domain.Item {
 	}
 	it.OtherID, it.OtherReadID = r.OtherID.String(), uuidPtr(r.OtherReadID)
 	if r.LastSenderID.Valid {
-		it.LastMessage = &domain.Preview{SenderID: r.LastSenderID.String(), Body: r.LastPreview, CreatedAt: timeOf(r.LastCreatedAt)}
+		// The query cannot say the preview is null; last_deleted does.
+		it.LastMessage = &domain.Preview{SenderID: r.LastSenderID.String(), Deleted: r.LastDeleted, CreatedAt: timeOf(r.LastCreatedAt)}
+		if !r.LastDeleted {
+			body := r.LastPreview
+			it.LastMessage.Body = &body
+		}
 	}
 	return it
 }

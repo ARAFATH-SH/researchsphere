@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	goredis "github.com/redis/go-redis/v9"
@@ -123,6 +124,40 @@ func (e *realtimeEvents) MessageSent(ctx context.Context, sent messagingdomain.S
 		}
 		e.hub.Send(ctx, sent.Message.SenderID, realtimedomain.Event{Type: realtimedomain.EventMessageCreated, Data: mine})
 		e.sendUnread(ctx, sent.Message.SenderID)
+	})
+}
+
+// MessageEdited tells the other member and the sender's own tabs the new text (FR-16.5).
+func (e *realtimeEvents) MessageEdited(ctx context.Context, m messagingdomain.Message, to []string) {
+	postgres.AfterCommit(ctx, func(ctx context.Context) {
+		body, err := messaginghttp.MessageBody(m)
+		if err != nil {
+			e.logger.ErrorContext(ctx, "realtime: message edited event", slog.Any("error", err))
+			return
+		}
+		ev := realtimedomain.Event{Type: realtimedomain.EventMessageUpdated, Data: gen.RealtimeMessageUpdated{Message: body}}
+		for _, userID := range append(slices.Clone(to), m.SenderID) {
+			e.hub.Send(ctx, userID, ev)
+		}
+	})
+}
+
+// MessageDeleted tells the other member and the sender's own tabs (FR-16.5). A deleted
+// message no longer counts as unread, so the other members' counts may change.
+func (e *realtimeEvents) MessageDeleted(ctx context.Context, m messagingdomain.Message, to []string) {
+	postgres.AfterCommit(ctx, func(ctx context.Context) {
+		c, err1 := parseUUID(m.ConversationID)
+		id, err2 := parseUUID(m.ID)
+		if err := errors.Join(err1, err2); err != nil {
+			e.logger.ErrorContext(ctx, "realtime: message deleted event", slog.Any("error", err))
+			return
+		}
+		ev := realtimedomain.Event{Type: realtimedomain.EventMessageDeleted, Data: gen.RealtimeMessageDeleted{ConversationId: c, MessageId: id}}
+		for _, userID := range to {
+			e.hub.Send(ctx, userID, ev)
+			e.sendUnread(ctx, userID)
+		}
+		e.hub.Send(ctx, m.SenderID, ev)
 	})
 }
 

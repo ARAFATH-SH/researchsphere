@@ -41,6 +41,8 @@ type Service interface {
 	Get(ctx context.Context, userID, id string) (domain.Item, error)
 	Messages(ctx context.Context, userID, id, before string, limit *int) (domain.MessagePage, error)
 	MarkRead(ctx context.Context, userID, id, messageID string) error
+	Edit(ctx context.Context, editorID, conversationID, messageID, body string) (domain.Message, error)
+	Delete(ctx context.Context, deleterID, conversationID, messageID string) error
 	Accept(ctx context.Context, userID, id string) (domain.Item, error)
 	Decline(ctx context.Context, userID, id string) (domain.Item, error)
 	UnreadCounts(ctx context.Context, userID string) (domain.UnreadCounts, error)
@@ -375,7 +377,10 @@ func MessageBody(m domain.Message) (gen.Message, error) {
 	if err != nil {
 		return gen.Message{}, err
 	}
-	return gen.Message{Id: id, ConversationId: conversation, SenderId: sender, Body: m.Body, CreatedAt: m.CreatedAt}, nil
+	return gen.Message{
+		Id: id, ConversationId: conversation, SenderId: sender, Body: m.Body, CreatedAt: m.CreatedAt,
+		EditedAt: m.EditedAt, Deleted: m.Deleted(),
+	}, nil
 }
 
 func conversationBody(it domain.Item) (gen.Conversation, error) {
@@ -405,7 +410,7 @@ func conversationBody(it domain.Item) (gen.Conversation, error) {
 		if err != nil {
 			return gen.Conversation{}, err
 		}
-		c.LastMessage = &gen.MessagePreview{SenderId: sender, Body: it.LastMessage.Body, CreatedAt: it.LastMessage.CreatedAt}
+		c.LastMessage = &gen.MessagePreview{SenderId: sender, Body: it.LastMessage.Body, Deleted: it.LastMessage.Deleted, CreatedAt: it.LastMessage.CreatedAt}
 	}
 	return c, nil
 }

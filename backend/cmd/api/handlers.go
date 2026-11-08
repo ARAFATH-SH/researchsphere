@@ -165,16 +165,18 @@ var platformGuards = map[string]authz.Action{
 	// closest to "View ...", writing to "Edit own profile, connect, ...". Membership is
 	// checked on every operation by the usecase (NFR-14); no role gets more access on these
 	// routes. An administrator reads a reported conversation through /admin/message-reports.
-	"POST /api/v1/messages/direct":                         authz.ActAsMember,
-	"GET /api/v1/messages/unread-count":                    authz.ViewContent,
-	"GET /api/v1/conversations":                            authz.ViewContent,
-	"GET /api/v1/conversations/{conversationId}":           authz.ViewContent,
-	"GET /api/v1/conversations/{conversationId}/messages":  authz.ViewContent,
-	"POST /api/v1/conversations/{conversationId}/messages": authz.ActAsMember,
-	"POST /api/v1/conversations/{conversationId}/read":     authz.ActAsMember,
-	"POST /api/v1/conversations/{conversationId}/accept":   authz.ActAsMember,
-	"POST /api/v1/conversations/{conversationId}/decline":  authz.ActAsMember,
-	"POST /api/v1/conversations/{conversationId}/reports":  authz.ActAsMember,
+	"POST /api/v1/messages/direct":                                       authz.ActAsMember,
+	"GET /api/v1/messages/unread-count":                                  authz.ViewContent,
+	"GET /api/v1/conversations":                                          authz.ViewContent,
+	"GET /api/v1/conversations/{conversationId}":                         authz.ViewContent,
+	"GET /api/v1/conversations/{conversationId}/messages":                authz.ViewContent,
+	"POST /api/v1/conversations/{conversationId}/messages":               authz.ActAsMember,
+	"POST /api/v1/conversations/{conversationId}/read":                   authz.ActAsMember,
+	"PATCH /api/v1/conversations/{conversationId}/messages/{messageId}":  authz.ActAsMember,
+	"DELETE /api/v1/conversations/{conversationId}/messages/{messageId}": authz.ActAsMember,
+	"POST /api/v1/conversations/{conversationId}/accept":                 authz.ActAsMember,
+	"POST /api/v1/conversations/{conversationId}/decline":                authz.ActAsMember,
+	"POST /api/v1/conversations/{conversationId}/reports":                authz.ActAsMember,
 
 	// Blocks (FR-16.9): SRS 2.3 has no row for them. Blocking is closest to "Edit own
 	// profile, connect, ...", and reading one's own list to "View ...".

@@ -23,21 +23,25 @@ type harness struct {
 	pub     *fakePublisher
 	actors  fakeActors
 	client  int
+	now     time.Time // the clock the service reads
 }
 
-var testLimits = Limits{MessagesPerMinute: 30, MessagesPerDay: 1000, RequestsPerMinute: 5, RequestsPerDay: 20}
+var testLimits = Limits{MessagesPerMinute: 30, MessagesPerDay: 1000, RequestsPerMinute: 5, RequestsPerDay: 20, EditWindow: 15 * time.Minute}
+
+func (h *harness) clock() time.Time { return h.now }
 
 func newHarness() *harness {
-	h := &harness{store: newFakeStore(), conns: fakeConnections{}, blocks: newFakeBlocks(), limiter: newFakeLimiter(), pub: &fakePublisher{}, actors: fakeActors{}}
-	h.svc = New(h.store, fakeTx{h.store}, h.conns, h.blocks, h.actors, h.limiter, h.pub, testLimits, slog.New(slog.DiscardHandler))
+	h := &harness{store: newFakeStore(), conns: fakeConnections{}, blocks: newFakeBlocks(), limiter: newFakeLimiter(), pub: &fakePublisher{}, actors: fakeActors{},
+		now: time.Date(2026, 11, 4, 10, 5, 0, 0, time.UTC)}
+	h.svc = New(h.store, fakeTx{h.store}, h.conns, h.blocks, h.actors, h.limiter, h.pub, testLimits, h.clock, slog.New(slog.DiscardHandler))
 	return h
 }
 
 // noLimits replaces the limits with ones a test that sends many messages cannot reach.
 func (h *harness) noLimits() {
 	h.svc = New(h.store, fakeTx{h.store}, h.conns, h.blocks, h.actors, h.limiter, h.pub,
-		Limits{MessagesPerMinute: 1 << 20, MessagesPerDay: 1 << 20, RequestsPerMinute: 1 << 20, RequestsPerDay: 1 << 20},
-		slog.New(slog.DiscardHandler))
+		Limits{MessagesPerMinute: 1 << 20, MessagesPerDay: 1 << 20, RequestsPerMinute: 1 << 20, RequestsPerDay: 1 << 20, EditWindow: 15 * time.Minute},
+		h.clock, slog.New(slog.DiscardHandler))
 }
 
 func (h *harness) connect(a, b string) { h.conns[a+"|"+b] = true }
@@ -61,7 +65,7 @@ func TestSendDirectToConnectionIsActive(t *testing.T) {
 	h := newHarness()
 	h.connect("ada", "bob")
 	s := h.direct(t, "ada", "bob", "  hello\nthere \n")
-	if s.State != domain.StateActive || s.Replayed || s.Message.Body != "hello\nthere" {
+	if s.State != domain.StateActive || s.Replayed || text(s.Message) != "hello\nthere" {
 		t.Fatalf("got %+v", s)
 	}
 	if c := h.store.pair("ada", "bob"); c.requestedBy != nil {
@@ -391,7 +395,7 @@ func TestIdempotentClientID(t *testing.T) {
 			t.Fatal(err)
 		}
 		again, err := h.svc.SendDirect(ctx, "ada", "bob", "different text", "c1")
-		if err != nil || !again.Replayed || again.Message.ID != first.Message.ID || again.Message.Body != "hi" {
+		if err != nil || !again.Replayed || again.Message.ID != first.Message.ID || text(again.Message) != "hi" {
 			t.Fatalf("got %+v, %v", again, err)
 		}
 		byID, err := h.svc.Send(ctx, "ada", first.Message.ConversationID, "hi", "c1")
@@ -447,7 +451,7 @@ func TestIdempotentClientID(t *testing.T) {
 		found := h.store.messages
 		h.store.messages = nil
 		lookups := &racingFind{fakeStore: h.store, hidden: true, saved: found}
-		svc := New(lookups, fakeTx{h.store}, h.conns, h.blocks, h.actors, h.limiter, h.pub, testLimits, slog.New(slog.DiscardHandler))
+		svc := New(lookups, fakeTx{h.store}, h.conns, h.blocks, h.actors, h.limiter, h.pub, testLimits, h.clock, slog.New(slog.DiscardHandler))
 		h.store.duplicateAdd = true
 		got, err := svc.SendDirect(ctx, "ada", "bob", "second", "c1")
 		if err != nil || !got.Replayed || got.Message.ID != winner.Message.ID {
@@ -467,7 +471,7 @@ func TestIdempotentClientID(t *testing.T) {
 		// The retry got past the lookup before the first send committed, then found the
 		// request it had started itself.
 		lookups := &racingFind{fakeStore: h.store, hidden: true, saved: h.store.messages}
-		svc := New(lookups, fakeTx{h.store}, h.conns, h.blocks, h.actors, h.limiter, h.pub, testLimits, slog.New(slog.DiscardHandler))
+		svc := New(lookups, fakeTx{h.store}, h.conns, h.blocks, h.actors, h.limiter, h.pub, testLimits, h.clock, slog.New(slog.DiscardHandler))
 		got, err := svc.SendDirect(ctx, "ada", "bob", "may I?", "c1")
 		if err != nil || !got.Replayed || got.Message.ID != winner.Message.ID {
 			t.Fatalf("got %+v, %v", got, err)
@@ -609,7 +613,7 @@ func TestRateLimits(t *testing.T) {
 		h := newHarness()
 		h.connect("ada", "bob")
 		h.svc = New(h.store, fakeTx{h.store}, h.conns, h.blocks, h.actors, h.limiter, h.pub,
-			Limits{MessagesPerMinute: 1, MessagesPerDay: 1000, RequestsPerMinute: 5, RequestsPerDay: 20}, slog.New(slog.DiscardHandler))
+			Limits{MessagesPerMinute: 1, MessagesPerDay: 1000, RequestsPerMinute: 5, RequestsPerDay: 20}, h.clock, slog.New(slog.DiscardHandler))
 		h.direct(t, "ada", "bob", "one")
 		var limited *domain.RateLimitedError
 		if _, err := h.svc.SendDirect(ctx, "ada", "bob", "two", "c2"); !errors.As(err, &limited) {
@@ -792,11 +796,11 @@ func TestMessagesPaging(t *testing.T) {
 	if err != nil || len(p.Items) != DefaultMessageLimit || p.NextBefore == nil {
 		t.Fatalf("first page: %d items, next %v, %v", len(p.Items), p.NextBefore, err)
 	}
-	if p.Items[0].Body != "m34" || p.Items[29].Body != "m5" {
-		t.Errorf("not newest first: %s .. %s", p.Items[0].Body, p.Items[29].Body)
+	if text(p.Items[0]) != "m34" || text(p.Items[29]) != "m5" {
+		t.Errorf("not newest first: %s .. %s", text(p.Items[0]), text(p.Items[29]))
 	}
 	last, err := h.svc.Messages(ctx, "ada", id, *p.NextBefore, nil)
-	if err != nil || len(last.Items) != 5 || last.NextBefore != nil || last.Items[0].Body != "m4" {
+	if err != nil || len(last.Items) != 5 || last.NextBefore != nil || text(last.Items[0]) != "m4" {
 		t.Fatalf("second page: %d items, next %v, %v", len(last.Items), last.NextBefore, err)
 	}
 }
@@ -1083,7 +1087,7 @@ func TestStandingIsCheckedAgainInTheTransaction(t *testing.T) {
 	h.connect("ada", "bob")
 	sent := h.direct(t, "ada", "bob", "hello")
 	flip := &flippingActors{after: 1, then: domain.Standing{RestrictedUntil: &until}}
-	h.svc = New(h.store, fakeTx{h.store}, h.conns, h.blocks, flip, h.limiter, h.pub, testLimits, slog.New(slog.DiscardHandler))
+	h.svc = New(h.store, fakeTx{h.store}, h.conns, h.blocks, flip, h.limiter, h.pub, testLimits, h.clock, slog.New(slog.DiscardHandler))
 
 	before := len(h.store.messages)
 	var refused *domain.RestrictedError
@@ -1114,7 +1118,7 @@ func TestStandingFailureStopsTheWrite(t *testing.T) {
 	h.connect("ada", "bob")
 	sent := h.direct(t, "ada", "bob", "hello")
 	boom := errors.New("database down")
-	h.svc = New(h.store, fakeTx{h.store}, h.conns, h.blocks, failingActors{boom}, h.limiter, h.pub, testLimits, slog.New(slog.DiscardHandler))
+	h.svc = New(h.store, fakeTx{h.store}, h.conns, h.blocks, failingActors{boom}, h.limiter, h.pub, testLimits, h.clock, slog.New(slog.DiscardHandler))
 	if _, err := h.svc.Send(t.Context(), "ada", sent.Message.ConversationID, "x", h.clientID()); !errors.Is(err, boom) {
 		t.Errorf("error = %v, want %v", err, boom)
 	}
