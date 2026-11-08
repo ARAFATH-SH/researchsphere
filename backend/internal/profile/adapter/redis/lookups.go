@@ -13,6 +13,7 @@ import (
 
 	goredis "github.com/redis/go-redis/v9"
 
+	platformredis "github.com/ARAFATH-SH/researchsphere/backend/internal/platform/redis"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/profile/domain"
 )
 
@@ -57,6 +58,7 @@ func New(shared *goredis.Client) *Lookups {
 	opts.DialTimeout = callTimeout
 	opts.ReadTimeout = callTimeout
 	opts.WriteTimeout = callTimeout
+	platformredis.ApplyDefaults(&opts)
 	client := goredis.NewClient(&opts)
 	return &Lookups{client: client, doi: counter{client: client, prefix: limitPrefix}}
 }

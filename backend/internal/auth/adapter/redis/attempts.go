@@ -14,6 +14,7 @@ import (
 	goredis "github.com/redis/go-redis/v9"
 
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/auth/domain"
+	platformredis "github.com/ARAFATH-SH/researchsphere/backend/internal/platform/redis"
 )
 
 // Key prefixes. The rest of each key is the SHA-256 of the account key, so no email
@@ -46,6 +47,7 @@ func New(shared *goredis.Client) *Attempts {
 	opts.DialTimeout = callTimeout
 	opts.ReadTimeout = callTimeout
 	opts.WriteTimeout = callTimeout
+	platformredis.ApplyDefaults(&opts)
 	return &Attempts{client: goredis.NewClient(&opts)}
 }
 

@@ -20,6 +20,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	goredis "github.com/redis/go-redis/v9"
+
+	platformredis "github.com/ARAFATH-SH/researchsphere/backend/internal/platform/redis"
 )
 
 // truncateAll empties every table except the migration record. It takes no input from
@@ -122,6 +124,7 @@ func Redis(t *testing.T) *goredis.Client {
 		t.Fatal(err)
 	}
 	opts, _ := goredis.ParseURL(url) // checked above
+	platformredis.ApplyDefaults(opts)
 	client := goredis.NewClient(opts)
 	t.Cleanup(func() { _ = client.Close() })
 	if err := client.FlushDB(t.Context()).Err(); err != nil {
