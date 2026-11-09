@@ -35,6 +35,8 @@ type fakeStore struct {
 	// blocks holds blocker|blocked; locks counts LockPair calls.
 	blocks map[string]time.Time
 	locks  int
+	// searched holds the texts SearchConnections was asked for.
+	searched []string
 }
 
 var _ domain.Store = (*fakeStore)(nil)
@@ -217,6 +219,20 @@ func (s *fakeStore) ListConnections(_ context.Context, viewerID, userID string, 
 			all = append(all, domain.Connection{ConnectedAt: r.respondedAt, Other: s.people[other]})
 		}
 	}
+	return page(all, limit, offset), len(all), nil
+}
+
+// SearchConnections keeps the connections whose name contains q, ignoring case; the matching
+// rules themselves have their store tests. It records q.
+func (s *fakeStore) SearchConnections(ctx context.Context, userID, q string, limit, offset int) ([]domain.Connection, int, error) {
+	s.searched = append(s.searched, q)
+	all, _, err := s.ListConnections(ctx, userID, userID, 1<<20, 0)
+	if err != nil {
+		return nil, 0, err
+	}
+	all = slices.DeleteFunc(all, func(c domain.Connection) bool {
+		return !strings.Contains(strings.ToLower(c.Other.FullName), strings.ToLower(q))
+	})
 	return page(all, limit, offset), len(all), nil
 }
 

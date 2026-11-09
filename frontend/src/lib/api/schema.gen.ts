@@ -1399,6 +1399,13 @@ export interface paths {
          *     events and recommendations" (SRS 2.3). 20 per page, most recently connected
          *     first. Suspended and unverified accounts are left out, and so is their count in
          *     `total`.
+         *
+         *     With `q`, only the connections whose full name, headline or institution match it
+         *     (the group member picker, FR-16.6), by the rule of the researcher search (FR-6.2):
+         *     a name containing `q` (exact, then starting with it, then containing it), and only
+         *     when no connection's name contains it, a name similar to it (pg_trgm word similarity,
+         *     for typos); then an institution, then a headline containing it. Within a rank the
+         *     most similar, then the most recently connected come first; `total` counts the matches.
          */
         get: operations["listMyConnections"];
         put?: never;
@@ -2008,6 +2015,17 @@ export interface paths {
          *     group it is null and `readers` gives every other current member's marker, for "Seen by
          *     N"; a member sees only the messages created from the moment they joined (FR-16.6).
          *     System messages (`kind: system`) are part of the thread.
+         *
+         *     Paging (items are always newest first): no cursor gives the newest messages;
+         *     `before` the ones older than a message; `after` the ones newer than a message;
+         *     `around` a page centred on one message, so a search result can be shown in its
+         *     place: the message itself, up to (limit - 1) / 2 (rounded down) older ones and the
+         *     rest newer, a short side's room going to the other. `nextBefore` and `nextAfter` are
+         *     set when there is more in that direction. At most one of `before`, `after` and
+         *     `around` is allowed (400 `bad_request` with `field`). An `around` message the caller
+         *     cannot see (another conversation, sent before they joined, or none) gets 404
+         *     `not_found`, as the thread hides it. `people` names every sender and every user a
+         *     system message names on the page, former members included (FR-16.6).
          */
         get: operations["listMessages"];
         put?: never;
@@ -2893,6 +2911,7 @@ export interface components {
              */
             link: string;
             actor?: components["schemas"]["NotificationActor"];
+            subject?: components["schemas"]["NotificationSubject"];
             /**
              * Format: uuid
              * @description Only for `connection_request_received`, the connection request.
@@ -2903,6 +2922,20 @@ export interface components {
              *     pending, so the client can offer Accept and Ignore.
              */
             requestPending?: boolean;
+        };
+        /**
+         * @description The item a notification is about, as it is now, for types whose sentence names it
+         *     (`group_added`: the group, with its current name). Read when the notification is
+         *     listed or sent, so a rename shows. Left out for the other types, and when the item no
+         *     longer exists or the recipient cannot see it (they left the group); the client then
+         *     uses a sentence without the title ("added you to a group").
+         */
+        NotificationSubject: {
+            /** @enum {string} */
+            type: "conversation";
+            /** Format: uuid */
+            id: string;
+            title: string;
         };
         NotificationPage: {
             items: components["schemas"]["Notification"][];
@@ -3074,6 +3107,12 @@ export interface components {
              * @description The sender; for a system message the actor, or null when it has none.
              */
             senderId: string | null;
+            /**
+             * @description The sender's (or actor's) full name, so a group's row can say "Nafisa: …" (FR-16.6).
+             *     Always given, as with `MessagePage.people`, whatever the sender's standing; null when
+             *     there is no sender.
+             */
+            senderName: string | null;
             kind: components["schemas"]["MessageKind"];
             /** @description For a system message, what changed; the client writes its own text. */
             event: components["schemas"]["SystemEventType"] | null;
@@ -3172,6 +3211,12 @@ export interface components {
             /** @description Pass as `before` to get older messages; null on the last page. */
             nextBefore: string | null;
             /**
+             * @description Pass as `after` to get newer messages; null when the page reaches the newest
+             *     message, and always null for a page asked without `after` or `around`.
+             */
+            nextAfter: string | null;
+            people: components["schemas"]["MessagePeople"];
+            /**
              * Format: uuid
              * @description The other member's read marker; null until they have read a message, and for a group.
              */
@@ -3181,6 +3226,26 @@ export interface components {
              *     show "Seen by N" under a message; null for a direct conversation.
              */
             readers: components["schemas"]["MessageReader"][] | null;
+        };
+        /**
+         * @description The people a page names, by user ID: every sender and every user (and actor) a system
+         *     message names, also those who have left the group (FR-16.6). Only people who were ever
+         *     in the conversation appear. A user whose account was deleted is absent; the client
+         *     shows "Deleted account".
+         */
+        MessagePeople: {
+            [key: string]: components["schemas"]["MessagePerson"];
+        };
+        MessagePerson: {
+            /** @description Always given, as the members already saw it in the conversation. */
+            fullName: string;
+            /** @description Null without a photo, and when `available` is false. */
+            photoUrl: string | null;
+            /**
+             * @description False when the profile cannot be viewed: the person is suspended or not verified,
+             *     or has blocked the caller. The client then shows initials and no profile link.
+             */
+            available: boolean;
         };
         MessageReader: {
             /** Format: uuid */
@@ -3445,6 +3510,7 @@ export interface components {
             items: components["schemas"]["MessageSearchResult"][];
             /** @description Pass as `cursor` to get the next page; null on the last page. */
             nextCursor: string | null;
+            people: components["schemas"]["MessagePeople"];
         };
         UnreadNotificationCount: {
             count: number;
@@ -7189,6 +7255,11 @@ export interface operations {
             query?: {
                 /** @description The page to return, from 1, 20 items each. Defaults to 1. */
                 page?: components["parameters"]["ConnectionListPage"];
+                /**
+                 * @description The text to look for, 2 to 100 characters after trimming; otherwise 400
+                 *     `bad_request` with `field: q`. Leave it out for every connection.
+                 */
+                q?: string;
             };
             header?: never;
             path?: never;
@@ -7205,7 +7276,18 @@ export interface operations {
                     "application/json": components["schemas"]["ConnectionPage"];
                 };
             };
-            400: components["responses"]["InvalidConnectionPage"];
+            /**
+             * @description `page` is not a whole number of at least 1, or `q` does not have 2 to 100
+             *     characters (`bad_request`, with `field`).
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             500: components["responses"]["InternalError"];
@@ -8081,6 +8163,16 @@ export interface operations {
                  */
                 before?: string;
                 /**
+                 * @description `nextAfter` from the previous page, for newer messages. A value that is not a
+                 *     UUID gets 400 `bad_request`.
+                 */
+                after?: string;
+                /**
+                 * @description A message ID: the page is centred on it. A value that is not a UUID gets 400
+                 *     `bad_request`; a message the caller cannot see gets 404.
+                 */
+                around?: string;
+                /**
                  * @description Items to return, from 1. Defaults to 30. A larger value than 100 is reduced to
                  *     100; a value below 1 gets 400 `bad_request`.
                  */
@@ -8108,7 +8200,7 @@ export interface operations {
                     "application/json": components["schemas"]["MessagePage"];
                 };
             };
-            /** @description `before` or `limit` is not valid (`bad_request`). */
+            /** @description `before`, `after`, `around` or `limit` is not valid, or more than one cursor is given (`bad_request`). */
             400: {
                 headers: {
                     [name: string]: unknown;

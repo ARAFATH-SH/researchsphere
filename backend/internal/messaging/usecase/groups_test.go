@@ -576,7 +576,7 @@ func TestRemoveMember(t *testing.T) {
 	if _, err := h.svc.Get(t.Context(), cat, id); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("removed member reads the group: %v", err)
 	}
-	if _, err := h.svc.Messages(t.Context(), cat, id, "", nil); !errors.Is(err, domain.ErrNotFound) {
+	if _, err := h.svc.Messages(t.Context(), cat, id, domain.MessageQuery{}); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("removed member reads the messages: %v", err)
 	}
 	if page, _ := h.svc.List(t.Context(), cat, "", "", nil); len(page.Items) != 0 {
@@ -730,5 +730,43 @@ func TestResolveGroupReportForAction(t *testing.T) {
 	}
 	if err := h.svc.ResolveForAction(t.Context(), "admin", r3.ID, ben, nil); !errors.Is(err, domain.ErrReportAboutOther) {
 		t.Errorf("direct report, someone else: %v", err)
+	}
+}
+
+// A page names every sender and everyone a system message names, also a removed member, in
+// one lookup; a deleted account is left out and a hidden profile is not available (FR-16.6).
+func TestPagePeople(t *testing.T) {
+	h := groupHarness()
+	id := h.group(t, ben, cat, dan)
+	h.say(t, ben, id, "hello")
+	if err := h.svc.RemoveMember(t.Context(), owner, id, ben); err != nil {
+		t.Fatal(err)
+	}
+	h.store.deleted = map[string]bool{dan: true}
+	h.store.hidden[cat] = true
+	h.store.calls = nil
+
+	page := h.mustMessages(t, cat, id)
+	if got := slices.DeleteFunc(slices.Clone(h.store.calls), func(c string) bool { return !strings.HasPrefix(c, "People") }); len(got) != 1 {
+		t.Errorf("people lookups = %v, want one", got)
+	}
+	for _, u := range []string{owner, ben, cat} {
+		p, ok := page.People[u]
+		if !ok || p.FullName != "Name of "+u {
+			t.Errorf("people[%s] = %+v, %v", u, p, ok)
+		}
+	}
+	if _, ok := page.People[dan]; ok {
+		t.Error("a deleted account is named")
+	}
+	if page.People[cat].Available || !page.People[ben].Available {
+		t.Errorf("available: cat %v, ben %v", page.People[cat].Available, page.People[ben].Available)
+	}
+
+	// A direct conversation names its pair; an empty page names nobody.
+	h.connect(owner, eve2)
+	d := h.direct(t, owner, eve2, "hi").Message.ConversationID
+	if p := h.mustMessages(t, eve2, d).People; len(p) != 1 || p[owner].FullName == "" {
+		t.Errorf("direct people = %v", p)
 	}
 }

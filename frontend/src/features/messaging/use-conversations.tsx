@@ -57,6 +57,16 @@ function findRow(boxes: Boxes, id: string): { box: Box; row: Conversation } | nu
   return null;
 }
 
+// senderNameOf finds a group row's name for a sender from what the row already knows: its
+// latest preview or its first members. Null when it does not know them.
+function senderNameOf(boxes: Boxes, id: string, senderId: string | null): string | null {
+  const row = findRow(boxes, id)?.row;
+  if (!row || !senderId) return null;
+  if (row.lastMessage?.senderId === senderId && row.lastMessage.senderName) return row.lastMessage.senderName;
+  if (row.otherMember?.userId === senderId) return row.otherMember.fullName;
+  return row.group?.avatars.find((a) => a.userId === senderId)?.fullName ?? null;
+}
+
 // merged folds a fresh first page into a box after a reconnect. Rows past that page stay, so
 // pages already loaded and the scroll position survive; a row missing from the range the page
 // covers has left the box.
@@ -154,24 +164,40 @@ export function ConversationsProvider({ children }: { children: ReactNode }) {
     }
     const lastMessage = {
       senderId: message.senderId,
-      kind: "text" as const,
-      event: null,
-      body: [...(message.body ?? "")].slice(0, 120).join(""),
+      // The event carries no names; a group's row keeps the last name it had for this sender.
+      senderName: senderNameOf(boxesRef.current, id, message.senderId),
+      kind: message.kind,
+      event: message.kind === "system" ? (message.event?.type ?? null) : null,
+      body: message.kind === "system" ? null : [...(message.body ?? "")].slice(0, 120).join(""),
       deleted: message.deleted,
       attachmentCount: message.deleted ? 0 : message.attachments.length,
       createdAt: message.createdAt,
     };
+    // System messages never count as unread (FR-16.6).
+    const counts = !mine && message.kind !== "system";
     setBoxes((prev) => {
       const found = findRow(prev, id);
       if (!found) return prev;
-      const unreadCount = found.row.unreadCount + (mine ? 0 : 1);
+      const unreadCount = found.row.unreadCount + (counts ? 1 : 0);
       return placed(prev, target, { ...found.row, state: conversationState, lastMessage, lastMessageAt: message.createdAt, unreadCount });
+    });
+    // A group row that does not know the sender's name reads it from the server.
+    if (message.senderId && !mine && lastMessage.senderName === null && findRow(boxesRef.current, id)?.row.kind === "group") refresh(id);
+  }
+
+  // refresh reads one row again and replaces it in its place.
+  function refresh(id: string) {
+    void getConversation(id).then((res) => {
+      if (!res.ok) return;
+      const row = { ...res.data, group: res.data.group ? { ...res.data.group, members: null } : null };
+      setBoxes((prev) => mapBoxes(prev, (items) => items.map((c) => (c.id === id ? row : c))));
     });
   }
 
-  function onUpdated({ conversationId: id, state, canMessage }: Extract<RealtimeEvent, { type: "conversation.updated" }>["data"]) {
-    // The server lists a declined conversation in neither box.
-    if (state === "declined") {
+  function onUpdated({ conversationId: id, state, canMessage, accessLost }: Extract<RealtimeEvent, { type: "conversation.updated" }>["data"]) {
+    // The server lists a declined conversation in neither box, nor a group the caller left or
+    // was removed from (FR-16.6).
+    if (state === "declined" || accessLost) {
       remove(id);
       return;
     }
@@ -204,11 +230,15 @@ export function ConversationsProvider({ children }: { children: ReactNode }) {
   // A deletion may be of a row's latest message, which the event cannot tell, and a deleted
   // message no longer counts as unread: the row is read again and replaced in its place.
   function onDeleted({ conversationId: id }: Extract<RealtimeEvent, { type: "message.deleted" }>["data"]) {
+    if (findRow(boxesRef.current, id)) refresh(id);
+  }
+
+  // A group's name, size and first members change with its members (FR-16.6): the name comes
+  // with the event, the rest with the conversation.
+  function onMembers({ conversationId: id, name }: Extract<RealtimeEvent, { type: "conversation.members" }>["data"]) {
     if (!findRow(boxesRef.current, id)) return;
-    void getConversation(id).then((res) => {
-      if (!res.ok) return;
-      setBoxes((prev) => mapBoxes(prev, (items) => items.map((c) => (c.id === id ? res.data : c))));
-    });
+    setBoxes((prev) => mapBoxes(prev, (items) => items.map((c) => (c.id === id && c.group ? { ...c, group: { ...c.group, name } } : c))));
+    refresh(id);
   }
 
   useRealtimeEvent((event) => {
@@ -216,6 +246,7 @@ export function ConversationsProvider({ children }: { children: ReactNode }) {
     else if (event.type === "message.updated") onEdited(event.data);
     else if (event.type === "message.deleted") onDeleted(event.data);
     else if (event.type === "conversation.updated") onUpdated(event.data);
+    else if (event.type === "conversation.members") onMembers(event.data);
   });
 
   // Whatever was sent while the socket was closed is gone: read the lists again, in place.

@@ -48,6 +48,9 @@ to connect should refresh and try again with backoff, and go on polling meanwhil
   roles. On `conversation.updated` with `accessLost: true`, close the thread and drop the
   conversation from the lists: the user left the group or was removed, and every read of it now
   answers 404.
+- A thread opened at a search result (`GET …/messages?around=`) does not show the newest
+  messages yet: it keeps `message.created` out until the reader reaches them (`after` pages, or
+  the newest page), and a reconnect reads only the conversation again, not the newest page.
 
 ## Close codes
 
@@ -95,7 +98,7 @@ Each frame is JSON text with `type` and `data`.
 | `unread.changed` | The user whose counts may have changed | `{total, requests}` |
 | `typing` | The other member; in a group, every other member with no block either way | `{conversationId, userId, isTyping}` |
 | `presence` | Allowed viewers | `{userId, online}` |
-| `notification.created` | The recipient | `Notification`, as the list shows it |
+| `notification.created` | The recipient | `Notification`, as the list shows it, with its `subject` (the group's current name for `group_added`) |
 | `notifications.unread` | The recipient | `{count}` |
 
 `clientId` appears only in the copy sent to the sender. `message` is the REST `Message`.

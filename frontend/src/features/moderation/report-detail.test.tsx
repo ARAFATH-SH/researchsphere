@@ -107,14 +107,60 @@ describe("ReportDetail", () => {
     ]);
   });
 
-  // A report of a whole group names nobody; picking a member comes with slice 14B.5 (FR-16.6).
-  it("shows a whole-group report with only Dismiss", async () => {
-    load(report({ reportedUser: null, conversationKind: "group", groupName: "Lab" }), [msg(2, bobID, "second"), msg(1, cyd.userId, "first")]);
-    await open();
-    expect(screen.getByText("Whole group")).toBeTruthy();
-    expect(within(actions()!).getAllByRole("button").map((b) => b.textContent)).toEqual(["Dismiss report"]);
-    expect(actions()!.textContent).not.toContain("Administrators");
-    expect(screen.getByText("second").closest("li")!.textContent).toContain("A member");
+  // A report of a whole group names nobody (FR-16.6).
+  describe("a whole-group report", () => {
+    const admin = { ...cyd, userId: "0b8f4c1e-0000-4000-8000-000000000009", fullName: "Ann Admin", role: "admin" as const };
+    const me = { ...cyd, userId: adaID, fullName: "Ada Lovelace" };
+    const groupReport = () => report({ reportedUser: null, conversationKind: "group", groupName: "Lab" });
+    function loadGroup(members = [bob, cyd, admin, me]) {
+      mockGet.mockResolvedValue({
+        ok: true,
+        data: { report: groupReport(), membersAtReport: members, messages: [msg(2, bobID, "second"), msg(1, cyd.userId, "first")], nextBefore: null },
+      });
+    }
+
+    it("shows Whole group, names each sender from the members at the report, and offers every action", async () => {
+      loadGroup();
+      await open();
+      expect(screen.getByText("Whole group")).toBeTruthy();
+      expect(screen.getByText("second").closest("li")!.textContent).toContain("Bob Babbage");
+      expect(within(actions()!).getAllByRole("button").map((b) => b.textContent)).toEqual(["Dismiss report", "Warn", "Restrict messaging", "Suspend"]);
+    });
+
+    it.each<[string, () => void]>([
+      ["Warn", () => expect(warnUser).toHaveBeenCalledWith(bobID, expect.objectContaining({ reportId: reportID, reason }))],
+      ["Restrict messaging", () => expect(restrictUser).toHaveBeenCalledWith(bobID, 7, expect.objectContaining({ reportId: reportID, reason }))],
+      ["Suspend", () => expect(suspendUser).toHaveBeenCalledWith(bobID, expect.any(String), expect.objectContaining({ reportId: reportID, reason }))],
+    ])("%s first asks who it is for, then acts on that member", async (name, check) => {
+      loadGroup();
+      for (const fn of [warnUser, restrictUser, suspendUser]) jest.mocked(fn).mockResolvedValue({ ok: true, data: {} as never });
+      await open();
+      fireEvent.click(button(name));
+      const dialog = screen.getByRole("dialog");
+      expect(within(dialog).getByRole("group", { name: "Who is this action for?" })).toBeTruthy();
+      // Administrators and oneself cannot be chosen (FR-15.10).
+      expect((within(dialog).getByRole("radio", { name: /Ann Admin/ }) as HTMLInputElement).disabled).toBe(true);
+      expect((within(dialog).getByRole("radio", { name: /Ada Lovelace/ }) as HTMLInputElement).disabled).toBe(true);
+      expect((inDialog("Continue") as HTMLButtonElement).disabled).toBe(true);
+      fireEvent.click(within(dialog).getByRole("radio", { name: /Bob Babbage/ }));
+      fireEvent.click(inDialog("Continue"));
+      expect(screen.getByRole("dialog").textContent).toContain("Bob Babbage");
+      fireEvent.change(screen.getByRole("textbox", { name: "Reason shown to the user" }), { target: { value: reason } });
+      await act(async () => fireEvent.click(inDialog(name)));
+      check();
+      expect(screen.getByText("Action taken")).toBeTruthy();
+    });
+
+    it("dismisses with no member", async () => {
+      loadGroup();
+      jest.mocked(dismissMessageReport).mockResolvedValue({ ok: true, data: report({ status: "resolved", outcome: "dismissed" }) });
+      await open();
+      fireEvent.click(button("Dismiss report"));
+      expect(within(screen.getByRole("dialog")).queryByRole("group", { name: "Who is this action for?" })).toBeNull();
+      await act(async () => fireEvent.click(inDialog("Dismiss report")));
+      expect(dismissMessageReport).toHaveBeenCalledWith(reportID, undefined);
+      expect(screen.getByText("Dismissed")).toBeTruthy();
+    });
   });
 
   it("offers no actions on a resolved report", async () => {

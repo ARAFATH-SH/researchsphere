@@ -17,6 +17,7 @@ import (
 // IDs are UUIDs that count up, so messages sort by age, as UUIDv7 values do.
 type fakeStore struct {
 	hidden        map[string]bool // users who are suspended or not verified
+	deleted       map[string]bool // users whose account is gone, for People
 	conversations map[string]*fakeConversation
 	messages      []domain.Message
 	seq           int
@@ -284,6 +285,51 @@ func (f *fakeStore) ListMessages(_ context.Context, conversationID, viewerID, be
 		return nil, nil //nolint:nilerr // like the query: nothing for someone who is not a member
 	}
 	return f.messagesSince(conversationID, c.since(viewerID), before, limit), nil
+}
+
+func (f *fakeStore) ListMessagesAfter(_ context.Context, conversationID, viewerID, after string, limit int) ([]domain.Message, error) {
+	c, err := f.member(conversationID, viewerID)
+	if err != nil {
+		return nil, nil //nolint:nilerr // like the query: nothing for someone who is not a member
+	}
+	var out []domain.Message
+	for _, m := range f.messages {
+		if m.ConversationID == conversationID && !m.CreatedAt.Before(c.since(viewerID)) && m.ID > after {
+			out = append(out, m)
+		}
+	}
+	return out[:min(limit, len(out))], nil
+}
+
+func (f *fakeStore) FindVisibleMessage(_ context.Context, conversationID, viewerID, messageID string) (domain.Message, error) {
+	c, err := f.member(conversationID, viewerID)
+	if err != nil {
+		return domain.Message{}, err
+	}
+	for _, m := range f.messages {
+		if m.ID == messageID && m.ConversationID == conversationID && !m.CreatedAt.Before(c.since(viewerID)) {
+			return m, nil
+		}
+	}
+	return domain.Message{}, domain.ErrNotFound
+}
+
+// People names each user "Name of <id>"; deleted users are gone, and only someone who is or
+// was in the referenced conversation is found, as with conversation_memberships.
+func (f *fakeStore) People(_ context.Context, _ string, refs []domain.PersonRef) ([]domain.PagePerson, error) {
+	f.calls = append(f.calls, fmt.Sprintf("People %d", len(refs)))
+	var out []domain.PagePerson
+	for _, r := range refs {
+		c, ok := f.conversations[r.ConversationID]
+		was := ok && (c.has(r.UserID) || slices.ContainsFunc(f.stays, func(s fakeStay) bool {
+			return s.conversation == r.ConversationID && s.user == r.UserID
+		}))
+		if !was || f.deleted[r.UserID] || slices.ContainsFunc(out, func(p domain.PagePerson) bool { return p.UserID == r.UserID }) {
+			continue
+		}
+		out = append(out, domain.PagePerson{UserID: r.UserID, FullName: "Name of " + r.UserID, Available: !f.hidden[r.UserID]})
+	}
+	return out, nil
 }
 
 // messagesSince is the thread from since on, newest first, with no membership check.
@@ -836,6 +882,16 @@ func (f *fakeStore) SearchMessages(_ context.Context, _ string, q domain.SearchQ
 		hits = hits[i+1:]
 	}
 	return hits[:min(q.Limit, len(hits))], nil
+}
+
+func (f *fakeStore) GroupNames(_ context.Context, viewerID string, ids []string) (map[string]string, error) {
+	out := map[string]string{}
+	for _, id := range ids {
+		if c, ok := f.conversations[id]; ok && c.group() && c.has(viewerID) {
+			out[id] = c.name
+		}
+	}
+	return out, nil
 }
 
 func (f *fakeStore) ListReaders(_ context.Context, conversationID, viewerID string) ([]domain.Reader, error) {

@@ -33,7 +33,7 @@ function load(c: Conversation, items: Message[], extra: { nextBefore?: string | 
   mockGet.mockResolvedValue({ ok: true, data: c });
   mockMessages.mockResolvedValue({
     ok: true,
-    data: { items: [...items].reverse(), nextBefore: extra.nextBefore ?? null, otherLastReadMessageId: extra.otherLastReadMessageId ?? null, readers: null },
+    data: { items: [...items].reverse(), nextBefore: extra.nextBefore ?? null, otherLastReadMessageId: extra.otherLastReadMessageId ?? null, readers: null, nextAfter: null, people: {} },
   });
 }
 
@@ -131,7 +131,7 @@ describe("Load earlier", () => {
     sizes(log(), heights);
     mockMessages.mockResolvedValueOnce({
       ok: true,
-      data: { items: [message(9, bobID, "earlier")], nextBefore: null, otherLastReadMessageId: null, readers: null },
+      data: { items: [message(9, bobID, "earlier")], nextBefore: null, otherLastReadMessageId: null, readers: null, nextAfter: null, people: {} },
     });
 
     log().scrollTop = 20;
@@ -141,7 +141,7 @@ describe("Load earlier", () => {
       heights.scrollHeight = 1600;
     });
 
-    expect(mockMessages).toHaveBeenLastCalledWith(conversationID, "cursor");
+    expect(mockMessages).toHaveBeenLastCalledWith(conversationID, { before: "cursor" });
     expect(await screen.findByText("earlier")).toBeTruthy();
     expect(log().scrollTop).toBe(620); // 20 + the 600 added above
     expect(screen.queryByRole("button", { name: "Load earlier messages" })).toBeNull();
@@ -171,7 +171,7 @@ describe("Load earlier", () => {
     expect(screen.getByText("Couldn't load earlier messages.")).toBeTruthy();
     mockMessages.mockResolvedValueOnce({
       ok: true,
-      data: { items: [message(9, bobID, "earlier")], nextBefore: null, otherLastReadMessageId: null, readers: null },
+      data: { items: [message(9, bobID, "earlier")], nextBefore: null, otherLastReadMessageId: null, readers: null, nextAfter: null, people: {} },
     });
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Load earlier messages" })));
     expect(await screen.findByText("earlier")).toBeTruthy();

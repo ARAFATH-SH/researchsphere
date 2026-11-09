@@ -95,12 +95,15 @@ type Person struct {
 
 // Preview is the start of a conversation's latest message.
 type Preview struct {
-	SenderID  string // empty for a system message with no actor
-	Kind      MessageKind
-	Event     *EventType // set for a system message
-	Body      *string    // the first 120 characters of the latest text, nil when deleted or a system message
-	Deleted   bool
-	CreatedAt time.Time
+	SenderID string // empty for a system message with no actor
+	// SenderName is the sender's (or actor's) full name, as the people of a page give it: always,
+	// whatever their standing, as the members saw it in the conversation; nil with no sender.
+	SenderName *string
+	Kind       MessageKind
+	Event      *EventType // set for a system message
+	Body       *string    // the first 120 characters of the latest text, nil when deleted or a system message
+	Deleted    bool
+	CreatedAt  time.Time
 	// AttachmentCount is how many files the message carries, 0 when deleted (FR-16.7).
 	AttachmentCount int
 }
@@ -139,13 +142,44 @@ type Page struct {
 }
 
 // MessagePage is one page of a conversation's messages, newest first. NextBefore is nil
-// on the last page; OtherReadID is the other member's read marker (FR-16.3). Readers is set
-// for a group only: every other current member's marker.
+// when there is nothing older to ask for, NextAfter when there is nothing newer (always for a
+// page asked without After or Around); OtherReadID is the other member's read marker
+// (FR-16.3). Readers is set for a group only: every other current member's marker. People
+// names every sender and every user a system message names, by user ID.
 type MessagePage struct {
 	Items       []Message
 	NextBefore  *string
+	NextAfter   *string
 	OtherReadID *string
 	Readers     []Reader
+	People      map[string]PagePerson
+}
+
+// MessageQuery picks a page of a conversation's messages. At most one of Before, After and
+// Around is set: older than Before, newer than After, or centred on Around; none means the
+// newest. Limit nil means the default.
+type MessageQuery struct {
+	Before string
+	After  string
+	Around string
+	Limit  *int
+}
+
+// PagePerson is someone a page of messages names (FR-16.6): a sender, or a user a system
+// message names, also after they left. FullName is always given; PhotoFileID is nil and
+// Available false when the profile cannot be viewed (suspended, not verified, or they blocked
+// the viewer).
+type PagePerson struct {
+	UserID      string
+	FullName    string
+	PhotoFileID *string
+	Available   bool
+}
+
+// PersonRef is a user named in a conversation, to look up for a page.
+type PersonRef struct {
+	ConversationID string
+	UserID         string
 }
 
 // UnreadCounts is what the messaging badge shows (FR-16.3).
@@ -202,6 +236,15 @@ type Store interface {
 	// a member now, and only those created from the moment they joined (NFR-13). Newest first,
 	// before the message ID before when it is not empty. SearchMessages shares the rule.
 	ListMessages(ctx context.Context, conversationID, viewerID, before string, limit int) ([]Message, error)
+	// ListMessagesAfter is ListMessages for the messages newer than after, oldest first.
+	ListMessagesAfter(ctx context.Context, conversationID, viewerID, after string, limit int) ([]Message, error)
+	// FindVisibleMessage returns the message when viewerID may read it in the conversation
+	// (the ListMessages rule), deleted or system messages included, otherwise ErrNotFound.
+	FindVisibleMessage(ctx context.Context, conversationID, viewerID, messageID string) (Message, error)
+	// People returns each referenced user who was ever a member of the referenced
+	// conversation (a stay in a group, or a direct conversation's pair), as viewerID sees them.
+	// A user whose account is gone, or who was never in that conversation, is left out.
+	People(ctx context.Context, viewerID string, refs []PersonRef) ([]PagePerson, error)
 	// FindOwnMessage returns the text message when senderID sent it in the conversation, deleted
 	// or not, otherwise ErrNotFound (NFR-13). A system message is never anyone's own.
 	FindOwnMessage(ctx context.Context, conversationID, messageID, senderID string) (Message, error)
@@ -333,9 +376,12 @@ var (
 	ErrClosed         = errors.New("messaging: the conversation is closed")
 	ErrInvalidBox     = errors.New("messaging: unknown box")
 	ErrInvalidCursor  = errors.New("messaging: invalid cursor")
-	ErrInvalidLimit   = errors.New("messaging: limit is not a whole number of at least 1")
-	ErrCannotMessage  = errors.New("messaging: this person cannot be messaged")
-	ErrYouBlocked     = errors.New("messaging: the caller has blocked this user")
+	// ErrMessageNotFound: the message a page is centred on does not exist or the caller
+	// cannot see it (NFR-13).
+	ErrMessageNotFound = errors.New("messaging: message not found")
+	ErrInvalidLimit    = errors.New("messaging: limit is not a whole number of at least 1")
+	ErrCannotMessage   = errors.New("messaging: this person cannot be messaged")
+	ErrYouBlocked      = errors.New("messaging: the caller has blocked this user")
 	// ErrEditWindowClosed refuses an edit of a message older than the edit window (FR-16.5).
 	ErrEditWindowClosed = errors.New("messaging: the message can no longer be edited")
 )

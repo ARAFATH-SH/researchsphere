@@ -277,3 +277,20 @@ func (s *Store) SystemMessagesAfter(ctx context.Context, conversationID, afterID
 	}
 	return messages(rows), nil
 }
+
+// GroupNames finds nothing for a viewer that is not a UUID.
+func (s *Store) GroupNames(ctx context.Context, viewerID string, ids []string) (map[string]string, error) {
+	viewer, ok := parseUUID(viewerID)
+	if !ok || len(ids) == 0 {
+		return map[string]string{}, nil
+	}
+	rows, err := s.q(ctx).GroupNames(ctx, sqlcgen.GroupNamesParams{ViewerID: viewer, Ids: parseUUIDs(ids)})
+	if err != nil {
+		return nil, fmt.Errorf("group names: %w", err)
+	}
+	out := make(map[string]string, len(rows))
+	for _, r := range rows {
+		out[r.ID.String()] = r.Name
+	}
+	return out, nil
+}

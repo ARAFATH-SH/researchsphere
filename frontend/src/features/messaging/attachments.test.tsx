@@ -65,7 +65,7 @@ beforeEach(() => {
   jest.mocked(refreshUnreadMessages).mockResolvedValue();
   jest.mocked(getPresence).mockResolvedValue({ ok: true, data: [] });
   jest.mocked(getConversation).mockResolvedValue({ ok: true, data: conversation() });
-  jest.mocked(listMessages).mockResolvedValue({ ok: true, data: { items: [], nextBefore: null, otherLastReadMessageId: null, readers: null } });
+  jest.mocked(listMessages).mockResolvedValue({ ok: true, data: { items: [], nextBefore: null, otherLastReadMessageId: null, readers: null, nextAfter: null, people: {} } });
   mockUpload.mockImplementation(
     (_id, file, options = {}) =>
       new Promise((resolve) => {

@@ -129,7 +129,9 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 	realtime := newRealtime(rdb, standings, realtimeusecase.DefaultConfig(), logger)
 	defer realtime.close()
 	go realtime.hub.Run(ctx)
-	notifications := notificationusecase.New(notificationpg.NewStore(pool), notificationusecase.WithPublisher(realtime.events))
+	titles := &subjectTitles{}
+	notifications := notificationusecase.New(notificationpg.NewStore(pool), notificationusecase.WithPublisher(realtime.events),
+		notificationusecase.WithSubjectTitles(titles))
 	messageLimiter := messagingredis.New(rdb)
 	defer func() { _ = messageLimiter.Close() }()
 	// Messaging asks social who is connected or blocked, and social tells messaging about
@@ -145,6 +147,7 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 	social := socialusecase.New(socialpg.NewStore(pool), postgres.NewTransactor(pool), connectLimiter,
 		connectionNotifier{notifications: notifications, messaging: messaging, events: realtime.events}, socialActors{standings: standings}, logger)
 	connected.social = social
+	titles.messaging = messaging
 	realtime.bind(messaging, notifications)
 	// Attachments (FR-16.7): media checks types and scans, messaging owns who may see a file.
 	messaging.UseFiles(messagingusecase.FileDeps{Intake: fileIntake{media: mediausecase.NewAttachments(images, imaging.Codec{})}, Objects: files})

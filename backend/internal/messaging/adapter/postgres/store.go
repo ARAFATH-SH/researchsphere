@@ -498,7 +498,7 @@ func item(r sqlcgen.ListItemsRow) domain.Item {
 	if r.LastCreatedAt.Valid {
 		// The query cannot say the preview is null; last_deleted and last_kind do.
 		it.LastMessage = &domain.Preview{
-			SenderID: r.LastSenderID.String(), Kind: domain.MessageKind(r.LastKind),
+			SenderID: r.LastSenderID.String(), SenderName: textPtr(r.LastSenderName), Kind: domain.MessageKind(r.LastKind),
 			Deleted: r.LastDeleted, CreatedAt: r.LastCreatedAt.Time, AttachmentCount: int(r.LastAttachmentCount),
 		}
 		switch {
@@ -613,4 +613,78 @@ func textPtr(t pgtype.Text) *string {
 		return nil
 	}
 	return &t.String
+}
+
+// ListMessagesAfter finds nothing for a conversation that is not a UUID.
+func (s *Store) ListMessagesAfter(ctx context.Context, conversationID, viewerID, after string, limit int) ([]domain.Message, error) {
+	conv, ok1 := parseUUID(conversationID)
+	viewer, ok2 := parseUUID(viewerID)
+	if !ok1 || !ok2 {
+		return nil, nil
+	}
+	id, ok := parseUUID(after)
+	if !ok {
+		return nil, domain.ErrInvalidCursor
+	}
+	rows, err := s.q(ctx).ListMessagesAfter(ctx, sqlcgen.ListMessagesAfterParams{
+		ConversationID: conv, ViewerID: viewer, AfterID: id, Lim: int32(min(limit, 1000)), //nolint:gosec // bounded above
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list newer messages: %w", err)
+	}
+	out := make([]domain.Message, len(rows))
+	for i, r := range rows {
+		out[i] = message(sqlcgen.Message(r))
+	}
+	return out, nil
+}
+
+// FindVisibleMessage returns domain.ErrNotFound for IDs that are not UUIDs.
+func (s *Store) FindVisibleMessage(ctx context.Context, conversationID, viewerID, messageID string) (domain.Message, error) {
+	conv, ok1 := parseUUID(conversationID)
+	viewer, ok2 := parseUUID(viewerID)
+	id, ok3 := parseUUID(messageID)
+	if !ok1 || !ok2 || !ok3 {
+		return domain.Message{}, domain.ErrNotFound
+	}
+	r, err := s.q(ctx).FindVisibleMessage(ctx, sqlcgen.FindVisibleMessageParams{ConversationID: conv, ViewerID: viewer, ID: id})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Message{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.Message{}, fmt.Errorf("find message: %w", err)
+	}
+	return message(sqlcgen.Message(r)), nil
+}
+
+// People skips references whose IDs are not UUIDs.
+func (s *Store) People(ctx context.Context, viewerID string, refs []domain.PersonRef) ([]domain.PagePerson, error) {
+	viewer, ok := parseUUID(viewerID)
+	if !ok || len(refs) == 0 {
+		return nil, nil
+	}
+	arg := sqlcgen.PagePeopleParams{ViewerID: viewer}
+	for _, r := range refs {
+		conv, ok1 := parseUUID(r.ConversationID)
+		user, ok2 := parseUUID(r.UserID)
+		if ok1 && ok2 {
+			arg.ConversationIds = append(arg.ConversationIds, conv)
+			arg.UserIds = append(arg.UserIds, user)
+		}
+	}
+	if len(arg.UserIds) == 0 {
+		return nil, nil
+	}
+	rows, err := s.q(ctx).PagePeople(ctx, arg)
+	if err != nil {
+		return nil, fmt.Errorf("find people: %w", err)
+	}
+	out := make([]domain.PagePerson, len(rows))
+	for i, r := range rows {
+		out[i] = domain.PagePerson{UserID: r.ID.String(), FullName: r.FullName, Available: r.Available}
+		if r.Available {
+			out[i].PhotoFileID = uuidPtr(r.PhotoFileID)
+		}
+	}
+	return out, nil
 }

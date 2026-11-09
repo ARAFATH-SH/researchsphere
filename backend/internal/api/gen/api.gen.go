@@ -471,6 +471,21 @@ func (e ModerationLinkedReportOutcome) Valid() bool {
 	}
 }
 
+// Defines values for NotificationSubjectType.
+const (
+	NotificationSubjectTypeConversation NotificationSubjectType = "conversation"
+)
+
+// Valid indicates whether the value is a known member of the NotificationSubjectType enum.
+func (e NotificationSubjectType) Valid() bool {
+	switch e {
+	case NotificationSubjectTypeConversation:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for NotificationType.
 const (
 	NotificationTypeAccountWarning            NotificationType = "account_warning"
@@ -1522,15 +1537,44 @@ type MessageKind string
 type MessagePage struct {
 	Items []Message `json:"items"`
 
+	// NextAfter Pass as `after` to get newer messages; null when the page reaches the newest
+	// message, and always null for a page asked without `after` or `around`.
+	NextAfter *string `json:"nextAfter"`
+
 	// NextBefore Pass as `before` to get older messages; null on the last page.
 	NextBefore *string `json:"nextBefore"`
 
 	// OtherLastReadMessageId The other member's read marker; null until they have read a message, and for a group.
 	OtherLastReadMessageId *openapi_types.UUID `json:"otherLastReadMessageId"`
 
+	// People The people a page names, by user ID: every sender and every user (and actor) a system
+	// message names, also those who have left the group (FR-16.6). Only people who were ever
+	// in the conversation appear. A user whose account was deleted is absent; the client
+	// shows "Deleted account".
+	People MessagePeople `json:"people"`
+
 	// Readers For a group, every other current member's read marker (FR-16.3), so the client can
 	// show "Seen by N" under a message; null for a direct conversation.
 	Readers *[]MessageReader `json:"readers"`
+}
+
+// MessagePeople The people a page names, by user ID: every sender and every user (and actor) a system
+// message names, also those who have left the group (FR-16.6). Only people who were ever
+// in the conversation appear. A user whose account was deleted is absent; the client
+// shows "Deleted account".
+type MessagePeople map[string]MessagePerson
+
+// MessagePerson defines model for MessagePerson.
+type MessagePerson struct {
+	// Available False when the profile cannot be viewed: the person is suspended or not verified,
+	// or has blocked the caller. The client then shows initials and no profile link.
+	Available bool `json:"available"`
+
+	// FullName Always given, as the members already saw it in the conversation.
+	FullName string `json:"fullName"`
+
+	// PhotoUrl Null without a photo, and when `available` is false.
+	PhotoUrl *string `json:"photoUrl"`
 }
 
 // MessagePreview defines model for MessagePreview.
@@ -1555,6 +1599,11 @@ type MessagePreview struct {
 
 	// SenderId The sender; for a system message the actor, or null when it has none.
 	SenderId *openapi_types.UUID `json:"senderId"`
+
+	// SenderName The sender's (or actor's) full name, so a group's row can say "Nafisa: …" (FR-16.6).
+	// Always given, as with `MessagePage.people`, whatever the sender's standing; null when
+	// there is no sender.
+	SenderName *string `json:"senderName"`
 }
 
 // MessageReader defines model for MessageReader.
@@ -1665,6 +1714,12 @@ type MessageSearchPage struct {
 
 	// NextCursor Pass as `cursor` to get the next page; null on the last page.
 	NextCursor *string `json:"nextCursor"`
+
+	// People The people a page names, by user ID: every sender and every user (and actor) a system
+	// message names, also those who have left the group (FR-16.6). Only people who were ever
+	// in the conversation appear. A user whose account was deleted is absent; the client
+	// shows "Deleted account".
+	People MessagePeople `json:"people"`
 }
 
 // MessageSearchResult defines model for MessageSearchResult.
@@ -1801,6 +1856,13 @@ type Notification struct {
 	// pending, so the client can offer Accept and Ignore.
 	RequestPending *bool `json:"requestPending,omitempty"`
 
+	// Subject The item a notification is about, as it is now, for types whose sentence names it
+	// (`group_added`: the group, with its current name). Read when the notification is
+	// listed or sent, so a rename shows. Left out for the other types, and when the item no
+	// longer exists or the recipient cannot see it (they left the group); the client then
+	// uses a sentence without the title ("added you to a group").
+	Subject *NotificationSubject `json:"subject,omitempty"`
+
 	// Type What happened (FR-9.1). `connection_request_received`: the actor sent the caller a
 	// connection request. `connection_request_accepted`: the actor accepted the caller's
 	// request. `account_warning`: an administrator warned the caller; a system notification,
@@ -1828,6 +1890,20 @@ type NotificationPage struct {
 	// NextCursor Pass as `cursor` to get the next page; null on the last page.
 	NextCursor *string `json:"nextCursor"`
 }
+
+// NotificationSubject The item a notification is about, as it is now, for types whose sentence names it
+// (`group_added`: the group, with its current name). Read when the notification is
+// listed or sent, so a rename shows. Left out for the other types, and when the item no
+// longer exists or the recipient cannot see it (they left the group); the client then
+// uses a sentence without the title ("added you to a group").
+type NotificationSubject struct {
+	Id    openapi_types.UUID      `json:"id"`
+	Title string                  `json:"title"`
+	Type  NotificationSubjectType `json:"type"`
+}
+
+// NotificationSubjectType defines model for NotificationSubject.Type.
+type NotificationSubjectType string
 
 // NotificationType What happened (FR-9.1). `connection_request_received`: the actor sent the caller a
 // connection request. `connection_request_accepted`: the actor accepted the caller's
@@ -2981,6 +3057,10 @@ type ListBlockedPeopleParams struct {
 type ListMyConnectionsParams struct {
 	// Page The page to return, from 1, 20 items each. Defaults to 1.
 	Page *ConnectionListPage `form:"page,omitempty" json:"page,omitempty"`
+
+	// Q The text to look for, 2 to 100 characters after trimming; otherwise 400
+	// `bad_request` with `field: q`. Leave it out for every connection.
+	Q *string `form:"q,omitempty" json:"q,omitempty"`
 }
 
 // ListReceivedConnectionRequestsParams defines parameters for ListReceivedConnectionRequests.
@@ -3019,6 +3099,14 @@ type ListMessagesParams struct {
 	// Before `nextBefore` from the previous page; leave it out for the newest messages. A
 	// value that is not a UUID gets 400 `bad_request`.
 	Before *string `form:"before,omitempty" json:"before,omitempty"`
+
+	// After `nextAfter` from the previous page, for newer messages. A value that is not a
+	// UUID gets 400 `bad_request`.
+	After *string `form:"after,omitempty" json:"after,omitempty"`
+
+	// Around A message ID: the page is centred on it. A value that is not a UUID gets 400
+	// `bad_request`; a message the caller cannot see gets 404.
+	Around *string `form:"around,omitempty" json:"around,omitempty"`
 
 	// Limit Items to return, from 1. Defaults to 30. A larger value than 100 is reduced to
 	// 100; a value below 1 gets 400 `bad_request`.
@@ -4426,6 +4514,19 @@ func (siw *ServerInterfaceWrapper) ListMyConnections(w http.ResponseWriter, r *h
 		return
 	}
 
+	// ------------- Optional query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListMyConnections(w, r, params)
 	}))
@@ -5046,6 +5147,32 @@ func (siw *ServerInterfaceWrapper) ListMessages(w http.ResponseWriter, r *http.R
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "before"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "before", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "after" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "after", r.URL.Query(), &params.After, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "after"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "after", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "around" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "around", r.URL.Query(), &params.Around, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "around"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "around", Err: err})
 		}
 		return
 	}
@@ -9380,9 +9507,7 @@ func (response ListMyConnections200JSONResponse) VisitListMyConnectionsResponse(
 	return err
 }
 
-type ListMyConnections400JSONResponse struct {
-	InvalidConnectionPageJSONResponse
-}
+type ListMyConnections400JSONResponse Error
 
 func (response ListMyConnections400JSONResponse) VisitListMyConnectionsResponse(w http.ResponseWriter) error {
 

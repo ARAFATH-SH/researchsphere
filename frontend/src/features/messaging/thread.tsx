@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { type DragEvent, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { type DragEvent, useEffect, useRef, useState } from "react";
 
 import { useSession } from "@/features/auth/session";
 import { BlockDialog } from "@/features/social/block-dialog";
@@ -17,16 +18,20 @@ import {
   type SentMessage,
 } from "./api";
 import { Composer, RestrictedComposer } from "./composer";
-import { seenMessageId, threadStatus } from "./format";
+import { seenBy, seenMessageId, threadStatus } from "./format";
+import { GroupInfoPanel } from "./group-info-panel";
+import { isGroup } from "./kinds";
 import type { EditOutcome } from "./message-editor";
-import { MessageList } from "./message-list";
+import { MessageList, type Sender } from "./message-list";
 import { ReportDialog } from "./report-dialog";
+import { MessageSearchView, SearchBox, type SearchPerson } from "./search/message-search";
 import { isStale, sendNotice, type SendNotice } from "./send-errors";
-import { ThreadActions } from "./thread-actions";
+import { firstName } from "./system-events";
+import { GroupActions, ThreadActions } from "./thread-actions";
 import { ThreadBanner } from "./thread-banner";
-import { ThreadHeader } from "./thread-header";
+import { type HeaderSubject, ThreadHeader } from "./thread-header";
 import { refreshUnreadMessages } from "./unread-count";
-import { useIsTyping } from "./typing";
+import { useTypers } from "./typing";
 import { useAttachments } from "./use-attachments";
 import { useConversations } from "./use-conversations";
 import { useMarkRead } from "./use-mark-read";
@@ -37,11 +42,30 @@ import { useTypingSender } from "./use-typing-sender";
 
 // Thread is the right column: one conversation (FR-16.1 to FR-16.3). Give it a key per
 // conversation, so nothing carries over from the last one.
+// With ?around=<messageId> (a search result, FR-16.8) it opens at that message.
 export function Thread({ conversationId }: { conversationId: string }) {
   const session = useSession();
   const me = session.status === "signedIn" ? session.user.id : null;
-  const thread = useThread(conversationId);
+  const around = useSearchParams()?.get("around") ?? null;
+  const thread = useThread(conversationId, around);
+  const list = useConversations();
+  const lost = thread.state.status === "lost";
+  const { remove } = list;
+  // A group the caller left or was removed from leaves the list too (FR-16.6).
+  useEffect(() => {
+    if (lost) remove(conversationId);
+  }, [lost, remove, conversationId]);
   if (!me || thread.state.status === "loading") return <Note role="status">Loading…</Note>;
+  if (thread.state.status === "lost") {
+    return (
+      <Note role="status">
+        You&apos;re no longer in this group.{" "}
+        <Link href="/messaging" className="font-medium text-rs-accent hover:underline">
+          Back to Messaging
+        </Link>
+      </Note>
+    );
+  }
   if (thread.state.status === "notFound") {
     return (
       <Note>
@@ -73,9 +97,9 @@ export function Note({ role, children }: { role?: "status" | "alert"; children: 
   );
 }
 
-// ThreadDialog is the open dialog: a report of the conversation or of one message, or asking
-// before a block or an unblock.
-type ThreadDialog = { kind: "report"; messageId?: string } | { kind: "block" } | { kind: "unblock" };
+// ThreadDialog is the open dialog: a report of the conversation or of one message, asking
+// before a block or an unblock, or a group's info panel.
+type ThreadDialog = { kind: "report"; messageId?: string } | { kind: "block" } | { kind: "unblock" } | { kind: "info" };
 
 type LoadedThreadProps = {
   me: string;
@@ -93,6 +117,31 @@ function LoadedThread({ me, thread, state }: LoadedThreadProps) {
   const restriction = useMessagingRestriction();
   const status = threadStatus(conversation, me);
   const person = conversation.otherMember;
+  const group = isGroup(conversation) ? conversation.group : null;
+  const [searching, setSearching] = useState(false);
+  const [searchText, setSearchText] = useState("");
+  const searchInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (searching) searchInput.current?.focus();
+  }, [searching]);
+
+  // personOf names a sender or someone a system message names: from the pages loaded (former
+  // members included), else from the group's current members, else the other person.
+  function personOf(userId: string): Sender | undefined {
+    const p = state.people[userId];
+    if (p) return { fullName: p.fullName, photoUrl: p.available ? p.photoUrl : null };
+    const m = group?.members?.find((x) => x.userId === userId);
+    if (m) return { fullName: m.fullName, photoUrl: m.available ? m.photoUrl : null };
+    if (person && person.userId === userId) return { fullName: person.fullName, photoUrl: person.photoUrl };
+    return undefined;
+  }
+  const name = group?.name ?? person?.fullName ?? "";
+  const subject: HeaderSubject = group
+    ? { kind: "group", name: group.name, memberCount: group.memberCount, avatars: group.avatars }
+    : { kind: "person", person: person ?? { userId: "", fullName: "", photoUrl: null, headline: null } };
+  const searchPeople: SearchPerson[] = group
+    ? (group.members ?? []).map((m) => ({ userId: m.userId, fullName: m.fullName }))
+    : [{ userId: me, fullName: "You" }, ...(person ? [{ userId: person.userId, fullName: person.fullName }] : [])];
 
   const outbox = useOutbox({
     deliver: (body, clientId, attachmentIds) => sendMessage(conversation.id, body, clientId, attachmentIds),
@@ -115,7 +164,8 @@ function LoadedThread({ me, thread, state }: LoadedThreadProps) {
   });
 
   const typing = useTypingSender(conversation.id, status === "open");
-  const otherTyping = useIsTyping(conversation.id);
+  const typers = useTypers(conversation.id);
+  const typerNames = group ? typers.map((id) => firstName(personOf(id)?.fullName ?? "Someone")) : typers.length > 0 ? [name] : [];
 
   // The echo of a message this tab sent can arrive before the send's answer. useThread stores
   // it under the clientId, so its row stays the same one.
@@ -130,6 +180,8 @@ function LoadedThread({ me, thread, state }: LoadedThreadProps) {
 
   function send(body: string, attachments: Parameters<typeof outbox.send>[1]) {
     typing.stop();
+    // Opened at a search result, sending goes back to the newest messages, where it shows.
+    if (state.nextAfter !== null) thread.jumpToLatest();
     outbox.send(body, attachments);
   }
 
@@ -225,44 +277,101 @@ function LoadedThread({ me, thread, state }: LoadedThreadProps) {
   }
 
   return (
-    <section aria-label={`Conversation with ${person.fullName}`} className="relative flex h-full min-h-0 flex-col" {...drop}>
+    <section
+      aria-label={group ? `Group ${group.name}` : `Conversation with ${name}`}
+      className="relative flex h-full min-h-0 flex-col"
+      {...drop}
+    >
       {dragging && (
         <div className="pointer-events-none absolute inset-2 z-40 flex items-center justify-center rounded-card border-2 border-dashed border-rs-accent-strong bg-rs-accent-soft/90 text-rs-body font-medium text-rs-accent-deep">
           Drop files to attach
         </div>
       )}
       <ThreadHeader
-        person={person}
-        typing={otherTyping}
+        subject={subject}
+        typing={typerNames}
+        onOpenInfo={() => setDialog({ kind: "info" })}
         actions={
-          <ThreadActions
-            name={person.fullName}
-            available={person.available}
-            blockedByMe={conversation.blockedByMe}
-            onBlock={() => setDialog({ kind: "block" })}
-            onUnblock={() => setDialog({ kind: "unblock" })}
-            onReport={() => setDialog({ kind: "report" })}
-          />
+          group ? (
+            <GroupActions searching={searching} onSearch={() => setSearching((s) => !s)} onInfo={() => setDialog({ kind: "info" })} />
+          ) : (
+            person && (
+              <ThreadActions
+                name={person.fullName}
+                available={person.available}
+                blockedByMe={conversation.blockedByMe}
+                searching={searching}
+                onSearch={() => setSearching((s) => !s)}
+                onBlock={() => setDialog({ kind: "block" })}
+                onUnblock={() => setDialog({ kind: "unblock" })}
+                onReport={() => setDialog({ kind: "report" })}
+              />
+            )
+          )
         }
       />
-      <MessageList
-        messages={[...messages, ...outgoingMessages(outbox.outgoing, me)]}
-        me={me}
-        other={conversation.otherMember}
-        seenId={seenMessageId(messages, me, state.otherLastReadMessageId, conversation)}
-        hasEarlier={state.nextBefore !== null}
-        loadingEarlier={state.loadingEarlier}
-        earlierFailed={state.earlierFailed}
-        onLoadEarlier={thread.loadEarlier}
-        onRetry={outbox.retry}
-        onReportMessage={(messageId) => setDialog({ kind: "report", messageId })}
-        onEdit={edit}
-        onDelete={remove}
-      />
+      {state.anchorMissing && (
+        <p role="status" className="border-b border-rs-divider px-4 py-2 text-rs-caption text-rs-text-muted">
+          That message isn&apos;t available any more. Showing the newest messages.
+        </p>
+      )}
+      {searching ? (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="flex items-center gap-2 border-b border-rs-divider p-3">
+            <div className="min-w-0 flex-1">
+              <SearchBox value={searchText} onChange={setSearchText} label="Search in this conversation" inputRef={searchInput} />
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setSearching(false);
+                setSearchText("");
+              }}
+              className="rounded-rs-pill px-3 py-1 text-rs-caption font-medium text-rs-accent-strong hover:bg-rs-subtle focus-visible:shadow-focus focus-visible:outline-none"
+            >
+              Done
+            </button>
+          </div>
+          <MessageSearchView
+            text={searchText}
+            me={me}
+            conversationId={conversation.id}
+            people={searchPeople}
+            onPick={() => {
+              setSearching(false);
+              setSearchText("");
+            }}
+          />
+        </div>
+      ) : (
+        <MessageList
+          key={state.anchorId ?? "newest"}
+          messages={[...messages, ...outgoingMessages(outbox.outgoing, me)]}
+          me={me}
+          personOf={personOf}
+          group={group !== null}
+          seenId={group ? null : seenMessageId(messages, me, state.otherLastReadMessageId, conversation)}
+          seenBy={group ? seenBy(messages, me, state.readers) : null}
+          hasEarlier={state.nextBefore !== null}
+          loadingEarlier={state.loadingEarlier}
+          earlierFailed={state.earlierFailed}
+          onLoadEarlier={thread.loadEarlier}
+          hasNewer={state.nextAfter !== null}
+          loadingNewer={state.loadingNewer}
+          newerFailed={state.newerFailed}
+          onLoadNewer={thread.loadNewer}
+          onJumpToLatest={thread.jumpToLatest}
+          highlightId={state.anchorId}
+          onRetry={outbox.retry}
+          onReportMessage={(messageId) => setDialog({ kind: "report", messageId })}
+          onEdit={edit}
+          onDelete={remove}
+        />
+      )}
       {status !== "open" && (
         <ThreadBanner
           status={status}
-          name={conversation.otherMember.fullName}
+          name={name}
           busy={answering}
           error={answerError}
           onAccept={accept}
@@ -286,19 +395,36 @@ function LoadedThread({ me, thread, state }: LoadedThreadProps) {
         <ReportDialog
           conversationId={conversation.id}
           messageId={dialog.messageId}
-          name={person.fullName}
-          canBlock={person.available && !conversation.blockedByMe}
+          name={person?.fullName ?? name}
+          title={group ? "Report group" : undefined}
+          canBlock={!group && !!person && person.available && !conversation.blockedByMe}
           onClose={() => setDialog(null)}
           onBlock={() => setDialog({ kind: "block" })}
         />
       )}
-      {(dialog?.kind === "block" || dialog?.kind === "unblock") && (
+      {(dialog?.kind === "block" || dialog?.kind === "unblock") && person && (
         <BlockDialog
           action={dialog.kind}
           userId={person.userId}
           name={person.fullName}
           onClose={() => setDialog(null)}
           onDone={dialog.kind === "block" ? blocked : unblocked}
+        />
+      )}
+      {dialog?.kind === "info" && isGroup(conversation) && (
+        <GroupInfoPanel
+          conversation={conversation}
+          me={me}
+          onChanged={(next) => {
+            thread.setConversation(next);
+            list.patch(next.id, { group: next.group ? { ...next.group, members: null } : null });
+          }}
+          onLeft={() => {
+            setDialog(null);
+            thread.leave();
+          }}
+          onReport={() => setDialog({ kind: "report" })}
+          onClose={() => setDialog(null)}
         />
       )}
     </section>
@@ -313,6 +439,7 @@ function withLastMessage(conversation: Conversation, message: SentMessage["messa
     unreadCount: 0,
     lastMessage: {
       senderId: message.senderId,
+      senderName: null,
       kind: "text",
       event: null,
       body: [...(message.body ?? "")].slice(0, 120).join(""),

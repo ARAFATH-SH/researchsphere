@@ -189,10 +189,13 @@ func wireEnv(t *testing.T, pool *pgxpool.Pool, rdb *goredis.Client, files *stora
 		<-hubDone
 		realtime.close()
 	})
-	notifications := notificationusecase.New(notificationpg.NewStore(pool), notificationusecase.WithPublisher(realtime.events))
+	titles := &subjectTitles{}
+	notifications := notificationusecase.New(notificationpg.NewStore(pool), notificationusecase.WithPublisher(realtime.events),
+		notificationusecase.WithSubjectTitles(titles))
 	connected := &connectionChecker{}
 	messaging := messagingusecase.New(messagingpg.NewStore(pool), postgres.NewTransactor(pool), connected, connected, messagingActors{standings: standings}, messageLimiter,
 		realtime.events, groupNotifier{notifications: notifications}, limits, now, logger)
+	titles.messaging = messaging
 	realtime.bind(messaging, notifications)
 	messaging.UseFiles(messagingusecase.FileDeps{Intake: fileIntake{media: mediausecase.NewAttachments(images, imaging.Codec{})}, Objects: files})
 	var notifier socialdomain.Notifier = connectionNotifier{notifications: notifications, messaging: messaging, events: realtime.events}

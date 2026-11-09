@@ -133,6 +133,26 @@ describe("NotificationsPage", () => {
     expect(within(row).getByText("RS")).toBeTruthy();
   });
 
+  it("says who added me to which group, by its current name, linking to it (FR-16.6)", async () => {
+    const link = "/messaging/4c2f7d3e-0000-4000-8000-0000000000a1";
+    const added: Notification = {
+      id: "n-12",
+      type: "group_added",
+      createdAt: "2026-11-03T10:00:00Z",
+      read: false,
+      link,
+      actor: actor(3, "Nafisa Hasan"),
+      subject: { type: "conversation", id: "4c2f7d3e-0000-4000-8000-0000000000a1", title: "CVS paper team" },
+    };
+    const gone: Notification = { ...added, id: "n-13", subject: undefined };
+    mockList.mockResolvedValue(page([added, gone]));
+    await renderPage();
+
+    const [named, plain] = rows();
+    expect(within(named).getByRole("link", { name: "Unread: Nafisa Hasan added you to CVS paper team." }).getAttribute("href")).toBe(link);
+    expect(within(plain).getByRole("link", { name: "Unread: Nafisa Hasan added you to a group." })).toBeTruthy();
+  });
+
   it("also shows a system notification when it has no actor field at all", async () => {
     mockList.mockResolvedValue(
       page([{ id: "n-10", type: "account_warning", createdAt: "2026-11-03T10:00:00Z", read: true, link: "/warnings/x" }]),

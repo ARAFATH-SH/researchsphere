@@ -74,10 +74,12 @@ type SearchResult struct {
 	Highlights []Range
 }
 
-// SearchPage is one page of results. NextCursor is nil on the last page.
+// SearchPage is one page of results. NextCursor is nil on the last page. People names the
+// senders, as a page of messages does.
 type SearchPage struct {
 	Items      []SearchResult
 	NextCursor *string
+	People     map[string]PagePerson
 }
 
 // SearchStore finds messages.

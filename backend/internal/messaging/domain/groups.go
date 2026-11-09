@@ -154,6 +154,9 @@ type GroupStore interface {
 	GroupAvatars(ctx context.Context, viewerID string, conversationIDs []string) (map[string][]Person, error)
 	// ListReaders returns the read markers of the current members other than viewerID.
 	ListReaders(ctx context.Context, conversationID, viewerID string) ([]Reader, error)
+	// GroupNames returns the current names of the groups among ids that viewerID is a member
+	// of now, by ID. IDs that are not UUIDs are skipped.
+	GroupNames(ctx context.Context, viewerID string, ids []string) (map[string]string, error)
 	// SystemMessagesAfter returns the conversation's system messages after the message ID,
 	// oldest first: what the database wrote after a change, such as owner_changed.
 	SystemMessagesAfter(ctx context.Context, conversationID, afterID string) ([]Message, error)

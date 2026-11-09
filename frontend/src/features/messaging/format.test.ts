@@ -1,10 +1,10 @@
-import { bodyLength, dayLabel, groupMessages, rowPreview, rowTime, seenMessageId, threadStatus, type ThreadMessage, waitText } from "./format";
-import { adaID, bobID, conversation } from "./test-data";
+import { bodyLength, dayLabel, groupMessages, rowPreview, rowTime, seenBy, seenMessageId, threadStatus, type ThreadMessage, waitText } from "./format";
+import { adaID, bobID, conversation, group, nafisaID, rahimID } from "./test-data";
 
 const now = new Date(2026, 10, 5, 18, 0);
 
 function shown(n: number, senderId: string, createdAt: string): ThreadMessage {
-  return { key: `k${n}`, id: `id-${String(n).padStart(3, "0")}`, senderId, body: "x", createdAt, editedAt: null, deleted: false, attachments: [], delivery: "sent" };
+  return { key: `k${n}`, id: `id-${String(n).padStart(3, "0")}`, senderId, event: null, body: "x", createdAt, editedAt: null, deleted: false, attachments: [], delivery: "sent" };
 }
 
 describe("bodyLength", () => {
@@ -51,13 +51,13 @@ describe("waitText", () => {
 describe("rowPreview", () => {
   it("shows the last message, with You: before my own", () => {
     expect(rowPreview(conversation(), adaID)).toBe("See you");
-    const mine = conversation({ lastMessage: { senderId: adaID, kind: "text", event: null, body: "Hello", deleted: false, attachmentCount: 0, createdAt: "2026-11-05T09:00:00Z" } });
+    const mine = conversation({ lastMessage: { senderId: adaID, senderName: "Ada Lovelace", kind: "text", event: null, body: "Hello", deleted: false, attachmentCount: 0, createdAt: "2026-11-05T09:00:00Z" } });
     expect(rowPreview(mine, adaID)).toBe("You: Hello");
     expect(rowPreview(conversation({ lastMessage: null }), adaID)).toBe("");
   });
 
   const last = (senderId: string, body: string | null, deleted: boolean, attachmentCount: number) =>
-    conversation({ lastMessage: { senderId, kind: "text", event: null, body, deleted, attachmentCount, createdAt: "2026-11-05T09:00:00Z" } });
+    conversation({ lastMessage: { senderId, senderName: null, kind: "text", event: null, body, deleted, attachmentCount, createdAt: "2026-11-05T09:00:00Z" } });
 
   it("says Message deleted from the deleted flag, never from a missing body", () => {
     expect(rowPreview(last(bobID, null, true, 0), adaID)).toBe("Message deleted");
@@ -136,5 +136,45 @@ describe("seenMessageId", () => {
     ["a declined request", conversation({ state: "declined", requestedBy: adaID, canMessage: false })],
   ])("is nothing on %s, even with a marker", (_, c) => {
     expect(seenMessageId(messages, adaID, "id-004", c)).toBeNull();
+  });
+});
+
+describe("group rows (FR-16.6)", () => {
+  it("names the sender by first name, or You, and says a system message from its key", () => {
+    expect(rowPreview(group(), adaID)).toBe("Nafisa: I'll check the references");
+    const mine = group({ lastMessage: { ...group().lastMessage!, senderId: adaID, senderName: "Ada Lovelace", body: "On it" } });
+    expect(rowPreview(mine, adaID)).toBe("You: On it");
+    const file = group({ lastMessage: { ...group().lastMessage!, body: null, attachmentCount: 2 } });
+    expect(rowPreview(file, adaID)).toBe("Nafisa sent 2 files");
+    const renamed = group({ lastMessage: { ...group().lastMessage!, kind: "system", event: "group_renamed", body: null } });
+    expect(rowPreview(renamed, adaID)).toBe("Nafisa renamed the group");
+  });
+});
+
+describe("groupMessages and system messages", () => {
+  it("ends a run at a system message, which stands alone", () => {
+    const system = { ...shown(2, nafisaID, "2026-11-05T09:01:00Z"), event: { type: "member_added" as const, actorId: nafisaID, userIds: [], oldName: null, newName: null } };
+    const [day] = groupMessages([shown(1, nafisaID, "2026-11-05T09:00:00Z"), system, shown(3, nafisaID, "2026-11-05T09:02:00Z")], now);
+    expect(day.groups.map((g) => [g.system, g.messages.length])).toEqual([
+      [false, 1],
+      [true, 1],
+      [false, 1],
+    ]);
+  });
+});
+
+describe("seenBy (FR-16.3)", () => {
+  const mine = (n: number) => shown(n, adaID, "2026-11-05T09:00:00Z");
+  it("finds my newest message someone has read, with everyone who has", () => {
+    const messages = [mine(1), shown(2, nafisaID, "2026-11-05T09:00:00Z"), mine(3), mine(4)];
+    const readers = [
+      { userId: nafisaID, lastReadMessageId: "id-003" },
+      { userId: rahimID, lastReadMessageId: "id-004" },
+      { userId: "x", lastReadMessageId: null },
+    ];
+    expect(seenBy(messages, adaID, readers)).toEqual({ messageId: "id-004", userIds: [rahimID] });
+    expect(seenBy(messages, adaID, [{ userId: nafisaID, lastReadMessageId: "id-003" }])).toEqual({ messageId: "id-003", userIds: [nafisaID] });
+    expect(seenBy(messages, adaID, [{ userId: nafisaID, lastReadMessageId: null }])).toBeNull();
+    expect(seenBy(messages, adaID, null)).toBeNull();
   });
 });

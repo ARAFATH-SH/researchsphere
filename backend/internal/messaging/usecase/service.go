@@ -700,22 +700,69 @@ func (s *Service) Get(ctx context.Context, userID, id string) (domain.Item, erro
 // Messages returns one page of a conversation's messages, newest first, and the other
 // member's read marker (FR-16.3), or in a group every other member's. A member sees only the
 // messages created from the moment they joined (FR-16.6). ErrNotFound when userID is not a
-// member; before is the
-// previous page's NextBefore, or empty, and anything but a UUID is ErrInvalidCursor. A nil
-// limit means DefaultMessageLimit; above MaxMessageLimit it is reduced; below 1 it is
-// ErrInvalidLimit.
-func (s *Service) Messages(ctx context.Context, userID, id, before string, limitParam *int) (domain.MessagePage, error) {
+// member. q picks the page (domain.MessageQuery): more than one cursor, or a cursor that is not
+// a UUID, is an InvalidFieldError naming it; an Around message the caller cannot see is
+// ErrMessageNotFound. A nil limit means DefaultMessageLimit; above MaxMessageLimit it is
+// reduced; below 1 it is ErrInvalidLimit. People names everyone the page shows.
+func (s *Service) Messages(ctx context.Context, userID, id string, q domain.MessageQuery) (domain.MessagePage, error) {
 	c, err := s.store.FindConversation(ctx, id, userID)
 	if err != nil {
 		return domain.MessagePage{}, err
 	}
-	if before != "" && !isUUID(before) {
-		return domain.MessagePage{}, domain.ErrInvalidCursor
+	if err := checkMessageQuery(q); err != nil {
+		return domain.MessagePage{}, err
 	}
-	limit, err := pageLimit(limitParam, DefaultMessageLimit, MaxMessageLimit)
+	limit, err := pageLimit(q.Limit, DefaultMessageLimit, MaxMessageLimit)
 	if err != nil {
 		return domain.MessagePage{}, err
 	}
+	var page domain.MessagePage
+	switch {
+	case q.Around != "":
+		page, err = s.messagesAround(ctx, userID, id, q.Around, limit)
+	case q.After != "":
+		page, err = s.messagesAfter(ctx, userID, id, q.After, limit)
+	default:
+		page, err = s.messagesBefore(ctx, userID, id, q.Before, limit)
+	}
+	if err != nil {
+		return domain.MessagePage{}, err
+	}
+	ptrs := make([]*domain.Message, len(page.Items))
+	for i := range page.Items {
+		ptrs[i] = &page.Items[i]
+	}
+	if err := s.withAttachments(ctx, id, ptrs); err != nil {
+		return domain.MessagePage{}, err
+	}
+	page.OtherReadID = c.OtherReadID
+	if c.IsGroup() {
+		if page.Readers, err = s.store.ListReaders(ctx, id, userID); err != nil {
+			return domain.MessagePage{}, err
+		}
+	}
+	if page.People, err = s.pagePeople(ctx, userID, messageRefs(page.Items)); err != nil {
+		return domain.MessagePage{}, err
+	}
+	return page, nil
+}
+
+// checkMessageQuery allows at most one cursor, each a UUID.
+func checkMessageQuery(q domain.MessageQuery) error {
+	set := 0
+	for _, f := range []struct{ name, value string }{{"before", q.Before}, {"after", q.After}, {"around", q.Around}} {
+		if f.value == "" {
+			continue
+		}
+		set++
+		if set > 1 || !isUUID(f.value) {
+			return &domain.InvalidFieldError{Field: f.name}
+		}
+	}
+	return nil
+}
+
+func (s *Service) messagesBefore(ctx context.Context, userID, id, before string, limit int) (domain.MessagePage, error) {
 	items, err := s.store.ListMessages(ctx, id, userID, before, limit+1)
 	if err != nil {
 		return domain.MessagePage{}, err
@@ -723,23 +770,114 @@ func (s *Service) Messages(ctx context.Context, userID, id, before string, limit
 	var next *string
 	if len(items) > limit {
 		items = items[:limit]
-		last := items[limit-1].ID
-		next = &last
+		next = &items[limit-1].ID
 	}
-	ptrs := make([]*domain.Message, len(items))
-	for i := range items {
-		ptrs[i] = &items[i]
-	}
-	if err := s.withAttachments(ctx, id, ptrs); err != nil {
+	return domain.MessagePage{Items: items, NextBefore: next}, nil
+}
+
+// messagesAfter leaves NextBefore nil: the client already holds the older messages.
+func (s *Service) messagesAfter(ctx context.Context, userID, id, after string, limit int) (domain.MessagePage, error) {
+	newer, err := s.store.ListMessagesAfter(ctx, id, userID, after, limit+1)
+	if err != nil {
 		return domain.MessagePage{}, err
 	}
-	page := domain.MessagePage{Items: items, NextBefore: next, OtherReadID: c.OtherReadID}
-	if c.IsGroup() {
-		if page.Readers, err = s.store.ListReaders(ctx, id, userID); err != nil {
-			return domain.MessagePage{}, err
-		}
+	var next *string
+	if len(newer) > limit {
+		newer = newer[:limit]
+		next = &newer[limit-1].ID
+	}
+	return domain.MessagePage{Items: reversed(newer), NextAfter: next}, nil
+}
+
+// messagesAround centres the page on one message: up to (limit-1)/2 older ones, the rest
+// newer, a short side's room going to the other.
+func (s *Service) messagesAround(ctx context.Context, userID, id, around string, limit int) (domain.MessagePage, error) {
+	anchor, err := s.store.FindVisibleMessage(ctx, id, userID, around)
+	if errors.Is(err, domain.ErrNotFound) {
+		return domain.MessagePage{}, domain.ErrMessageNotFound
+	}
+	if err != nil {
+		return domain.MessagePage{}, err
+	}
+	older, err := s.store.ListMessages(ctx, id, userID, around, limit) // newest first
+	if err != nil {
+		return domain.MessagePage{}, err
+	}
+	newer, err := s.store.ListMessagesAfter(ctx, id, userID, around, limit) // oldest first
+	if err != nil {
+		return domain.MessagePage{}, err
+	}
+	nOld, nNew := aroundSplit(limit, len(older), len(newer))
+	page := domain.MessagePage{}
+	page.Items = append(page.Items, reversed(newer[:nNew])...)
+	page.Items = append(page.Items, anchor)
+	page.Items = append(page.Items, older[:nOld]...)
+	if len(older) > nOld {
+		page.NextBefore = &page.Items[len(page.Items)-1].ID
+	}
+	if len(newer) > nNew {
+		page.NextAfter = &page.Items[0].ID
 	}
 	return page, nil
+}
+
+// aroundSplit says how many of the older and newer messages a page centred on one message
+// keeps, given how many there are: (limit-1)/2 older and the rest newer, a short side's room
+// going to the other.
+func aroundSplit(limit, older, newer int) (keepOld, keepNew int) {
+	room := limit - 1
+	keepOld = min(older, room/2)
+	keepNew = min(newer, room-keepOld)
+	keepOld = min(older, room-keepNew)
+	return keepOld, keepNew
+}
+
+func reversed(ms []domain.Message) []domain.Message {
+	out := make([]domain.Message, len(ms))
+	for i, m := range ms {
+		out[len(ms)-1-i] = m
+	}
+	return out
+}
+
+// messageRefs lists every sender and every user a system message names.
+func messageRefs(items []domain.Message) []domain.PersonRef {
+	var refs []domain.PersonRef
+	for _, m := range items {
+		if m.SenderID != "" {
+			refs = append(refs, domain.PersonRef{ConversationID: m.ConversationID, UserID: m.SenderID})
+		}
+		if m.Event != nil {
+			for _, u := range m.Event.UserIDs {
+				refs = append(refs, domain.PersonRef{ConversationID: m.ConversationID, UserID: u})
+			}
+		}
+	}
+	return refs
+}
+
+// pagePeople looks the references up in one query, each pair once.
+func (s *Service) pagePeople(ctx context.Context, userID string, refs []domain.PersonRef) (map[string]domain.PagePerson, error) {
+	seen := make(map[domain.PersonRef]bool, len(refs))
+	unique := refs[:0:0]
+	for _, r := range refs {
+		if !seen[r] {
+			seen[r] = true
+			unique = append(unique, r)
+		}
+	}
+	people := make(map[string]domain.PagePerson, len(unique))
+	if len(unique) == 0 {
+		return people, nil
+	}
+	found, err := s.store.People(ctx, userID, unique)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range found {
+		people[p.UserID] = p
+	}
+	return people, nil
 }
 
 // MarkRead moves userID's read marker forward to messageID (FR-16.3). A message at or

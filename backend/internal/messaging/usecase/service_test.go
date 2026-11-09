@@ -331,7 +331,7 @@ func TestNonMemberGetsNotFound(t *testing.T) {
 	calls := map[string]func() error{
 		"Send":     func() error { _, err := h.svc.Send(ctx, "eve", id, "hi", "c9"); return err },
 		"Get":      func() error { _, err := h.svc.Get(ctx, "eve", id); return err },
-		"Messages": func() error { _, err := h.svc.Messages(ctx, "eve", id, "", nil); return err },
+		"Messages": func() error { _, err := h.svc.Messages(ctx, "eve", id, domain.MessageQuery{}); return err },
 		"MarkRead": func() error { return h.svc.MarkRead(ctx, "eve", id, s.Message.ID) },
 		"Accept":   func() error { _, err := h.svc.Accept(ctx, "eve", id); return err },
 		"Decline":  func() error { _, err := h.svc.Decline(ctx, "eve", id); return err },
@@ -377,7 +377,7 @@ func TestSuspendedMemberIsReadOnly(t *testing.T) {
 	if err != nil || len(p.Items) != 1 {
 		t.Errorf("List: %+v, %v", p, err)
 	}
-	if m, err := h.svc.Messages(ctx, "ada", id, "", nil); err != nil || len(m.Items) != 1 {
+	if m, err := h.svc.Messages(ctx, "ada", id, domain.MessageQuery{}); err != nil || len(m.Items) != 1 {
 		t.Errorf("Messages: %+v, %v", m, err)
 	}
 	if err := h.svc.MarkRead(ctx, "ada", id, s.Message.ID); err != nil {
@@ -675,7 +675,7 @@ func TestReadMarkers(t *testing.T) {
 
 func (h *harness) mustMessages(t *testing.T, user, id string) domain.MessagePage {
 	t.Helper()
-	p, err := h.svc.Messages(t.Context(), user, id, "", nil)
+	p, err := h.svc.Messages(t.Context(), user, id, domain.MessageQuery{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -793,14 +793,14 @@ func TestMessagesPaging(t *testing.T) {
 		id = h.direct(t, "ada", "bob", fmt.Sprintf("m%d", i)).Message.ConversationID
 	}
 
-	p, err := h.svc.Messages(ctx, "ada", id, "", nil)
+	p, err := h.svc.Messages(ctx, "ada", id, domain.MessageQuery{})
 	if err != nil || len(p.Items) != DefaultMessageLimit || p.NextBefore == nil {
 		t.Fatalf("first page: %d items, next %v, %v", len(p.Items), p.NextBefore, err)
 	}
 	if text(p.Items[0]) != "m34" || text(p.Items[29]) != "m5" {
 		t.Errorf("not newest first: %s .. %s", text(p.Items[0]), text(p.Items[29]))
 	}
-	last, err := h.svc.Messages(ctx, "ada", id, *p.NextBefore, nil)
+	last, err := h.svc.Messages(ctx, "ada", id, domain.MessageQuery{Before: *p.NextBefore})
 	if err != nil || len(last.Items) != 5 || last.NextBefore != nil || text(last.Items[0]) != "m4" {
 		t.Fatalf("second page: %d items, next %v, %v", len(last.Items), last.NextBefore, err)
 	}
@@ -816,16 +816,145 @@ func TestMessagesLimit(t *testing.T) {
 		id = h.direct(t, "ada", "bob", "x").Message.ConversationID
 	}
 	big := 500
-	p, err := h.svc.Messages(ctx, "ada", id, "", &big)
+	p, err := h.svc.Messages(ctx, "ada", id, domain.MessageQuery{Limit: &big})
 	if err != nil || len(p.Items) != MaxMessageLimit {
 		t.Errorf("%d items, %v; want the cap %d", len(p.Items), err, MaxMessageLimit)
 	}
 	zero := 0
-	if _, err := h.svc.Messages(ctx, "ada", id, "", &zero); !errors.Is(err, domain.ErrInvalidLimit) {
+	if _, err := h.svc.Messages(ctx, "ada", id, domain.MessageQuery{Limit: &zero}); !errors.Is(err, domain.ErrInvalidLimit) {
 		t.Errorf("limit 0: %v", err)
 	}
-	if _, err := h.svc.Messages(ctx, "ada", id, "not-a-uuid", nil); !errors.Is(err, domain.ErrInvalidCursor) {
-		t.Errorf("bad before: %v", err)
+	uuid := p.Items[0].ID
+	for _, c := range []struct {
+		q     domain.MessageQuery
+		field string
+	}{
+		{domain.MessageQuery{Before: "not-a-uuid"}, "before"},
+		{domain.MessageQuery{After: "not-a-uuid"}, "after"},
+		{domain.MessageQuery{Around: "not-a-uuid"}, "around"},
+		{domain.MessageQuery{Before: uuid, After: uuid}, "after"},
+		{domain.MessageQuery{Before: uuid, Around: uuid}, "around"},
+		{domain.MessageQuery{After: uuid, Around: uuid}, "around"},
+	} {
+		var field *domain.InvalidFieldError
+		if _, err := h.svc.Messages(ctx, "ada", id, c.q); !errors.As(err, &field) || field.Field != c.field {
+			t.Errorf("%+v: %v, want field %s", c.q, err, c.field)
+		}
+	}
+}
+
+// A page centred on a message (a search result): the message, (limit-1)/2 older and the rest
+// newer, a short side's room going to the other, with cursors both ways; walking them from
+// the anchor gives the whole thread once.
+func TestMessagesAround(t *testing.T) {
+	ctx := context.Background()
+	h := newHarness()
+	h.noLimits()
+	h.connect("ada", "bob")
+	var id string
+	var ids []string // oldest first
+	for i := range 40 {
+		m := h.direct(t, "ada", "bob", fmt.Sprintf("m%d", i)).Message
+		id = m.ConversationID
+		ids = append(ids, m.ID)
+	}
+	six := 6
+	for _, c := range []struct {
+		name          string
+		anchor        int
+		first, last   string // newest and oldest text on the page
+		before, after bool
+	}{
+		{"middle", 20, "m23", "m18", true, true},
+		{"near the oldest", 1, "m5", "m0", false, true},
+		{"the oldest", 0, "m5", "m0", false, true},
+		{"near the newest", 38, "m39", "m34", true, false},
+		{"the newest", 39, "m39", "m34", true, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			p, err := h.svc.Messages(ctx, "ada", id, domain.MessageQuery{Around: ids[c.anchor], Limit: &six})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(p.Items) != 6 || text(p.Items[0]) != c.first || text(p.Items[5]) != c.last {
+				t.Fatalf("page %s .. %s (%d items)", text(p.Items[0]), text(p.Items[len(p.Items)-1]), len(p.Items))
+			}
+			if !slices.ContainsFunc(p.Items, func(m domain.Message) bool { return m.ID == ids[c.anchor] }) {
+				t.Error("the anchor is missing")
+			}
+			if (p.NextBefore != nil) != c.before || (p.NextAfter != nil) != c.after {
+				t.Errorf("next before %v, after %v", p.NextBefore, p.NextAfter)
+			}
+		})
+	}
+
+	// Walk both ways from the middle with the default limit.
+	p, err := h.svc.Messages(ctx, "ada", id, domain.MessageQuery{Around: ids[20]})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]int{}
+	add := func(items []domain.Message) {
+		for _, m := range items {
+			seen[m.ID]++
+		}
+	}
+	add(p.Items)
+	for b := p.NextBefore; b != nil; {
+		older, err := h.svc.Messages(ctx, "ada", id, domain.MessageQuery{Before: *b})
+		if err != nil {
+			t.Fatal(err)
+		}
+		add(older.Items)
+		b = older.NextBefore
+	}
+	for a := p.NextAfter; a != nil; {
+		newer, err := h.svc.Messages(ctx, "ada", id, domain.MessageQuery{After: *a, Limit: &six})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if newer.NextBefore != nil {
+			t.Error("an after page sets nextBefore")
+		}
+		if len(newer.Items) > 1 && newer.Items[0].ID < newer.Items[1].ID {
+			t.Error("an after page is not newest first")
+		}
+		add(newer.Items)
+		a = newer.NextAfter
+	}
+	for _, m := range ids {
+		if seen[m] != 1 {
+			t.Errorf("message %s seen %d times", m, seen[m])
+		}
+	}
+
+	// A message from another conversation, or one that does not exist, is not found.
+	other := h.direct(t, "carol", "bob", "elsewhere").Message
+	for _, missing := range []string{other.ID, "00000000-0000-7000-8000-000000000000"} {
+		if _, err := h.svc.Messages(ctx, "ada", id, domain.MessageQuery{Around: missing}); !errors.Is(err, domain.ErrMessageNotFound) {
+			t.Errorf("around %s: %v", missing, err)
+		}
+	}
+	if _, err := h.svc.Messages(ctx, "eve", id, domain.MessageQuery{Around: ids[3]}); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("non-member: %v", err)
+	}
+}
+
+func TestAroundSplit(t *testing.T) {
+	for _, c := range []struct{ limit, older, newer, keepOld, keepNew int }{
+		{30, 100, 100, 14, 15},
+		{31, 100, 100, 15, 15},
+		{30, 2, 100, 2, 27},
+		{30, 100, 3, 26, 3},
+		{30, 2, 3, 2, 3},
+		{1, 5, 5, 0, 0},
+		{2, 5, 5, 0, 1},
+		{2, 5, 0, 1, 0},
+	} {
+		o, n := aroundSplit(c.limit, c.older, c.newer)
+		if o != c.keepOld || n != c.keepNew {
+			t.Errorf("aroundSplit(%d, %d, %d) = %d, %d; want %d, %d", c.limit, c.older, c.newer, o, n, c.keepOld, c.keepNew)
+		}
 	}
 }
 
@@ -1048,7 +1177,7 @@ func TestRestrictedSenderMayDoEverythingElse(t *testing.T) {
 	if _, err := h.svc.Report(t.Context(), "ada", sent.Message.ConversationID, domain.ReportInput{Reason: domain.ReasonSpam}); err != nil {
 		t.Errorf("report: %v", err)
 	}
-	if _, err := h.svc.Messages(t.Context(), "ada", sent.Message.ConversationID, "", nil); err != nil {
+	if _, err := h.svc.Messages(t.Context(), "ada", sent.Message.ConversationID, domain.MessageQuery{}); err != nil {
 		t.Errorf("read: %v", err)
 	}
 

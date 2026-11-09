@@ -286,3 +286,21 @@ func TestSnippetCuts(t *testing.T) {
 		t.Errorf("no highlight: %q %v", s, rs)
 	}
 }
+
+// FR-16.6: a page of results names its senders, as a page of messages does.
+func TestSearchNamesSenders(t *testing.T) {
+	h := searchHarness()
+	h.connect("ada", "bob")
+	conv := h.direct(t, "ada", "bob", "hi").Message.ConversationID
+	h.store.searchHits = []domain.SearchHit{
+		{MessageID: hit2, ConversationID: conv, Kind: domain.KindDirect, MatchedOn: domain.MatchText, Body: "paper", SenderID: "bob"},
+		{MessageID: hit1, ConversationID: conv, Kind: domain.KindDirect, MatchedOn: domain.MatchText, Body: "paper", SenderID: "ada"},
+	}
+	page, err := h.svc.Search(t.Context(), "ada", SearchInput{Query: "paper"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.People) != 2 || page.People["bob"].FullName != "Name of bob" {
+		t.Errorf("people = %+v", page.People)
+	}
+}

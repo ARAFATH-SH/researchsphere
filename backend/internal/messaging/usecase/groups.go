@@ -478,3 +478,9 @@ func (s *Service) publishExit(ctx context.Context, g groupExit, change domain.Me
 	}
 	s.publisher.AccessLost(ctx, g.conversationID, []string{g.userID})
 }
+
+// GroupNames returns the current names of the groups among ids that userID is a member of
+// now, for the notifications that name a group (FR-9.5): one query for a page.
+func (s *Service) GroupNames(ctx context.Context, userID string, ids []string) (map[string]string, error) {
+	return s.store.GroupNames(ctx, userID, ids)
+}

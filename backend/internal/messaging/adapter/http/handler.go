@@ -39,7 +39,7 @@ type Service interface {
 	Send(ctx context.Context, senderID, conversationID, body, clientID string) (domain.Sent, error)
 	List(ctx context.Context, userID, box, cursor string, limit *int) (domain.Page, error)
 	Get(ctx context.Context, userID, id string) (domain.Item, error)
-	Messages(ctx context.Context, userID, id, before string, limit *int) (domain.MessagePage, error)
+	Messages(ctx context.Context, userID, id string, q domain.MessageQuery) (domain.MessagePage, error)
 	MarkRead(ctx context.Context, userID, id, messageID string) error
 	Edit(ctx context.Context, editorID, conversationID, messageID, body string) (domain.Message, error)
 	Delete(ctx context.Context, deleterID, conversationID, messageID string) error
@@ -261,12 +261,17 @@ func (h *Handler) ListMessages(ctx context.Context, req gen.ListMessagesRequestO
 	if !ok {
 		return gen.ListMessages401JSONResponse{UnauthorizedJSONResponse: unauthenticated}, nil
 	}
-	p, err := h.svc.Messages(ctx, id, req.ConversationId, text(req.Params.Before), req.Params.Limit)
+	p, err := h.svc.Messages(ctx, id, req.ConversationId, domain.MessageQuery{
+		Before: text(req.Params.Before), After: text(req.Params.After), Around: text(req.Params.Around), Limit: req.Params.Limit,
+	})
+	var field *domain.InvalidFieldError
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
 		return gen.ListMessages404JSONResponse{NotFoundJSONResponse: notFound}, nil
-	case errors.Is(err, domain.ErrInvalidCursor):
-		return gen.ListMessages400JSONResponse{Code: httpx.CodeBadRequest, Message: "Before must be a message ID."}, nil
+	case errors.Is(err, domain.ErrMessageNotFound):
+		return gen.ListMessages404JSONResponse{NotFoundJSONResponse: messageNotFound}, nil
+	case errors.As(err, &field):
+		return gen.ListMessages400JSONResponse(pageField(field.Field)), nil
 	case errors.Is(err, domain.ErrInvalidLimit):
 		return gen.ListMessages400JSONResponse{Code: httpx.CodeBadRequest, Message: "Limit must be a whole number of at least 1."}, nil
 	case err != nil:
@@ -286,7 +291,10 @@ func (h *Handler) ListMessages(ctx context.Context, req gen.ListMessagesRequestO
 	if err != nil {
 		return nil, err
 	}
-	return gen.ListMessages200JSONResponse{Items: items, NextBefore: p.NextBefore, OtherLastReadMessageId: read, Readers: readers}, nil
+	return gen.ListMessages200JSONResponse{
+		Items: items, NextBefore: p.NextBefore, NextAfter: p.NextAfter, OtherLastReadMessageId: read, Readers: readers,
+		People: peopleBody(p.People),
+	}, nil
 }
 
 // MarkConversationRead moves the caller's read marker forward (FR-16.3).
@@ -501,7 +509,7 @@ func conversationBody(it domain.Item) (gen.Conversation, error) {
 			return gen.Conversation{}, err
 		}
 		c.LastMessage = &gen.MessagePreview{
-			SenderId: sender, Kind: messageKind(it.LastMessage.Kind), Body: it.LastMessage.Body,
+			SenderId: sender, SenderName: it.LastMessage.SenderName, Kind: messageKind(it.LastMessage.Kind), Body: it.LastMessage.Body,
 			Deleted: it.LastMessage.Deleted, CreatedAt: it.LastMessage.CreatedAt, AttachmentCount: it.LastMessage.AttachmentCount,
 		}
 		if it.LastMessage.Event != nil {
@@ -563,6 +571,30 @@ func text(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+// pageField is the bad_request of a message page's cursor: not a message ID, or given with
+// another cursor. It never repeats the value.
+func pageField(field string) gen.Error {
+	messages := map[string]string{
+		"before": "Before must be a message ID, and only one of before, after and around may be given.",
+		"after":  "After must be a message ID, and only one of before, after and around may be given.",
+		"around": "Around must be a message ID, and only one of before, after and around may be given.",
+	}
+	return gen.Error{Code: httpx.CodeBadRequest, Message: messages[field], Field: &field}
+}
+
+// peopleBody is the people a page names, by user ID; a hidden profile has no photo.
+func peopleBody(people map[string]domain.PagePerson) gen.MessagePeople {
+	out := make(gen.MessagePeople, len(people))
+	for id, p := range people {
+		var photo *string
+		if p.Available {
+			photo = mediaURL(p.PhotoFileID)
+		}
+		out[id] = gen.MessagePerson{FullName: p.FullName, PhotoUrl: photo, Available: p.Available}
+	}
+	return out
 }
 
 // mediaURL is where the client reads a profile photo (FR-4.6), nil when none is set.

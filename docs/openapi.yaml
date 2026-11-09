@@ -2404,9 +2404,24 @@ paths:
         events and recommendations" (SRS 2.3). 20 per page, most recently connected
         first. Suspended and unverified accounts are left out, and so is their count in
         `total`.
+
+        With `q`, only the connections whose full name, headline or institution match it
+        (the group member picker, FR-16.6), by the rule of the researcher search (FR-6.2):
+        a name containing `q` (exact, then starting with it, then containing it), and only
+        when no connection's name contains it, a name similar to it (pg_trgm word similarity,
+        for typos); then an institution, then a headline containing it. Within a rank the
+        most similar, then the most recently connected come first; `total` counts the matches.
       tags: [connections]
       parameters:
         - $ref: "#/components/parameters/ConnectionListPage"
+        - name: q
+          in: query
+          required: false
+          description: |
+            The text to look for, 2 to 100 characters after trimming; otherwise 400
+            `bad_request` with `field: q`. Leave it out for every connection.
+          schema:
+            type: string
       responses:
         "200":
           description: One page of the caller's connections.
@@ -2415,7 +2430,13 @@ paths:
               schema:
                 $ref: "#/components/schemas/ConnectionPage"
         "400":
-          $ref: "#/components/responses/InvalidConnectionPage"
+          description: |
+            `page` is not a whole number of at least 1, or `q` does not have 2 to 100
+            characters (`bad_request`, with `field`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -3381,6 +3402,17 @@ paths:
         group it is null and `readers` gives every other current member's marker, for "Seen by
         N"; a member sees only the messages created from the moment they joined (FR-16.6).
         System messages (`kind: system`) are part of the thread.
+
+        Paging (items are always newest first): no cursor gives the newest messages;
+        `before` the ones older than a message; `after` the ones newer than a message;
+        `around` a page centred on one message, so a search result can be shown in its
+        place: the message itself, up to (limit - 1) / 2 (rounded down) older ones and the
+        rest newer, a short side's room going to the other. `nextBefore` and `nextAfter` are
+        set when there is more in that direction. At most one of `before`, `after` and
+        `around` is allowed (400 `bad_request` with `field`). An `around` message the caller
+        cannot see (another conversation, sent before they joined, or none) gets 404
+        `not_found`, as the thread hides it. `people` names every sender and every user a
+        system message names on the page, former members included (FR-16.6).
       tags: [messaging]
       parameters:
         - $ref: "#/components/parameters/ConversationId"
@@ -3390,6 +3422,22 @@ paths:
           description: |
             `nextBefore` from the previous page; leave it out for the newest messages. A
             value that is not a UUID gets 400 `bad_request`.
+          schema:
+            type: string
+        - name: after
+          in: query
+          required: false
+          description: |
+            `nextAfter` from the previous page, for newer messages. A value that is not a
+            UUID gets 400 `bad_request`.
+          schema:
+            type: string
+        - name: around
+          in: query
+          required: false
+          description: |
+            A message ID: the page is centred on it. A value that is not a UUID gets 400
+            `bad_request`; a message the caller cannot see gets 404.
           schema:
             type: string
         - name: limit
@@ -3410,7 +3458,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/MessagePage"
         "400":
-          description: "`before` or `limit` is not valid (`bad_request`)."
+          description: "`before`, `after`, `around` or `limit` is not valid, or more than one cursor is given (`bad_request`)."
           content:
             application/json:
               schema:
@@ -5103,6 +5151,8 @@ components:
             and for a blocked attachment.
         actor:
           $ref: "#/components/schemas/NotificationActor"
+        subject:
+          $ref: "#/components/schemas/NotificationSubject"
         requestId:
           type: string
           format: uuid
@@ -5112,6 +5162,25 @@ components:
           description: |
             Only for `connection_request_received`: true while the request is still
             pending, so the client can offer Accept and Ignore.
+
+    NotificationSubject:
+      type: object
+      required: [type, id, title]
+      description: |
+        The item a notification is about, as it is now, for types whose sentence names it
+        (`group_added`: the group, with its current name). Read when the notification is
+        listed or sent, so a rename shows. Left out for the other types, and when the item no
+        longer exists or the recipient cannot see it (they left the group); the client then
+        uses a sentence without the title ("added you to a group").
+      properties:
+        type:
+          type: string
+          enum: [conversation]
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
 
     NotificationPage:
       type: object
@@ -5357,13 +5426,20 @@ components:
 
     MessagePreview:
       type: object
-      required: [senderId, kind, event, body, createdAt, deleted, attachmentCount]
+      required: [senderId, senderName, kind, event, body, createdAt, deleted, attachmentCount]
       properties:
         senderId:
           type: string
           format: uuid
           nullable: true
           description: The sender; for a system message the actor, or null when it has none.
+        senderName:
+          type: string
+          nullable: true
+          description: |
+            The sender's (or actor's) full name, so a group's row can say "Nafisa: …" (FR-16.6).
+            Always given, as with `MessagePage.people`, whatever the sender's standing; null when
+            there is no sender.
         kind:
           $ref: "#/components/schemas/MessageKind"
         event:
@@ -5521,7 +5597,7 @@ components:
 
     MessagePage:
       type: object
-      required: [items, nextBefore, otherLastReadMessageId, readers]
+      required: [items, nextBefore, nextAfter, otherLastReadMessageId, readers, people]
       properties:
         items:
           type: array
@@ -5531,6 +5607,14 @@ components:
           type: string
           nullable: true
           description: Pass as `before` to get older messages; null on the last page.
+        nextAfter:
+          type: string
+          nullable: true
+          description: |
+            Pass as `after` to get newer messages; null when the page reaches the newest
+            message, and always null for a page asked without `after` or `around`.
+        people:
+          $ref: "#/components/schemas/MessagePeople"
         otherLastReadMessageId:
           type: string
           format: uuid
@@ -5544,6 +5628,34 @@ components:
             show "Seen by N" under a message; null for a direct conversation.
           items:
             $ref: "#/components/schemas/MessageReader"
+
+    MessagePeople:
+      type: object
+      description: |
+        The people a page names, by user ID: every sender and every user (and actor) a system
+        message names, also those who have left the group (FR-16.6). Only people who were ever
+        in the conversation appear. A user whose account was deleted is absent; the client
+        shows "Deleted account".
+      additionalProperties:
+        $ref: "#/components/schemas/MessagePerson"
+
+    MessagePerson:
+      type: object
+      required: [fullName, photoUrl, available]
+      properties:
+        fullName:
+          type: string
+          description: Always given, as the members already saw it in the conversation.
+        photoUrl:
+          type: string
+          nullable: true
+          description: |
+            Null without a photo, and when `available` is false.
+        available:
+          type: boolean
+          description: |
+            False when the profile cannot be viewed: the person is suspended or not verified,
+            or has blocked the caller. The client then shows initials and no profile link.
 
     MessageReader:
       type: object
@@ -5981,7 +6093,7 @@ components:
 
     MessageSearchPage:
       type: object
-      required: [items, nextCursor]
+      required: [items, nextCursor, people]
       properties:
         items:
           type: array
@@ -5991,6 +6103,8 @@ components:
           type: string
           nullable: true
           description: Pass as `cursor` to get the next page; null on the last page.
+        people:
+          $ref: "#/components/schemas/MessagePeople"
 
     UnreadNotificationCount:
       type: object

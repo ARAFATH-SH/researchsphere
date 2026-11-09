@@ -1,6 +1,21 @@
 import { api } from "@/lib/api/client";
 
-import { deleteMessage, editMessage, ensureSession, getConversation, listConversations, sendDirectMessage, sendMessage } from "./api";
+import {
+  addGroupMembers,
+  createGroup,
+  deleteMessage,
+  editMessage,
+  ensureSession,
+  getConversation,
+  leaveGroup,
+  listConversations,
+  listMessages,
+  removeGroupMember,
+  renameGroup,
+  searchMessages,
+  sendDirectMessage,
+  sendMessage,
+} from "./api";
 import { conversation } from "./test-data";
 
 jest.mock("@/lib/api/client", () => ({ api: { POST: jest.fn(), GET: jest.fn(), PATCH: jest.fn(), DELETE: jest.fn() } }));
@@ -67,7 +82,7 @@ describe("sending", () => {
   });
 });
 
-// Groups (FR-16.6) have no screens until slice 14B.5: the client drops them where they arrive.
+// Groups (FR-16.6) arrive as they are, and their operations keep what a refusal says.
 describe("groups", () => {
   const group = {
     ...conversation({ id: "g1" }),
@@ -78,17 +93,51 @@ describe("groups", () => {
   type GetReply = Awaited<ReturnType<typeof api.GET>>;
   const ok = (body: object) => ({ data: body, response: { status: 200, ok: true, headers: new Map() } }) as unknown as GetReply;
 
-  it("leaves groups out of a box", async () => {
+  it("keeps groups in a box and reads one", async () => {
     mockGet.mockResolvedValue(ok({ items: [group, conversation()], nextCursor: "next" }));
-    const res = await listConversations("inbox");
-    expect(res).toEqual({ ok: true, data: { items: [conversation()], nextCursor: "next" } });
+    await expect(listConversations("inbox")).resolves.toEqual({ ok: true, data: { items: [group, conversation()], nextCursor: "next" } });
+    mockGet.mockResolvedValue(ok(group));
+    await expect(getConversation("g1")).resolves.toEqual({ ok: true, data: group });
   });
 
-  it("answers a group as not found", async () => {
-    mockGet.mockResolvedValue(ok(group));
-    await expect(getConversation("g1")).resolves.toMatchObject({ ok: false, code: "not_found" });
-    mockGet.mockResolvedValue(ok(conversation()));
-    await expect(getConversation("c1")).resolves.toEqual({ ok: true, data: conversation() });
+  it("creates a group with its client ID and keeps the refused user IDs", async () => {
+    mockPost.mockResolvedValue(reply(400, { code: "ineligible_members", message: "No.", userIds: ["u2"] }) as never);
+    await expect(createGroup("Lab", ["u1", "u2"], "client")).resolves.toMatchObject({ ok: false, code: "ineligible_members", userIds: ["u2"] });
+    expect(mockPost).toHaveBeenCalledWith("/conversations/groups", { body: { name: "Lab", memberIds: ["u1", "u2"], clientId: "client" } });
+    mockPost.mockResolvedValue(reply(429, { code: "rate_limited", message: "Slow down." }, { "Retry-After": "30" }) as never);
+    await expect(createGroup("Lab", ["u1"], "client")).resolves.toMatchObject({ ok: false, code: "rate_limited", retryAfter: 30 });
+  });
+
+  it("renames, adds, removes and leaves", async () => {
+    mockPatch.mockResolvedValue(reply(200, group) as never);
+    await renameGroup("g1", "Lab 2");
+    expect(mockPatch).toHaveBeenCalledWith("/conversations/{conversationId}", { params: { path: { conversationId: "g1" } }, body: { name: "Lab 2" } });
+    mockPost.mockResolvedValue(reply(409, { code: "group_full", message: "Full." }) as never);
+    await expect(addGroupMembers("g1", ["u3"])).resolves.toMatchObject({ ok: false, code: "group_full" });
+    expect(mockPost).toHaveBeenCalledWith("/conversations/{conversationId}/members", { params: { path: { conversationId: "g1" } }, body: { userIds: ["u3"] } });
+    mockDelete.mockResolvedValue(reply(204, {}) as never);
+    await expect(removeGroupMember("g1", "u3")).resolves.toMatchObject({ ok: true });
+    mockPost.mockResolvedValue(reply(204, {}) as never);
+    await expect(leaveGroup("g1")).resolves.toMatchObject({ ok: true });
+    expect(mockPost).toHaveBeenLastCalledWith("/conversations/{conversationId}/leave", { params: { path: { conversationId: "g1" } } });
+  });
+});
+
+describe("message pages and search (FR-16.8)", () => {
+  it("asks for a page around a message, or after one", async () => {
+    mockGet.mockResolvedValue(reply(200, { items: [] }) as never);
+    await listMessages("c1", { around: "m5" });
+    expect(mockGet).toHaveBeenLastCalledWith("/conversations/{conversationId}/messages", { params: { path: { conversationId: "c1" }, query: { around: "m5" } } });
+    await listMessages("c1", { after: "m9" }, 1);
+    expect(mockGet).toHaveBeenLastCalledWith("/conversations/{conversationId}/messages", { params: { path: { conversationId: "c1" }, query: { after: "m9", limit: 1 } } });
+  });
+
+  it("searches with only the filters given, and keeps Retry-After", async () => {
+    mockGet.mockResolvedValue(reply(200, { items: [], nextCursor: null, people: {} }) as never);
+    await searchMessages({ q: "paper", conversationId: "c1", after: "2026-11-01T00:00:00.000Z" });
+    expect(mockGet).toHaveBeenLastCalledWith("/messages/search", { params: { query: { q: "paper", conversationId: "c1", after: "2026-11-01T00:00:00.000Z" } } });
+    mockGet.mockResolvedValue(reply(429, { code: "rate_limited", message: "Slow down." }, { "Retry-After": "12" }) as never);
+    await expect(searchMessages({ q: "paper" })).resolves.toMatchObject({ ok: false, code: "rate_limited", retryAfter: 12 });
   });
 });
 

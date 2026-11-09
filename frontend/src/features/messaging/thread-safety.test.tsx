@@ -39,7 +39,7 @@ function load(c: Conversation, items: Message[] = []) {
   mockGet.mockResolvedValue({ ok: true, data: c });
   jest.mocked(listMessages).mockResolvedValue({
     ok: true,
-    data: { items: [...items].reverse(), nextBefore: null, otherLastReadMessageId: null, readers: null },
+    data: { items: [...items].reverse(), nextBefore: null, otherLastReadMessageId: null, readers: null, nextAfter: null, people: {} },
   });
 }
 
@@ -87,7 +87,7 @@ describe("Thread header pills", () => {
 
   it("leaves Block out when the person is not available", async () => {
     const c = conversation({ canMessage: false });
-    load({ ...c, otherMember: { ...c.otherMember, available: false } });
+    load({ ...c, otherMember: { ...c.otherMember!, available: false } });
     await renderThread();
     expect(screen.queryByRole("button", { name: "Block Bob Babbage" })).toBeNull();
     expect(screen.getByRole("button", { name: "Report Bob Babbage" })).toBeTruthy();

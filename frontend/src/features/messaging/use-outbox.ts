@@ -83,6 +83,7 @@ export function outgoingMessages(outgoing: Outgoing[], me: string): ThreadMessag
     key: o.clientId,
     id: null,
     senderId: me,
+    event: null,
     body: o.body,
     createdAt: o.createdAt,
     editedAt: null,

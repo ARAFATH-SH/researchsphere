@@ -84,11 +84,15 @@ describe("parseEvent", () => {
     expect(parseEvent(frame)).toBeNull();
   });
 
-  // Group events wait for the group screens of slice 14B.5.
-  it("ignores conversation.members and a group's access-lost update", () => {
-    expect(parseEvent('{"type":"conversation.members","data":{"conversationId":"g","change":"renamed","actorId":"u","userIds":[],"name":"Lab"}}')).toBeNull();
-    expect(parseEvent('{"type":"conversation.updated","data":{"conversationId":"g","state":"active","canMessage":false,"accessLost":true}}')).toBeNull();
-    expect(parseEvent('{"type":"conversation.updated","data":{"conversationId":"c","state":"declined","canMessage":false,"accessLost":false}}')).not.toBeNull();
+  // FR-16.6: the group events.
+  it("reads conversation.members and a group's access-lost update", () => {
+    expect(parseEvent('{"type":"conversation.members","data":{"conversationId":"g","change":"renamed","actorId":"u","userIds":[],"name":"Lab"}}')?.type).toBe(
+      "conversation.members",
+    );
+    expect(parseEvent('{"type":"conversation.updated","data":{"conversationId":"g","state":"active","canMessage":false,"accessLost":true}}')).toEqual({
+      type: "conversation.updated",
+      data: { conversationId: "g", state: "active", canMessage: false, accessLost: true },
+    });
   });
 
   it("reads message.updated, message.deleted and attachment.updated (FR-16.5, FR-16.7)", () => {
@@ -99,10 +103,6 @@ describe("parseEvent", () => {
     expect(parseEvent('{"type":"message.updated","data":{"message":{"id":"m"}}}')?.type).toBe("message.updated");
   });
 
-  // Group membership changes (FR-16.6) wait for the group screens of slice 14B.5b.
-  it("ignores conversation.members", () => {
-    expect(parseEvent('{"type":"conversation.members","data":{"conversationId":"c","change":"added","actorId":null,"userIds":[],"name":"G"}}')).toBeNull();
-  });
 });
 
 describe("the connection", () => {

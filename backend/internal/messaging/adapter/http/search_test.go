@@ -42,6 +42,7 @@ func TestSearchMessagesAnswers(t *testing.T) {
 			},
 		},
 		NextCursor: ptr("next"),
+		People:     map[string]domain.PagePerson{otherID: {UserID: otherID, FullName: "Nafisa Hasan", PhotoFileID: &photo, Available: true}},
 	}}
 	after, before := "2026-11-01T00:00:00+06:00", "2026-11-02T00:00:00Z"
 	v := url.Values{"q": {"গবেষণা"}, "conversationId": {convID}, "from": {otherID}, "after": {after}, "before": {before},
@@ -59,6 +60,9 @@ func TestSearchMessagesAnswers(t *testing.T) {
 	body := decode(t, rec)
 	if body["nextCursor"] != "next" {
 		t.Errorf("nextCursor = %v", body["nextCursor"])
+	}
+	if p := body["people"].(map[string]any)[otherID].(map[string]any); p["fullName"] != "Nafisa Hasan" || p["photoUrl"] != "/api/v1/media/"+photo {
+		t.Errorf("people = %v", body["people"])
 	}
 	items := body["items"].([]any)
 	direct, group := items[0].(map[string]any), items[1].(map[string]any)

@@ -10,6 +10,7 @@ export type RealtimeEvent =
   | { type: "attachment.updated"; data: Schemas["RealtimeAttachmentUpdated"] }
   | { type: "conversation.read"; data: Schemas["RealtimeConversationRead"] }
   | { type: "conversation.updated"; data: Schemas["RealtimeConversationUpdated"] }
+  | { type: "conversation.members"; data: Schemas["RealtimeConversationMembers"] }
   | { type: "unread.changed"; data: Schemas["MessageUnreadCount"] }
   | { type: "typing"; data: Schemas["RealtimeTyping"] }
   | { type: "presence"; data: Schemas["PresenceStatus"] }
@@ -23,6 +24,7 @@ const types: ReadonlySet<string> = new Set<RealtimeEvent["type"]>([
   "attachment.updated",
   "conversation.read",
   "conversation.updated",
+  "conversation.members",
   "unread.changed",
   "typing",
   "presence",
@@ -37,9 +39,6 @@ export function parseEvent(frame: unknown): RealtimeEvent | null {
   try {
     const event = JSON.parse(frame) as { type?: unknown; data?: unknown } | null;
     if (typeof event?.type !== "string" || !types.has(event.type) || typeof event.data !== "object" || !event.data) return null;
-    // A group's access-lost update (FR-16.6) waits for the group screens of slice 14B.5b, as
-    // does the conversation.members event, which is not in types.
-    if (event.type === "conversation.updated" && (event.data as { accessLost?: unknown }).accessLost === true) return null;
     return event as RealtimeEvent;
   } catch {
     return null;

@@ -688,3 +688,44 @@ func TestSendConnectionRequestSuspended(t *testing.T) {
 		t.Errorf("after the suspension: %v", err)
 	}
 }
+
+// FR-16.6: the member picker's search is 2 to 100 characters after trimming, counted as
+// characters (a 100-letter Bangla text passes), and reaches the store trimmed; each item is a
+// connection.
+func TestSearchConnections(t *testing.T) {
+	bn := strings.Repeat("ক", 100)
+	for _, tc := range []struct {
+		q    string
+		want error
+	}{
+		{"", domain.ErrInvalidQuery},
+		{" a ", domain.ErrInvalidQuery},
+		{bn + "ক", domain.ErrInvalidQuery},
+		{"a\x00b", domain.ErrInvalidQuery},
+		{"\xffab", domain.ErrInvalidQuery},
+		{bn, nil},
+		{" bo ", nil},
+	} {
+		e := newEnv()
+		_, err := e.svc.SearchConnections(ctx, "ada", tc.q, 1)
+		if !errors.Is(err, tc.want) {
+			t.Errorf("%q: %v, want %v", tc.q, err, tc.want)
+		}
+		if tc.want == nil && (len(e.store.searched) != 1 || e.store.searched[0] != strings.TrimSpace(tc.q)) {
+			t.Errorf("%q: store got %v", tc.q, e.store.searched)
+		}
+		if tc.want != nil && len(e.store.searched) != 0 {
+			t.Errorf("%q: searched anyway", tc.q)
+		}
+	}
+	e := newEnv()
+	mustAcceptAs(e, "bob", e.send(t, "ada", "bob").ID)
+	mustAcceptAs(e, "cy", e.send(t, "ada", "cy").ID)
+	p, err := e.svc.SearchConnections(ctx, "ada", "bo", 1)
+	if err != nil || p.Total != 1 || len(p.Items) != 1 || p.Items[0].Other.UserID != "bob" || p.Items[0].Viewer.Status != domain.StatusConnected {
+		t.Errorf("search = %+v, %v", p, err)
+	}
+	if _, err := e.svc.SearchConnections(ctx, "ada", "bo", 0); !errors.Is(err, domain.ErrInvalidPage) {
+		t.Errorf("page 0: %v", err)
+	}
+}

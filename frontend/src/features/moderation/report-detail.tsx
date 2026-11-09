@@ -13,6 +13,7 @@ import { MessageText } from "@/features/messaging/message-text";
 import { dateAndTime } from "@/lib/date-time";
 
 import { ActionDialog, type ActionKind } from "./action-dialog";
+import { MemberChoice } from "./member-choice";
 import {
   getMessageReport,
   type MessageReport,
@@ -25,6 +26,8 @@ const linkClass = "text-rs-accent-strong hover:underline focus-visible:shadow-fo
 
 type Loaded = {
   report: MessageReport;
+  // membersAtReport is who was in a group at the report's moment; null for a direct conversation.
+  membersAtReport: MessageReportPerson[] | null;
   // messages are oldest first, as they read.
   messages: ReportedMessage[];
   nextBefore: string | null;
@@ -42,7 +45,8 @@ export function ReportDetail({ reportId }: { reportId: string }) {
   const me = session.status === "signedIn" ? session.user.id : null;
   const [state, setState] = useState<State>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
-  const [dialog, setDialog] = useState<ActionKind | null>(null);
+  // dialog is the open action; for a whole group's report, member is who it is for, chosen first.
+  const [dialog, setDialog] = useState<{ kind: ActionKind; member?: MessageReportPerson } | null>(null);
   const [refused, setRefused] = useState(false);
 
   useEffect(() => {
@@ -53,6 +57,7 @@ export function ReportDetail({ reportId }: { reportId: string }) {
         setState({
           status: "ok",
           report: res.data.report,
+          membersAtReport: res.data.membersAtReport,
           messages: [...res.data.messages].reverse(),
           nextBefore: res.data.nextBefore,
           loadingEarlier: false,
@@ -125,13 +130,16 @@ export function ReportDetail({ reportId }: { reportId: string }) {
     );
   }
 
-  const { report, messages } = state;
-  // A report of a whole group names nobody (FR-16.6). Picking the member an action applies to
-  // comes with the group screens of slice 14B.5; until then such a report can be dismissed.
+  const { report, messages, membersAtReport } = state;
+  // A report of a whole group names nobody (FR-16.6): an action first asks which member, among
+  // those in the group at the report's moment, it is for.
   const target = report.reportedUser;
+  const wholeGroup = target === null && membersAtReport !== null;
   // An administrator cannot be moderated, oneself included (FR-15.10). The report can still be
   // dismissed.
-  const canAct = !refused && target !== null && target.role !== "admin" && target.userId !== me;
+  const canAct = !refused && (wholeGroup || (target !== null && target.role !== "admin" && target.userId !== me));
+  const actOn = (kind: ActionKind) => setDialog(target ? { kind, member: target } : { kind });
+  const actionTarget = dialog?.member ?? null;
   return (
     <div className="flex flex-col gap-4">
       {back}
@@ -181,12 +189,12 @@ export function ReportDetail({ reportId }: { reportId: string }) {
       {report.status === "open" && (
         <SectionCard id="report-actions" title="Actions">
           <div className="flex flex-wrap gap-2">
-            <ActionButton label="Dismiss report" onClick={() => setDialog("dismiss")} />
+            <ActionButton label="Dismiss report" onClick={() => setDialog({ kind: "dismiss" })} />
             {canAct && (
               <>
-                <ActionButton label="Warn" onClick={() => setDialog("warn")} />
-                <ActionButton label="Restrict messaging" onClick={() => setDialog("restrict")} />
-                <ActionButton label="Suspend" danger onClick={() => setDialog("suspend")} />
+                <ActionButton label="Warn" onClick={() => actOn("warn")} />
+                <ActionButton label="Restrict messaging" onClick={() => actOn("restrict")} />
+                <ActionButton label="Suspend" danger onClick={() => actOn("suspend")} />
               </>
             )}
           </div>
@@ -220,25 +228,36 @@ export function ReportDetail({ reportId }: { reportId: string }) {
           )}
           {messages.length === 0 && <li className="text-rs-body text-rs-text-muted">No messages.</li>}
           {messages.map((m) => (
-            <Message key={m.id} message={m} report={report} />
+            <Message key={m.id} message={m} report={report} members={membersAtReport} />
           ))}
         </ol>
       </SectionCard>
 
-      {dialog && target && (
+      {dialog && dialog.kind !== "dismiss" && !actionTarget && membersAtReport && (
+        <MemberChoice
+          members={membersAtReport}
+          me={me}
+          action={actionNames[dialog.kind] ?? "Action"}
+          onChoose={(member) => setDialog({ ...dialog, member })}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog && (dialog.kind === "dismiss" || actionTarget) && (
         <ActionDialog
-          kind={dialog}
-          name={target.fullName}
-          userId={target.userId}
+          kind={dialog.kind}
+          name={actionTarget?.fullName ?? ""}
+          userId={actionTarget?.userId}
           reportId={report.id}
           onClose={() => setDialog(null)}
-          onDone={() => resolved(dialog === "dismiss" ? "dismissed" : "action_taken")}
+          onDone={() => resolved(dialog.kind === "dismiss" ? "dismissed" : "action_taken")}
           onRefused={() => setRefused(true)}
         />
       )}
     </div>
   );
 }
+
+const actionNames: Partial<Record<ActionKind, string>> = { warn: "Warn", restrict: "Restrict messaging", suspend: "Suspend" };
 
 function ActionButton({ label, danger = false, onClick }: { label: string; danger?: boolean; onClick: () => void }) {
   return (
@@ -269,9 +288,12 @@ function Person({ label, person }: { label: string; person: MessageReportPerson 
   );
 }
 
-function Message({ message, report }: { message: ReportedMessage; report: MessageReport }) {
-  // In a group the sender may be neither of the two people; the group screens of 14B.5 name them.
-  const sender = message.senderId === report.reporter.userId ? report.reporter : report.reportedUser;
+function Message({ message, report, members }: { message: ReportedMessage; report: MessageReport; members: MessageReportPerson[] | null }) {
+  // In a group the sender may be neither of the two people: the members at the report name them.
+  const sender =
+    message.senderId === report.reporter.userId
+      ? report.reporter
+      : (members?.find((m) => m.userId === message.senderId) ?? report.reportedUser);
   const reported = message.id === report.messageId;
   return (
     <li

@@ -59,7 +59,7 @@ func (h *Handler) SearchMessages(ctx context.Context, req gen.SearchMessagesRequ
 			return nil, err
 		}
 	}
-	return gen.SearchMessages200JSONResponse{Items: items, NextCursor: page.NextCursor}, nil
+	return gen.SearchMessages200JSONResponse{Items: items, NextCursor: page.NextCursor, People: peopleBody(page.People)}, nil
 }
 
 func searchResultBody(r domain.SearchResult) (gen.MessageSearchResult, error) {

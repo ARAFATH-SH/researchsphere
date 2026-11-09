@@ -71,7 +71,7 @@ func (okMessaging) Get(context.Context, string, string) (messagingdomain.Item, e
 	return okItem, nil
 }
 
-func (okMessaging) Messages(context.Context, string, string, string, *int) (messagingdomain.MessagePage, error) {
+func (okMessaging) Messages(context.Context, string, string, messagingdomain.MessageQuery) (messagingdomain.MessagePage, error) {
 	return messagingdomain.MessagePage{}, nil
 }
 

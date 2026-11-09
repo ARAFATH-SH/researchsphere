@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -230,6 +232,59 @@ func (s *Store) ListConnections(ctx context.Context, viewerID, userID string, li
 	})
 	if err != nil {
 		return nil, 0, fmt.Errorf("list connections: %w", err)
+	}
+	return items, int(total), nil
+}
+
+// wordSimilarityThreshold is the pg_trgm word similarity a name needs to match the search text
+// when no connection's name contains it: the researcher search's value
+// (profile/adapter/postgres, docs/decisions.md), so both searches forgive the same typos.
+const wordSimilarityThreshold = 0.4
+
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+
+// SearchConnections returns no items for a value that is not a UUID. It reads in one
+// transaction, which the similarity threshold needs.
+func (s *Store) SearchConnections(ctx context.Context, userID, q string, limit, offset int) ([]domain.Connection, int, error) {
+	id, ok := parseUUID(userID)
+	if !ok {
+		return []domain.Connection{}, 0, nil
+	}
+	items := []domain.Connection{}
+	var total int64
+	err := s.readTx(ctx, func(qs *sqlcgen.Queries) error {
+		if err := qs.SetWordSimilarityThreshold(ctx, strconv.FormatFloat(wordSimilarityThreshold, 'f', -1, 64)); err != nil {
+			return err
+		}
+		pattern := "%" + likeEscaper.Replace(q) + "%"
+		literal, err := qs.AnyConnectionNameContains(ctx, sqlcgen.AnyConnectionNameContainsParams{UserID: id, Pattern: pattern})
+		if err != nil {
+			return err
+		}
+		arg := sqlcgen.SearchConnectionsParams{UserID: id, Q: q, Pattern: pattern, Fuzzy: !literal, Lim: clamp(limit), Off: clamp(offset)}
+		rows, err := qs.SearchConnections(ctx, arg)
+		if err != nil {
+			return err
+		}
+		if len(rows) == 0 && offset > 0 {
+			// Past the last page: read the first row only for the total.
+			arg.Lim, arg.Off = 1, 0
+			first, err := qs.SearchConnections(ctx, arg)
+			if err != nil || len(first) == 0 {
+				return err
+			}
+			total = first[0].Total
+			return nil
+		}
+		for _, r := range rows {
+			total = r.Total
+			items = append(items, domain.Connection{ConnectedAt: r.RespondedAt.Time,
+				Other: person(r.OtherID, r.FullName, r.Headline, r.Institution, r.PhotoFileID)})
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("search connections: %w", err)
 	}
 	return items, int(total), nil
 }

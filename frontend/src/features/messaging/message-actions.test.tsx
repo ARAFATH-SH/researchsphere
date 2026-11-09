@@ -25,7 +25,7 @@ function load(items: Message[]) {
   jest.mocked(getConversation).mockResolvedValue({ ok: true, data: conversation() });
   jest.mocked(listMessages).mockResolvedValue({
     ok: true,
-    data: { items: [...items].reverse(), nextBefore: null, otherLastReadMessageId: null, readers: null },
+    data: { items: [...items].reverse(), nextBefore: null, otherLastReadMessageId: null, readers: null, nextAfter: null, people: {} },
   });
 }
 

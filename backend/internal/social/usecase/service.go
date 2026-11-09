@@ -8,7 +8,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/social/domain"
 )
@@ -233,6 +235,33 @@ func (s *Service) ListConnections(ctx context.Context, userID string, page int) 
 		p.Items[i].Viewer = domain.Relation{Status: domain.StatusConnected}
 	}
 	return p, nil
+}
+
+// Search text limits of SearchConnections, as for the researcher search.
+const (
+	MinQueryLength = 2
+	MaxQueryLength = 100
+)
+
+// SearchConnections returns one page of userID's connections whose name, headline or
+// institution match q (FR-16.6), for the group member picker. q is trimmed and must have 2 to
+// 100 characters, otherwise ErrInvalidQuery.
+func (s *Service) SearchConnections(ctx context.Context, userID, q string, page int) (domain.ConnectionPage, error) {
+	text := strings.TrimSpace(q)
+	if n := utf8.RuneCountInString(text); n < MinQueryLength || n > MaxQueryLength || !utf8.ValidString(text) || strings.ContainsRune(text, 0) {
+		return domain.ConnectionPage{}, domain.ErrInvalidQuery
+	}
+	if page < 1 {
+		return domain.ConnectionPage{}, domain.ErrInvalidPage
+	}
+	items, total, err := s.store.SearchConnections(ctx, userID, text, PageSize, (page-1)*PageSize)
+	if err != nil {
+		return domain.ConnectionPage{}, err
+	}
+	for i := range items {
+		items[i].Viewer = domain.Relation{Status: domain.StatusConnected}
+	}
+	return domain.ConnectionPage{Items: items, Page: page, PageSize: PageSize, Total: total}, nil
 }
 
 func (s *Service) listConnections(ctx context.Context, viewerID, userID string, page int) (domain.ConnectionPage, error) {

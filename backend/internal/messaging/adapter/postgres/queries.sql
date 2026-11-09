@@ -104,7 +104,7 @@ SELECT c.id, c.kind, c.state, c.requested_by, c.last_message_at, COALESCE(c.name
        o.user_id AS other_id, o.last_read_message_id AS other_read_id,
        COALESCE(p.full_name, '')::text AS full_name, p.headline, p.photo_file_id,
        COALESCE(u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL, false)::boolean AS other_available,
-       lm.sender_id AS last_sender_id, COALESCE(lm.kind, '')::text AS last_kind, lm.event AS last_event,
+       lm.sender_id AS last_sender_id, lm.sender_name AS last_sender_name, COALESCE(lm.kind, '')::text AS last_kind, lm.event AS last_event,
        COALESCE(lm.preview, '')::text AS last_preview, lm.created_at AS last_created_at,
        COALESCE(lm.deleted, false)::boolean AS last_deleted,
        COALESCE(lm.attachment_count, 0)::integer AS last_attachment_count,
@@ -118,12 +118,15 @@ LEFT JOIN conversation_members o ON c.kind = 'direct' AND o.conversation_id = c.
 LEFT JOIN users u ON u.id = o.user_id
 LEFT JOIN profiles p ON p.user_id = u.id
 LEFT JOIN LATERAL (
-    SELECT m.sender_id, m.kind, m.event, left(m.body, 120) AS preview, m.created_at, m.deleted_at IS NOT NULL AS deleted,
+    SELECT m.sender_id, sp.full_name AS sender_name, m.kind, m.event, left(m.body, 120) AS preview, m.created_at,
+           m.deleted_at IS NOT NULL AS deleted,
            CASE WHEN m.has_attachments AND m.deleted_at IS NULL
                 THEN (SELECT count(*) FROM message_attachments a
                       WHERE a.conversation_id = m.conversation_id AND a.message_id = m.id)
                 ELSE 0 END AS attachment_count
-    FROM messages m WHERE m.conversation_id = c.id AND m.created_at >= me.joined_at
+    FROM messages m
+    LEFT JOIN profiles sp ON sp.user_id = m.sender_id
+    WHERE m.conversation_id = c.id AND m.created_at >= me.joined_at
     ORDER BY m.id DESC LIMIT 1
 ) lm ON true
 CROSS JOIN LATERAL (
@@ -144,7 +147,7 @@ SELECT c.id, c.kind, c.state, c.requested_by, c.last_message_at, COALESCE(c.name
        o.user_id AS other_id, o.last_read_message_id AS other_read_id,
        COALESCE(p.full_name, '')::text AS full_name, p.headline, p.photo_file_id,
        COALESCE(u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL, false)::boolean AS other_available,
-       lm.sender_id AS last_sender_id, COALESCE(lm.kind, '')::text AS last_kind, lm.event AS last_event,
+       lm.sender_id AS last_sender_id, lm.sender_name AS last_sender_name, COALESCE(lm.kind, '')::text AS last_kind, lm.event AS last_event,
        COALESCE(lm.preview, '')::text AS last_preview, lm.created_at AS last_created_at,
        COALESCE(lm.deleted, false)::boolean AS last_deleted,
        COALESCE(lm.attachment_count, 0)::integer AS last_attachment_count,
@@ -158,12 +161,15 @@ LEFT JOIN conversation_members o ON c.kind = 'direct' AND o.conversation_id = c.
 LEFT JOIN users u ON u.id = o.user_id
 LEFT JOIN profiles p ON p.user_id = u.id
 LEFT JOIN LATERAL (
-    SELECT m.sender_id, m.kind, m.event, left(m.body, 120) AS preview, m.created_at, m.deleted_at IS NOT NULL AS deleted,
+    SELECT m.sender_id, sp.full_name AS sender_name, m.kind, m.event, left(m.body, 120) AS preview, m.created_at,
+           m.deleted_at IS NOT NULL AS deleted,
            CASE WHEN m.has_attachments AND m.deleted_at IS NULL
                 THEN (SELECT count(*) FROM message_attachments a
                       WHERE a.conversation_id = m.conversation_id AND a.message_id = m.id)
                 ELSE 0 END AS attachment_count
-    FROM messages m WHERE m.conversation_id = c.id AND m.created_at >= me.joined_at
+    FROM messages m
+    LEFT JOIN profiles sp ON sp.user_id = m.sender_id
+    WHERE m.conversation_id = c.id AND m.created_at >= me.joined_at
     ORDER BY m.id DESC LIMIT 1
 ) lm ON true
 CROSS JOIN LATERAL (
@@ -194,6 +200,39 @@ WHERE viewer_id = @viewer_id AND conversation_id = @conversation_id
   AND (NOT @has_before::boolean OR id < @before_id::uuid)
 ORDER BY id DESC
 LIMIT @lim;
+
+-- name: ListMessagesAfter :many
+-- ListMessages the other way: the messages newer than after_id, oldest first, served by
+-- messages_conversation_id_uq scanned forward.
+SELECT id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at, kind, event, event_data, has_attachments
+FROM visible_messages
+WHERE viewer_id = @viewer_id AND conversation_id = @conversation_id AND id > @after_id::uuid
+ORDER BY id
+LIMIT @lim;
+
+-- name: FindVisibleMessage :one
+-- One message of the thread as viewer_id may read it (the ListMessages rule), for a page
+-- centred on it.
+SELECT id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at, kind, event, event_data, has_attachments
+FROM visible_messages
+WHERE viewer_id = @viewer_id AND conversation_id = @conversation_id AND id = @id;
+
+-- name: PagePeople :many
+-- The people a page of messages or search results names (FR-16.6). conversation_ids and
+-- user_ids are paired by position: each user with the conversation that names them. Only
+-- someone who is or was in that conversation (a member row, or a stay in
+-- conversation_memberships of a group they left) is returned, so the list cannot be used to
+-- look anyone else up. The name is always given; available follows the profile view rule
+-- (verified, not suspended, has not blocked the viewer).
+SELECT DISTINCT u.id, COALESCE(p.full_name, '')::text AS full_name, p.photo_file_id,
+       (u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL
+        AND NOT EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = u.id AND b.blocked_id = @viewer_id::uuid))::boolean AS available
+FROM unnest(@conversation_ids::uuid[]) WITH ORDINALITY AS rc(conversation_id, n)
+JOIN unnest(@user_ids::uuid[]) WITH ORDINALITY AS ru(user_id, n) ON ru.n = rc.n
+JOIN users u ON u.id = ru.user_id
+LEFT JOIN profiles p ON p.user_id = u.id
+WHERE EXISTS (SELECT 1 FROM conversation_members m WHERE m.conversation_id = rc.conversation_id AND m.user_id = ru.user_id)
+   OR EXISTS (SELECT 1 FROM conversation_memberships s WHERE s.conversation_id = rc.conversation_id AND s.user_id = ru.user_id);
 
 -- name: LockOwnMessage :one
 -- The sender's message in the conversation, held until the transaction ends so an edit and a
@@ -676,3 +715,11 @@ LEFT JOIN conversation_members o ON c.kind = 'direct' AND o.conversation_id = c.
 LEFT JOIN users ou ON ou.id = o.user_id
 LEFT JOIN profiles op ON op.user_id = o.user_id
 ORDER BY b.tier, b.id DESC;
+
+-- name: GroupNames :many
+-- The current names of the groups among ids that viewer_id is a member of now, for the
+-- notifications that name a group (FR-9.5). A group they left is not found.
+SELECT c.id, COALESCE(c.name, '')::text AS name
+FROM conversations c
+JOIN conversation_members m ON m.conversation_id = c.id AND m.user_id = @viewer_id
+WHERE c.id = ANY(@ids::uuid[]) AND c.kind = 'group';

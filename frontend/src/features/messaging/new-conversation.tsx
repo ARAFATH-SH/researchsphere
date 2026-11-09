@@ -87,11 +87,11 @@ function FirstMessage({ me, profile }: { me: string; profile: Profile }) {
 
   return (
     <section aria-label={`New message to ${profile.fullName}`} className="flex h-full min-h-0 flex-col">
-      <ThreadHeader person={profile} />
+      <ThreadHeader subject={{ kind: "person", person: profile }} />
       <MessageList
         messages={outgoingMessages(outbox.outgoing, me)}
         me={me}
-        other={profile}
+        personOf={(id) => (id === profile.userId ? { fullName: profile.fullName, photoUrl: profile.photoUrl } : undefined)}
         onRetry={outbox.retry}
       />
       {restriction.until ? <RestrictedComposer until={restriction.until} /> : <Composer notice={notice} onSend={outbox.send} />}

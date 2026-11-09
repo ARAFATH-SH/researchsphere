@@ -7,6 +7,8 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -23,6 +25,13 @@ const (
 type Service struct {
 	store     domain.Store
 	publisher domain.Publisher
+	titles    domain.SubjectTitles
+}
+
+type noTitles struct{}
+
+func (noTitles) Titles(context.Context, string, string, []string) (map[string]string, error) {
+	return nil, nil
 }
 
 type nopPublisher struct{}
@@ -39,9 +48,15 @@ func WithPublisher(p domain.Publisher) Option {
 	return func(s *Service) { s.publisher = p }
 }
 
+// WithSubjectTitles reads the titles of the items notifications name from t. Without it no
+// notification carries its subject.
+func WithSubjectTitles(t domain.SubjectTitles) Option {
+	return func(s *Service) { s.titles = t }
+}
+
 // New returns a Service.
 func New(store domain.Store, opts ...Option) *Service {
-	s := &Service{store: store, publisher: nopPublisher{}}
+	s := &Service{store: store, publisher: nopPublisher{}, titles: noTitles{}}
 	for _, o := range opts {
 		o(s)
 	}
@@ -174,7 +189,35 @@ func (s *Service) List(ctx context.Context, recipientID, cursor string, limitPar
 			return domain.Page{}, err
 		}
 	}
+	if err := s.withSubjects(ctx, recipientID, items); err != nil {
+		return domain.Page{}, err
+	}
 	return domain.Page{Items: items, NextCursor: next}, nil
+}
+
+// withSubjects gives each item whose type shows its subject the subject's current title,
+// asking once per kind of subject for the whole page.
+func (s *Service) withSubjects(ctx context.Context, recipientID string, items []domain.Item) error {
+	byKind := map[string][]string{}
+	for _, it := range items {
+		if spec := domain.Registry[it.Type]; spec.ShowsSubject && !slices.Contains(byKind[spec.SubjectKind], it.SubjectID) {
+			byKind[spec.SubjectKind] = append(byKind[spec.SubjectKind], it.SubjectID)
+		}
+	}
+	kinds := slices.Sorted(maps.Keys(byKind))
+	for _, kind := range kinds {
+		titles, err := s.titles.Titles(ctx, recipientID, kind, byKind[kind])
+		if err != nil {
+			return err
+		}
+		for i := range items {
+			spec := domain.Registry[items[i].Type]
+			if title, ok := titles[items[i].SubjectID]; ok && spec.ShowsSubject && spec.SubjectKind == kind {
+				items[i].Subject = &domain.Subject{Kind: kind, ID: items[i].SubjectID, Title: title}
+			}
+		}
+	}
+	return nil
 }
 
 // complete fills in what the store does not know.
@@ -200,7 +243,11 @@ func (s *Service) Get(ctx context.Context, recipientID, id string) (domain.Item,
 	if err := complete(&it); err != nil {
 		return domain.Item{}, err
 	}
-	return it, nil
+	one := []domain.Item{it}
+	if err := s.withSubjects(ctx, recipientID, one); err != nil {
+		return domain.Item{}, err
+	}
+	return one[0], nil
 }
 
 // UnreadCount returns how many of recipientID's notifications are unread (FR-9.4).

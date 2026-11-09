@@ -75,6 +75,12 @@ export function listMyConnections(n: number): Promise<Result<ConnectionPage>> {
   return page(() => api.GET("/connections", { params: { query: { page: n } } }));
 }
 
+// searchMyConnections lists the caller's connections whose name, headline or institution match
+// q (2 to 100 characters), best match first (FR-16.6, the group member picker).
+export function searchMyConnections(q: string, n = 1): Promise<Result<ConnectionPage>> {
+  return page(() => api.GET("/connections", { params: { query: { q, page: n } } }));
+}
+
 export function listReceivedRequests(n: number): Promise<Result<ConnectionRequestPage>> {
   return page(() => api.GET("/connections/requests/received", { params: { query: { page: n } } }));
 }

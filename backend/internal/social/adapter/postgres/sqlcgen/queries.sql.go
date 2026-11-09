@@ -66,6 +66,31 @@ func (q *Queries) AnswerRequest(ctx context.Context, arg AnswerRequestParams) (A
 	return i, err
 }
 
+const anyConnectionNameContains = `-- name: AnyConnectionNameContains :one
+SELECT EXISTS (
+    SELECT 1
+    FROM connections c
+    JOIN users o ON o.id = CASE WHEN c.requester_id = $1::uuid THEN c.receiver_id ELSE c.requester_id END
+    JOIN profiles p ON p.user_id = o.id
+    WHERE (c.requester_id = $1::uuid OR c.receiver_id = $1::uuid) AND c.status = 'accepted'
+      AND o.email_verified_at IS NOT NULL AND o.suspended_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = o.id AND b.blocked_id = $1::uuid)
+      AND p.full_name ILIKE $2::text
+)::boolean
+`
+
+type AnyConnectionNameContainsParams struct {
+	UserID  pgtype.UUID
+	Pattern string
+}
+
+func (q *Queries) AnyConnectionNameContains(ctx context.Context, arg AnyConnectionNameContainsParams) (bool, error) {
+	row := q.db.QueryRow(ctx, anyConnectionNameContains, arg.UserID, arg.Pattern)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const blockBetween = `-- name: BlockBetween :one
 SELECT EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = $1::uuid AND b.blocked_id = $2::uuid)::boolean AS by_me,
        EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = $2::uuid AND b.blocked_id = $1::uuid)::boolean AS by_them
@@ -647,6 +672,109 @@ type RemoveLiveLinkParams struct {
 // stays as history (FR-7.6).
 func (q *Queries) RemoveLiveLink(ctx context.Context, arg RemoveLiveLinkParams) error {
 	_, err := q.db.Exec(ctx, removeLiveLink, arg.A, arg.B)
+	return err
+}
+
+const searchConnections = `-- name: SearchConnections :many
+WITH mine AS (
+    SELECT c.id, c.responded_at, o.id AS other_id, COALESCE(p.full_name, '')::text AS full_name,
+           p.headline, p.institution, p.photo_file_id
+    FROM connections c
+    JOIN users o ON o.id = CASE WHEN c.requester_id = $4::uuid THEN c.receiver_id ELSE c.requester_id END
+    LEFT JOIN profiles p ON p.user_id = o.id
+    WHERE (c.requester_id = $4::uuid OR c.receiver_id = $4::uuid) AND c.status = 'accepted'
+      AND o.email_verified_at IS NOT NULL AND o.suspended_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = o.id AND b.blocked_id = $4::uuid)
+), ranked AS (
+    SELECT mine.id, mine.responded_at, mine.other_id, mine.full_name, mine.headline, mine.institution, mine.photo_file_id,
+           CASE WHEN NOT $5::boolean AND lower(full_name) = lower($1::text) THEN 0
+                WHEN NOT $5::boolean AND starts_with(lower(full_name), lower($1::text)) THEN 1
+                WHEN NOT $5::boolean AND full_name ILIKE $6::text THEN 2
+                WHEN $5::boolean AND full_name %> $1::text THEN 3
+                WHEN institution ILIKE $6::text THEN 4
+                WHEN headline ILIKE $6::text THEN 5
+           END AS rank
+    FROM mine
+)
+SELECT id, responded_at, other_id, full_name, headline, institution, photo_file_id, count(*) OVER ()::bigint AS total
+FROM ranked
+WHERE rank IS NOT NULL
+ORDER BY rank, CASE WHEN rank = 3 THEN word_similarity($1::text, full_name) END DESC NULLS LAST, responded_at DESC, id DESC
+LIMIT $3 OFFSET $2
+`
+
+type SearchConnectionsParams struct {
+	Q       string
+	Off     int32
+	Lim     int32
+	UserID  pgtype.UUID
+	Fuzzy   bool
+	Pattern string
+}
+
+type SearchConnectionsRow struct {
+	ID          pgtype.UUID
+	RespondedAt pgtype.Timestamptz
+	OtherID     pgtype.UUID
+	FullName    string
+	Headline    pgtype.Text
+	Institution pgtype.Text
+	PhotoFileID pgtype.UUID
+	Total       int64
+}
+
+func (q *Queries) SearchConnections(ctx context.Context, arg SearchConnectionsParams) ([]SearchConnectionsRow, error) {
+	rows, err := q.db.Query(ctx, searchConnections,
+		arg.Q,
+		arg.Off,
+		arg.Lim,
+		arg.UserID,
+		arg.Fuzzy,
+		arg.Pattern,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SearchConnectionsRow
+	for rows.Next() {
+		var i SearchConnectionsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.RespondedAt,
+			&i.OtherID,
+			&i.FullName,
+			&i.Headline,
+			&i.Institution,
+			&i.PhotoFileID,
+			&i.Total,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const setWordSimilarityThreshold = `-- name: SetWordSimilarityThreshold :exec
+
+SELECT set_config('pg_trgm.word_similarity_threshold', $1::text, true)
+`
+
+// Connection search (FR-16.6, the group member picker): the caller's own connections, as
+// ListConnections shows them, matched on name, institution and headline by the rule of the
+// researcher search (profile queries.sql). Parameters: q the trimmed text; pattern
+// '%' || q || '%' with \ % _ escaped, for ILIKE; fuzzy true when no connection's name contains
+// q, so names similar to it (full_name %> q, the threshold SetWordSimilarityThreshold sets in
+// the same transaction) match instead. Ranks: 0 exact name, 1 name prefix, 2 name contains,
+// 3 similar name (most similar first), 4 institution, 5 headline; then newest first. A person has thousands of connections at most,
+// so the connection list is read first and matched in memory.
+// Transaction-local (is_local true), so it ends with the search's transaction.
+func (q *Queries) SetWordSimilarityThreshold(ctx context.Context, threshold string) error {
+	_, err := q.db.Exec(ctx, setWordSimilarityThreshold, threshold)
 	return err
 }
 

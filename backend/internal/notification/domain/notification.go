@@ -45,6 +45,9 @@ type Spec struct {
 	SubjectKind string
 	// Link is the web client path of the item the notification is about (FR-9.5).
 	Link func(n Notification) string
+	// ShowsSubject is set when the client's sentence names the subject (the group of
+	// group_added): the list then carries its current title, from SubjectTitles.
+	ShowsSubject bool
 }
 
 // Registry maps every Type to its Spec. A stored type without an entry is an error when
@@ -63,8 +66,9 @@ var Registry = map[Type]Spec{
 		Link:        func(n Notification) string { return "/warnings/" + n.SubjectID },
 	},
 	TypeGroupAdded: {
-		SubjectKind: SubjectConversation,
-		Link:        func(n Notification) string { return "/messaging/" + n.SubjectID },
+		SubjectKind:  SubjectConversation,
+		Link:         func(n Notification) string { return "/messaging/" + n.SubjectID },
+		ShowsSubject: true,
 	},
 	TypeAttachmentBlocked: {
 		SubjectKind: SubjectConversation,
@@ -99,6 +103,23 @@ type Item struct {
 	RequestPending *bool
 	// Link is filled from Registry.
 	Link string
+	// Subject is the item as it is now, for a type whose Spec.ShowsSubject; nil otherwise, and
+	// when the item is gone or the recipient cannot see it.
+	Subject *Subject
+}
+
+// Subject is the item a notification is about, with its current title.
+type Subject struct {
+	Kind  string // a Subject* constant
+	ID    string
+	Title string
+}
+
+// SubjectTitles gives the current titles of the items notifications name, as viewerID may see
+// them; another module implements it (the messaging module for conversations). An item that
+// is gone or that viewerID cannot see has no entry.
+type SubjectTitles interface {
+	Titles(ctx context.Context, viewerID, kind string, ids []string) (map[string]string, error)
 }
 
 // Cursor is the position after the last item of a page: the list is ordered by

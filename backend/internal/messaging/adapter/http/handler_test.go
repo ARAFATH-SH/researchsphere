@@ -32,7 +32,7 @@ var (
 	item    = domain.Item{
 		Conversation: domain.Conversation{ID: convID, State: domain.StateRequest, RequestedBy: ptr(otherID), LastMessageAt: at},
 		Other:        domain.Person{UserID: otherID, FullName: "Bob", Headline: ptr("Chemist"), PhotoFileID: ptr(fileID), Available: true},
-		LastMessage:  &domain.Preview{SenderID: otherID, Body: ptr("may I?"), CreatedAt: at},
+		LastMessage:  &domain.Preview{SenderID: otherID, SenderName: ptr("Bob"), Body: ptr("may I?"), CreatedAt: at},
 		UnreadCount:  2,
 	}
 )
@@ -106,8 +106,8 @@ func (f *fakeService) Get(_ context.Context, userID, id string) (domain.Item, er
 	return item, f.err
 }
 
-func (f *fakeService) Messages(_ context.Context, userID, id, before string, limit *int) (domain.MessagePage, error) {
-	f.args = []any{userID, id, before, limit}
+func (f *fakeService) Messages(_ context.Context, userID, id string, q domain.MessageQuery) (domain.MessagePage, error) {
+	f.args = []any{userID, id, q}
 	if f.page != nil {
 		return *f.page, f.err
 	}
@@ -337,7 +337,7 @@ func TestConversationBody(t *testing.T) {
 			other["photoUrl"] != "/api/v1/media/"+fileID || other["available"] != true {
 			t.Errorf("otherMember = %v", other)
 		}
-		if last := c["lastMessage"].(map[string]any); last["senderId"] != otherID || last["body"] != "may I?" {
+		if last := c["lastMessage"].(map[string]any); last["senderId"] != otherID || last["senderName"] != "Bob" || last["body"] != "may I?" {
 			t.Errorf("lastMessage = %v", last)
 		}
 	}
@@ -382,7 +382,7 @@ func TestListRefusals(t *testing.T) {
 		{"box", "/api/v1/conversations", domain.ErrInvalidBox},
 		{"cursor", "/api/v1/conversations", domain.ErrInvalidCursor},
 		{"limit", "/api/v1/conversations", domain.ErrInvalidLimit},
-		{"before", "/api/v1/conversations/" + convID + "/messages", domain.ErrInvalidCursor},
+		{"before", "/api/v1/conversations/" + convID + "/messages", &domain.InvalidFieldError{Field: "before"}},
 		{"message limit", "/api/v1/conversations/" + convID + "/messages", domain.ErrInvalidLimit},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -425,12 +425,59 @@ func TestListMessagesBody(t *testing.T) {
 	if body["otherLastReadMessageId"] != msgID || body["nextBefore"] != msgID || len(body["items"].([]any)) != 1 {
 		t.Errorf("body = %v", body)
 	}
-	if svc.args[2] != msgID || *svc.args[3].(*int) != 2 {
+	if q := svc.args[2].(domain.MessageQuery); q.Before != msgID || q.After != "" || q.Around != "" || *q.Limit != 2 {
 		t.Errorf("args = %v", svc.args)
+	}
+	if body["nextAfter"] != nil || len(body["people"].(map[string]any)) != 0 {
+		t.Errorf("nextAfter and people = %v", body)
 	}
 	rec = send(t, &fakeService{}, http.MethodGet, "/api/v1/conversations/"+convID+"/messages", "", caller)
 	if body := decode(t, rec); body["otherLastReadMessageId"] != nil || body["nextBefore"] != nil {
 		t.Errorf("no marker and no next page: %v", body)
+	}
+}
+
+// A page centred on a message (FR-16.8): the cursors reach the usecase, nextAfter and the
+// people come back, a hidden person has no photo, and each refusal names its field.
+func TestListMessagesAround(t *testing.T) {
+	photo := "0199a1b2-c3d4-7e8f-9a0b-1c2d3e4f5a6b"
+	svc := &fakeService{page: &domain.MessagePage{
+		Items: []domain.Message{message}, NextBefore: ptr(msgID), NextAfter: ptr(msgID),
+		People: map[string]domain.PagePerson{
+			caller: {UserID: caller, FullName: "Ada", PhotoFileID: &photo, Available: true},
+			convID: {UserID: convID, FullName: "Gone", PhotoFileID: &photo, Available: false},
+		},
+	}}
+	rec := send(t, svc, http.MethodGet, "/api/v1/conversations/"+convID+"/messages?around="+msgID, "", caller)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d %s", rec.Code, rec.Body)
+	}
+	if q := svc.args[2].(domain.MessageQuery); q.Around != msgID || q.Before != "" || q.After != "" {
+		t.Errorf("query = %+v", q)
+	}
+	body := decode(t, rec)
+	people := body["people"].(map[string]any)
+	ada, gone := people[caller].(map[string]any), people[convID].(map[string]any)
+	if body["nextAfter"] != msgID || body["nextBefore"] != msgID || ada["fullName"] != "Ada" || ada["photoUrl"] == nil || ada["available"] != true {
+		t.Errorf("body = %v", body)
+	}
+	if gone["fullName"] != "Gone" || gone["photoUrl"] != nil || gone["available"] != false {
+		t.Errorf("hidden person = %v", gone)
+	}
+	send(t, svc, http.MethodGet, "/api/v1/conversations/"+convID+"/messages?after="+msgID, "", caller)
+	if q := svc.args[2].(domain.MessageQuery); q.After != msgID {
+		t.Errorf("after query = %+v", q)
+	}
+
+	for _, field := range []string{"before", "after", "around"} {
+		rec := send(t, &fakeService{err: &domain.InvalidFieldError{Field: field}}, http.MethodGet, "/api/v1/conversations/"+convID+"/messages", "", caller)
+		if body := decode(t, rec); rec.Code != http.StatusBadRequest || body["code"] != "bad_request" || body["field"] != field {
+			t.Errorf("%s: %d %v", field, rec.Code, body)
+		}
+	}
+	rec = send(t, &fakeService{err: domain.ErrMessageNotFound}, http.MethodGet, "/api/v1/conversations/"+convID+"/messages?around="+msgID, "", caller)
+	if body := decode(t, rec); rec.Code != http.StatusNotFound || body["code"] != "not_found" || body["message"] != "This message does not exist." {
+		t.Errorf("hidden anchor: %d %v", rec.Code, body)
 	}
 }
 

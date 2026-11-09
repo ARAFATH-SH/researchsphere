@@ -1,21 +1,31 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-import type { ConversationMember } from "./api";
+import type { ConversationMember, GroupAvatar } from "./api";
 import { PresenceAvatar } from "./presence-avatar";
+import { StackedAvatars } from "./stacked-avatars";
 import { TypingIndicator } from "./typing-indicator";
 
+// HeaderSubject is who the thread is with: one person, or a group (FR-16.6).
+export type HeaderSubject =
+  | { kind: "person"; person: Pick<ConversationMember, "userId" | "fullName" | "photoUrl" | "headline"> }
+  | { kind: "group"; name: string; memberCount: number; avatars: GroupAvatar[] };
+
 type ThreadHeaderProps = {
-  person: Pick<ConversationMember, "userId" | "fullName" | "photoUrl" | "headline">;
-  // typing shows that they are typing, in place of their headline.
-  typing?: boolean;
-  // actions sits at the end of the row: the thread's Block and Report pills.
+  subject: HeaderSubject;
+  // typing names who are typing, in place of the headline or the member count.
+  typing?: string[];
+  // actions sits at the end of the row: the thread's pills.
   actions?: ReactNode;
+  // onOpenInfo opens a group's info panel from its name.
+  onOpenInfo?: () => void;
 };
 
-// ThreadHeader names the other person and links to their profile. Under 640px, where the
-// thread is a screen of its own, it starts with the way back to the list.
-export function ThreadHeader({ person, typing = false, actions }: ThreadHeaderProps) {
+// ThreadHeader names the other person and links to their profile, or names a group with its
+// size and first members, opening its info. Under 640px, where the thread is a screen of its
+// own, it starts with the way back to the list.
+export function ThreadHeader({ subject, typing = [], actions, onOpenInfo }: ThreadHeaderProps) {
+  const typingNow = typing.length > 0;
   return (
     <div className="flex flex-wrap items-center gap-2.5 border-b border-rs-divider px-4 py-2.5">
       <Link
@@ -27,16 +37,37 @@ export function ThreadHeader({ person, typing = false, actions }: ThreadHeaderPr
           <path d="M15 5l-7 7 7 7" />
         </svg>
       </Link>
-      <PresenceAvatar userId={person.userId} name={person.fullName} src={person.photoUrl} size="thread" />
+      {subject.kind === "person" ? (
+        <PresenceAvatar userId={subject.person.userId} name={subject.person.fullName} src={subject.person.photoUrl} size="thread" />
+      ) : (
+        <StackedAvatars avatars={subject.avatars} name={subject.name} size="thread" />
+      )}
       <div className="min-w-[160px] flex-1">
-        <Link
-          href={`/profile/${person.userId}`}
-          className="block truncate rounded-rs-2xs text-rs-body font-bold text-rs-text hover:text-rs-accent-hover hover:underline focus-visible:shadow-focus focus-visible:outline-none"
-        >
-          {person.fullName}
-        </Link>
-        {person.headline && !typing && <p className="truncate text-rs-caption text-rs-text-muted">{person.headline}</p>}
-        <div role="status">{typing && <TypingIndicator name={person.fullName} />}</div>
+        {subject.kind === "person" ? (
+          <Link
+            href={`/profile/${subject.person.userId}`}
+            className="block truncate rounded-rs-2xs text-rs-body font-bold text-rs-text hover:text-rs-accent-hover hover:underline focus-visible:shadow-focus focus-visible:outline-none"
+          >
+            {subject.person.fullName}
+          </Link>
+        ) : (
+          <button
+            type="button"
+            onClick={onOpenInfo}
+            className="block max-w-full truncate rounded-rs-2xs text-left text-rs-body font-bold text-rs-text hover:text-rs-accent-hover hover:underline focus-visible:shadow-focus focus-visible:outline-none"
+          >
+            {subject.name}
+          </button>
+        )}
+        {!typingNow && subject.kind === "person" && subject.person.headline && (
+          <p className="truncate text-rs-caption text-rs-text-muted">{subject.person.headline}</p>
+        )}
+        {!typingNow && subject.kind === "group" && (
+          <p className="truncate text-rs-caption text-rs-text-muted">
+            {subject.memberCount} {subject.memberCount === 1 ? "member" : "members"}
+          </p>
+        )}
+        <div role="status">{typingNow && <TypingIndicator names={typing} />}</div>
       </div>
       {actions}
     </div>

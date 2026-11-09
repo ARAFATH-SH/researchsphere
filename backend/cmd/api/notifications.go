@@ -5,6 +5,7 @@ import (
 
 	messagingdomain "github.com/ARAFATH-SH/researchsphere/backend/internal/messaging/domain"
 	messagingusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/messaging/usecase"
+	notificationdomain "github.com/ARAFATH-SH/researchsphere/backend/internal/notification/domain"
 	notificationusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/notification/usecase"
 	socialdomain "github.com/ARAFATH-SH/researchsphere/backend/internal/social/domain"
 )
@@ -26,6 +27,23 @@ func (n groupNotifier) MembersAdded(ctx context.Context, conversationID, ownerID
 // AccessLost takes back the notification of a member who left or was removed.
 func (n groupNotifier) AccessLost(ctx context.Context, conversationID, userID string) error {
 	return n.notifications.GroupAccessLost(ctx, conversationID, userID)
+}
+
+// subjectTitles gives notifications the current titles of the items they name (FR-9.5) from
+// the module that owns each kind: the messaging module's group names for conversations. The
+// messaging usecase is set by bind, as it is built after the notification usecase.
+type subjectTitles struct {
+	messaging *messagingusecase.Service
+}
+
+var _ notificationdomain.SubjectTitles = (*subjectTitles)(nil)
+
+// Titles reads the titles of one kind in one query; a kind without an owner has none.
+func (t *subjectTitles) Titles(ctx context.Context, viewerID, kind string, ids []string) (map[string]string, error) {
+	if kind != notificationdomain.SubjectConversation || t.messaging == nil {
+		return nil, nil
+	}
+	return t.messaging.GroupNames(ctx, viewerID, ids)
 }
 
 // connectionNotifier turns the social module's connection events into notifications

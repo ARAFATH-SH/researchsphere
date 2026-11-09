@@ -96,7 +96,17 @@ func (s *Service) Search(ctx context.Context, userID string, in SearchInput) (do
 			items[i].Avatars = []domain.Person{}
 		}
 	}
-	return domain.SearchPage{Items: items, NextCursor: next}, nil
+	refs := make([]domain.PersonRef, 0, len(hits))
+	for _, h := range hits {
+		if h.SenderID != "" {
+			refs = append(refs, domain.PersonRef{ConversationID: h.ConversationID, UserID: h.SenderID})
+		}
+	}
+	people, err := s.pagePeople(ctx, userID, refs)
+	if err != nil {
+		return domain.SearchPage{}, err
+	}
+	return domain.SearchPage{Items: items, NextCursor: next, People: people}, nil
 }
 
 // encodeSearchCursor turns a position into the opaque value the client sends back.

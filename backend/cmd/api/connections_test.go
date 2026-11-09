@@ -42,6 +42,10 @@ func (okSocial) ListConnections(_ context.Context, _ string, page int) (socialdo
 	return socialdomain.ConnectionPage{Page: page, PageSize: 20}, nil
 }
 
+func (okSocial) SearchConnections(_ context.Context, _, _ string, page int) (socialdomain.ConnectionPage, error) {
+	return socialdomain.ConnectionPage{Page: page, PageSize: 20}, nil
+}
+
 func (okSocial) ListUserConnections(_ context.Context, _, _ string, page int) (socialdomain.ConnectionPage, error) {
 	return socialdomain.ConnectionPage{Page: page, PageSize: 20}, nil
 }
