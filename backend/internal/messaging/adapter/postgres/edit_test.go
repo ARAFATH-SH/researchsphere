@@ -3,8 +3,6 @@
 package postgres
 
 import (
-	"time"
-
 	"errors"
 	"testing"
 
@@ -108,7 +106,7 @@ func TestEditAndDeleteMessage(t *testing.T) {
 	}
 
 	// Members see the tombstone in its place, and the retried client ID finds it.
-	list, err := s.ListMessages(ctx, c.ID, time.Time{}, "", 10)
+	list, err := s.ListMessages(ctx, c.ID, bob, "", 10)
 	if err != nil || len(list) != 1 || list[0].Body != nil || !list[0].Deleted() {
 		t.Errorf("ListMessages = %+v, %v", list, err)
 	}

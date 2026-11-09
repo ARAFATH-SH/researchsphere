@@ -35,6 +35,8 @@ const (
 	DefaultMessagesPerDay    = 1000
 	DefaultRequestsPerMinute = 5
 	DefaultRequestsPerDay    = 20
+	// Message searches per user per minute (FR-16.8).
+	DefaultSearchesPerMinute = 30
 	// How long after sending a message its sender may edit it (FR-16.5).
 	DefaultMessageEditWindow = 15 * time.Minute
 	// clamd, the malware scanner of attachments (FR-16.7), as docker-compose.yml publishes it.
@@ -78,6 +80,8 @@ type Config struct {
 	MessagesPerDay    int
 	RequestsPerMinute int
 	RequestsPerDay    int
+	// SearchesPerMinute limits message searches per user (FR-16.8).
+	SearchesPerMinute int
 	// MessageEditWindow is how long after sending a message its sender may edit it (FR-16.5).
 	MessageEditWindow time.Duration
 	// ClamAVAddr is clamd's TCP address (host:port) for the malware scan (FR-16.7).
@@ -192,6 +196,7 @@ func Load(getenv func(string) string) (Config, error) {
 		{"MESSAGE_LIMIT_PER_DAY", DefaultMessagesPerDay, &cfg.MessagesPerDay},
 		{"MESSAGE_REQUEST_LIMIT_PER_MINUTE", DefaultRequestsPerMinute, &cfg.RequestsPerMinute},
 		{"MESSAGE_REQUEST_LIMIT_PER_DAY", DefaultRequestsPerDay, &cfg.RequestsPerDay},
+		{"MESSAGE_SEARCH_LIMIT_PER_MINUTE", DefaultSearchesPerMinute, &cfg.SearchesPerMinute},
 	} {
 		if *l.dst, err = parsePositive(l.name, getenv(l.name), l.def); err != nil {
 			errs = append(errs, err)

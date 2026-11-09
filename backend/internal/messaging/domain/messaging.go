@@ -198,9 +198,10 @@ type Store interface {
 	// ListItems returns memberID's conversations in box, newest activity first, then by
 	// ID, after the cursor when it is not nil.
 	ListItems(ctx context.Context, memberID string, box Box, after *Cursor, limit int) ([]Item, error)
-	// ListMessages returns a conversation's messages created at or after since, newest first,
-	// before the message ID before when it is not empty. The caller has checked membership.
-	ListMessages(ctx context.Context, conversationID string, since time.Time, before string, limit int) ([]Message, error)
+	// ListMessages returns the conversation's messages viewerID may read: none unless they are
+	// a member now, and only those created from the moment they joined (NFR-13). Newest first,
+	// before the message ID before when it is not empty. SearchMessages shares the rule.
+	ListMessages(ctx context.Context, conversationID, viewerID, before string, limit int) ([]Message, error)
 	// FindOwnMessage returns the text message when senderID sent it in the conversation, deleted
 	// or not, otherwise ErrNotFound (NFR-13). A system message is never anyone's own.
 	FindOwnMessage(ctx context.Context, conversationID, messageID, senderID string) (Message, error)
@@ -240,6 +241,7 @@ type Store interface {
 	GroupStore
 	ReportStore
 	AttachmentStore
+	SearchStore
 }
 
 // Connections says whether two users are connected. The social module owns connections;

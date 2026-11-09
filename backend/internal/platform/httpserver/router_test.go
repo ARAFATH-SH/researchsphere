@@ -316,6 +316,10 @@ func (fakeAPI) GetMessageUnreadCount(context.Context, gen.GetMessageUnreadCountR
 	return gen.GetMessageUnreadCount200JSONResponse{}, nil
 }
 
+func (fakeAPI) SearchMessages(context.Context, gen.SearchMessagesRequestObject) (gen.SearchMessagesResponseObject, error) {
+	return gen.SearchMessages200JSONResponse{}, nil
+}
+
 func (fakeAPI) ListConversations(context.Context, gen.ListConversationsRequestObject) (gen.ListConversationsResponseObject, error) {
 	return gen.ListConversations200JSONResponse{}, nil
 }
@@ -808,8 +812,8 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 
 func TestRoutes(t *testing.T) {
 	got := Routes()
-	if len(got) != 101 {
-		t.Errorf("Routes() returned %d routes, want the 101 operations in the contract: %v", len(got), got)
+	if len(got) != 102 {
+		t.Errorf("Routes() returned %d routes, want the 102 operations in the contract: %v", len(got), got)
 	}
 	seen := map[string]bool{}
 	for _, p := range got {

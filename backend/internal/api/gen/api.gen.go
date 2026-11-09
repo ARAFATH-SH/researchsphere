@@ -338,16 +338,16 @@ func (e LocationType) Valid() bool {
 
 // Defines values for MessageKind.
 const (
-	System MessageKind = "system"
-	Text   MessageKind = "text"
+	MessageKindSystem MessageKind = "system"
+	MessageKindText   MessageKind = "text"
 )
 
 // Valid indicates whether the value is a known member of the MessageKind enum.
 func (e MessageKind) Valid() bool {
 	switch e {
-	case System:
+	case MessageKindSystem:
 		return true
-	case Text:
+	case MessageKindText:
 		return true
 	default:
 		return false
@@ -384,6 +384,24 @@ func (e MessageReportStatus) Valid() bool {
 	case Open:
 		return true
 	case Resolved:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MessageSearchMatch.
+const (
+	MessageSearchMatchAttachment MessageSearchMatch = "attachment"
+	MessageSearchMatchText       MessageSearchMatch = "text"
+)
+
+// Valid indicates whether the value is a known member of the MessageSearchMatch enum.
+func (e MessageSearchMatch) Valid() bool {
+	switch e {
+	case MessageSearchMatchAttachment:
+		return true
+	case MessageSearchMatchText:
 		return true
 	default:
 		return false
@@ -1623,6 +1641,57 @@ type MessageReportPerson struct {
 	UserId openapi_types.UUID `json:"userId"`
 }
 
+// MessageSearchConversation defines model for MessageSearchConversation.
+type MessageSearchConversation struct {
+	// Avatars For a group, up to 3 other members, those who joined earliest first; empty for a direct conversation.
+	Avatars []GroupAvatar `json:"avatars"`
+
+	// Kind `direct`: two people. `group`: a named group of up to 50 members (FR-16.6).
+	Kind ConversationKind `json:"kind"`
+
+	// Name The group's name; null for a direct conversation.
+	Name *string `json:"name"`
+
+	// OtherMember The other member of a direct conversation; null for a group.
+	OtherMember *GroupAvatar `json:"otherMember"`
+}
+
+// MessageSearchMatch `text`: the message's text matched. `attachment`: the name of one of its attachments matched.
+type MessageSearchMatch string
+
+// MessageSearchPage defines model for MessageSearchPage.
+type MessageSearchPage struct {
+	Items []MessageSearchResult `json:"items"`
+
+	// NextCursor Pass as `cursor` to get the next page; null on the last page.
+	NextCursor *string `json:"nextCursor"`
+}
+
+// MessageSearchResult defines model for MessageSearchResult.
+type MessageSearchResult struct {
+	Conversation   MessageSearchConversation `json:"conversation"`
+	ConversationId openapi_types.UUID        `json:"conversationId"`
+	CreatedAt      time.Time                 `json:"createdAt"`
+	Highlights     []TextRange               `json:"highlights"`
+
+	// MatchedOn `text`: the message's text matched. `attachment`: the name of one of its attachments matched.
+	MatchedOn MessageSearchMatch  `json:"matchedOn"`
+	MessageId openapi_types.UUID  `json:"messageId"`
+	Sender    MessageSearchSender `json:"sender"`
+
+	// Snippet Plain text, never HTML: about 160 characters of the message around its first
+	// highlighted word, or the matching attachment's name. Runs of spaces and line
+	// breaks are one space, and a cut is marked with "…". When a similar match has no
+	// word close enough to mark, it is the start of the message with no highlights.
+	Snippet string `json:"snippet"`
+}
+
+// MessageSearchSender defines model for MessageSearchSender.
+type MessageSearchSender struct {
+	FullName string             `json:"fullName"`
+	UserId   openapi_types.UUID `json:"userId"`
+}
+
 // MessageUnreadCount defines model for MessageUnreadCount.
 type MessageUnreadCount struct {
 	// Requests Pending message requests to the caller.
@@ -2602,6 +2671,14 @@ type TagSuggestions struct {
 	Items []Tag `json:"items"`
 }
 
+// TextRange A stretch of `snippet` to highlight. `start` and `length` count Unicode code points,
+// not bytes or UTF-16 units: the client indexes `Array.from(snippet)`, never the string
+// itself, so a range never splits a character. Ranges are sorted and never overlap.
+type TextRange struct {
+	Length int `json:"length"`
+	Start  int `json:"start"`
+}
+
 // UnreadNotificationCount defines model for UnreadNotificationCount.
 type UnreadNotificationCount struct {
 	Count int `json:"count"`
@@ -2790,6 +2867,9 @@ type MessageRateLimited = Error
 // MessageRefused The shape of every error response (SRS 5.3).
 type MessageRefused = Error
 
+// MessageSearchRateLimited The shape of every error response (SRS 5.3).
+type MessageSearchRateLimited = Error
+
 // MetadataUnavailable The shape of every error response (SRS 5.3).
 type MetadataUnavailable = Error
 
@@ -2942,6 +3022,35 @@ type ListMessagesParams struct {
 
 	// Limit Items to return, from 1. Defaults to 30. A larger value than 100 is reduced to
 	// 100; a value below 1 gets 400 `bad_request`.
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// SearchMessagesParams defines parameters for SearchMessages.
+type SearchMessagesParams struct {
+	// Q The search text, 2 to 100 characters after trimming, else 400 `bad_request` with
+	// `field` `q`. It is required: it is declared optional only so that the session is
+	// checked first (the generated code checks a required parameter before the session,
+	// as for `searchPeople`).
+	Q *string `form:"q,omitempty" json:"q,omitempty"`
+
+	// ConversationId Search only this conversation. One the caller is not a member of gets 404
+	// `not_found`, the same answer as for one that does not exist.
+	ConversationId *openapi_types.UUID `form:"conversationId,omitempty" json:"conversationId,omitempty"`
+
+	// From Only messages sent by this user.
+	From *openapi_types.UUID `form:"from,omitempty" json:"from,omitempty"`
+
+	// After Only messages sent at or after this moment (RFC 3339, inclusive).
+	After *time.Time `form:"after,omitempty" json:"after,omitempty"`
+
+	// Before Only messages sent before this moment (RFC 3339, exclusive).
+	Before *time.Time `form:"before,omitempty" json:"before,omitempty"`
+
+	// Cursor `nextCursor` from the previous page. A value the server did not issue gets 400 `bad_request`.
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Items to return, from 1. Defaults to 20. A larger value than 50 is reduced to
+	// 50; a value below 1 gets 400 `bad_request`.
 	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
@@ -3349,6 +3458,9 @@ type ServerInterface interface {
 	// SendDirectMessage Send a message to a user, finding or creating the direct conversation (FR-16.1, FR-16.2, FR-16.10)
 	// (POST /messages/direct)
 	SendDirectMessage(w http.ResponseWriter, r *http.Request)
+	// SearchMessages Search the text of the caller's own conversations (FR-16.8, NFR-13)
+	// (GET /messages/search)
+	SearchMessages(w http.ResponseWriter, r *http.Request, params SearchMessagesParams)
 	// GetMessageUnreadCount Count unread messages and pending message requests (FR-16.3)
 	// (GET /messages/unread-count)
 	GetMessageUnreadCount(w http.ResponseWriter, r *http.Request)
@@ -5290,6 +5402,123 @@ func (siw *ServerInterfaceWrapper) SendDirectMessage(w http.ResponseWriter, r *h
 	handler.ServeHTTP(w, r)
 }
 
+// SearchMessages operation middleware
+func (siw *ServerInterfaceWrapper) SearchMessages(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SearchMessagesParams
+
+	// ------------- Optional query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "conversationId" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "conversationId", r.URL.Query(), &params.ConversationId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "conversationId"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "conversationId", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "after" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "after", r.URL.Query(), &params.After, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "after"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "after", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "before" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "before", r.URL.Query(), &params.Before, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "before"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "before", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SearchMessages(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetMessageUnreadCount operation middleware
 func (siw *ServerInterfaceWrapper) GetMessageUnreadCount(w http.ResponseWriter, r *http.Request) {
 
@@ -6840,6 +7069,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/notifications/read-all", wrapper.MarkAllNotificationsRead)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/messages/direct", wrapper.SendDirectMessage)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/messages/unread-count", wrapper.GetMessageUnreadCount)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/messages/search", wrapper.SearchMessages)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/conversations", wrapper.ListConversations)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/conversations/groups", wrapper.CreateGroup)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/conversations/{conversationId}", wrapper.GetConversation)
@@ -6948,6 +7178,15 @@ type MessageRateLimitedJSONResponse struct {
 }
 
 type MessageRefusedJSONResponse Error
+
+type MessageSearchRateLimitedResponseHeaders struct {
+	RetryAfter int
+}
+type MessageSearchRateLimitedJSONResponse struct {
+	Body Error
+
+	Headers MessageSearchRateLimitedResponseHeaders
+}
 
 type MetadataUnavailableJSONResponse Error
 
@@ -11856,6 +12095,115 @@ func (response SendDirectMessage500JSONResponse) VisitSendDirectMessageResponse(
 	return err
 }
 
+type SearchMessagesRequestObject struct {
+	Params SearchMessagesParams
+}
+
+type SearchMessagesResponseObject interface {
+	VisitSearchMessagesResponse(w http.ResponseWriter) error
+}
+
+type SearchMessages200JSONResponse MessageSearchPage
+
+func (response SearchMessages200JSONResponse) VisitSearchMessagesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SearchMessages400JSONResponse Error
+
+func (response SearchMessages400JSONResponse) VisitSearchMessagesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SearchMessages401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response SearchMessages401JSONResponse) VisitSearchMessagesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SearchMessages403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response SearchMessages403JSONResponse) VisitSearchMessagesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SearchMessages404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response SearchMessages404JSONResponse) VisitSearchMessagesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SearchMessages429JSONResponse struct {
+	MessageSearchRateLimitedJSONResponse
+}
+
+func (response SearchMessages429JSONResponse) VisitSearchMessagesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SearchMessages500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response SearchMessages500JSONResponse) VisitSearchMessagesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetMessageUnreadCountRequestObject struct {
 }
 
@@ -15974,6 +16322,9 @@ type StrictServerInterface interface {
 	// SendDirectMessage Send a message to a user, finding or creating the direct conversation (FR-16.1, FR-16.2, FR-16.10)
 	// (POST /messages/direct)
 	SendDirectMessage(ctx context.Context, request SendDirectMessageRequestObject) (SendDirectMessageResponseObject, error)
+	// SearchMessages Search the text of the caller's own conversations (FR-16.8, NFR-13)
+	// (GET /messages/search)
+	SearchMessages(ctx context.Context, request SearchMessagesRequestObject) (SearchMessagesResponseObject, error)
 	// GetMessageUnreadCount Count unread messages and pending message requests (FR-16.3)
 	// (GET /messages/unread-count)
 	GetMessageUnreadCount(ctx context.Context, request GetMessageUnreadCountRequestObject) (GetMessageUnreadCountResponseObject, error)
@@ -17753,6 +18104,32 @@ func (sh *strictHandler) SendDirectMessage(w http.ResponseWriter, r *http.Reques
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SendDirectMessageResponseObject); ok {
 		if err := validResponse.VisitSendDirectMessageResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SearchMessages operation middleware
+func (sh *strictHandler) SearchMessages(w http.ResponseWriter, r *http.Request, params SearchMessagesParams) {
+	var request SearchMessagesRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SearchMessages(ctx, request.(SearchMessagesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SearchMessages")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SearchMessagesResponseObject); ok {
+		if err := validResponse.VisitSearchMessagesResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

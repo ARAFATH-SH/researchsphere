@@ -42,10 +42,12 @@ func ptr(s string) *string { return &s }
 // fakeService records the arguments of the last call and answers with err.
 type fakeService struct {
 	args []any
-	err  error
-	sent domain.Sent
-	read *string
-	next *string
+	// search is what Search answers.
+	search domain.SearchPage
+	err    error
+	sent   domain.Sent
+	read   *string
+	next   *string
 	// edited is what Edit answers.
 	edited domain.Message
 	// group is what the group operations answer; replayed is CreateGroup's flag.

@@ -283,12 +283,13 @@ func (s *Store) ListItems(ctx context.Context, memberID string, box domain.Box, 
 }
 
 // ListMessages finds nothing for a conversation that is not a UUID.
-func (s *Store) ListMessages(ctx context.Context, conversationID string, since time.Time, before string, limit int) ([]domain.Message, error) {
-	conv, ok := parseUUID(conversationID)
-	if !ok {
+func (s *Store) ListMessages(ctx context.Context, conversationID, viewerID, before string, limit int) ([]domain.Message, error) {
+	conv, ok1 := parseUUID(conversationID)
+	viewer, ok2 := parseUUID(viewerID)
+	if !ok1 || !ok2 {
 		return nil, nil
 	}
-	arg := sqlcgen.ListMessagesParams{ConversationID: conv, Since: timestamptz(since), Lim: int32(min(limit, 1000))} //nolint:gosec // bounded above
+	arg := sqlcgen.ListMessagesParams{ConversationID: conv, ViewerID: viewer, Lim: int32(min(limit, 1000))} //nolint:gosec // bounded above
 	if before != "" {
 		id, ok := parseUUID(before)
 		if !ok {
@@ -300,7 +301,11 @@ func (s *Store) ListMessages(ctx context.Context, conversationID string, since t
 	if err != nil {
 		return nil, fmt.Errorf("list messages: %w", err)
 	}
-	return messages(rows), nil
+	out := make([]domain.Message, len(rows))
+	for i, r := range rows {
+		out[i] = message(sqlcgen.Message(r))
+	}
+	return out, nil
 }
 
 // FindOwnMessage returns domain.ErrNotFound for IDs that are not UUIDs.

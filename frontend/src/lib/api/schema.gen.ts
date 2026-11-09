@@ -1786,6 +1786,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/messages/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search the text of the caller's own conversations (FR-16.8, NFR-13)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed,
+         *     events and recommendations" (SRS 2.3). Only what the caller could read in the
+         *     thread is searched, by the same rule (NFR-13): conversations they are a member of
+         *     now, in any state (a request only by its two members, and declined or blocked
+         *     conversations stay searchable), and in a group only messages from the moment they
+         *     joined. Deleted messages, the earlier text of edited messages and system messages
+         *     are never searched.
+         *
+         *     The text of a message and the names of its attachments are searched. Text in
+         *     Bangla, English or both is split into words without any language's stemming. A
+         *     word match (every word of `q` appears as a word, ignoring letter case) ranks above
+         *     a similar match (trigram word similarity of at least 0.55, which finds partial
+         *     words and most one-letter typos); within each, newer messages come first. Each
+         *     message appears once: when both its text and an attachment name match, the better
+         *     match decides, and the text wins a tie.
+         *
+         *     Each user may search 30 times a minute (429 `rate_limited`).
+         */
+        get: operations["searchMessages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/conversations": {
         parameters: {
             query?: never;
@@ -3358,6 +3394,58 @@ export interface components {
             /** @description Pending message requests to the caller. */
             requests: number;
         };
+        /**
+         * @description `text`: the message's text matched. `attachment`: the name of one of its attachments matched.
+         * @enum {string}
+         */
+        MessageSearchMatch: "text" | "attachment";
+        /**
+         * @description A stretch of `snippet` to highlight. `start` and `length` count Unicode code points,
+         *     not bytes or UTF-16 units: the client indexes `Array.from(snippet)`, never the string
+         *     itself, so a range never splits a character. Ranges are sorted and never overlap.
+         */
+        TextRange: {
+            start: number;
+            length: number;
+        };
+        MessageSearchConversation: {
+            kind: components["schemas"]["ConversationKind"];
+            /** @description The group's name; null for a direct conversation. */
+            name: string | null;
+            /** @description The other member of a direct conversation; null for a group. */
+            otherMember: components["schemas"]["GroupAvatar"] | null;
+            /** @description For a group, up to 3 other members, those who joined earliest first; empty for a direct conversation. */
+            avatars: components["schemas"]["GroupAvatar"][];
+        };
+        MessageSearchSender: {
+            /** Format: uuid */
+            userId: string;
+            fullName: string;
+        };
+        MessageSearchResult: {
+            /** Format: uuid */
+            messageId: string;
+            /** Format: uuid */
+            conversationId: string;
+            conversation: components["schemas"]["MessageSearchConversation"];
+            sender: components["schemas"]["MessageSearchSender"];
+            /** Format: date-time */
+            createdAt: string;
+            /**
+             * @description Plain text, never HTML: about 160 characters of the message around its first
+             *     highlighted word, or the matching attachment's name. Runs of spaces and line
+             *     breaks are one space, and a cut is marked with "…". When a similar match has no
+             *     word close enough to mark, it is the start of the message with no highlights.
+             */
+            snippet: string;
+            highlights: components["schemas"]["TextRange"][];
+            matchedOn: components["schemas"]["MessageSearchMatch"];
+        };
+        MessageSearchPage: {
+            items: components["schemas"]["MessageSearchResult"][];
+            /** @description Pass as `cursor` to get the next page; null on the last page. */
+            nextCursor: string | null;
+        };
         UnreadNotificationCount: {
             count: number;
         };
@@ -4144,6 +4232,17 @@ export interface components {
         MessageRateLimited: {
             headers: {
                 /** @description Seconds until sending is accepted again. */
+                "Retry-After": number;
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description The user has searched messages more than 30 times in a minute (`rate_limited`, FR-16.8). */
+        MessageSearchRateLimited: {
+            headers: {
+                /** @description Seconds until searching is accepted again. */
                 "Retry-After": number;
                 [name: string]: unknown;
             };
@@ -7636,6 +7735,70 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    searchMessages: {
+        parameters: {
+            query?: {
+                /**
+                 * @description The search text, 2 to 100 characters after trimming, else 400 `bad_request` with
+                 *     `field` `q`. It is required: it is declared optional only so that the session is
+                 *     checked first (the generated code checks a required parameter before the session,
+                 *     as for `searchPeople`).
+                 * @example গবেষণা
+                 */
+                q?: string;
+                /**
+                 * @description Search only this conversation. One the caller is not a member of gets 404
+                 *     `not_found`, the same answer as for one that does not exist.
+                 */
+                conversationId?: string;
+                /** @description Only messages sent by this user. */
+                from?: string;
+                /** @description Only messages sent at or after this moment (RFC 3339, inclusive). */
+                after?: string;
+                /** @description Only messages sent before this moment (RFC 3339, exclusive). */
+                before?: string;
+                /** @description `nextCursor` from the previous page. A value the server did not issue gets 400 `bad_request`. */
+                cursor?: string;
+                /**
+                 * @description Items to return, from 1. Defaults to 20. A larger value than 50 is reduced to
+                 *     50; a value below 1 gets 400 `bad_request`.
+                 */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of matching messages, best match first, then newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageSearchPage"];
+                };
+            };
+            /**
+             * @description `q`, `conversationId`, `from`, `after`, `before`, `cursor` or `limit` is not
+             *     valid (`bad_request`, with `field` naming the parameter).
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["MessageSearchRateLimited"];
             500: components["responses"]["InternalError"];
         };
     };

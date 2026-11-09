@@ -454,6 +454,24 @@ func TestLoadMessageLimits(t *testing.T) {
 	}
 }
 
+// FR-16.8: the message search limit defaults to 30 a minute and must be a positive number.
+func TestLoadMessageSearchLimit(t *testing.T) {
+	base := map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL}
+	if cfg, err := Load(env(base)); err != nil || cfg.SearchesPerMinute != 30 {
+		t.Errorf("default = %d (%v)", cfg.SearchesPerMinute, err)
+	}
+	base["MESSAGE_SEARCH_LIMIT_PER_MINUTE"] = " 7 "
+	if cfg, err := Load(env(base)); err != nil || cfg.SearchesPerMinute != 7 {
+		t.Errorf("set = %d (%v)", cfg.SearchesPerMinute, err)
+	}
+	for _, bad := range []string{"0", "-1", "many"} {
+		base["MESSAGE_SEARCH_LIMIT_PER_MINUTE"] = bad
+		if _, err := Load(env(base)); err == nil || !strings.Contains(err.Error(), "MESSAGE_SEARCH_LIMIT_PER_MINUTE") {
+			t.Errorf("%s: error = %v", bad, err)
+		}
+	}
+}
+
 func TestLoadClamAVAddr(t *testing.T) {
 	cfg, err := Load(env(map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL}))
 	if err != nil || cfg.ClamAVAddr != DefaultClamAVAddr {

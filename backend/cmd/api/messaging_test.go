@@ -132,6 +132,10 @@ func (okMessaging) UnreadCounts(context.Context, string) (messagingdomain.Unread
 	return messagingdomain.UnreadCounts{}, nil
 }
 
+func (okMessaging) Search(context.Context, string, messagingusecase.SearchInput) (messagingdomain.SearchPage, error) {
+	return messagingdomain.SearchPage{Items: []messagingdomain.SearchResult{}}, nil
+}
+
 // The messaging routes go through authz (SRS 2.3): both roles may use them, an unknown role
 // gets 403 and no session gets 401.
 func TestMessagingRoutesThroughRouter(t *testing.T) {
@@ -144,6 +148,7 @@ func TestMessagingRoutesThroughRouter(t *testing.T) {
 	}{
 		{http.MethodPost, "/api/v1/messages/direct", `{"userId":"` + okUserID + `","body":"hi","clientId":"` + okConversationID + `"}`, http.StatusCreated},
 		{http.MethodGet, "/api/v1/messages/unread-count", "", http.StatusOK},
+		{http.MethodGet, "/api/v1/messages/search?q=paper", "", http.StatusOK},
 		{http.MethodGet, "/api/v1/conversations", "", http.StatusOK},
 		{http.MethodGet, base, "", http.StatusOK},
 		{http.MethodGet, base + "/messages", "", http.StatusOK},
@@ -193,6 +198,7 @@ func TestMessagingRoutesAreGuarded(t *testing.T) {
 	want := map[string]authz.Action{
 		"POST /api/v1/messages/direct":                                       authz.ActAsMember,
 		"GET /api/v1/messages/unread-count":                                  authz.ViewContent,
+		"GET /api/v1/messages/search":                                        authz.ViewContent,
 		"GET /api/v1/conversations":                                          authz.ViewContent,
 		"GET /api/v1/conversations/{conversationId}":                         authz.ViewContent,
 		"GET /api/v1/conversations/{conversationId}/messages":                authz.ViewContent,

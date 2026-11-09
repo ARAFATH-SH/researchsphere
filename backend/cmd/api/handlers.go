@@ -168,6 +168,7 @@ var platformGuards = map[string]authz.Action{
 	// routes. An administrator reads a reported conversation through /admin/message-reports.
 	"POST /api/v1/messages/direct":                                       authz.ActAsMember,
 	"GET /api/v1/messages/unread-count":                                  authz.ViewContent,
+	"GET /api/v1/messages/search":                                        authz.ViewContent,
 	"GET /api/v1/conversations":                                          authz.ViewContent,
 	"GET /api/v1/conversations/{conversationId}":                         authz.ViewContent,
 	"GET /api/v1/conversations/{conversationId}/messages":                authz.ViewContent,

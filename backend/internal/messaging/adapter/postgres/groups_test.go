@@ -182,11 +182,11 @@ func TestGroupItems(t *testing.T) {
 	}
 	// Eli sees only from the member_added message on.
 	c, _ := s.FindConversation(ctx, id, eli)
-	list, err := s.ListMessages(ctx, id, c.JoinedAt, "", 10)
+	list, err := s.ListMessages(ctx, id, eli, "", 10)
 	if err != nil || len(list) != 1 || list[0].Event.Type != domain.EventMemberAdded {
 		t.Errorf("eli's messages = %+v, %v", list, err)
 	}
-	all, _ := s.ListMessages(ctx, id, time.Time{}, "", 10)
+	all, _ := s.ListMessages(ctx, id, ada, "", 10) // ada created the group: she sees it all
 	before := all[1]
 	if in, _ := s.MessageIn(ctx, id, before.ID, c.JoinedAt); in {
 		t.Error("eli may mark an earlier message read")
@@ -243,7 +243,7 @@ func TestOwnerHandOverTrigger(t *testing.T) {
 	if role(t, pool, id, ada) != "owner" {
 		t.Error("a member leaving moved ownership")
 	}
-	last, _ := s.ListMessages(ctx, id, time.Time{}, "", 1)
+	last, _ := s.ListMessages(ctx, id, bob, "", 1)
 	if last[0].Event.Type != domain.EventMemberLeft {
 		t.Errorf("latest = %+v", last[0].Event)
 	}
@@ -252,7 +252,7 @@ func TestOwnerHandOverTrigger(t *testing.T) {
 	if role(t, pool, id, heir) != "owner" || role(t, pool, id, max(bob, cy)) != "member" {
 		t.Errorf("roles: %s %s", role(t, pool, id, bob), role(t, pool, id, cy))
 	}
-	ms, _ := s.ListMessages(ctx, id, time.Time{}, "", 2)
+	ms, _ := s.ListMessages(ctx, id, heir, "", 2)
 	if ms[0].Event.Type != domain.EventOwnerChanged || ms[0].SenderID != "" || !slices.Equal(ms[0].Event.UserIDs, []string{heir}) ||
 		ms[1].Event.Type != domain.EventMemberLeft || ms[1].SenderID != ada || ms[0].ID <= ms[1].ID {
 		t.Errorf("messages = %+v %+v", ms[0], ms[1])
@@ -300,7 +300,7 @@ func TestOwnerAccountDeletedHandsOver(t *testing.T) {
 	if role(t, pool, id, heir) != "owner" {
 		t.Errorf("heir is %q", role(t, pool, id, heir))
 	}
-	ms, _ := s.ListMessages(ctx, id, time.Time{}, "", 10)
+	ms, _ := s.ListMessages(ctx, id, bob, "", 10)
 	if len(ms) != 2 || ms[0].Event == nil || ms[0].Event.Type != domain.EventOwnerChanged || ms[0].SenderID != "" ||
 		!slices.Equal(ms[0].Event.UserIDs, []string{heir}) || ms[1].SenderID != bob {
 		t.Errorf("messages = %+v", ms)

@@ -1429,28 +1429,44 @@ func (q *Queries) ListMessageAttachments(ctx context.Context, arg ListMessageAtt
 
 const listMessages = `-- name: ListMessages :many
 SELECT id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at, kind, event, event_data, has_attachments
-FROM messages
-WHERE conversation_id = $1 AND created_at >= $2::timestamptz
+FROM visible_messages
+WHERE viewer_id = $1 AND conversation_id = $2
   AND (NOT $3::boolean OR id < $4::uuid)
 ORDER BY id DESC
 LIMIT $5
 `
 
 type ListMessagesParams struct {
+	ViewerID       pgtype.UUID
 	ConversationID pgtype.UUID
-	Since          pgtype.Timestamptz
 	HasBefore      bool
 	BeforeID       pgtype.UUID
 	Lim            int32
 }
 
-// messages_conversation_id_uq, scanned backward, serves this. A deleted message is listed in
-// its place with no body; message_versions is never read for a member (NFR-13). since is the
-// member's joining time.
-func (q *Queries) ListMessages(ctx context.Context, arg ListMessagesParams) ([]Message, error) {
+type ListMessagesRow struct {
+	ID             pgtype.UUID
+	ConversationID pgtype.UUID
+	SenderID       pgtype.UUID
+	Body           pgtype.Text
+	ClientID       pgtype.UUID
+	CreatedAt      pgtype.Timestamptz
+	EditedAt       pgtype.Timestamptz
+	DeletedAt      pgtype.Timestamptz
+	Kind           string
+	Event          pgtype.Text
+	EventData      []byte
+	HasAttachments bool
+}
+
+// The thread as viewer_id may read it, through visible_messages (migration 000025), the rule the
+// search shares (NFR-13). The member row is found by its primary key, then
+// messages_conversation_id_uq, scanned backward, serves the rest. A deleted message is listed in
+// its place with no body; message_versions is never read for a member.
+func (q *Queries) ListMessages(ctx context.Context, arg ListMessagesParams) ([]ListMessagesRow, error) {
 	rows, err := q.db.Query(ctx, listMessages,
+		arg.ViewerID,
 		arg.ConversationID,
-		arg.Since,
 		arg.HasBefore,
 		arg.BeforeID,
 		arg.Lim,
@@ -1459,9 +1475,9 @@ func (q *Queries) ListMessages(ctx context.Context, arg ListMessagesParams) ([]M
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Message
+	var items []ListMessagesRow
 	for rows.Next() {
-		var i Message
+		var i ListMessagesRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.ConversationID,
@@ -2071,6 +2087,24 @@ func (q *Queries) MoveReadMarker(ctx context.Context, arg MoveReadMarkerParams) 
 	return result.RowsAffected(), nil
 }
 
+const prepareSearch = `-- name: PrepareSearch :exec
+
+SELECT set_config('pg_trgm.word_similarity_threshold', $1::text, true),
+       set_config('plan_cache_mode', 'force_custom_plan', true)
+`
+
+// ---------------------------------------------------------------------------
+// Message search (FR-16.8, NFR-13; slice 14B, chunk 14B.4). docs/decisions.md, 2026-11-10.
+// ---------------------------------------------------------------------------
+// For the rest of the transaction only (is_local): the threshold of %>, which the GIN trigram
+// indexes serve, and a plan made for each search's own text. A generic plan cannot tell a
+// common word from a rare one and scans the word's index once per conversation (seconds for
+// a common word; docs/decisions.md, 2026-11-10, message search).
+func (q *Queries) PrepareSearch(ctx context.Context, threshold string) error {
+	_, err := q.db.Exec(ctx, prepareSearch, threshold)
+	return err
+}
+
 const removeGroupMember = `-- name: RemoveGroupMember :execrows
 DELETE FROM conversation_members WHERE conversation_id = $1 AND user_id = $2
 `
@@ -2128,6 +2162,152 @@ func (q *Queries) ResolveReport(ctx context.Context, arg ResolveReportParams) (i
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const searchMessages = `-- name: SearchMessages :many
+WITH mine AS NOT MATERIALIZED (
+    SELECT v.id, v.conversation_id, v.body
+    FROM visible_messages v
+    WHERE v.viewer_id = $1 AND v.kind = 'text' AND v.deleted_at IS NULL
+      AND (NOT $2::boolean OR v.conversation_id = $3::uuid)
+      AND (NOT $4::boolean OR v.sender_id = $5::uuid)
+      AND (NOT $6::boolean OR v.created_at >= $7::timestamptz)
+      AND (NOT $8::boolean OR v.created_at < $9::timestamptz)
+), hits AS (
+    SELECT m.id, m.conversation_id,
+           CASE WHEN to_tsvector('simple', m.body) @@ plainto_tsquery('simple', $10::text) THEN 0 ELSE 1 END AS tier,
+           0 AS source, NULL::text AS attachment_name, 0::smallint AS position
+    FROM mine m
+    WHERE to_tsvector('simple', m.body) @@ plainto_tsquery('simple', $10::text) OR m.body %> $10::text
+    UNION ALL
+    SELECT m.id, m.conversation_id,
+           CASE WHEN to_tsvector('simple', translate(a.name, '_-.', '   ')) @@ plainto_tsquery('simple', $10::text) THEN 0 ELSE 1 END,
+           1, a.name, a.position
+    FROM mine m
+    JOIN message_attachments a ON a.conversation_id = m.conversation_id AND a.message_id = m.id
+    WHERE to_tsvector('simple', translate(a.name, '_-.', '   ')) @@ plainto_tsquery('simple', $10::text)
+       OR a.name %> $10::text
+), best AS (
+    SELECT DISTINCT ON (h.id) h.id, h.conversation_id, h.tier, h.source, h.attachment_name
+    FROM hits h
+    ORDER BY h.id, h.tier, h.source, h.position
+), page AS MATERIALIZED (
+    -- The page is cut before anything is joined to it: a common word matches thousands of
+    -- messages, and the planner cannot tell how many.
+    SELECT b.id, b.conversation_id, b.tier, b.source, b.attachment_name
+    FROM best b
+    WHERE NOT $11::boolean OR b.tier > $12::integer
+       OR (b.tier = $12::integer AND b.id < $13::uuid)
+    ORDER BY b.tier, b.id DESC
+    LIMIT $14
+)
+SELECT b.id, b.conversation_id, b.tier::integer AS tier, (b.source = 1)::boolean AS on_attachment,
+       COALESCE(b.attachment_name, '')::text AS attachment_name,
+       m.sender_id, m.body, m.created_at, c.kind, COALESCE(c.name, '')::text AS name,
+       COALESCE(sp.full_name, '')::text AS sender_name,
+       o.user_id AS other_id, COALESCE(op.full_name, '')::text AS other_name, op.headline AS other_headline,
+       op.photo_file_id AS other_photo_file_id,
+       COALESCE(ou.email_verified_at IS NOT NULL AND ou.suspended_at IS NULL, false)::boolean AS other_available
+FROM page b
+JOIN messages m ON m.conversation_id = b.conversation_id AND m.id = b.id
+JOIN conversations c ON c.id = b.conversation_id
+LEFT JOIN profiles sp ON sp.user_id = m.sender_id
+LEFT JOIN conversation_members o ON c.kind = 'direct' AND o.conversation_id = c.id AND o.user_id <> $1
+LEFT JOIN users ou ON ou.id = o.user_id
+LEFT JOIN profiles op ON op.user_id = o.user_id
+ORDER BY b.tier, b.id DESC
+`
+
+type SearchMessagesParams struct {
+	ViewerID        pgtype.UUID
+	HasConversation bool
+	ConversationID  pgtype.UUID
+	HasSender       bool
+	SenderID        pgtype.UUID
+	HasAfter        bool
+	AfterAt         pgtype.Timestamptz
+	HasBefore       bool
+	BeforeAt        pgtype.Timestamptz
+	Q               string
+	HasCursor       bool
+	CursorTier      int32
+	CursorID        pgtype.UUID
+	Lim             int32
+}
+
+type SearchMessagesRow struct {
+	ID               pgtype.UUID
+	ConversationID   pgtype.UUID
+	Tier             int32
+	OnAttachment     bool
+	AttachmentName   string
+	SenderID         pgtype.UUID
+	Body             pgtype.Text
+	CreatedAt        pgtype.Timestamptz
+	Kind             string
+	Name             string
+	SenderName       string
+	OtherID          pgtype.UUID
+	OtherName        string
+	OtherHeadline    pgtype.Text
+	OtherPhotoFileID pgtype.UUID
+	OtherAvailable   bool
+}
+
+// What viewer_id may read (visible_messages, as the thread), less deleted and system messages,
+// whose text or attachment name matches q. Tier 0 is a word match ('simple' configuration),
+// tier 1 a trigram match only. One row per message: its best match, the text before an
+// attachment, then the attachment's position. Newest first within a tier (IDs are UUIDv7).
+func (q *Queries) SearchMessages(ctx context.Context, arg SearchMessagesParams) ([]SearchMessagesRow, error) {
+	rows, err := q.db.Query(ctx, searchMessages,
+		arg.ViewerID,
+		arg.HasConversation,
+		arg.ConversationID,
+		arg.HasSender,
+		arg.SenderID,
+		arg.HasAfter,
+		arg.AfterAt,
+		arg.HasBefore,
+		arg.BeforeAt,
+		arg.Q,
+		arg.HasCursor,
+		arg.CursorTier,
+		arg.CursorID,
+		arg.Lim,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SearchMessagesRow
+	for rows.Next() {
+		var i SearchMessagesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ConversationID,
+			&i.Tier,
+			&i.OnAttachment,
+			&i.AttachmentName,
+			&i.SenderID,
+			&i.Body,
+			&i.CreatedAt,
+			&i.Kind,
+			&i.Name,
+			&i.SenderName,
+			&i.OtherID,
+			&i.OtherName,
+			&i.OtherHeadline,
+			&i.OtherPhotoFileID,
+			&i.OtherAvailable,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const systemMessagesAfter = `-- name: SystemMessagesAfter :many

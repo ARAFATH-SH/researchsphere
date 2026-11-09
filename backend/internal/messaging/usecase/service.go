@@ -40,6 +40,8 @@ type Limits struct {
 	RequestsPerDay    int
 	// EditWindow is how long after sending a message its sender may edit it (FR-16.5).
 	EditWindow time.Duration
+	// SearchesPerMinute is how many message searches a user may run a minute (FR-16.8).
+	SearchesPerMinute int
 }
 
 // window is one fixed-window limit; name is its Limiter counter.
@@ -111,6 +113,7 @@ type Service struct {
 	files       FileDeps
 	uploads     []window // attachment uploads per hour
 	uploadBytes []window // attachment bytes per day
+	searches    []window // message searches per minute
 }
 
 // New returns a Service. now is time.Now in production and a fixed clock in tests.
@@ -129,9 +132,10 @@ func New(store domain.Store, tx domain.Transactor, connections domain.Connection
 			{"requests:minute", limits.RequestsPerMinute, time.Minute},
 			{"requests:day", limits.RequestsPerDay, day},
 		},
-		reports: []window{{"reports:day", ReportsPerDay, day}},
-		groups:  []window{{"groups:day", GroupsPerDay, day}},
-		members: []window{{"group-members:day", GroupMembersPerDay, day}},
+		reports:  []window{{"reports:day", ReportsPerDay, day}},
+		groups:   []window{{"groups:day", GroupsPerDay, day}},
+		members:  []window{{"group-members:day", GroupMembersPerDay, day}},
+		searches: []window{{"searches:minute", limits.SearchesPerMinute, time.Minute}},
 	}
 }
 
@@ -712,7 +716,7 @@ func (s *Service) Messages(ctx context.Context, userID, id, before string, limit
 	if err != nil {
 		return domain.MessagePage{}, err
 	}
-	items, err := s.store.ListMessages(ctx, id, c.JoinedAt, before, limit+1)
+	items, err := s.store.ListMessages(ctx, id, userID, before, limit+1)
 	if err != nil {
 		return domain.MessagePage{}, err
 	}

@@ -139,7 +139,7 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 		realtime.events, groupNotifier{notifications: notifications}, messagingusecase.Limits{
 			MessagesPerMinute: cfg.MessagesPerMinute, MessagesPerDay: cfg.MessagesPerDay,
 			RequestsPerMinute: cfg.RequestsPerMinute, RequestsPerDay: cfg.RequestsPerDay,
-			EditWindow: cfg.MessageEditWindow,
+			EditWindow: cfg.MessageEditWindow, SearchesPerMinute: cfg.SearchesPerMinute,
 		}, time.Now, logger)
 	// A connection change and its notification are written in one transaction (FR-9.1).
 	social := socialusecase.New(socialpg.NewStore(pool), postgres.NewTransactor(pool), connectLimiter,

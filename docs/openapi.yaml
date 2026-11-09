@@ -2971,6 +2971,113 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /messages/search:
+    get:
+      operationId: searchMessages
+      summary: Search the text of the caller's own conversations (FR-16.8, NFR-13)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed,
+        events and recommendations" (SRS 2.3). Only what the caller could read in the
+        thread is searched, by the same rule (NFR-13): conversations they are a member of
+        now, in any state (a request only by its two members, and declined or blocked
+        conversations stay searchable), and in a group only messages from the moment they
+        joined. Deleted messages, the earlier text of edited messages and system messages
+        are never searched.
+
+        The text of a message and the names of its attachments are searched. Text in
+        Bangla, English or both is split into words without any language's stemming. A
+        word match (every word of `q` appears as a word, ignoring letter case) ranks above
+        a similar match (trigram word similarity of at least 0.55, which finds partial
+        words and most one-letter typos); within each, newer messages come first. Each
+        message appears once: when both its text and an attachment name match, the better
+        match decides, and the text wins a tie.
+
+        Each user may search 30 times a minute (429 `rate_limited`).
+      tags: [messaging]
+      parameters:
+        - name: q
+          in: query
+          required: false
+          description: |
+            The search text, 2 to 100 characters after trimming, else 400 `bad_request` with
+            `field` `q`. It is required: it is declared optional only so that the session is
+            checked first (the generated code checks a required parameter before the session,
+            as for `searchPeople`).
+          schema:
+            type: string
+          example: গবেষণা
+        - name: conversationId
+          in: query
+          required: false
+          description: |
+            Search only this conversation. One the caller is not a member of gets 404
+            `not_found`, the same answer as for one that does not exist.
+          schema:
+            type: string
+            format: uuid
+        - name: from
+          in: query
+          required: false
+          description: Only messages sent by this user.
+          schema:
+            type: string
+            format: uuid
+        - name: after
+          in: query
+          required: false
+          description: Only messages sent at or after this moment (RFC 3339, inclusive).
+          schema:
+            type: string
+            format: date-time
+        - name: before
+          in: query
+          required: false
+          description: Only messages sent before this moment (RFC 3339, exclusive).
+          schema:
+            type: string
+            format: date-time
+        - name: cursor
+          in: query
+          required: false
+          description: "`nextCursor` from the previous page. A value the server did not issue gets 400 `bad_request`."
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: |
+            Items to return, from 1. Defaults to 20. A larger value than 50 is reduced to
+            50; a value below 1 gets 400 `bad_request`.
+          schema:
+            type: integer
+            minimum: 1
+            default: 20
+      responses:
+        "200":
+          description: One page of matching messages, best match first, then newest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageSearchPage"
+        "400":
+          description: |
+            `q`, `conversationId`, `from`, `after`, `before`, `cursor` or `limit` is not
+            valid (`bad_request`, with `field` naming the parameter).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/MessageSearchRateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /conversations:
     get:
       operationId: listConversations
@@ -5790,6 +5897,101 @@ components:
           type: integer
           description: Pending message requests to the caller.
 
+    MessageSearchMatch:
+      type: string
+      description: "`text`: the message's text matched. `attachment`: the name of one of its attachments matched."
+      enum: [text, attachment]
+
+    TextRange:
+      type: object
+      required: [start, length]
+      description: |
+        A stretch of `snippet` to highlight. `start` and `length` count Unicode code points,
+        not bytes or UTF-16 units: the client indexes `Array.from(snippet)`, never the string
+        itself, so a range never splits a character. Ranges are sorted and never overlap.
+      properties:
+        start:
+          type: integer
+          minimum: 0
+        length:
+          type: integer
+          minimum: 1
+
+    MessageSearchConversation:
+      type: object
+      required: [kind, name, otherMember, avatars]
+      properties:
+        kind:
+          $ref: "#/components/schemas/ConversationKind"
+        name:
+          type: string
+          nullable: true
+          description: The group's name; null for a direct conversation.
+        otherMember:
+          nullable: true
+          description: The other member of a direct conversation; null for a group.
+          allOf:
+            - $ref: "#/components/schemas/GroupAvatar"
+        avatars:
+          type: array
+          description: For a group, up to 3 other members, those who joined earliest first; empty for a direct conversation.
+          items:
+            $ref: "#/components/schemas/GroupAvatar"
+
+    MessageSearchSender:
+      type: object
+      required: [userId, fullName]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        fullName:
+          type: string
+
+    MessageSearchResult:
+      type: object
+      required: [messageId, conversationId, conversation, sender, createdAt, snippet, highlights, matchedOn]
+      properties:
+        messageId:
+          type: string
+          format: uuid
+        conversationId:
+          type: string
+          format: uuid
+        conversation:
+          $ref: "#/components/schemas/MessageSearchConversation"
+        sender:
+          $ref: "#/components/schemas/MessageSearchSender"
+        createdAt:
+          type: string
+          format: date-time
+        snippet:
+          type: string
+          description: |
+            Plain text, never HTML: about 160 characters of the message around its first
+            highlighted word, or the matching attachment's name. Runs of spaces and line
+            breaks are one space, and a cut is marked with "…". When a similar match has no
+            word close enough to mark, it is the start of the message with no highlights.
+        highlights:
+          type: array
+          items:
+            $ref: "#/components/schemas/TextRange"
+        matchedOn:
+          $ref: "#/components/schemas/MessageSearchMatch"
+
+    MessageSearchPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/MessageSearchResult"
+        nextCursor:
+          type: string
+          nullable: true
+          description: Pass as `cursor` to get the next page; null on the last page.
+
     UnreadNotificationCount:
       type: object
       required: [count]
@@ -7100,6 +7302,18 @@ components:
       headers:
         Retry-After:
           description: Seconds until sending is accepted again.
+          required: true
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    MessageSearchRateLimited:
+      description: The user has searched messages more than 30 times in a minute (`rate_limited`, FR-16.8).
+      headers:
+        Retry-After:
+          description: Seconds until searching is accepted again.
           required: true
           schema:
             type: integer

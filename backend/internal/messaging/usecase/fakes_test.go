@@ -33,8 +33,11 @@ type fakeStore struct {
 	stays         []fakeStay       // conversation_memberships
 	membersAt     map[string][]string
 	attachments   map[string]fakeAttachment
-	failAttach    error    // InsertAttachment fails
-	downloads     []string // report|file|admin
+	failAttach    error                // InsertAttachment fails
+	downloads     []string             // report|file|admin
+	searchHits    []domain.SearchHit   // what SearchMessages finds
+	searches      []domain.SearchQuery // what SearchMessages was asked
+	avatars       map[string][]domain.Person
 }
 
 // fakeStay is one stay in a group, as conversation_memberships keeps it.
@@ -275,14 +278,23 @@ func (f *fakeStore) ListItems(_ context.Context, memberID string, box domain.Box
 	return items[:min(limit, len(items))], nil
 }
 
-func (f *fakeStore) ListMessages(_ context.Context, conversationID string, since time.Time, before string, limit int) ([]domain.Message, error) {
+func (f *fakeStore) ListMessages(_ context.Context, conversationID, viewerID, before string, limit int) ([]domain.Message, error) {
+	c, err := f.member(conversationID, viewerID)
+	if err != nil {
+		return nil, nil //nolint:nilerr // like the query: nothing for someone who is not a member
+	}
+	return f.messagesSince(conversationID, c.since(viewerID), before, limit), nil
+}
+
+// messagesSince is the thread from since on, newest first, with no membership check.
+func (f *fakeStore) messagesSince(conversationID string, since time.Time, before string, limit int) []domain.Message {
 	var out []domain.Message
 	for _, m := range slices.Backward(f.messages) {
 		if m.ConversationID == conversationID && !m.CreatedAt.Before(since) && (before == "" || m.ID < before) {
 			out = append(out, m)
 		}
 	}
-	return out[:min(limit, len(out))], nil
+	return out[:min(limit, len(out))]
 }
 
 func (f *fakeStore) MessageIn(_ context.Context, conversationID, messageID string, since time.Time) (bool, error) {
@@ -562,7 +574,7 @@ func (f *fakeStore) ListReportedMessages(ctx context.Context, reportID, before s
 	if err != nil {
 		return nil, err
 	}
-	ms, err := f.ListMessages(ctx, r.ConversationID, time.Time{}, before, limit)
+	ms := f.messagesSince(r.ConversationID, time.Time{}, before, limit)
 	out := make([]domain.ReportedMessage, len(ms))
 	for i, m := range ms {
 		out[i] = domain.ReportedMessage{ID: m.ID, ConversationID: m.ConversationID, SenderID: m.SenderID, CreatedAt: m.CreatedAt,
@@ -804,8 +816,26 @@ func (f *fakeStore) ListGroupMembers(_ context.Context, conversationID string) (
 	return out, nil
 }
 
-func (f *fakeStore) GroupAvatars(context.Context, string, []string) (map[string][]domain.Person, error) {
-	return map[string][]domain.Person{}, nil
+func (f *fakeStore) GroupAvatars(_ context.Context, _ string, ids []string) (map[string][]domain.Person, error) {
+	out := map[string][]domain.Person{}
+	for _, id := range ids {
+		if a, ok := f.avatars[id]; ok {
+			out[id] = a
+		}
+	}
+	return out, nil
+}
+
+// SearchMessages returns searchHits after the cursor, up to the limit; the matching itself is
+// the query's, tested against the database.
+func (f *fakeStore) SearchMessages(_ context.Context, _ string, q domain.SearchQuery) ([]domain.SearchHit, error) {
+	f.searches = append(f.searches, q)
+	hits := f.searchHits
+	if q.Cursor != nil {
+		i := slices.IndexFunc(hits, func(h domain.SearchHit) bool { return h.MessageID == q.Cursor.ID })
+		hits = hits[i+1:]
+	}
+	return hits[:min(q.Limit, len(hits))], nil
 }
 
 func (f *fakeStore) ListReaders(_ context.Context, conversationID, viewerID string) ([]domain.Reader, error) {

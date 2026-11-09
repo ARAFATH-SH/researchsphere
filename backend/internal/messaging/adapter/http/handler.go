@@ -56,6 +56,7 @@ type Service interface {
 	ReportDetail(ctx context.Context, adminID, id, before string) (domain.ReportDetail, error)
 	ResolveReport(ctx context.Context, adminID, id string, outcome domain.ReportOutcome, note *string) (domain.Report, error)
 	AttachmentService
+	SearchService
 }
 
 // Handler implements the messaging operations of gen.StrictServerInterface.
@@ -409,9 +410,9 @@ func MessageBody(m domain.Message) (gen.Message, error) {
 // messageKind is text unless the store says system.
 func messageKind(k domain.MessageKind) gen.MessageKind {
 	if k == domain.KindSystem {
-		return gen.System
+		return gen.MessageKindSystem
 	}
-	return gen.Text
+	return gen.MessageKindText
 }
 
 // senderUUID is nil for a system message with no actor.

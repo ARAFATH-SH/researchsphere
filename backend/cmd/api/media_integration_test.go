@@ -159,7 +159,7 @@ func wireEnv(t *testing.T, pool *pgxpool.Pool, rdb *goredis.Client, files *stora
 	t.Cleanup(func() { _ = connectLimiter.Close() })
 	messageLimiter := messagingredis.New(rdb)
 	t.Cleanup(func() { _ = messageLimiter.Close() })
-	limits := messagingusecase.Limits{MessagesPerMinute: 30, MessagesPerDay: 1000, RequestsPerMinute: 5, RequestsPerDay: 20}
+	limits := messagingusecase.Limits{MessagesPerMinute: 30, MessagesPerDay: 1000, RequestsPerMinute: 5, RequestsPerDay: 20, SearchesPerMinute: 30}
 	if opt.messageLimits != nil {
 		limits = *opt.messageLimits
 	}
