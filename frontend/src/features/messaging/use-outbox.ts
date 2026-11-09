@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 
-import type { SendResult, SentMessage } from "./api";
+import type { Attachment, SendResult, SentMessage } from "./api";
+import type { ThreadMessage } from "./format";
 
 export type Outgoing = {
   clientId: string;
   body: string;
+  // attachments are the uploaded files sent with it; a retry sends the same ones.
+  attachments: Attachment[];
   createdAt: string;
   status: "sending" | "failed";
 };
@@ -12,14 +15,14 @@ export type Outgoing = {
 type Failure = Extract<SendResult, { ok: false }>;
 
 type OutboxOptions = {
-  deliver: (body: string, clientId: string) => Promise<SendResult>;
+  deliver: (body: string, clientId: string, attachmentIds: string[]) => Promise<SendResult>;
   onSent: (sent: SentMessage, clientId: string) => void;
   onFailed: (failure: Failure) => void;
 };
 
 export type Outbox = {
   outgoing: Outgoing[];
-  send: (body: string) => void;
+  send: (body: string, attachments?: Attachment[]) => void;
   retry: (clientId: string) => void;
   // confirm drops a message whose echo arrived on the socket, whether before the send's answer
   // or instead of it.
@@ -37,8 +40,12 @@ export function useOutbox(options: OutboxOptions): Outbox {
     latest.current = options;
   });
 
-  async function run({ clientId, body }: Outgoing) {
-    const res = await latest.current.deliver(body, clientId);
+  async function run({ clientId, body, attachments }: Outgoing) {
+    const res = await latest.current.deliver(
+      body,
+      clientId,
+      attachments.map((a) => a.id),
+    );
     if (res.ok) {
       latest.current.onSent(res.data, clientId);
       setOutgoing((prev) => prev.filter((o) => o.clientId !== clientId));
@@ -49,8 +56,8 @@ export function useOutbox(options: OutboxOptions): Outbox {
     latest.current.onFailed(res);
   }
 
-  function send(body: string) {
-    const item: Outgoing = { clientId: crypto.randomUUID(), body, createdAt: new Date().toISOString(), status: "sending" };
+  function send(body: string, attachments: Attachment[] = []) {
+    const item: Outgoing = { clientId: crypto.randomUUID(), body, attachments, createdAt: new Date().toISOString(), status: "sending" };
     setOutgoing((prev) => [...prev, item]);
     void run(item);
   }
@@ -71,13 +78,16 @@ export function useOutbox(options: OutboxOptions): Outbox {
 }
 
 // outgoingMessages shows the outbox in a thread.
-export function outgoingMessages(outgoing: Outgoing[], me: string) {
+export function outgoingMessages(outgoing: Outgoing[], me: string): ThreadMessage[] {
   return outgoing.map((o) => ({
     key: o.clientId,
     id: null,
     senderId: me,
     body: o.body,
     createdAt: o.createdAt,
+    editedAt: null,
+    deleted: false,
+    attachments: o.attachments,
     delivery: o.status,
   }));
 }

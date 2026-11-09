@@ -143,7 +143,9 @@ check, tests and a production build.
   calls `/api/v1` on its own origin and `next.config.ts` forwards it to `API_URL`, which is
   read on the server only (never `NEXT_PUBLIC_`). The one exception is the WebSocket, which goes
   straight to the API at `NEXT_PUBLIC_WS_URL`, because a rewrite is not known to carry it
-  (`docs/decisions.md`). Every session refresh goes through `refreshSession` in `lib/api/client.ts`,
+  (`docs/decisions.md`). A second exception is a file upload with progress, which needs
+  `XMLHttpRequest`: `uploadFile` in `lib/api/upload.ts` is the only code that uses it (ESLint refuses it
+  elsewhere) and keeps the client's refresh and lost-session handling. Every session refresh goes through `refreshSession` in `lib/api/client.ts`,
   so tabs take turns. Jest tests (`*.test.ts(x)`) sit beside the
   code they test and mock the API module, not the network. `frontend/jest.setup.ts` fails any test that
   calls `console.error`; its allowlist is only for documented third-party noise. The default

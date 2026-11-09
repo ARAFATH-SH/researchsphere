@@ -1,11 +1,13 @@
 import { api } from "@/lib/api/client";
 
-import { getConversation, listConversations, sendDirectMessage, sendMessage } from "./api";
+import { deleteMessage, editMessage, ensureSession, getConversation, listConversations, sendDirectMessage, sendMessage } from "./api";
 import { conversation } from "./test-data";
 
-jest.mock("@/lib/api/client", () => ({ api: { POST: jest.fn(), GET: jest.fn() } }));
+jest.mock("@/lib/api/client", () => ({ api: { POST: jest.fn(), GET: jest.fn(), PATCH: jest.fn(), DELETE: jest.fn() } }));
 const mockPost = jest.mocked(api.POST);
 const mockGet = jest.mocked(api.GET);
+const mockPatch = jest.mocked(api.PATCH);
+const mockDelete = jest.mocked(api.DELETE);
 
 type Reply = Awaited<ReturnType<typeof api.POST>>;
 
@@ -44,6 +46,15 @@ describe("sending", () => {
     });
   });
 
+  it("sends files with their IDs, and leaves out empty text (FR-16.7)", async () => {
+    mockPost.mockResolvedValue(reply(201, { message: {}, conversationState: "active" }));
+    await sendMessage("c1", "", "client", ["f1", "f2"]);
+    expect(mockPost).toHaveBeenCalledWith("/conversations/{conversationId}/messages", {
+      params: { path: { conversationId: "c1" } },
+      body: { clientId: "client", attachmentIds: ["f1", "f2"] },
+    });
+  });
+
   it("sends a first message to the user", async () => {
     mockPost.mockResolvedValue(reply(201, { message: {}, conversationState: "request" }));
     await sendDirectMessage("bob", "hi", "client");
@@ -78,5 +89,41 @@ describe("groups", () => {
     await expect(getConversation("g1")).resolves.toMatchObject({ ok: false, code: "not_found" });
     mockGet.mockResolvedValue(ok(conversation()));
     await expect(getConversation("c1")).resolves.toEqual({ ok: true, data: conversation() });
+  });
+});
+
+describe("editing and deleting (FR-16.5)", () => {
+  it("edits with PATCH and answers the message", async () => {
+    mockPatch.mockResolvedValue(reply(200, { id: "m1", body: "new" }) as never);
+    await expect(editMessage("c1", "m1", "new")).resolves.toEqual({ ok: true, data: { id: "m1", body: "new" } });
+    expect(mockPatch).toHaveBeenCalledWith("/conversations/{conversationId}/messages/{messageId}", {
+      params: { path: { conversationId: "c1", messageId: "m1" } },
+      body: { body: "new" },
+    });
+  });
+
+  it("keeps the edit window refusal's code", async () => {
+    mockPatch.mockResolvedValue(reply(409, { code: "edit_window_closed", message: "Too late." }) as never);
+    await expect(editMessage("c1", "m1", "new")).resolves.toMatchObject({ ok: false, code: "edit_window_closed" });
+  });
+
+  it("deletes with DELETE", async () => {
+    mockDelete.mockResolvedValue(reply(204, {}) as never);
+    await expect(deleteMessage("c1", "m1")).resolves.toMatchObject({ ok: true });
+    expect(mockDelete).toHaveBeenCalledWith("/conversations/{conversationId}/messages/{messageId}", {
+      params: { path: { conversationId: "c1", messageId: "m1" } },
+    });
+  });
+});
+
+describe("ensureSession", () => {
+  it("reads /auth/me and is false only when the session is over", async () => {
+    mockGet.mockResolvedValue(reply(200, { id: "u" }) as never);
+    await expect(ensureSession()).resolves.toBe(true);
+    expect(mockGet).toHaveBeenCalledWith("/auth/me");
+    mockGet.mockResolvedValue(reply(401, { code: "unauthenticated", message: "No." }) as never);
+    await expect(ensureSession()).resolves.toBe(false);
+    mockGet.mockRejectedValue(new Error("offline"));
+    await expect(ensureSession()).resolves.toBe(true);
   });
 });

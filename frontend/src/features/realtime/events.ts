@@ -5,6 +5,9 @@ type Schemas = components["schemas"];
 // RealtimeEvent is one server frame (docs/realtime.md).
 export type RealtimeEvent =
   | { type: "message.created"; data: Schemas["RealtimeMessageCreated"] }
+  | { type: "message.updated"; data: Schemas["RealtimeMessageUpdated"] }
+  | { type: "message.deleted"; data: Schemas["RealtimeMessageDeleted"] }
+  | { type: "attachment.updated"; data: Schemas["RealtimeAttachmentUpdated"] }
   | { type: "conversation.read"; data: Schemas["RealtimeConversationRead"] }
   | { type: "conversation.updated"; data: Schemas["RealtimeConversationUpdated"] }
   | { type: "unread.changed"; data: Schemas["MessageUnreadCount"] }
@@ -15,6 +18,9 @@ export type RealtimeEvent =
 
 const types: ReadonlySet<string> = new Set<RealtimeEvent["type"]>([
   "message.created",
+  "message.updated",
+  "message.deleted",
+  "attachment.updated",
   "conversation.read",
   "conversation.updated",
   "unread.changed",
@@ -31,8 +37,8 @@ export function parseEvent(frame: unknown): RealtimeEvent | null {
   try {
     const event = JSON.parse(frame) as { type?: unknown; data?: unknown } | null;
     if (typeof event?.type !== "string" || !types.has(event.type) || typeof event.data !== "object" || !event.data) return null;
-    // A group's access-lost update (FR-16.6) waits for the group screens of slice 14B.5, as do
-    // conversation.members and attachment.updated (FR-16.7) events, which are not in types.
+    // A group's access-lost update (FR-16.6) waits for the group screens of slice 14B.5b, as
+    // does the conversation.members event, which is not in types.
     if (event.type === "conversation.updated" && (event.data as { accessLost?: unknown }).accessLost === true) return null;
     return event as RealtimeEvent;
   } catch {

@@ -6,6 +6,7 @@ const sentences: Partial<Record<string, (name: string) => string>> = {
   connection_request_received: (name) => `${name} sent you a connection request.`,
   connection_request_accepted: (name) => `${name} accepted your connection request.`,
   account_warning: () => "You received a warning from ResearchSphere. Tap to read it.",
+  attachment_blocked: () => "A file you sent was removed because it failed a security check.",
 };
 
 // senderName is who a notification is from: its actor, or ResearchSphere for a system

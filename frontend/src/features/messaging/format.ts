@@ -1,11 +1,20 @@
 import { shortDate } from "@/features/social/format";
 
-import type { Conversation } from "./api";
+import type { Attachment, Conversation } from "./api";
 
 // maxBody is the longest message, in characters after trimming; counterFrom is where the
 // composer starts showing the count.
 export const maxBody = 5000;
 export const counterFrom = 4500;
+
+// editWindow is how long after sending a message can be edited: the server's default
+// MESSAGE_EDIT_WINDOW (FR-16.5). The server decides; a 409 covers a different setting or clock.
+export const editWindow = 15 * 60_000;
+
+// editableUntil is when a message sent at createdAt stops being editable, in milliseconds.
+export function editableUntil(createdAt: string): number {
+  return Date.parse(createdAt) + editWindow;
+}
 
 const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -62,8 +71,15 @@ export function rowPreview(conversation: Conversation, me: string): string {
   }
   const last = conversation.lastMessage;
   if (!last) return "";
+  // Only deleted marks a deletion: a message with files may have no text (FR-16.5, FR-16.7).
+  if (last.deleted) return "Message deleted";
+  const mine = last.senderId === me;
   const text = last.body ?? "";
-  return last.senderId === me ? `You: ${text}` : text;
+  if (!text && last.attachmentCount > 0) {
+    const files = last.attachmentCount === 1 ? "a file" : `${last.attachmentCount} files`;
+    return mine ? `You sent ${files}` : `Sent ${files}`;
+  }
+  return mine ? `You: ${text}` : text;
 }
 
 // ThreadStatus is what the caller may do in a conversation; open is the only one that sends.
@@ -86,6 +102,10 @@ export type ThreadMessage = {
   senderId: string;
   body: string;
   createdAt: string;
+  editedAt: string | null;
+  // deleted comes from the message's flag, never from an empty body.
+  deleted: boolean;
+  attachments: Attachment[];
   delivery: "sent" | "sending" | "failed";
 };
 

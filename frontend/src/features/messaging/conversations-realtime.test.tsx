@@ -160,6 +160,44 @@ describe("typing and presence", () => {
   });
 });
 
+describe("message.updated and message.deleted (FR-16.5)", () => {
+  it("changes the preview when the edited message is the row's latest", async () => {
+    const latest = message(5, bobID, "See you");
+    lists([conversation({ lastMessage: { senderId: bobID, kind: "text", event: null, body: "See you", deleted: false, attachmentCount: 0, createdAt: latest.createdAt } })]);
+    await connectAndRender();
+    await receive("message.updated", { message: { ...latest, body: "See you at 3", editedAt: "2026-11-05T09:02:00Z" } });
+    expect(screen.getByText("See you at 3")).toBeTruthy();
+  });
+
+  it("leaves the preview alone when an earlier message is edited", async () => {
+    lists([first]);
+    await connectAndRender();
+    await receive("message.updated", { message: { ...message(1, bobID, "older, edited", "2026-11-05T08:00:00Z"), editedAt: "2026-11-05T09:02:00Z" } });
+    expect(screen.getByText("See you")).toBeTruthy();
+    expect(screen.queryByText("older, edited")).toBeNull();
+  });
+
+  it("reads the row again after a deletion, in its place, and shows Message deleted", async () => {
+    lists([first, second]);
+    await connectAndRender();
+    mockGet.mockResolvedValue({
+      ok: true,
+      data: conversation({ lastMessage: { senderId: bobID, kind: "text", event: null, body: null, deleted: true, attachmentCount: 0, createdAt: "2026-11-05T09:00:00Z" } }),
+    });
+    await receive("message.deleted", { conversationId: conversationID, messageId: message(5, bobID).id });
+    expect(mockGet).toHaveBeenCalledWith(conversationID);
+    expect(names()).toEqual(["Bob Babbage", "Carol Clark"]);
+    expect(screen.getByText("Message deleted")).toBeTruthy();
+  });
+
+  it("reads nothing for a conversation that is not listed", async () => {
+    lists([first]);
+    await connectAndRender();
+    await receive("message.deleted", { conversationId: "elsewhere", messageId: message(5, bobID).id });
+    expect(mockGet).not.toHaveBeenCalled();
+  });
+});
+
 describe("after a reconnect", () => {
   async function reconnect() {
     await act(async () => {

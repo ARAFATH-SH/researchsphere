@@ -129,8 +129,12 @@ describe("Report message", () => {
   it("is offered on their messages and not on mine", async () => {
     load(conversation(), [message(1, adaID, "mine"), message(2, bobID, "theirs")]);
     await renderThread();
-    expect(dots()).toHaveLength(1);
-    expect(within(screen.getByText("mine").closest("div")!).queryByRole("button", { name: /More actions/ })).toBeNull();
+    const [mine, theirs] = dots();
+    fireEvent.click(theirs);
+    expect(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Report message" })).toBeTruthy();
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+    fireEvent.click(mine);
+    expect(within(screen.getByRole("menu")).queryByRole("menuitem", { name: "Report message" })).toBeNull();
   });
 
   it("reports that message", async () => {

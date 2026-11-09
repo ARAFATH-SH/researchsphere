@@ -1,10 +1,11 @@
 import { call, type Result, unexpectedError } from "@/lib/api/call";
 import { api, type components } from "@/lib/api/client";
+import { uploadFile, type UploadOptions, type UploadResult } from "@/lib/api/upload";
 
 export type ConversationMember = components["schemas"]["ConversationMember"];
 type AnyConversation = components["schemas"]["Conversation"];
 
-// Conversation is a direct conversation. Groups (FR-16.6) have no screens until slice 14B.5,
+// Conversation is a direct conversation. Groups (FR-16.6) have no screens until slice 14B.5b,
 // so the client drops them where conversations arrive: from the lists and from
 // getConversation, which answers a group as not found. A message event for a group then finds
 // no conversation and is ignored.
@@ -21,6 +22,9 @@ export type Message = components["schemas"]["Message"];
 export type MessagePage = components["schemas"]["MessagePage"];
 export type MessageUnreadCount = components["schemas"]["MessageUnreadCount"];
 export type SentMessage = components["schemas"]["SentMessage"];
+export type Attachment = components["schemas"]["Attachment"];
+export type AttachmentStatus = components["schemas"]["AttachmentStatus"];
+export type AttachmentUpload = components["schemas"]["AttachmentUpload"];
 export type ReportReason = components["schemas"]["ReportReason"];
 export type ReportConversationRequest = components["schemas"]["ReportConversationRequest"];
 export type ConversationReportReceipt = components["schemas"]["ConversationReportReceipt"];
@@ -75,14 +79,50 @@ async function deliver<T>(request: Parameters<typeof call<T>>[0]): Promise<Limit
 }
 
 // sendMessage sends in a conversation. A retry sends the same clientId, which stores nothing
-// new (FR-16.10 limits count only stored messages).
-export function sendMessage(conversationId: string, body: string, clientId: string): Promise<SendResult> {
+// new (FR-16.10 limits count only stored messages). With files (FR-16.7) the text may be empty,
+// and is then left out.
+export function sendMessage(conversationId: string, body: string, clientId: string, attachmentIds: string[] = []): Promise<SendResult> {
   return deliver(() =>
     api.POST("/conversations/{conversationId}/messages", {
       params: { path: { conversationId } },
-      body: { body, clientId },
+      body: {
+        clientId,
+        ...(body ? { body } : {}),
+        ...(attachmentIds.length > 0 ? { attachmentIds } : {}),
+      },
     }),
   );
+}
+
+// editMessage changes the text of one of the caller's messages within the edit window
+// (FR-16.5); the answer is the message with its new text and editedAt.
+export function editMessage(conversationId: string, messageId: string, body: string): Promise<LimitedResult<Message>> {
+  return deliver(() =>
+    api.PATCH("/conversations/{conversationId}/messages/{messageId}", {
+      params: { path: { conversationId, messageId } },
+      body: { body },
+    }),
+  );
+}
+
+// deleteMessage deletes one of the caller's messages for everyone (FR-16.5).
+export function deleteMessage(conversationId: string, messageId: string): Promise<Result<undefined>> {
+  return call(() =>
+    api.DELETE("/conversations/{conversationId}/messages/{messageId}", { params: { path: { conversationId, messageId } } }),
+  );
+}
+
+// uploadAttachment uploads a file to send with a message later (FR-16.7), reporting progress.
+export function uploadAttachment(conversationId: string, file: File, options: UploadOptions = {}): Promise<UploadResult<AttachmentUpload>> {
+  return uploadFile(`/conversations/${encodeURIComponent(conversationId)}/attachments`, file, options);
+}
+
+// ensureSession reads /auth/me through the client, which renews an expired access token, so
+// a plain link to the API that follows carries a valid one. It is false only when the session
+// is over, which the client has already reported.
+export async function ensureSession(): Promise<boolean> {
+  const res = await call(() => api.GET("/auth/me"));
+  return res.ok || res.code !== "unauthenticated";
 }
 
 // sendDirectMessage sends a first message to a user, finding or creating their conversation.

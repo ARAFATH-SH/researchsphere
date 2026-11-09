@@ -3,7 +3,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { RealtimeEvent } from "@/features/realtime/events";
 import { useOnConnected, useRealtimeEvent } from "@/features/realtime/use-realtime";
 
-import { type Conversation, type ConversationState, getConversation, listMessages, type Message, type MessagePage } from "./api";
+import {
+  type Attachment,
+  type Conversation,
+  type ConversationState,
+  getConversation,
+  listMessages,
+  type Message,
+  type MessagePage,
+} from "./api";
 import type { ThreadMessage } from "./format";
 
 export type ThreadData = {
@@ -22,17 +30,37 @@ function shown(message: Message, key = message.id): ThreadMessage {
   return {
     key,
     id: message.id,
-    // Only a group's system messages have no sender; the client shows no group until 14B.5.
+    // Only a group's system messages have no sender; the client shows no group until 14B.5b.
     senderId: message.senderId ?? "",
     body: message.body ?? "",
     createdAt: message.createdAt,
+    editedAt: message.editedAt,
+    deleted: message.deleted,
+    attachments: message.attachments,
     delivery: "sent",
   };
 }
 
+// tombstone is a deleted message in its place: no text and no files (FR-16.5).
+function tombstone(m: ThreadMessage): ThreadMessage {
+  return { ...m, deleted: true, body: "", attachments: [] };
+}
+
+// withStatus sets one attachment's scan result wherever it is shown (FR-16.7).
+function withStatus(messages: ThreadMessage[], attachmentId: string, status: Attachment["status"]): ThreadMessage[] {
+  return messages.map((m) =>
+    m.attachments.some((a) => a.id === attachmentId)
+      ? { ...m, attachments: m.attachments.map((a) => (a.id === attachmentId ? { ...a, status } : a)) }
+      : m,
+  );
+}
+
 // conversationOf names the conversation an event is about, if it is about one the thread shows.
 function conversationOf(event: RealtimeEvent): string | null {
-  if (event.type === "message.created") return event.data.message.conversationId;
+  if (event.type === "message.created" || event.type === "message.updated") return event.data.message.conversationId;
+  if (event.type === "message.deleted") return event.data.conversationId;
+  // Before it is sent, a file's result is the composer's (useAttachments).
+  if (event.type === "attachment.updated") return event.data.messageId ? event.data.conversationId : null;
   if (event.type === "conversation.read" || event.type === "conversation.updated") return event.data.conversationId;
   return null;
 }
@@ -44,6 +72,7 @@ function byId(a: ThreadMessage, b: ThreadMessage): number {
 
 // resynced folds the newest page into what is shown after a reconnect. A page that touches
 // nothing shown leaves a gap, so it replaces the list and Load earlier fills in from there.
+// Messages on both take the page's version, so an edit or deletion missed meanwhile shows.
 function resynced(data: ThreadData, page: MessagePage): Partial<ThreadData> {
   const known = new Set(data.messages.map((m) => m.id));
   const fresh = page.items.map((m) => shown(m));
@@ -51,7 +80,12 @@ function resynced(data: ThreadData, page: MessagePage): Partial<ThreadData> {
   if (page.nextBefore !== null && !fresh.some((m) => known.has(m.id))) {
     return { messages: fresh.reverse(), nextBefore: page.nextBefore, otherLastReadMessageId };
   }
-  return { messages: [...data.messages, ...fresh.filter((m) => !known.has(m.id))].sort(byId), otherLastReadMessageId };
+  const byFresh = new Map(fresh.map((m) => [m.id, m]));
+  const kept = data.messages.map((m) => {
+    const newer = byFresh.get(m.id);
+    return newer ? { ...newer, key: m.key } : m;
+  });
+  return { messages: [...kept, ...fresh.filter((m) => !known.has(m.id))].sort(byId), otherLastReadMessageId };
 }
 
 export type Thread = {
@@ -63,6 +97,10 @@ export type Thread = {
   reload: () => void;
   // addSent adds a message the server stored, under the key its row had while on its way.
   addSent: (message: Message, state: ConversationState, key: string) => void;
+  // replace shows a message's new version in its place, as an edit returns it; markDeleted
+  // turns one into a tombstone. A message that is not loaded is ignored.
+  replace: (message: Message) => void;
+  markDeleted: (messageId: string) => void;
 };
 
 // useThread loads a conversation and its newest messages, and earlier ones on request. After
@@ -79,6 +117,22 @@ export function useThread(conversationId: string): Thread {
     setState((prev) => (prev.status === "ok" ? { ...prev, ...change(prev) } : prev));
   }, []);
 
+  const replace = useCallback(
+    (message: Message) => {
+      update((data) => ({
+        messages: data.messages.map((m) => (m.id === message.id ? { ...shown(message, m.key), delivery: m.delivery } : m)),
+      }));
+    },
+    [update],
+  );
+
+  const markDeleted = useCallback(
+    (messageId: string) => {
+      update((data) => ({ messages: data.messages.map((m) => (m.id === messageId ? tombstone(m) : m)) }));
+    },
+    [update],
+  );
+
   const reload = useCallback(() => {
     void getConversation(conversationId).then((res) => {
       if (res.ok) update(() => ({ conversation: res.data }));
@@ -93,6 +147,13 @@ export function useThread(conversationId: string): Thread {
           conversation: { ...data.conversation, state: conversationState },
           messages: data.messages.some((m) => m.id === message.id) ? data.messages : [...data.messages, shown(message, clientId)].sort(byId),
         }));
+      } else if (event.type === "message.updated") {
+        replace(event.data.message);
+      } else if (event.type === "message.deleted") {
+        markDeleted(event.data.messageId);
+      } else if (event.type === "attachment.updated") {
+        const { attachmentId, status } = event.data;
+        update((data) => ({ messages: withStatus(data.messages, attachmentId, status) }));
       } else if (event.type === "conversation.read") {
         update((data) => {
           const marker = data.otherLastReadMessageId;
@@ -105,7 +166,7 @@ export function useThread(conversationId: string): Thread {
         reload();
       }
     },
-    [reload, update],
+    [reload, update, replace, markDeleted],
   );
 
   // Events for this conversation that arrive during the first load wait for it, as its answer
@@ -186,5 +247,5 @@ export function useThread(conversationId: string): Thread {
     [update],
   );
 
-  return { state, retry: () => setAttempt((n) => n + 1), loadEarlier, setConversation, reload, addSent };
+  return { state, retry: () => setAttempt((n) => n + 1), loadEarlier, setConversation, reload, addSent, replace, markDeleted };
 }

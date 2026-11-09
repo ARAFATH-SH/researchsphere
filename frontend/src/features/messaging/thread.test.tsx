@@ -370,7 +370,7 @@ describe("Sending", () => {
     await write("Hello");
     expect(screen.getByText("Hello")).toBeTruthy();
     expect(screen.getByText("Sending…")).toBeTruthy();
-    expect(mockSend).toHaveBeenCalledWith(conversationID, "Hello", "client-1");
+    expect(mockSend).toHaveBeenCalledWith(conversationID, "Hello", "client-1", []);
     await act(async () => finish({ ok: true, data: { message: message(1, adaID, "Hello"), conversationState: "active" } }));
     expect(screen.queryByText("Sending…")).toBeNull();
     expect(screen.getAllByText("Hello")).toHaveLength(1);

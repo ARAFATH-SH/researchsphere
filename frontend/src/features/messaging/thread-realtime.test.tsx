@@ -298,12 +298,95 @@ describe("after a reconnect", () => {
     expect(box().disabled).toBe(true);
   });
 
+  it("shows an edit and a deletion that happened while it was closed", async () => {
+    load(conversation(), [message(1, bobID, "before"), message(2, bobID, "doomed")]);
+    await connectAndRender();
+    load(conversation(), [
+      { ...message(1, bobID, "after"), editedAt: "2026-11-05T09:05:00Z" },
+      { ...message(2, bobID, ""), body: null, deleted: true },
+    ]);
+    await reconnect();
+    expect(count("before")).toBe(0);
+    expect(count("after")).toBe(1);
+    expect(count("Edited")).toBe(1);
+    expect(count("doomed")).toBe(0);
+    expect(count("This message was deleted")).toBe(1);
+  });
+
   it("keeps what is shown when the refetch fails", async () => {
     load(conversation(), [message(1, bobID, "kept")]);
     await connectAndRender();
     mockMessages.mockResolvedValue({ ok: false, code: "network_error", message: "x" });
     await reconnect();
     expect(count("kept")).toBe(1);
+  });
+});
+
+describe("message.updated and message.deleted (FR-16.5)", () => {
+  it("replaces an edited message in its place, with Edited", async () => {
+    load(conversation(), [message(1, bobID, "first"), message(2, bobID, "second")]);
+    await connectAndRender();
+    await receive("message.updated", { message: { ...message(1, bobID, "first, fixed"), editedAt: "2026-11-05T09:03:00Z" } });
+    expect(count("first")).toBe(0);
+    const text = screen.getByRole("log").textContent ?? "";
+    expect(text.indexOf("first, fixed")).toBeLessThan(text.indexOf("second"));
+    expect(screen.getByText("Edited").getAttribute("dateTime")).toBe("2026-11-05T09:03:00Z");
+  });
+
+  it("updates my own message from another of my tabs", async () => {
+    load(conversation(), [message(1, adaID, "draft")]);
+    await connectAndRender();
+    await receive("message.updated", { message: { ...message(1, adaID, "final"), editedAt: "2026-11-05T09:03:00Z" } });
+    expect(count("draft")).toBe(0);
+    expect(count("final")).toBe(1);
+    await receive("message.deleted", { conversationId: conversationID, messageId: message(1, adaID).id });
+    expect(count("final")).toBe(0);
+    expect(count("This message was deleted")).toBe(1);
+  });
+
+  it("ends an edit when the message is deleted from another tab", async () => {
+    load(conversation(), [message(1, adaID, "mine", new Date().toISOString())]);
+    await connectAndRender();
+    fireEvent.click(screen.getByRole("button", { name: "More actions for this message" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Edit" }));
+    expect(screen.getByRole("textbox", { name: "Edit message" })).toBeTruthy();
+    await receive("message.deleted", { conversationId: conversationID, messageId: message(1, adaID).id });
+    expect(screen.queryByRole("textbox", { name: "Edit message" })).toBeNull();
+    expect(count("This message was deleted")).toBe(1);
+  });
+
+  it("turns a deleted message into a tombstone with no files", async () => {
+    const withFile = { ...message(1, bobID, "see file"), attachments: [{ id: "f1", name: "a.pdf", size: 1, contentType: "application/pdf", status: "clean" as const }] };
+    load(conversation(), [withFile, message(2, bobID, "after")]);
+    await connectAndRender();
+    await receive("message.deleted", { conversationId: conversationID, messageId: withFile.id });
+    expect(count("see file")).toBe(0);
+    expect(count("a.pdf")).toBe(0);
+    const text = screen.getByRole("log").textContent ?? "";
+    expect(text.indexOf("This message was deleted")).toBeLessThan(text.indexOf("after"));
+  });
+
+  it("ignores events for messages not loaded and for other conversations", async () => {
+    load(conversation(), [message(1, bobID, "kept")]);
+    await connectAndRender();
+    await receive("message.updated", { message: { ...message(9, bobID, "unknown"), editedAt: "2026-11-05T09:03:00Z" } });
+    await receive("message.deleted", { conversationId: "other", messageId: message(1, bobID).id });
+    expect(count("kept")).toBe(1);
+    expect(count("unknown")).toBe(0);
+  });
+});
+
+describe("attachment.updated (FR-16.7)", () => {
+  it("updates a sent file's card in place", async () => {
+    const withFile = { ...message(1, bobID, ""), body: null, attachments: [{ id: "f1", name: "a.pdf", size: 1, contentType: "application/pdf", status: "pending" as const }] };
+    load(conversation(), [withFile]);
+    await connectAndRender();
+    expect(count("Scanning for viruses…")).toBe(1);
+    await receive("attachment.updated", { conversationId: conversationID, messageId: withFile.id, attachmentId: "f1", status: "clean" });
+    expect(count("Scanning for viruses…")).toBe(0);
+    expect(screen.getByRole("link", { name: "Download a.pdf" })).toBeTruthy();
+    await receive("attachment.updated", { conversationId: conversationID, messageId: withFile.id, attachmentId: "f1", status: "infected" });
+    expect(count("This file was removed because it failed a security check.")).toBe(1);
   });
 });
 

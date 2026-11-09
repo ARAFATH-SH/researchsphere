@@ -158,7 +158,6 @@ export function ConversationsProvider({ children }: { children: ReactNode }) {
       event: null,
       body: [...(message.body ?? "")].slice(0, 120).join(""),
       deleted: message.deleted,
-      // Files arrive with slice 14B.5's UI; a message's own count keeps the preview honest.
       attachmentCount: message.deleted ? 0 : message.attachments.length,
       createdAt: message.createdAt,
     };
@@ -185,8 +184,37 @@ export function ConversationsProvider({ children }: { children: ReactNode }) {
     });
   }
 
+  // An edit changes a row's preview when it is the row's latest message. The preview carries no
+  // message ID, so the latest is the one sent at the same moment by the same person.
+  function onEdited({ message }: Extract<RealtimeEvent, { type: "message.updated" }>["data"]) {
+    setBoxes((prev) => {
+      const found = findRow(prev, message.conversationId);
+      const last = found?.row.lastMessage;
+      if (!found || !last || last.senderId !== message.senderId || Date.parse(last.createdAt) !== Date.parse(message.createdAt)) return prev;
+      const lastMessage = {
+        ...last,
+        body: [...(message.body ?? "")].slice(0, 120).join(""),
+        deleted: message.deleted,
+        attachmentCount: message.deleted ? 0 : message.attachments.length,
+      };
+      return mapBoxes(prev, (items) => items.map((c) => (c.id === found.row.id ? { ...c, lastMessage } : c)));
+    });
+  }
+
+  // A deletion may be of a row's latest message, which the event cannot tell, and a deleted
+  // message no longer counts as unread: the row is read again and replaced in its place.
+  function onDeleted({ conversationId: id }: Extract<RealtimeEvent, { type: "message.deleted" }>["data"]) {
+    if (!findRow(boxesRef.current, id)) return;
+    void getConversation(id).then((res) => {
+      if (!res.ok) return;
+      setBoxes((prev) => mapBoxes(prev, (items) => items.map((c) => (c.id === id ? res.data : c))));
+    });
+  }
+
   useRealtimeEvent((event) => {
     if (event.type === "message.created") onMessage(event.data);
+    else if (event.type === "message.updated") onEdited(event.data);
+    else if (event.type === "message.deleted") onDeleted(event.data);
     else if (event.type === "conversation.updated") onUpdated(event.data);
   });
 

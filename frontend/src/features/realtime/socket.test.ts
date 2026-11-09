@@ -91,9 +91,17 @@ describe("parseEvent", () => {
     expect(parseEvent('{"type":"conversation.updated","data":{"conversationId":"c","state":"declined","canMessage":false,"accessLost":false}}')).not.toBeNull();
   });
 
-  // Attachment scan results (FR-16.7) wait for the attachment UI of slice 14B.5.
-  it("ignores attachment.updated", () => {
-    expect(parseEvent('{"type":"attachment.updated","data":{"conversationId":"c","messageId":null,"attachmentId":"a","status":"clean"}}')).toBeNull();
+  it("reads message.updated, message.deleted and attachment.updated (FR-16.5, FR-16.7)", () => {
+    expect(parseEvent('{"type":"attachment.updated","data":{"conversationId":"c","messageId":null,"attachmentId":"a","status":"clean"}}')?.type).toBe(
+      "attachment.updated",
+    );
+    expect(parseEvent('{"type":"message.deleted","data":{"conversationId":"c","messageId":"m"}}')?.type).toBe("message.deleted");
+    expect(parseEvent('{"type":"message.updated","data":{"message":{"id":"m"}}}')?.type).toBe("message.updated");
+  });
+
+  // Group membership changes (FR-16.6) wait for the group screens of slice 14B.5b.
+  it("ignores conversation.members", () => {
+    expect(parseEvent('{"type":"conversation.members","data":{"conversationId":"c","change":"added","actorId":null,"userIds":[],"name":"G"}}')).toBeNull();
   });
 });
 

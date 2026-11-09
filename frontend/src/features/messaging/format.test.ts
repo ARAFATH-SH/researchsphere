@@ -4,7 +4,7 @@ import { adaID, bobID, conversation } from "./test-data";
 const now = new Date(2026, 10, 5, 18, 0);
 
 function shown(n: number, senderId: string, createdAt: string): ThreadMessage {
-  return { key: `k${n}`, id: `id-${String(n).padStart(3, "0")}`, senderId, body: "x", createdAt, delivery: "sent" };
+  return { key: `k${n}`, id: `id-${String(n).padStart(3, "0")}`, senderId, body: "x", createdAt, editedAt: null, deleted: false, attachments: [], delivery: "sent" };
 }
 
 describe("bodyLength", () => {
@@ -54,6 +54,21 @@ describe("rowPreview", () => {
     const mine = conversation({ lastMessage: { senderId: adaID, kind: "text", event: null, body: "Hello", deleted: false, attachmentCount: 0, createdAt: "2026-11-05T09:00:00Z" } });
     expect(rowPreview(mine, adaID)).toBe("You: Hello");
     expect(rowPreview(conversation({ lastMessage: null }), adaID)).toBe("");
+  });
+
+  const last = (senderId: string, body: string | null, deleted: boolean, attachmentCount: number) =>
+    conversation({ lastMessage: { senderId, kind: "text", event: null, body, deleted, attachmentCount, createdAt: "2026-11-05T09:00:00Z" } });
+
+  it("says Message deleted from the deleted flag, never from a missing body", () => {
+    expect(rowPreview(last(bobID, null, true, 0), adaID)).toBe("Message deleted");
+    expect(rowPreview(last(adaID, null, true, 0), adaID)).toBe("Message deleted");
+    expect(rowPreview(last(bobID, null, false, 1), adaID)).toBe("Sent a file");
+  });
+
+  it("names files sent with no text", () => {
+    expect(rowPreview(last(bobID, null, false, 3), adaID)).toBe("Sent 3 files");
+    expect(rowPreview(last(adaID, "", false, 1), adaID)).toBe("You sent a file");
+    expect(rowPreview(last(adaID, "Look", false, 2), adaID)).toBe("You: Look");
   });
 
   it("says who is waiting on a request", () => {

@@ -113,6 +113,26 @@ describe("NotificationsPage", () => {
     expect(within(row).queryByRole("button", { name: /Accept/ })).toBeNull();
   });
 
+  it("says a sent file was blocked, from ResearchSphere, linking to the conversation (FR-16.7)", async () => {
+    const blocked: Notification = {
+      id: "n-11",
+      type: "attachment_blocked",
+      createdAt: "2026-11-03T10:00:00Z",
+      read: false,
+      link: "/messaging/4c2f7d3e-0000-4000-8000-0000000000c1",
+      actor: null,
+    };
+    mockList.mockResolvedValue(page([blocked]));
+    await renderPage();
+
+    const [row] = rows();
+    const link = within(row).getByRole("link", {
+      name: "Unread: A file you sent was removed because it failed a security check.",
+    });
+    expect(link.getAttribute("href")).toBe(blocked.link);
+    expect(within(row).getByText("RS")).toBeTruthy();
+  });
+
   it("also shows a system notification when it has no actor field at all", async () => {
     mockList.mockResolvedValue(
       page([{ id: "n-10", type: "account_warning", createdAt: "2026-11-03T10:00:00Z", read: true, link: "/warnings/x" }]),
