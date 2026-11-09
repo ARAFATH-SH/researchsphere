@@ -35,7 +35,7 @@ type Loaded = {
 type State = { status: "loading" } | { status: "notFound" } | { status: "error"; message: string } | ({ status: "ok" } & Loaded);
 
 // ReportDetail is /admin/reports/[id]: the report, the two people, the conversation up to the
-// report, read-only (NFR-14), and the actions on an open report. Each read of a page of messages
+// report, read-only (NFR-13), and the actions on an open report. Each read of a page of messages
 // is recorded on the server, so an action changes the page without reading it again.
 export function ReportDetail({ reportId }: { reportId: string }) {
   const session = useSession();

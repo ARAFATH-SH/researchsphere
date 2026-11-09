@@ -882,7 +882,7 @@ SELECT pg_temp.expect_error('Embedding: vector must have 768 dimensions',
        VALUES ('00000000-0000-0000-0000-000000000201', 'test-model', 'h1', '[1,2,3]')$s$, '22000');
 
 -- ---------------------------------------------------------------------------
--- Messaging (FR-16.1, FR-16.2, NFR-14). Users 1 and 2 have one conversation.
+-- Messaging (FR-16.1, FR-16.2, NFR-13). Users 1 and 2 have one conversation.
 -- ---------------------------------------------------------------------------
 
 INSERT INTO conversations (id, state, user_low, user_high) VALUES
@@ -961,7 +961,7 @@ SELECT pg_temp.expect_true('Paged lists: creation times use the clock, not the s
       AND d.adrelid IN ('users'::regclass, 'connections'::regclass, 'blocks'::regclass, 'notifications'::regclass)$q$);
 INSERT INTO conversation_members (conversation_id, user_id) VALUES
     ('00000000-0000-0000-0000-0000000000f4', '00000000-0000-0000-0000-000000000002');
-SELECT pg_temp.expect_error('Read marker: must be a message of its own conversation (NFR-14)',
+SELECT pg_temp.expect_error('Read marker: must be a message of its own conversation (NFR-13)',
     $s$UPDATE conversation_members SET last_read_message_id = '00000000-0000-7000-8000-0000000000f2'
        WHERE conversation_id = '00000000-0000-0000-0000-0000000000f4'$s$, '23503');
 SELECT pg_temp.expect_ok('Read marker: can point at a message of its conversation',
@@ -972,7 +972,7 @@ SELECT pg_temp.expect_true('Read marker: deleting its message clears it, not the
     SELECT count(*) = 2 AND count(last_read_message_id) = 0 FROM conversation_members
     WHERE conversation_id = '00000000-0000-0000-0000-0000000000f1'$q$);
 
--- Editing and deleting (FR-16.5, NFR-14): message f5 by user 1 in conversation f1.
+-- Editing and deleting (FR-16.5, NFR-13): message f5 by user 1 in conversation f1.
 INSERT INTO messages (id, conversation_id, sender_id, body, client_id) VALUES
     ('00000000-0000-7000-8000-0000000000f5', '00000000-0000-0000-0000-0000000000f1',
      '00000000-0000-0000-0000-000000000001', 'first text', gen_random_uuid());
@@ -1218,7 +1218,7 @@ SELECT pg_temp.expect_true('Project deletion: files, members, requests, compile 
 SELECT pg_temp.expect_true('Project deletion: a post that linked to it stays, without the link', $q$
     SELECT project_id IS NULL FROM posts WHERE id = '00000000-0000-0000-0000-0000000000e4'$q$);
 
--- Blocks and reports (FR-16.9, NFR-14). Users 1 and 2 have the conversation above.
+-- Blocks and reports (FR-16.9, NFR-13). Users 1 and 2 have the conversation above.
 INSERT INTO blocks (blocker_id, blocked_id) VALUES
     ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002');
 SELECT pg_temp.expect_ok('Block: each side may block the other',

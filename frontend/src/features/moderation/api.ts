@@ -48,7 +48,7 @@ export async function listMessageReports(status: ReportStatus, page: number): Pr
 }
 
 // getMessageReport returns a report and one page of its conversation, newest first and none
-// later than the report (NFR-14). Every request is recorded.
+// later than the report (NFR-13). Every request is recorded.
 export async function getMessageReport(reportId: string, before?: string): Promise<Result<MessageReportDetail>> {
   return withData(
     await call(() =>

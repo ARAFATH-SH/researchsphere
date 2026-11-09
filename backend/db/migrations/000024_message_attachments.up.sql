@@ -102,7 +102,7 @@ ALTER TABLE notifications
 
 -- ---------------------------------------------------------------------------
 -- message_report_attachment_downloads: one row for every administrator's download of an
--- attachment through a report (NFR-14). Like message_report_views, report_id and file_id have
+-- attachment through a report (NFR-13). Like message_report_views, report_id and file_id have
 -- no foreign key: the record outlives the report and the file.
 -- ---------------------------------------------------------------------------
 CREATE TABLE message_report_attachment_downloads (

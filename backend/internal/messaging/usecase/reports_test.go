@@ -160,7 +160,7 @@ func TestListReports(t *testing.T) {
 	}
 }
 
-// NFR-14: every read leaves an audit row, and without one nothing is read.
+// NFR-13: every read leaves an audit row, and without one nothing is read.
 func TestReportDetailAudit(t *testing.T) {
 	h := newHarness()
 	id, _, _ := chat(t, h)

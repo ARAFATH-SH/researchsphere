@@ -1,4 +1,4 @@
--- Editing and deleting one's own messages (FR-16.5, NFR-14; slice 14B, chunk 14B.1).
+-- Editing and deleting one's own messages (FR-16.5, NFR-13; slice 14B, chunk 14B.1).
 -- A deleted message stays in place with no body. Every text an edit or a deletion replaces is
 -- kept in message_versions, which only the administrator's report read reaches; members never
 -- see it. Retention (docs/decisions.md, 2026-11-08): versions are purged 30 days after

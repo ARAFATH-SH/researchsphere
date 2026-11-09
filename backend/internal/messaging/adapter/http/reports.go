@@ -98,7 +98,7 @@ func (h *Handler) ListMessageReports(ctx context.Context, req gen.ListMessageRep
 	return gen.ListMessageReports200JSONResponse{Items: items, Page: res.Page, PageSize: res.PageSize, Total: res.Total}, nil
 }
 
-// GetMessageReport returns a report and its conversation up to the report (NFR-14).
+// GetMessageReport returns a report and its conversation up to the report (NFR-13).
 func (h *Handler) GetMessageReport(ctx context.Context, req gen.GetMessageReportRequestObject) (gen.GetMessageReportResponseObject, error) {
 	admin, ok := httpx.UserID(ctx)
 	if !ok {
@@ -137,7 +137,7 @@ func (h *Handler) GetMessageReport(ctx context.Context, req gen.GetMessageReport
 }
 
 // reportedMessageBody is a message as the administrator sees it: the text at the report's
-// moment and the versions shown up to it (NFR-14).
+// moment and the versions shown up to it (NFR-13).
 func reportedMessageBody(m domain.ReportedMessage) (gen.ReportedMessage, error) {
 	id, err := uuid(m.ID)
 	if err != nil {

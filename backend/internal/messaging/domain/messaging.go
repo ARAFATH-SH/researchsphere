@@ -191,7 +191,7 @@ type Store interface {
 	// already used m.ClientID.
 	AddMessage(ctx context.Context, m Message) (stored Message, added bool, err error)
 	// FindConversation returns the conversation when memberID is a member, otherwise
-	// ErrNotFound (NFR-14).
+	// ErrNotFound (NFR-13).
 	FindConversation(ctx context.Context, id, memberID string) (Conversation, error)
 	// FindItem is FindConversation with what a list shows.
 	FindItem(ctx context.Context, id, memberID string) (Item, error)
@@ -202,7 +202,7 @@ type Store interface {
 	// before the message ID before when it is not empty. The caller has checked membership.
 	ListMessages(ctx context.Context, conversationID string, since time.Time, before string, limit int) ([]Message, error)
 	// FindOwnMessage returns the text message when senderID sent it in the conversation, deleted
-	// or not, otherwise ErrNotFound (NFR-14). A system message is never anyone's own.
+	// or not, otherwise ErrNotFound (NFR-13). A system message is never anyone's own.
 	FindOwnMessage(ctx context.Context, conversationID, messageID, senderID string) (Message, error)
 	// LockOwnMessage is FindOwnMessage holding the message's row until the transaction ends.
 	LockOwnMessage(ctx context.Context, conversationID, messageID, senderID string) (Message, error)

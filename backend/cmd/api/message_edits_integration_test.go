@@ -1,6 +1,6 @@
 //go:build integration
 
-// End-to-end tests of editing and deleting one's own messages (FR-16.5, FR-16.10, NFR-14)
+// End-to-end tests of editing and deleting one's own messages (FR-16.5, FR-16.10, NFR-13)
 // through the real router, the PostgreSQL adapters, Redis and the WebSocket, on the test
 // database. They reuse the environment of media_integration_test.go.
 package main
@@ -78,7 +78,7 @@ func TestEditReachesTheOtherMember(t *testing.T) {
 	if code, again := e.edit(t, ada, id, msg, "hello"); code != http.StatusOK || again["editedAt"] != m["editedAt"] {
 		t.Errorf("unchanged: %d %v", code, again)
 	}
-	// Anyone else gets the answer for an unknown message (NFR-14).
+	// Anyone else gets the answer for an unknown message (NFR-13).
 	for _, who := range []string{bob, carl} {
 		code, body := e.edit(t, who, id, msg, "mine now")
 		wantError(t, "edit by another user", code, body, http.StatusNotFound, "not_found")
@@ -174,7 +174,7 @@ func TestEditCountsTowardTheMessageLimit(t *testing.T) {
 	}
 }
 
-// NFR-14: the administrator's report detail shows the text at the report's moment, the versions
+// NFR-13: the administrator's report detail shows the text at the report's moment, the versions
 // shown up to it and the deletion, and nothing written after the report. Members never see
 // versions.
 func TestAdminSeesHistoryAtTheReportsMoment(t *testing.T) {

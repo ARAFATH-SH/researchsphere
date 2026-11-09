@@ -265,7 +265,7 @@ func TestAttachmentFromUploadToDownload(t *testing.T) {
 	if got := thread[0]["attachments"].([]any)[0].(map[string]any); got["status"] != "clean" || got["id"] != fileID {
 		t.Errorf("thread = %v", thread[0])
 	}
-	// A stranger gets the answer of an unknown file (NFR-14).
+	// A stranger gets the answer of an unknown file (NFR-13).
 	eve := e.newProfileUser(t)
 	if code, _, _, _ := e.download(t, eve, attachmentPath(fileID)); code != http.StatusNotFound {
 		t.Errorf("stranger: %d", code)
@@ -368,7 +368,7 @@ func TestAttachmentChecks(t *testing.T) {
 	}
 }
 
-// FR-16.6, NFR-14: a member who joined after the message cannot download its file; a member
+// FR-16.6, NFR-13: a member who joined after the message cannot download its file; a member
 // from before can.
 func TestGroupAttachmentFollowsJoinedAt(t *testing.T) {
 	e := newMediaEnv(t)
@@ -395,7 +395,7 @@ func TestGroupAttachmentFollowsJoinedAt(t *testing.T) {
 	}
 }
 
-// FR-16.9, NFR-14: the report lists files with their status, and the administrator's download
+// FR-16.9, NFR-13: the report lists files with their status, and the administrator's download
 // goes through the same presigned flow and is recorded.
 func TestAdminDownloadsReportedAttachment(t *testing.T) {
 	e := newMediaEnv(t)

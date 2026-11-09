@@ -144,7 +144,7 @@ func TestAttachmentConstraints(t *testing.T) {
 	checkViolation(t, err, "stored_files_attachment_size")
 }
 
-// NFR-14: FindAttachment gives the caller's membership and the message's time, so the usecase
+// NFR-13: FindAttachment gives the caller's membership and the message's time, so the usecase
 // can apply joined_at; a former member has none.
 func TestFindAttachment(t *testing.T) {
 	s, pool := newTestStore(t)
@@ -302,7 +302,7 @@ func TestAccountDeletionInGroupQueuesOwnFiles(t *testing.T) {
 	}
 }
 
-// NFR-14: the administrator reaches only files of the report's conversation sent by its moment,
+// NFR-13: the administrator reaches only files of the report's conversation sent by its moment,
 // a deleted message's included, and each download is recorded.
 func TestReportedAttachments(t *testing.T) {
 	s, pool := newTestStore(t)

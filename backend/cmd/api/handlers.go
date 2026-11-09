@@ -71,7 +71,7 @@ var platformGuards = map[string]authz.Action{
 	"GET /api/v1/me/warnings/{warningId}":                  authz.ViewContent,
 	"POST /api/v1/me/warnings/{warningId}/acknowledge":     authz.ViewContent,
 
-	// Reported conversations (FR-16.9, NFR-14): the only way an administrator reads messages.
+	// Reported conversations (FR-16.9, NFR-13): the only way an administrator reads messages.
 	"GET /api/v1/admin/message-reports":                                       authz.ReviewMessageReports,
 	"GET /api/v1/admin/message-reports/{reportId}":                            authz.ReviewMessageReports,
 	"GET /api/v1/admin/message-reports/{reportId}/attachments/{attachmentId}": authz.ReviewMessageReports,
@@ -164,7 +164,7 @@ var platformGuards = map[string]authz.Action{
 
 	// Messaging (FR-16): SRS 2.3 has no row for it. Reading one's own conversations is
 	// closest to "View ...", writing to "Edit own profile, connect, ...". Membership is
-	// checked on every operation by the usecase (NFR-14); no role gets more access on these
+	// checked on every operation by the usecase (NFR-13); no role gets more access on these
 	// routes. An administrator reads a reported conversation through /admin/message-reports.
 	"POST /api/v1/messages/direct":                                       authz.ActAsMember,
 	"GET /api/v1/messages/unread-count":                                  authz.ViewContent,

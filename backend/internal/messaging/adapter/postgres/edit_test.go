@@ -156,7 +156,7 @@ func TestDeletedMessagesInListsAndCounts(t *testing.T) {
 	}
 }
 
-// NFR-14: the administrator sees the text shown at the report's moment and the versions shown
+// NFR-13: the administrator sees the text shown at the report's moment and the versions shown
 // up to it, and never a text written after it.
 func TestReportedTextAtTheReportsMoment(t *testing.T) {
 	s, pool := newTestStore(t)

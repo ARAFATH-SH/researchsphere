@@ -198,7 +198,7 @@ func (s *Service) lockPairs(ctx context.Context, ownerID string, ids []string) e
 }
 
 // ownedGroup returns the group when userID is its owner: ErrNotFound for a non-member or a
-// direct conversation (NFR-14), ErrNotOwner for a member.
+// direct conversation (NFR-13), ErrNotOwner for a member.
 func (s *Service) ownedGroup(ctx context.Context, userID, id string) (domain.Conversation, error) {
 	c, err := s.store.FindConversation(ctx, id, userID)
 	if err != nil {
@@ -365,7 +365,7 @@ func (s *Service) AddMembers(ctx context.Context, ownerID, id string, userIDs []
 
 // RemoveMember removes userID from a group (FR-16.6). Checks run in this order: ErrNotFound,
 // ErrNotOwner, ErrRemoveSelf, *SuspendedError, ErrNotFound when userID is not a member. The
-// removed member loses all access at once (NFR-14).
+// removed member loses all access at once (NFR-13).
 func (s *Service) RemoveMember(ctx context.Context, ownerID, id, userID string) error {
 	if _, err := s.ownedGroup(ctx, ownerID, id); err != nil {
 		return err

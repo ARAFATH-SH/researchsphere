@@ -112,7 +112,7 @@ func (s *Service) withAttachments(ctx context.Context, conversationID string, ms
 }
 
 // UploadAttachment stores a file for uploaderID to send in the conversation later (FR-16.7).
-// Checks run in this order: ErrNotFound when the uploader is not a member (NFR-14), the
+// Checks run in this order: ErrNotFound when the uploader is not a member (NFR-13), the
 // standing (see refuseSender), for a direct conversation ErrNotFound when the other member is
 // suspended or not verified, a block (see refuseBlocked) and the state (ErrRequestPending,
 // ErrClosed, as a send would get them, without activating a request), then the upload limits
@@ -229,7 +229,7 @@ type Download struct {
 
 // DownloadAttachment returns a URL that downloads the attachment, valid for DownloadExpiry
 // (NFR-13). Who: a current member who can see the message (joined at or before it was sent,
-// NFR-14), when it is not deleted; or the uploader of a file not sent yet, while a member.
+// NFR-13), when it is not deleted; or the uploader of a file not sent yet, while a member.
 // Everyone else, and an unknown ID, gets ErrNotFound. Then the scan: ErrScanPending,
 // ErrScanFailed or ErrFileRemoved unless clean.
 func (s *Service) DownloadAttachment(ctx context.Context, userID, id string) (Download, error) {
@@ -280,7 +280,7 @@ func statusError(st domain.AttachmentStatus) error {
 }
 
 // DownloadReportedAttachment is DownloadAttachment for an administrator reviewing a report
-// (NFR-14): only an attachment of a message of the reported conversation sent by the report's
+// (NFR-13): only an attachment of a message of the reported conversation sent by the report's
 // moment, also of one deleted later. The download is recorded in the transaction of the check;
 // a refused one is not.
 func (s *Service) DownloadReportedAttachment(ctx context.Context, adminID, reportID, id string) (Download, error) {

@@ -1,6 +1,6 @@
 //go:build integration
 
-// End-to-end tests of messaging (FR-16.1 to FR-16.3, FR-16.10, NFR-14) through the real
+// End-to-end tests of messaging (FR-16.1 to FR-16.3, FR-16.10, NFR-13) through the real
 // router, the PostgreSQL adapters and the Redis limiter. They reuse the environment of
 // media_integration_test.go, on the test database.
 package main
@@ -451,7 +451,7 @@ func TestConcurrentFirstMessages(t *testing.T) {
 	}
 }
 
-// NFR-14: a non-member, an administrator included, gets 404 on every read and write.
+// NFR-13: a non-member, an administrator included, gets 404 on every read and write.
 func TestConversationIsHiddenFromNonMembers(t *testing.T) {
 	e := newMediaEnv(t)
 	ada, bob, eve := e.newProfileUser(t), e.newProfileUser(t), e.newProfileUser(t)

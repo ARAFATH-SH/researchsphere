@@ -185,7 +185,7 @@ LIMIT @lim;
 
 -- name: ListMessages :many
 -- messages_conversation_id_uq, scanned backward, serves this. A deleted message is listed in
--- its place with no body; message_versions is never read for a member (NFR-14). since is the
+-- its place with no body; message_versions is never read for a member (NFR-13). since is the
 -- member's joining time.
 SELECT id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at, kind, event, event_data, has_attachments
 FROM messages
@@ -196,7 +196,7 @@ LIMIT @lim;
 
 -- name: LockOwnMessage :one
 -- The sender's message in the conversation, held until the transaction ends so an edit and a
--- deletion of one message run one at a time. No row for anyone else's (NFR-14), nor for a
+-- deletion of one message run one at a time. No row for anyone else's (NFR-13), nor for a
 -- system message, which is no one's to edit or delete.
 SELECT id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at, kind, event, event_data, has_attachments
 FROM messages
@@ -327,7 +327,7 @@ LEFT JOIN profiles dp ON dp.user_id = r.reported_id
 WHERE r.id = @id;
 
 -- name: ListReportedMessages :many
--- The one way an administrator reads a conversation (NFR-14): it starts from a report, so a
+-- The one way an administrator reads a conversation (NFR-13): it starts from a report, so a
 -- conversation without one is out of reach, and stops at the report's moment. at_report is
 -- the text shown at that moment: none when deleted by then, else the kept version that was
 -- showing, else the current text, which has shown since before the report. Text written after
@@ -357,7 +357,7 @@ LIMIT @lim;
 
 -- name: ListReportedVersions :many
 -- The kept texts of the listed messages that were shown at or before the report's moment,
--- oldest first. Like ListReportedMessages it starts from the report (NFR-14).
+-- oldest first. Like ListReportedMessages it starts from the report (NFR-13).
 SELECT v.message_id, v.body, v.shown_from, v.shown_until, v.ended_by
 FROM message_reports r
 JOIN message_versions v ON v.conversation_id = r.conversation_id AND v.shown_from <= r.created_at
@@ -366,7 +366,7 @@ ORDER BY v.message_id, v.shown_from, v.shown_until;
 
 -- name: MembersAtReport :many
 -- Everyone in the report's group at the report's moment, also those who left since. Like
--- ListReportedMessages it starts from the report (NFR-14).
+-- ListReportedMessages it starts from the report (NFR-13).
 SELECT ms.user_id, COALESCE(p.full_name, '')::text AS full_name, p.headline, p.photo_file_id, u.role::text AS role
 FROM message_reports r
 JOIN conversation_memberships ms ON ms.conversation_id = r.conversation_id
@@ -557,7 +557,7 @@ LEFT JOIN conversation_members me ON me.conversation_id = a.conversation_id AND 
 WHERE a.file_id = @id;
 
 -- name: FindReportedAttachment :one
--- An attachment as the administrator may reach it (NFR-14): starting from the report, only of a
+-- An attachment as the administrator may reach it (NFR-13): starting from the report, only of a
 -- message of the reported conversation sent by the report's moment.
 SELECT a.file_id, a.name, f.object_key, f.content_type, f.scan_status
 FROM message_reports r
@@ -568,7 +568,7 @@ WHERE r.id = @report_id AND a.file_id = @file_id;
 
 -- name: ListReportedAttachments :many
 -- The attachments of the listed messages of a report, deleted messages' included. Like
--- ListReportedMessages it starts from the report (NFR-14).
+-- ListReportedMessages it starts from the report (NFR-13).
 SELECT a.message_id::uuid AS message_id, a.file_id, a.name, f.size_bytes, f.content_type, f.scan_status
 FROM message_reports r
 JOIN message_attachments a ON a.conversation_id = r.conversation_id

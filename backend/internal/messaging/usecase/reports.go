@@ -23,7 +23,7 @@ const (
 )
 
 // Report stores a member's report of a conversation or one of its messages (FR-16.9). Checks
-// run in this order: ErrNotFound when reporterID is not a member (NFR-14), *InvalidFieldError
+// run in this order: ErrNotFound when reporterID is not a member (NFR-13), *InvalidFieldError
 // for the reason or details, ErrNotFound for a message outside the conversation, from before
 // the reporter joined, or a system message, ErrOwnMessage, *SuspendedError, *RateLimitedError.
 // Only stored reports count. It blocks nobody. A restricted user may still report. The report
@@ -118,7 +118,7 @@ func (s *Service) ListReports(ctx context.Context, status string, page int) (dom
 }
 
 // ReportDetail returns a report and one page of its conversation up to the report's moment
-// (NFR-14). before is the previous page's NextBefore, or empty; anything but a UUID is
+// (NFR-13). before is the previous page's NextBefore, or empty; anything but a UUID is
 // ErrInvalidCursor. The view is recorded in the transaction of the read, so nothing is read
 // without its audit row. For a group it lists who was a member at the report's moment.
 // ErrNotFound when there is no such report.

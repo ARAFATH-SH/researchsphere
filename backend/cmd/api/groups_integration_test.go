@@ -1,7 +1,7 @@
 //go:build integration
 
 // End-to-end tests of group conversations (FR-16.6, with FR-16.3, FR-16.5, FR-16.9, FR-16.10 and
-// NFR-14 for groups) through the real router, the PostgreSQL adapters and triggers, Redis and
+// NFR-13 for groups) through the real router, the PostgreSQL adapters and triggers, Redis and
 // the WebSocket, on the test database. They reuse the environment of media_integration_test.go.
 package main
 
@@ -253,7 +253,7 @@ func TestGroupFull(t *testing.T) {
 }
 
 // A new member sees only what was sent after they joined; a removed member loses all access at
-// once and the group leaves their list (NFR-14).
+// once and the group leaves their list (NFR-13).
 func TestGroupJoiningAndRemoval(t *testing.T) {
 	e := newMediaEnv(t)
 	ada, bob, cy := e.newProfileUser(t), e.newProfileUser(t), e.newProfileUser(t)

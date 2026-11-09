@@ -102,7 +102,7 @@ func TestTombstoneBody(t *testing.T) {
 	}
 }
 
-// The admin report detail shows the text at the report, the versions and the deletion (NFR-14).
+// The admin report detail shows the text at the report, the versions and the deletion (NFR-13).
 func TestReportDetailShowsHistory(t *testing.T) {
 	rec := send(t, &fakeService{}, http.MethodGet, "/api/v1/admin/message-reports/"+reportID, "", caller)
 	if rec.Code != http.StatusOK {

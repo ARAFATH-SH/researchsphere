@@ -230,7 +230,7 @@ func TestDeleteMessage(t *testing.T) {
 	}
 }
 
-// Only the sender may delete; anyone else learns nothing (NFR-14).
+// Only the sender may delete; anyone else learns nothing (NFR-13).
 func TestDeleteRefusals(t *testing.T) {
 	for _, tc := range []struct {
 		name, who string
@@ -309,7 +309,7 @@ func TestReplayOfDeletedMessage(t *testing.T) {
 	}
 }
 
-// The report detail carries each message's kept versions (NFR-14).
+// The report detail carries each message's kept versions (NFR-13).
 func TestReportDetailCarriesVersions(t *testing.T) {
 	h := newHarness()
 	id, _, fromBob := chat(t, h)

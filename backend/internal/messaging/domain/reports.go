@@ -76,7 +76,7 @@ type ReportPerson struct {
 }
 
 // Report is a stored report. CreatedAt is its moment: an administrator sees the
-// conversation's messages only up to it (NFR-14). ResolvedAt is nil while it is open.
+// conversation's messages only up to it (NFR-13). ResolvedAt is nil while it is open.
 type Report struct {
 	ID               string
 	ConversationID   string
@@ -111,7 +111,7 @@ const (
 )
 
 // MessageVersion is a text of a message that an edit or the deletion replaced. Only an
-// administrator's report read shows it (NFR-14).
+// administrator's report read shows it (NFR-13).
 type MessageVersion struct {
 	MessageID  string
 	Body       string
@@ -150,7 +150,7 @@ type ReportDetail struct {
 }
 
 // ReportStore reads and writes reports. There is deliberately no way to read messages by
-// conversation here: ListReportedMessages starts from a report (NFR-14).
+// conversation here: ListReportedMessages starts from a report (NFR-13).
 type ReportStore interface {
 	// FindMessageSender returns who sent the text message; found is false when it is not in the
 	// conversation, was created before since, or is a system message, also for a value that is
@@ -171,7 +171,7 @@ type ReportStore interface {
 	// the messages.
 	ListReportedVersions(ctx context.Context, reportID string, messageIDs []string) ([]MessageVersion, error)
 	// MembersAtReport returns everyone who was a member of the report's group at the report's
-	// moment, by name. It starts from the report (NFR-14).
+	// moment, by name. It starts from the report (NFR-13).
 	MembersAtReport(ctx context.Context, reportID string) ([]ReportPerson, error)
 	// MemberAtReport reports whether userID was a member of the report's group at its moment.
 	MemberAtReport(ctx context.Context, reportID, userID string) (bool, error)

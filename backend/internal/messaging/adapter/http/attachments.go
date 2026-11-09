@@ -163,7 +163,7 @@ func (t *trackingReader) Read(p []byte) (int, error) {
 }
 
 // GetAttachment redirects to a presigned download of the file when the caller may have it
-// (FR-16.7, NFR-13, NFR-14).
+// (FR-16.7, NFR-13).
 func (h *Handler) GetAttachment(ctx context.Context, req gen.GetAttachmentRequestObject) (gen.GetAttachmentResponseObject, error) {
 	id, ok := httpx.UserID(ctx)
 	if !ok {
@@ -183,7 +183,7 @@ func (h *Handler) GetAttachment(ctx context.Context, req gen.GetAttachmentReques
 	return gen.GetAttachment302Response(redirect(d)), nil
 }
 
-// GetReportedAttachment is GetAttachment for an administrator reviewing a report (NFR-14).
+// GetReportedAttachment is GetAttachment for an administrator reviewing a report (NFR-13).
 func (h *Handler) GetReportedAttachment(ctx context.Context, req gen.GetReportedAttachmentRequestObject) (gen.GetReportedAttachmentResponseObject, error) {
 	id, ok := httpx.UserID(ctx)
 	if !ok {

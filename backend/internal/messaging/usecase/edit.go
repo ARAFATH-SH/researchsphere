@@ -12,7 +12,7 @@ var errUnchanged = errors.New("messaging: the text is unchanged")
 
 // Edit replaces the text of editorID's message (FR-16.5) and returns it. Checks run in this
 // order: ErrInvalidBody, ErrNotFound unless editorID sent the message in this conversation and
-// it is not deleted (NFR-14), ErrEditWindowClosed, then an unchanged text returns the message
+// it is not deleted (NFR-13), ErrEditWindowClosed, then an unchanged text returns the message
 // as it is, storing and publishing nothing and using no quota. Then the checks of Send: the
 // sender's standing (see refuseSender), *RateLimitedError (an edit counts as a message),
 // ErrNotFound when the other member is suspended or not verified, a block (see refuseBlocked),
@@ -163,7 +163,7 @@ func refuseInactive(state domain.State) error {
 
 // Delete leaves deleterID's message in its place with no body (FR-16.5). Only the sender may,
 // at any time: in a closed conversation, after a block, while suspended or restricted, as it
-// only takes back their own words. Anyone else gets ErrNotFound (NFR-14). Deleting again
+// only takes back their own words. Anyone else gets ErrNotFound (NFR-13). Deleting again
 // changes nothing and publishes nothing. In a group the deleter must still be a member, checked
 // under the group's lock. The text is kept for moderation by the store.
 func (s *Service) Delete(ctx context.Context, deleterID, conversationID, messageID string) error {

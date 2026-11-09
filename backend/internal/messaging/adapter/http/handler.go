@@ -2,7 +2,7 @@
 // FR-16.2), the lists of conversations and messages, read markers and the unread counts
 // (FR-16.3), answering requests (FR-16.2), and reports and their review (FR-16.9). It turns
 // the usecase's errors into the contract's codes. cmd/api guards each route with its platform action (SRS 2.3) before
-// it gets here; membership is checked by the usecase (NFR-14).
+// it gets here; membership is checked by the usecase (NFR-13).
 package http
 
 import (

@@ -392,7 +392,7 @@ func TestListRefusals(t *testing.T) {
 	}
 }
 
-// NFR-14: a non-member gets the same 404 from every operation on a conversation.
+// NFR-13: a non-member gets the same 404 from every operation on a conversation.
 func TestNotFoundOnEveryConversationRoute(t *testing.T) {
 	base := "/api/v1/conversations/" + convID
 	for _, r := range []struct{ method, path, body string }{

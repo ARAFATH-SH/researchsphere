@@ -320,7 +320,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List reports of conversations for an administrator (FR-16.9, NFR-14)
+         * List reports of conversations for an administrator (FR-16.9, NFR-13)
          * @description Needs the access cookie and the platform action "Review reported conversations"
          *     (SRS 2.3). 20 per page, newest first. A report's `details` are the reporter's own
          *     words; the list holds no messages, so reading it writes no audit row.
@@ -342,10 +342,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read a report and its conversation up to the report (FR-16.9, NFR-14)
+         * Read a report and its conversation up to the report (FR-16.9, NFR-13)
          * @description Needs the access cookie and the platform action "Review reported conversations"
          *     (SRS 2.3). This is the only way an administrator can read a conversation, and only a
-         *     reported one (NFR-14): messages sent after the report are never returned. 100
+         *     reported one (NFR-13): messages sent after the report are never returned. 100
          *     messages per page, newest first; `before` loads earlier ones. Every request writes
          *     one audit row (administrator, report, time) in the same transaction as the read.
          */
@@ -366,7 +366,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Download an attachment of a reported conversation (FR-16.7, FR-16.9, NFR-14)
+         * Download an attachment of a reported conversation (FR-16.7, FR-16.9, NFR-13)
          * @description Needs the access cookie and the platform action "Review reported conversations"
          *     (SRS 2.3). Only an attachment of a message of the reported conversation sent at or
          *     before the report's moment, as `getMessageReport` lists it, also when the message was
@@ -1851,10 +1851,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get one of the logged-in user's conversations (FR-16.1, FR-16.6, NFR-14)
+         * Get one of the logged-in user's conversations (FR-16.1, FR-16.6, NFR-13)
          * @description Needs the access cookie and the platform action "View profiles, search, feed,
          *     events and recommendations" (SRS 2.3). Anyone who is not a member gets 404
-         *     `not_found`, the same answer as for an unknown ID (NFR-14). This holds for
+         *     `not_found`, the same answer as for an unknown ID (NFR-13). This holds for
          *     administrators too: they read a conversation only through a report on it
          *     (`getMessageReport`). A former member of a group gets 404 as well. For a group,
          *     `group.members` lists the current members.
@@ -1870,7 +1870,7 @@ export interface paths {
          * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
          *     like, comment" (SRS 2.3). Only the owner. Checks run in this order: the name
          *     (`invalid_group_name`), membership (404 `not_found` for a non-member and for a direct
-         *     conversation, NFR-14), the owner (403 `not_group_owner`), the caller's standing
+         *     conversation, NFR-13), the owner (403 `not_group_owner`), the caller's standing
          *     (`account_suspended`). The same name after trimming answers 200 and changes nothing;
          *     otherwise a `group_renamed` system message is written.
          */
@@ -1916,7 +1916,7 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Remove a member from a group (FR-16.6, NFR-14)
+         * Remove a member from a group (FR-16.6, NFR-13)
          * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
          *     like, comment" (SRS 2.3). Only the owner. Checks run in this order: membership of the
          *     caller (404 `not_found`), the owner (403 `not_group_owner`), the owner removing
@@ -1941,7 +1941,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Leave a group (FR-16.6, NFR-14)
+         * Leave a group (FR-16.6, NFR-13)
          * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
          *     like, comment" (SRS 2.3). Any member may, also while suspended or restricted. A
          *     non-member and a direct conversation get 404 `not_found`. The caller loses all access
@@ -1964,10 +1964,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List a conversation's messages, newest first (FR-16.1, FR-16.3, NFR-14)
+         * List a conversation's messages, newest first (FR-16.1, FR-16.3, NFR-13)
          * @description Needs the access cookie and the platform action "View profiles, search, feed,
          *     events and recommendations" (SRS 2.3). Anyone who is not a member gets 404
-         *     `not_found` (NFR-14). `otherLastReadMessageId` is the other member's read marker,
+         *     `not_found` (NFR-13). `otherLastReadMessageId` is the other member's read marker,
          *     so the client can show "Seen" under the caller's latest message at or before it. In a
          *     group it is null and `readers` gives every other current member's marker, for "Seen by
          *     N"; a member sees only the messages created from the moment they joined (FR-16.6).
@@ -1976,10 +1976,10 @@ export interface paths {
         get: operations["listMessages"];
         put?: never;
         /**
-         * Send a message in a conversation (FR-16.1, FR-16.2, FR-16.10, NFR-14)
+         * Send a message in a conversation (FR-16.1, FR-16.2, FR-16.10, NFR-13)
          * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
          *     like, comment" (SRS 2.3). Checks run in this order: the body (`invalid_body`),
-         *     membership (404 `not_found`, NFR-14), `clientId` (a value already used by the sender
+         *     membership (404 `not_found`, NFR-13), `clientId` (a value already used by the sender
          *     returns the original message with 200), the message limits (`rate_limited`), the
          *     other member (404 `not_found` when suspended or not verified), a block (FR-16.9: 403
          *     `cannot_message` for the blocked person, 409 `you_blocked_this_user` for the blocker),
@@ -2052,7 +2052,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Download an attachment after a permission check (FR-16.7, NFR-13, NFR-14)
+         * Download an attachment after a permission check (FR-16.7, NFR-13)
          * @description Needs the access cookie and the platform action "View profiles, search, feed,
          *     events and recommendations" (SRS 2.3). Only a current member who can see the message
          *     may download: in a group, a member sees only the messages from the moment they joined.
@@ -2085,25 +2085,25 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Delete one's own message (FR-16.5, NFR-14)
+         * Delete one's own message (FR-16.5, NFR-13)
          * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
          *     like, comment" (SRS 2.3). Only the sender may delete, at any time, also in a closed
          *     conversation or after a block. The message stays in its place with `deleted: true`
          *     and a null `body`. Deleting it again changes nothing. Anyone else, and an unknown
-         *     message, gets 404 `not_found` (NFR-14). The text is kept for moderation and shown only
+         *     message, gets 404 `not_found` (NFR-13). The text is kept for moderation and shown only
          *     through `GET /admin/message-reports/{reportId}`.
          */
         delete: operations["deleteMessage"];
         options?: never;
         head?: never;
         /**
-         * Edit one's own message (FR-16.5, FR-16.10, NFR-14)
+         * Edit one's own message (FR-16.5, FR-16.10, NFR-13)
          * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
          *     like, comment" (SRS 2.3). Only the sender may edit, within `MESSAGE_EDIT_WINDOW`
          *     (15 minutes by default) of sending, and only while they could send in the
          *     conversation. Checks run in this order: the body (`invalid_body`), the message (404
          *     `not_found` unless it is the caller's, in this conversation and not deleted: anyone
-         *     else learns nothing, NFR-14), the window (409 `edit_window_closed`), an unchanged body
+         *     else learns nothing, NFR-13), the window (409 `edit_window_closed`), an unchanged body
          *     (200 with the message as it is: nothing changes, no quota is used and no event goes
          *     out), then the checks of `POST /conversations/{conversationId}/messages`: the caller's
          *     standing, the message limits (an edit counts as a message), the other member, a block
@@ -2124,7 +2124,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Move the logged-in user's read marker forward (FR-16.3, NFR-14)
+         * Move the logged-in user's read marker forward (FR-16.3, NFR-13)
          * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
          *     like, comment" (SRS 2.3). The marker only moves forward: a message at or before it
          *     succeeds and changes nothing. A message that is not in this conversation, or a
@@ -2194,9 +2194,9 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Report a conversation or one of its messages (FR-16.9, NFR-14)
+         * Report a conversation or one of its messages (FR-16.9, NFR-13)
          * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
-         *     like, comment" (SRS 2.3). Anyone who is not a member gets 404 `not_found` (NFR-14).
+         *     like, comment" (SRS 2.3). Anyone who is not a member gets 404 `not_found` (NFR-13).
          *     Checks run in this order: membership, `reason`, `details` and `messageId`
          *     (`bad_request`, with `field`), the message (404 `not_found` when it is not in this
          *     conversation, from before the caller joined it, or a system message, 400
@@ -3290,7 +3290,7 @@ export interface components {
             nextBefore: string | null;
         };
         /**
-         * @description A message of a reported conversation as the administrator sees it (NFR-14): the text
+         * @description A message of a reported conversation as the administrator sees it (NFR-13): the text
          *     at the report's moment and the texts shown before it. Text written after the report is
          *     never shown; `changedAfterReport` only says there was some.
          */

@@ -252,7 +252,7 @@ func TestGroupReportReceiptNamesNobody(t *testing.T) {
 }
 
 // The admin detail of a group report: no reported user, the group's name, everyone who was a
-// member at the report, and system messages with their events (NFR-14).
+// member at the report, and system messages with their events (NFR-13).
 func TestGroupReportDetail(t *testing.T) {
 	r := report
 	r.Reported, r.ConversationKind, r.GroupName = nil, domain.KindGroup, ptr("Lab")

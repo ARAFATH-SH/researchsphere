@@ -320,7 +320,7 @@ func TestSendRefusals(t *testing.T) {
 	})
 }
 
-// NFR-14: every read and write checks membership; a stranger cannot tell a conversation
+// NFR-13: every read and write checks membership; a stranger cannot tell a conversation
 // exists. Administrators are not a special case here: the usecase knows no roles.
 func TestNonMemberGetsNotFound(t *testing.T) {
 	ctx := context.Background()

@@ -41,7 +41,7 @@ CREATE UNIQUE INDEX conversation_members_one_owner_uq ON conversation_members (c
 
 -- ---------------------------------------------------------------------------
 -- conversation_memberships: one row per stay in a group, kept after the member row is gone.
--- Written only by the triggers below. Read only by the administrator's report paths (NFR-14).
+-- Written only by the triggers below. Read only by the administrator's report paths (NFR-13).
 -- ---------------------------------------------------------------------------
 CREATE TABLE conversation_memberships (
     id              uuid        PRIMARY KEY DEFAULT gen_random_uuid(),

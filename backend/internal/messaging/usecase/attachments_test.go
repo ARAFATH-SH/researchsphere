@@ -61,7 +61,7 @@ func TestUploadAttachment(t *testing.T) {
 	}
 }
 
-// FR-16.7, FR-16.9, FR-15.6, NFR-14: only a member who could send now may upload; nothing is
+// FR-16.7, FR-16.9, FR-15.6, NFR-13: only a member who could send now may upload; nothing is
 // stored or counted for a refused upload.
 func TestUploadAttachmentRefusals(t *testing.T) {
 	for _, tc := range []struct {
@@ -283,7 +283,7 @@ func TestSendWithAttachmentsRefusals(t *testing.T) {
 	}
 }
 
-// FR-16.7, NFR-13, NFR-14: who may download, and nothing before the scan says clean.
+// FR-16.7, NFR-13: who may download, and nothing before the scan says clean.
 func TestDownloadAttachment(t *testing.T) {
 	h := groupHarness()
 	objects := h.withFiles()
@@ -304,7 +304,7 @@ func TestDownloadAttachment(t *testing.T) {
 	if _, err := h.svc.SendWithAttachments(t.Context(), owner, g, nil, h.clientID(), []string{up.ID}); err != nil {
 		t.Fatal(err)
 	}
-	// A member who joined after the message never sees it (FR-16.6, NFR-14).
+	// A member who joined after the message never sees it (FR-16.6, NFR-13).
 	h.store.clock = func() time.Time { return time.Date(2026, 11, 4, 11, 0, 0, 0, time.UTC) }
 	h.now = h.store.clock()
 	if _, err := h.svc.AddMembers(t.Context(), owner, g, []string{cat}); err != nil {
@@ -341,7 +341,7 @@ func TestDownloadAttachment(t *testing.T) {
 		t.Errorf("unknown: %v", err)
 	}
 
-	// A member who left can no longer download (NFR-14).
+	// A member who left can no longer download (NFR-13).
 	h.setStatus(up.ID, domain.AttachmentClean)
 	if err := h.svc.Leave(t.Context(), ben, g); err != nil {
 		t.Fatal(err)
@@ -430,7 +430,7 @@ func TestAttachmentScanned(t *testing.T) {
 	}
 }
 
-// FR-16.9, NFR-14: the report lists files with their status, a deleted message's too, and an
+// FR-16.9, NFR-13: the report lists files with their status, a deleted message's too, and an
 // administrator downloads a clean one with an audit row; a refused download writes none.
 func TestReportedAttachments(t *testing.T) {
 	h := newHarness()

@@ -1,8 +1,8 @@
 // Package usecase holds the messaging module's logic: direct conversations between
 // connections (FR-16.1), message requests to everyone else (FR-16.2), unread counts and
 // read markers (FR-16.3), editing and deleting (FR-16.5), group conversations (FR-16.6), the
-// send limits (FR-16.10), the membership check on every read and write (NFR-14), blocks and
-// reports (FR-16.9) and an administrator's review of reports (NFR-14). It imports only the
+// send limits (FR-16.10), the membership check on every read and write (NFR-13), blocks and
+// reports (FR-16.9) and an administrator's review of reports (NFR-13). It imports only the
 // messaging domain.
 package usecase
 
@@ -223,7 +223,7 @@ func (s *Service) SendDirect(ctx context.Context, senderID, recipientID, body, c
 	return s.finish(ctx, sent, err, []string{recipientID}, senderID, clientID, newRequest)
 }
 
-// Send sends a message in a conversation (FR-16.1, FR-16.2, FR-16.6, NFR-14). Checks run in
+// Send sends a message in a conversation (FR-16.1, FR-16.2, FR-16.6, NFR-13). Checks run in
 // this order: ErrInvalidBody, ErrNotFound when senderID is not a member, the client ID as in
 // SendDirect, the sender's standing (see refuseSender), *RateLimitedError, ErrNotFound when the
 // other member is suspended or not verified, a block (see refuseBlocked), then
@@ -318,7 +318,7 @@ func (s *Service) sendInGroup(ctx context.Context, conversationID, senderID stri
 }
 
 // lockMember holds the conversation's row and reads it again as userID sees it, so a removal
-// or a leave that committed meanwhile wins: a former member gets ErrNotFound (NFR-14).
+// or a leave that committed meanwhile wins: a former member gets ErrNotFound (NFR-13).
 func (s *Service) lockMember(ctx context.Context, conversationID, userID string) (domain.Conversation, error) {
 	if _, err := s.store.LockConversation(ctx, conversationID); err != nil {
 		return domain.Conversation{}, err

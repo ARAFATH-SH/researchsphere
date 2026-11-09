@@ -436,7 +436,7 @@ func TestSendInGroup(t *testing.T) {
 	}
 }
 
-// A removal that commits while a send waits for the group's lock wins (NFR-14).
+// A removal that commits while a send waits for the group's lock wins (NFR-13).
 func TestSendInGroupRemovedMeanwhile(t *testing.T) {
 	h := groupHarness()
 	id := h.group(t, ben)

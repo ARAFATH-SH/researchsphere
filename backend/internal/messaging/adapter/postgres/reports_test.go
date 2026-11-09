@@ -21,7 +21,7 @@ func newReport(t *testing.T, s *Store, c, reporter, reported string, message *st
 	return id
 }
 
-// NFR-14: the read starts from a report and stops at its moment.
+// NFR-13: the read starts from a report and stops at its moment.
 func TestReportedMessagesStopAtTheReport(t *testing.T) {
 	s, pool := newTestStore(t)
 	ctx := t.Context()

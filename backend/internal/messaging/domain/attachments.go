@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// Message attachments (FR-16.7, NFR-13, NFR-14; slice 14B, chunk 14B.3). A file is uploaded to a
+// Message attachments (FR-16.7, NFR-13; slice 14B, chunk 14B.3). A file is uploaded to a
 // conversation first and sent with a message later. The media module checks its type and scans
 // it; the messaging module decides who may upload, send and download it.
 
@@ -122,9 +122,9 @@ type AttachmentStore interface {
 	// FindAttachment returns the attachment with the caller's membership, or ErrNotFound.
 	FindAttachment(ctx context.Context, id, userID string) (StoredAttachment, error)
 	// FindReportedAttachment returns an attachment of a message of the report's conversation
-	// sent by the report's moment, or ErrNotFound (NFR-14).
+	// sent by the report's moment, or ErrNotFound (NFR-13).
 	FindReportedAttachment(ctx context.Context, reportID, id string) (StoredAttachment, error)
-	// ListReportedAttachments is ListAttachments for the messages of a report (NFR-14).
+	// ListReportedAttachments is ListAttachments for the messages of a report (NFR-13).
 	ListReportedAttachments(ctx context.Context, reportID string, messageIDs []string) (map[string][]Attachment, error)
 	// AddAttachmentDownload records an administrator's download through a report.
 	AddAttachmentDownload(ctx context.Context, reportID, fileID, adminID string) error

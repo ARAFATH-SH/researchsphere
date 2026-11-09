@@ -809,7 +809,7 @@ type FindReportedAttachmentRow struct {
 	ScanStatus  string
 }
 
-// An attachment as the administrator may reach it (NFR-14): starting from the report, only of a
+// An attachment as the administrator may reach it (NFR-13): starting from the report, only of a
 // message of the reported conversation sent by the report's moment.
 func (q *Queries) FindReportedAttachment(ctx context.Context, arg FindReportedAttachmentParams) (FindReportedAttachmentRow, error) {
 	row := q.db.QueryRow(ctx, findReportedAttachment, arg.ReportID, arg.FileID)
@@ -1445,7 +1445,7 @@ type ListMessagesParams struct {
 }
 
 // messages_conversation_id_uq, scanned backward, serves this. A deleted message is listed in
-// its place with no body; message_versions is never read for a member (NFR-14). since is the
+// its place with no body; message_versions is never read for a member (NFR-13). since is the
 // member's joining time.
 func (q *Queries) ListMessages(ctx context.Context, arg ListMessagesParams) ([]Message, error) {
 	rows, err := q.db.Query(ctx, listMessages,
@@ -1581,7 +1581,7 @@ type ListReportedAttachmentsRow struct {
 }
 
 // The attachments of the listed messages of a report, deleted messages' included. Like
-// ListReportedMessages it starts from the report (NFR-14).
+// ListReportedMessages it starts from the report (NFR-13).
 func (q *Queries) ListReportedAttachments(ctx context.Context, arg ListReportedAttachmentsParams) ([]ListReportedAttachmentsRow, error) {
 	rows, err := q.db.Query(ctx, listReportedAttachments, arg.ReportID, arg.MessageIds)
 	if err != nil {
@@ -1655,7 +1655,7 @@ type ListReportedMessagesRow struct {
 	ChangedAfterReport bool
 }
 
-// The one way an administrator reads a conversation (NFR-14): it starts from a report, so a
+// The one way an administrator reads a conversation (NFR-13): it starts from a report, so a
 // conversation without one is out of reach, and stops at the report's moment. at_report is
 // the text shown at that moment: none when deleted by then, else the kept version that was
 // showing, else the current text, which has shown since before the report. Text written after
@@ -1721,7 +1721,7 @@ type ListReportedVersionsRow struct {
 }
 
 // The kept texts of the listed messages that were shown at or before the report's moment,
-// oldest first. Like ListReportedMessages it starts from the report (NFR-14).
+// oldest first. Like ListReportedMessages it starts from the report (NFR-13).
 func (q *Queries) ListReportedVersions(ctx context.Context, arg ListReportedVersionsParams) ([]ListReportedVersionsRow, error) {
 	rows, err := q.db.Query(ctx, listReportedVersions, arg.ReportID, arg.MessageIds)
 	if err != nil {
@@ -1908,7 +1908,7 @@ type LockOwnMessageParams struct {
 }
 
 // The sender's message in the conversation, held until the transaction ends so an edit and a
-// deletion of one message run one at a time. No row for anyone else's (NFR-14), nor for a
+// deletion of one message run one at a time. No row for anyone else's (NFR-13), nor for a
 // system message, which is no one's to edit or delete.
 func (q *Queries) LockOwnMessage(ctx context.Context, arg LockOwnMessageParams) (Message, error) {
 	row := q.db.QueryRow(ctx, lockOwnMessage, arg.ConversationID, arg.ID, arg.SenderID)
@@ -1971,7 +1971,7 @@ type MembersAtReportRow struct {
 }
 
 // Everyone in the report's group at the report's moment, also those who left since. Like
-// ListReportedMessages it starts from the report (NFR-14).
+// ListReportedMessages it starts from the report (NFR-13).
 func (q *Queries) MembersAtReport(ctx context.Context, reportID pgtype.UUID) ([]MembersAtReportRow, error) {
 	rows, err := q.db.Query(ctx, membersAtReport, reportID)
 	if err != nil {
