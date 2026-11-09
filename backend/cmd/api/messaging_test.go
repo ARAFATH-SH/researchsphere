@@ -5,10 +5,12 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
 	messagingdomain "github.com/ARAFATH-SH/researchsphere/backend/internal/messaging/domain"
+	messagingusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/messaging/usecase"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/authz"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpserver"
 )
@@ -42,6 +44,23 @@ func (okMessaging) SendDirect(context.Context, string, string, string, string) (
 
 func (okMessaging) Send(context.Context, string, string, string, string) (messagingdomain.Sent, error) {
 	return messagingdomain.Sent{Message: okMessage, State: messagingdomain.StateActive}, nil
+}
+
+func (okMessaging) SendWithAttachments(context.Context, string, string, *string, string, []string) (messagingdomain.Sent, error) {
+	return messagingdomain.Sent{Message: okMessage, State: messagingdomain.StateActive}, nil
+}
+
+func (okMessaging) UploadAttachment(context.Context, string, string, string, io.Reader) (messagingdomain.Upload, error) {
+	return messagingdomain.Upload{Attachment: messagingdomain.Attachment{ID: okMessage.ID, Name: "a.pdf", Size: 1,
+		ContentType: "application/pdf", Status: messagingdomain.AttachmentPending}}, nil
+}
+
+func (okMessaging) DownloadAttachment(context.Context, string, string) (messagingusecase.Download, error) {
+	return messagingusecase.Download{URL: &url.URL{Scheme: "https", Host: "bucket.example"}}, nil
+}
+
+func (okMessaging) DownloadReportedAttachment(context.Context, string, string, string) (messagingusecase.Download, error) {
+	return messagingusecase.Download{URL: &url.URL{Scheme: "https", Host: "bucket.example"}}, nil
 }
 
 func (okMessaging) List(context.Context, string, string, string, *int) (messagingdomain.Page, error) {

@@ -614,6 +614,37 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /admin/message-reports/{reportId}/attachments/{attachmentId}:
+    get:
+      operationId: getReportedAttachment
+      summary: Download an attachment of a reported conversation (FR-16.7, FR-16.9, NFR-14)
+      description: |
+        Needs the access cookie and the platform action "Review reported conversations"
+        (SRS 2.3). Only an attachment of a message of the reported conversation sent at or
+        before the report's moment, as `getMessageReport` lists it, also when the message was
+        deleted later. Every download writes one audit row (administrator, report, file, time)
+        in the same transaction as the permission check. The scan answers and the redirect are
+        those of `getAttachment`.
+      tags: [admin]
+      parameters:
+        - $ref: "#/components/parameters/ReportId"
+        - $ref: "#/components/parameters/AttachmentId"
+      responses:
+        "302":
+          $ref: "#/components/responses/AttachmentRedirect"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/AttachmentNotReady"
+        "410":
+          $ref: "#/components/responses/AttachmentRemoved"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /admin/message-reports/{reportId}/resolve:
     post:
       operationId: resolveMessageReport
@@ -3299,6 +3330,12 @@ paths:
         `POST /messages/direct`. In a group there is no other member and no request: after the
         limits, a former member gets 404 `not_found`, and a block between two members stops
         nobody (FR-16.6).
+
+        `attachmentIds` (FR-16.7) sends up to 5 files from `uploadAttachment`, in that order;
+        `body` may then be left out. Each must have been uploaded by the caller to this
+        conversation, not be sent yet, not have expired and not have failed or been blocked by
+        its scan, else 400 `invalid_attachment` (`field: attachmentIds`) and nothing is sent. A
+        file still being scanned may be sent; the others see it once it is clean.
       tags: [messaging]
       parameters:
         - $ref: "#/components/parameters/ConversationId"
@@ -3333,6 +3370,101 @@ paths:
           $ref: "#/components/responses/MessageRefused"
         "429":
           $ref: "#/components/responses/MessageRateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /conversations/{conversationId}/attachments:
+    post:
+      operationId: uploadAttachment
+      summary: Upload a file to send with a message later (FR-16.7, NFR-13)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Only a member who can send in the conversation now may upload,
+        with the checks of `sendMessage` in the same order and codes, except that the message
+        limits do not apply: membership (404 `not_found`), standing (`account_suspended`,
+        `messaging_restricted`), the other member (404), a block (`cannot_message`,
+        `you_blocked_this_user`) and the state (`request_pending`, `conversation_closed`).
+
+        The file may be at most 25 MB. Its type is read from its content, never from its name
+        or the part's header: PDF, PNG, JPEG, WebP (not animated), DOCX, XLSX or PPTX. An Office
+        file must be an Office Open XML package whose main part is a document, workbook or
+        presentation; macro-enabled files (docm, xlsm, pptm), templates, slide shows and the
+        legacy formats (doc, xls, ppt) are refused with `unsupported_type`. An image is decoded
+        and encoded again at its own size, so EXIF, GPS and any other data in the file are
+        dropped: a JPEG stays a JPEG, a PNG a PNG, and a WebP becomes a PNG when it has
+        transparency and a JPEG otherwise. Documents are stored as uploaded.
+
+        The name the client gave the file is kept for display only, cleaned up: no folders,
+        control characters or quotes, at most 200 characters, and ending with the extension of
+        the type that was found. The file is scanned for malware after the upload; nobody,
+        the uploader included, can download it before the scan says `clean`.
+
+        The answer's `id` goes into `attachmentIds` of `sendMessage` in this conversation. An
+        attachment that is not sent by `expiresAt` (24 hours) is deleted. A user may upload at
+        most 20 files per hour and 200 MB per day; refused files do not count.
+      tags: [messaging]
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+      requestBody:
+        $ref: "#/components/requestBodies/AttachmentUpload"
+      responses:
+        "201":
+          description: The file is stored and waits for its scan.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttachmentUpload"
+        "400":
+          $ref: "#/components/responses/InvalidImage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/MessageForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/MessageRefused"
+        "413":
+          $ref: "#/components/responses/FileTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedAttachmentType"
+        "429":
+          $ref: "#/components/responses/AttachmentRateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /attachments/{attachmentId}:
+    get:
+      operationId: getAttachment
+      summary: Download an attachment after a permission check (FR-16.7, NFR-13, NFR-14)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed,
+        events and recommendations" (SRS 2.3). Only a current member who can see the message
+        may download: in a group, a member sees only the messages from the moment they joined.
+        The uploader may also download an attachment not sent yet. An attachment of a deleted
+        message, one the caller may not see and an unknown ID all get the same 404 `not_found`.
+
+        Then the scan decides: `scan_pending` (409) while it runs, `scan_failed` (409) when the
+        scanner could not read the file, `file_removed` (410) when malware was found and the
+        file was deleted. A clean file redirects to a presigned URL valid for 5 minutes, whose
+        answer carries `Content-Disposition: attachment` with the file's name and the stored
+        content type, so a browser saves the file and never shows it inline.
+      tags: [messaging]
+      parameters:
+        - $ref: "#/components/parameters/AttachmentId"
+      responses:
+        "302":
+          $ref: "#/components/responses/AttachmentRedirect"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/AttachmentNotReady"
+        "410":
+          $ref: "#/components/responses/AttachmentRemoved"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -3813,6 +3945,16 @@ components:
         conversation and gets 404 `not_found`.
       schema:
         type: string
+    AttachmentId:
+      name: attachmentId
+      in: path
+      required: true
+      description: |
+        The attachment's ID, a UUID. It is declared as a plain string so that the login check
+        runs before it is read (FR-3.1); a value that is not a UUID names no attachment and
+        gets 404 `not_found`.
+      schema:
+        type: string
     ConnectionListPage:
       name: page
       in: query
@@ -3949,6 +4091,20 @@ components:
         type: string
 
   requestBodies:
+    AttachmentUpload:
+      required: true
+      description: |
+        The file in the part named `file`. Its content type is ignored; its file name is kept
+        for display only, cleaned up.
+      content:
+        multipart/form-data:
+          schema:
+            type: object
+            required: [file]
+            properties:
+              file:
+                type: string
+                format: binary
     ImageUpload:
       required: true
       description: The image in the part named `file`. Its file name and content type are ignored.
@@ -4794,8 +4950,10 @@ components:
         connection request. `connection_request_accepted`: the actor accepted the caller's
         request. `account_warning`: an administrator warned the caller; a system notification,
         with no actor. `group_added`: the actor, the group's owner, added the caller to a
-        group (FR-16.6). Later slices add the project, comment and like types.
-      enum: [connection_request_received, connection_request_accepted, account_warning, group_added]
+        group (FR-16.6). `attachment_blocked`: the malware scan found something in a file the
+        caller attached, and it was deleted (FR-16.7); a system notification, with no actor.
+        Later slices add the project, comment and like types.
+      enum: [connection_request_received, connection_request_accepted, account_warning, group_added, attachment_blocked]
 
     NotificationActor:
       type: object
@@ -4834,7 +4992,8 @@ components:
           description: |
             The web client path of the item it is about (FR-9.5):
             `/network` for a received request, `/profile/{actorId}` for an accepted one,
-            `/warnings/{warningId}` for a warning, `/messaging/{conversationId}` for a group.
+            `/warnings/{warningId}` for a warning, `/messaging/{conversationId}` for a group
+            and for a blocked attachment.
         actor:
           $ref: "#/components/schemas/NotificationActor"
         requestId:
@@ -4878,15 +5037,24 @@ components:
 
     SendMessageRequest:
       type: object
-      required: [body, clientId]
+      required: [clientId]
       properties:
         body:
           type: string
-          description: 1 to 5,000 characters after trimming; line breaks are kept.
+          description: |
+            1 to 5,000 characters after trimming; line breaks are kept. May be left out when
+            `attachmentIds` is not empty.
         clientId:
           type: string
           format: uuid
           description: Made by the client for each new message and sent again on a retry, so a retry stores nothing new.
+        attachmentIds:
+          type: array
+          maxItems: 5
+          description: Files from `uploadAttachment` to send with the message, in order (FR-16.7).
+          items:
+            type: string
+            format: uuid
 
     EditMessageRequest:
       type: object
@@ -4954,9 +5122,59 @@ components:
           type: string
           nullable: true
 
+    AttachmentStatus:
+      type: string
+      description: |
+        The malware scan (FR-16.7). `pending`: not scanned yet; nobody can download it.
+        `clean`: it can be downloaded. `infected`: malware was found and the file deleted.
+        `failed`: the scanner could not read the file; it will not be served.
+      enum: [pending, clean, infected, failed]
+
+    Attachment:
+      type: object
+      required: [id, name, size, contentType, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Download it with `GET /attachments/{id}`.
+        name:
+          type: string
+          description: The file's name for display, cleaned up; at most 200 characters.
+        size:
+          type: integer
+          format: int64
+          description: Bytes as stored (an image after it was encoded again).
+        contentType:
+          type: string
+          description: The type found from the content, one of the allowed types.
+        status:
+          $ref: "#/components/schemas/AttachmentStatus"
+
+    AttachmentUpload:
+      type: object
+      required: [id, name, size, contentType, status, expiresAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        size:
+          type: integer
+          format: int64
+        contentType:
+          type: string
+        status:
+          $ref: "#/components/schemas/AttachmentStatus"
+        expiresAt:
+          type: string
+          format: date-time
+          description: The attachment is deleted when it has not been sent by then.
+
     Message:
       type: object
-      required: [id, conversationId, senderId, kind, event, body, createdAt, editedAt, deleted]
+      required: [id, conversationId, senderId, kind, event, body, createdAt, editedAt, deleted, attachments]
       properties:
         id:
           type: string
@@ -4994,6 +5212,11 @@ components:
         deleted:
           type: boolean
           description: True when the sender deleted the message. It stays in its place, with no body.
+        attachments:
+          type: array
+          description: The message's files in order (FR-16.7); empty when none and for a deleted message.
+          items:
+            $ref: "#/components/schemas/Attachment"
 
     SentMessage:
       type: object
@@ -5027,7 +5250,7 @@ components:
 
     MessagePreview:
       type: object
-      required: [senderId, kind, event, body, createdAt, deleted]
+      required: [senderId, kind, event, body, createdAt, deleted, attachmentCount]
       properties:
         senderId:
           type: string
@@ -5048,6 +5271,9 @@ components:
         deleted:
           type: boolean
           description: True when the latest message was deleted; the client says so.
+        attachmentCount:
+          type: integer
+          description: How many files the latest message carries; 0 when deleted. A message may have files and no text.
         createdAt:
           type: string
           format: date-time
@@ -5469,7 +5695,7 @@ components:
         A message of a reported conversation as the administrator sees it (NFR-14): the text
         at the report's moment and the texts shown before it. Text written after the report is
         never shown; `changedAfterReport` only says there was some.
-      required: [id, conversationId, senderId, kind, event, createdAt, body, editedAt, deletedAt, changedAfterReport, versions]
+      required: [id, conversationId, senderId, kind, event, createdAt, body, editedAt, deletedAt, changedAfterReport, versions, attachments]
       properties:
         id:
           type: string
@@ -5516,6 +5742,13 @@ components:
             ended with an edit or with the deletion. Empty when the text never changed by then.
           items:
             $ref: "#/components/schemas/MessageVersion"
+        attachments:
+          type: array
+          description: |
+            The message's files with their scan status, also for a message deleted later. A clean
+            one can be downloaded with `getReportedAttachment`.
+          items:
+            $ref: "#/components/schemas/Attachment"
 
     MessageVersion:
       type: object
@@ -5599,6 +5832,7 @@ components:
         - message.created
         - message.updated
         - message.deleted
+        - attachment.updated
         - conversation.read
         - conversation.updated
         - conversation.members
@@ -5612,7 +5846,7 @@ components:
       type: object
       description: |
         One server-to-client WebSocket frame, as JSON text. `data` is `RealtimeMessageCreated`,
-        `RealtimeMessageUpdated`, `RealtimeMessageDeleted`, `RealtimeConversationRead`, `RealtimeConversationUpdated`, `RealtimeConversationMembers`, `MessageUnreadCount`,
+        `RealtimeMessageUpdated`, `RealtimeMessageDeleted`, `RealtimeAttachmentUpdated`, `RealtimeConversationRead`, `RealtimeConversationUpdated`, `RealtimeConversationMembers`, `MessageUnreadCount`,
         `RealtimeTyping`, `PresenceStatus`, `Notification` or `UnreadNotificationCount`,
         by `type`.
       required: [type, data]
@@ -5656,6 +5890,27 @@ components:
         messageId:
           type: string
           format: uuid
+
+    RealtimeAttachmentUpdated:
+      type: object
+      description: |
+        An attachment's malware scan finished (FR-16.7). Sent to the members who can see its
+        message and to the uploader; before it is sent, only to the uploader, with a null
+        `messageId`.
+      required: [conversationId, messageId, attachmentId, status]
+      properties:
+        conversationId:
+          type: string
+          format: uuid
+        messageId:
+          type: string
+          format: uuid
+          nullable: true
+        attachmentId:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/AttachmentStatus"
 
     RealtimeConversationRead:
       type: object
@@ -6731,8 +6986,10 @@ components:
     InvalidMessage:
       description: |
         `cannot_message_self`, `invalid_body` (empty after trimming, over 5,000 characters,
-        or holding a NUL character), or `bad_request` for a body that is not JSON or a
-        missing or malformed `userId` or `clientId`.
+        or holding a NUL character; or no body and no attachments), `invalid_attachment`
+        (`field: attachmentIds`: more than 5, a repeated ID, or one that cannot be sent), or
+        `bad_request` for a body that is not JSON or a missing or malformed `userId` or
+        `clientId`.
       content:
         application/json:
           schema:
@@ -6952,6 +7209,62 @@ components:
             $ref: "#/components/schemas/Error"
     UnsupportedImageType:
       description: The file is not a JPEG, PNG or still WebP image (`unsupported_type`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    UnsupportedAttachmentType:
+      description: |
+        The file is not a PDF, PNG, JPEG, still WebP, DOCX, XLSX or PPTX file by its content
+        (`unsupported_type`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    AttachmentRateLimited:
+      description: |
+        The user has uploaded 20 files in the current hour or 200 MB in the current day
+        (`rate_limited`).
+      headers:
+        Retry-After:
+          description: Seconds until the window ends and uploads are accepted again.
+          required: true
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    AttachmentRedirect:
+      description: The scan said clean; the file is at the URL in `Location`.
+      headers:
+        Location:
+          description: |
+            A presigned URL to the object, valid for 5 minutes. Its answer has
+            `Content-Disposition: attachment` with the file's name and the stored content type.
+          required: true
+          schema:
+            type: string
+        Cache-Control:
+          description: Always `no-store`.
+          required: true
+          schema:
+            type: string
+        X-Content-Type-Options:
+          description: Always `nosniff`.
+          required: true
+          schema:
+            type: string
+    AttachmentNotReady:
+      description: |
+        `scan_pending`: the malware scan has not finished. `scan_failed`: the scanner could not
+        read the file; it will not be served.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    AttachmentRemoved:
+      description: "`file_removed`: the scan found malware and the file was deleted."
       content:
         application/json:
           schema:

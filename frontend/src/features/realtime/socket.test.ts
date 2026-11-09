@@ -90,6 +90,11 @@ describe("parseEvent", () => {
     expect(parseEvent('{"type":"conversation.updated","data":{"conversationId":"g","state":"active","canMessage":false,"accessLost":true}}')).toBeNull();
     expect(parseEvent('{"type":"conversation.updated","data":{"conversationId":"c","state":"declined","canMessage":false,"accessLost":false}}')).not.toBeNull();
   });
+
+  // Attachment scan results (FR-16.7) wait for the attachment UI of slice 14B.5.
+  it("ignores attachment.updated", () => {
+    expect(parseEvent('{"type":"attachment.updated","data":{"conversationId":"c","messageId":null,"attachmentId":"a","status":"clean"}}')).toBeNull();
+  });
 });
 
 describe("the connection", () => {

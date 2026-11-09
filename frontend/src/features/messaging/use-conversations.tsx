@@ -158,6 +158,8 @@ export function ConversationsProvider({ children }: { children: ReactNode }) {
       event: null,
       body: [...(message.body ?? "")].slice(0, 120).join(""),
       deleted: message.deleted,
+      // Files arrive with slice 14B.5's UI; a message's own count keeps the preview honest.
+      attachmentCount: message.deleted ? 0 : message.attachments.length,
       createdAt: message.createdAt,
     };
     setBoxes((prev) => {

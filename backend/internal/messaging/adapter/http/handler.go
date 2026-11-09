@@ -55,6 +55,7 @@ type Service interface {
 	ListReports(ctx context.Context, status string, page int) (domain.ReportPage, error)
 	ReportDetail(ctx context.Context, adminID, id, before string) (domain.ReportDetail, error)
 	ResolveReport(ctx context.Context, adminID, id string, outcome domain.ReportOutcome, note *string) (domain.Report, error)
+	AttachmentService
 }
 
 // Handler implements the messaging operations of gen.StrictServerInterface.
@@ -175,7 +176,10 @@ func (h *Handler) SendMessage(ctx context.Context, req gen.SendMessageRequestObj
 	if req.Body == nil || req.Body.ClientId == (openapi_types.UUID{}) {
 		return gen.SendMessage400JSONResponse{InvalidMessageJSONResponse: invalidRequest}, nil
 	}
-	sent, err := h.svc.Send(ctx, id, req.ConversationId, req.Body.Body, req.Body.ClientId.String())
+	sent, err := h.svc.SendWithAttachments(ctx, id, req.ConversationId, req.Body.Body, req.Body.ClientId.String(), attachmentIDs(req.Body.AttachmentIds))
+	if errors.Is(err, domain.ErrInvalidAttachment) {
+		return gen.SendMessage400JSONResponse{InvalidMessageJSONResponse: invalidAttachment()}, nil
+	}
 	if r := refusalOf(err); r != nil {
 		switch {
 		case r.invalid != nil:
@@ -390,9 +394,15 @@ func MessageBody(m domain.Message) (gen.Message, error) {
 	if err != nil {
 		return gen.Message{}, err
 	}
+	files := []gen.Attachment{}
+	if !m.Deleted() {
+		if files, err = attachmentsBody(m.Attachments); err != nil {
+			return gen.Message{}, err
+		}
+	}
 	return gen.Message{
 		Id: id, ConversationId: conversation, SenderId: sender, Kind: messageKind(m.Kind), Event: event,
-		Body: m.Body, CreatedAt: m.CreatedAt, EditedAt: m.EditedAt, Deleted: m.Deleted(),
+		Body: m.Body, CreatedAt: m.CreatedAt, EditedAt: m.EditedAt, Deleted: m.Deleted(), Attachments: files,
 	}, nil
 }
 
@@ -491,7 +501,7 @@ func conversationBody(it domain.Item) (gen.Conversation, error) {
 		}
 		c.LastMessage = &gen.MessagePreview{
 			SenderId: sender, Kind: messageKind(it.LastMessage.Kind), Body: it.LastMessage.Body,
-			Deleted: it.LastMessage.Deleted, CreatedAt: it.LastMessage.CreatedAt,
+			Deleted: it.LastMessage.Deleted, CreatedAt: it.LastMessage.CreatedAt, AttachmentCount: it.LastMessage.AttachmentCount,
 		}
 		if it.LastMessage.Event != nil {
 			ev := gen.SystemEventType(*it.LastMessage.Event)

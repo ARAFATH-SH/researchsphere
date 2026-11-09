@@ -11,6 +11,63 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const claimScans = `-- name: ClaimScans :many
+UPDATE stored_files f
+SET scan_lease_until = now() + make_interval(secs => $1::double precision),
+    scan_lease_token = gen_random_uuid()
+WHERE f.id IN (
+    SELECT d.id FROM stored_files d
+    WHERE d.scan_status = 'pending' AND d.scan_next_at <= now()
+      AND (d.scan_lease_until IS NULL OR d.scan_lease_until < now())
+    ORDER BY d.scan_next_at
+    LIMIT $2
+    FOR UPDATE SKIP LOCKED
+)
+RETURNING f.id, f.owner_user_id, f.object_key, f.scan_attempts, f.scan_lease_token::uuid AS lease_token
+`
+
+type ClaimScansParams struct {
+	LeaseSeconds float64
+	MaxRows      int32
+}
+
+type ClaimScansRow struct {
+	ID           pgtype.UUID
+	OwnerUserID  pgtype.UUID
+	ObjectKey    string
+	ScanAttempts int32
+	LeaseToken   pgtype.UUID
+}
+
+// The malware scan of stored files (FR-16.7, NFR-13; slice 14B, chunk 14B.3). A worker leases
+// due files in one statement: SKIP LOCKED keeps two workers off the same rows while the claim
+// runs, and the lease keeps them off afterwards, without a transaction open during the scan.
+func (q *Queries) ClaimScans(ctx context.Context, arg ClaimScansParams) ([]ClaimScansRow, error) {
+	rows, err := q.db.Query(ctx, claimScans, arg.LeaseSeconds, arg.MaxRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ClaimScansRow
+	for rows.Next() {
+		var i ClaimScansRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.OwnerUserID,
+			&i.ObjectKey,
+			&i.ScanAttempts,
+			&i.LeaseToken,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const claimStorageDeletions = `-- name: ClaimStorageDeletions :many
 SELECT id, object_key, attempts
 FROM storage_deletions
@@ -156,6 +213,71 @@ func (q *Queries) LockProfileImages(ctx context.Context, userID pgtype.UUID) (Lo
 	return i, err
 }
 
+const markScanClean = `-- name: MarkScanClean :execrows
+UPDATE stored_files
+SET scan_status = 'clean', scanned_at = now(), scan_error = NULL, scan_lease_until = NULL, scan_lease_token = NULL
+WHERE id = $1 AND scan_lease_token = $2 AND scan_status = 'pending'
+`
+
+type MarkScanCleanParams struct {
+	ID         pgtype.UUID
+	LeaseToken pgtype.UUID
+}
+
+func (q *Queries) MarkScanClean(ctx context.Context, arg MarkScanCleanParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markScanClean, arg.ID, arg.LeaseToken)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const markScanFailed = `-- name: MarkScanFailed :execrows
+UPDATE stored_files
+SET scan_status = 'failed', scanned_at = now(), scan_error = $1,
+    scan_attempts = LEAST(scan_attempts + 1, 5), scan_lease_until = NULL, scan_lease_token = NULL
+WHERE id = $2 AND scan_lease_token = $3 AND scan_status = 'pending'
+`
+
+type MarkScanFailedParams struct {
+	ScanError  pgtype.Text
+	ID         pgtype.UUID
+	LeaseToken pgtype.UUID
+}
+
+func (q *Queries) MarkScanFailed(ctx context.Context, arg MarkScanFailedParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markScanFailed, arg.ScanError, arg.ID, arg.LeaseToken)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const markScanInfected = `-- name: MarkScanInfected :execrows
+WITH marked AS (
+    UPDATE stored_files f
+    SET scan_status = 'infected', scanned_at = now(), scan_error = NULL, scan_lease_until = NULL, scan_lease_token = NULL
+    WHERE f.id = $1 AND f.scan_lease_token = $2 AND f.scan_status = 'pending'
+    RETURNING f.object_key
+)
+INSERT INTO storage_deletions (object_key) SELECT object_key FROM marked
+`
+
+type MarkScanInfectedParams struct {
+	ID         pgtype.UUID
+	LeaseToken pgtype.UUID
+}
+
+// The row stays as the record; its object is queued for deletion now (the trigger of 000007
+// only fires when a row goes).
+func (q *Queries) MarkScanInfected(ctx context.Context, arg MarkScanInfectedParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markScanInfected, arg.ID, arg.LeaseToken)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const recordStorageDeletionFailure = `-- name: RecordStorageDeletionFailure :exec
 UPDATE storage_deletions
 SET attempts = attempts + 1, last_error = $1, last_attempt_at = now()
@@ -170,6 +292,37 @@ type RecordStorageDeletionFailureParams struct {
 func (q *Queries) RecordStorageDeletionFailure(ctx context.Context, arg RecordStorageDeletionFailureParams) error {
 	_, err := q.db.Exec(ctx, recordStorageDeletionFailure, arg.LastError, arg.ID)
 	return err
+}
+
+const retryScanLater = `-- name: RetryScanLater :execrows
+UPDATE stored_files
+SET scan_next_at = now() + make_interval(secs => $1::double precision),
+    scan_attempts = scan_attempts + $2::integer,
+    scan_error = COALESCE($3, scan_error),
+    scan_lease_until = NULL, scan_lease_token = NULL
+WHERE id = $4 AND scan_lease_token = $5 AND scan_status = 'pending'
+`
+
+type RetryScanLaterParams struct {
+	DelaySeconds float64
+	AddAttempts  int32
+	ScanError    pgtype.Text
+	ID           pgtype.UUID
+	LeaseToken   pgtype.UUID
+}
+
+func (q *Queries) RetryScanLater(ctx context.Context, arg RetryScanLaterParams) (int64, error) {
+	result, err := q.db.Exec(ctx, retryScanLater,
+		arg.DelaySeconds,
+		arg.AddAttempts,
+		arg.ScanError,
+		arg.ID,
+		arg.LeaseToken,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const setProfileCover = `-- name: SetProfileCover :exec

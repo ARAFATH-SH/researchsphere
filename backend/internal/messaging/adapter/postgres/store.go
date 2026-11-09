@@ -74,6 +74,7 @@ func (s *Store) FindSent(ctx context.Context, senderID, clientID string) (domain
 	m := message(sqlcgen.Message{
 		ID: r.ID, ConversationID: r.ConversationID, SenderID: r.SenderID, Body: r.Body, ClientID: r.ClientID,
 		CreatedAt: r.CreatedAt, EditedAt: r.EditedAt, DeletedAt: r.DeletedAt, Kind: r.Kind, Event: r.Event, EventData: r.EventData,
+		HasAttachments: r.HasAttachments,
 	})
 	return domain.Sent{Message: m, State: domain.State(r.State)}, true, nil
 }
@@ -180,11 +181,15 @@ func (s *Store) AddMessage(ctx context.Context, m domain.Message) (domain.Messag
 	if !ok1 || !ok2 || !ok3 {
 		return domain.Message{}, false, fmt.Errorf("add message: conversation %q, sender %q or client ID %q is not a UUID", m.ConversationID, m.SenderID, m.ClientID)
 	}
-	if m.Body == nil {
-		return domain.Message{}, false, errors.New("add message: no body")
+	if m.Body == nil && !m.HasAttachments {
+		return domain.Message{}, false, errors.New("add message: no body and no attachments")
 	}
 	q := s.q(ctx)
-	r, err := q.InsertMessage(ctx, sqlcgen.InsertMessageParams{ConversationID: conv, SenderID: sender, Body: *m.Body, ClientID: client})
+	arg := sqlcgen.InsertMessageParams{ConversationID: conv, SenderID: sender, ClientID: client, HasAttachments: m.HasAttachments}
+	if m.Body != nil {
+		arg.Body = pgtype.Text{String: *m.Body, Valid: true}
+	}
+	r, err := q.InsertMessage(ctx, arg)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Message{}, false, nil
 	}
@@ -446,7 +451,7 @@ func message(r sqlcgen.Message) domain.Message {
 		ID: r.ID.String(), ConversationID: r.ConversationID.String(), SenderID: r.SenderID.String(),
 		Kind: domain.MessageKind(r.Kind), Event: systemEvent(r.Event, r.EventData),
 		Body: textPtr(r.Body), ClientID: r.ClientID.String(), CreatedAt: r.CreatedAt.Time,
-		EditedAt: timePtr(r.EditedAt), DeletedAt: timePtr(r.DeletedAt),
+		EditedAt: timePtr(r.EditedAt), DeletedAt: timePtr(r.DeletedAt), HasAttachments: r.HasAttachments,
 	}
 }
 
@@ -489,13 +494,13 @@ func item(r sqlcgen.ListItemsRow) domain.Item {
 		// The query cannot say the preview is null; last_deleted and last_kind do.
 		it.LastMessage = &domain.Preview{
 			SenderID: r.LastSenderID.String(), Kind: domain.MessageKind(r.LastKind),
-			Deleted: r.LastDeleted, CreatedAt: r.LastCreatedAt.Time,
+			Deleted: r.LastDeleted, CreatedAt: r.LastCreatedAt.Time, AttachmentCount: int(r.LastAttachmentCount),
 		}
 		switch {
 		case r.LastEvent.Valid:
 			ev := domain.EventType(r.LastEvent.String)
 			it.LastMessage.Event = &ev
-		case !r.LastDeleted:
+		case !r.LastDeleted && r.LastPreview != "": // a message with only attachments has no text
 			body := r.LastPreview
 			it.LastMessage.Body = &body
 		}

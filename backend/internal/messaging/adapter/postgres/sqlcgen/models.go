@@ -20,4 +20,5 @@ type Message struct {
 	Kind           string
 	Event          pgtype.Text
 	EventData      []byte
+	HasAttachments bool
 }

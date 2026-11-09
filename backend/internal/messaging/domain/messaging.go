@@ -46,6 +46,10 @@ type Message struct {
 	CreatedAt time.Time
 	EditedAt  *time.Time // the latest edit, nil when never edited
 	DeletedAt *time.Time // nil unless the sender deleted it
+	// HasAttachments is set when the message was sent with files (FR-16.7); Attachments are
+	// filled where a reader sees them, never for a deleted message.
+	HasAttachments bool
+	Attachments    []Attachment
 }
 
 // Deleted reports whether the sender deleted the message.
@@ -97,6 +101,8 @@ type Preview struct {
 	Body      *string    // the first 120 characters of the latest text, nil when deleted or a system message
 	Deleted   bool
 	CreatedAt time.Time
+	// AttachmentCount is how many files the message carries, 0 when deleted (FR-16.7).
+	AttachmentCount int
 }
 
 // Item is one conversation of a list, as its member sees it.
@@ -233,6 +239,7 @@ type Store interface {
 	DirectID(ctx context.Context, a, b string) (id string, found bool, err error)
 	GroupStore
 	ReportStore
+	AttachmentStore
 }
 
 // Connections says whether two users are connected. The social module owns connections;
@@ -305,6 +312,8 @@ type Publisher interface {
 	MembersChanged(ctx context.Context, conversationID string, change MemberChange, to []string)
 	// AccessLost tells each user, who left or was removed, that the group is gone for them.
 	AccessLost(ctx context.Context, conversationID string, userIDs []string)
+	// AttachmentUpdated tells the to list that an attachment's scan finished (FR-16.7).
+	AttachmentUpdated(ctx context.Context, u AttachmentUpdate, to []string)
 }
 
 // Transactor runs fn in one database transaction; it commits when fn returns nil and

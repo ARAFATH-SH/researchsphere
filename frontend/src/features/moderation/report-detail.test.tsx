@@ -28,6 +28,7 @@ function msg(n: number, senderId: string, body: string): ReportedMessage {
     deletedAt: null,
     changedAfterReport: false,
     versions: [],
+    attachments: [],
   };
 }
 

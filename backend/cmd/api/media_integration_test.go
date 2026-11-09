@@ -78,6 +78,10 @@ type mediaEnv struct {
 	hub        *realtimeusecase.Hub
 	events     *realtimeEvents
 	opt        envOptions
+	// messaging and notifications serve the attachment tests (FR-16.7): the scan worker is
+	// built per test with a fake scanner.
+	messaging *messagingusecase.Service
+	notifier  *notificationusecase.Service
 }
 
 func newMediaEnv(t *testing.T) mediaEnv {
@@ -190,6 +194,7 @@ func wireEnv(t *testing.T, pool *pgxpool.Pool, rdb *goredis.Client, files *stora
 	messaging := messagingusecase.New(messagingpg.NewStore(pool), postgres.NewTransactor(pool), connected, connected, messagingActors{standings: standings}, messageLimiter,
 		realtime.events, groupNotifier{notifications: notifications}, limits, now, logger)
 	realtime.bind(messaging, notifications)
+	messaging.UseFiles(messagingusecase.FileDeps{Intake: fileIntake{media: mediausecase.NewAttachments(images, imaging.Codec{})}, Objects: files})
 	var notifier socialdomain.Notifier = connectionNotifier{notifications: notifications, messaging: messaging, events: realtime.events}
 	if opt.wrapNotifier != nil {
 		notifier = opt.wrapNotifier(notifier)
@@ -241,7 +246,8 @@ func wireEnv(t *testing.T, pool *pgxpool.Pool, rdb *goredis.Client, files *stora
 		moderationhttp.NewHandler(moderation),
 		realtimehttp.NewHandler(realtime.hub, testOrigin, logger),
 		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
-	return mediaEnv{router: router, pool: pool, files: files, rdb: rdb, auth: auth, moderation: moderation, standings: standings, hub: realtime.hub, events: realtime.events, opt: opt}
+	return mediaEnv{router: router, pool: pool, files: files, rdb: rdb, auth: auth, moderation: moderation, standings: standings, hub: realtime.hub, events: realtime.events, opt: opt,
+		messaging: messaging, notifier: notifications}
 }
 
 // noAuthMail and noText send nothing.

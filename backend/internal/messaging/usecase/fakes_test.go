@@ -32,6 +32,9 @@ type fakeStore struct {
 	onLockConv    func()           // runs inside LockConversation, for a change that commits meanwhile
 	stays         []fakeStay       // conversation_memberships
 	membersAt     map[string][]string
+	attachments   map[string]fakeAttachment
+	failAttach    error    // InsertAttachment fails
+	downloads     []string // report|file|admin
 }
 
 // fakeStay is one stay in a group, as conversation_memberships keeps it.
@@ -94,7 +97,7 @@ func (c *fakeConversation) since(user string) time.Time {
 }
 
 func newFakeStore() *fakeStore {
-	return &fakeStore{hidden: map[string]bool{}, conversations: map[string]*fakeConversation{},
+	return &fakeStore{hidden: map[string]bool{}, conversations: map[string]*fakeConversation{}, attachments: map[string]fakeAttachment{},
 		clock: func() time.Time { return time.Date(2026, 11, 4, 10, 5, 0, 0, time.UTC) }}
 }
 
@@ -335,9 +338,11 @@ func (t fakeTx) InTx(ctx context.Context, fn func(context.Context) error) error 
 		saved[id] = cp
 	}
 	messages, versions, stays := slices.Clone(s.messages), len(s.versions), slices.Clone(s.stays)
+	attachments, downloads := maps.Clone(s.attachments), len(s.downloads)
 	err := fn(ctx)
 	if err != nil {
 		s.messages, s.versions, s.stays = messages, s.versions[:versions], stays
+		s.attachments, s.downloads = attachments, s.downloads[:downloads]
 		s.conversations = map[string]*fakeConversation{}
 		for id, c := range saved {
 			s.conversations[id] = &c
@@ -613,7 +618,9 @@ func (f *fakeStore) replace(messageID string, end domain.VersionEnd, body *strin
 	if m.EditedAt != nil {
 		from = *m.EditedAt
 	}
-	f.versions = append(f.versions, domain.MessageVersion{MessageID: m.ID, Body: *m.Body, ShownFrom: from, ShownUntil: at, EndedBy: end})
+	if m.Body != nil { // a message with only attachments had no text to keep
+		f.versions = append(f.versions, domain.MessageVersion{MessageID: m.ID, Body: *m.Body, ShownFrom: from, ShownUntil: at, EndedBy: end})
+	}
 	m.Body = body
 	if end == domain.EndedByEdit {
 		m.EditedAt = &at

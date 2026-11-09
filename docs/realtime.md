@@ -88,6 +88,7 @@ Each frame is JSON text with `type` and `data`.
 | `message.created` | The other member (in a group, every other current member), and the sender's own tabs | `RealtimeMessageCreated`: `{message, conversationState, clientId?}` |
 | `message.updated` | The other member (in a group, every other current member), and the sender's own tabs | `RealtimeMessageUpdated`: `{message}`, the REST `Message` with the new `body` and `editedAt` |
 | `message.deleted` | The other member (in a group, every other current member), and the sender's own tabs | `RealtimeMessageDeleted`: `{conversationId, messageId}` |
+| `attachment.updated` | The uploader's tabs; once the file is sent, every current member who joined by the message | `RealtimeAttachmentUpdated`: `{conversationId, messageId, attachmentId, status}` |
 | `conversation.read` | The other member (in a group, every other current member), when a read marker moves | `{conversationId, messageId}`; in a group, refetch `readers` for "Seen by" |
 | `conversation.updated` | Both members; in a group, a member who left or was removed | `{conversationId, state, canMessage, accessLost}`, each their own view |
 | `conversation.members` | Every current member of a group, after a change | `RealtimeConversationMembers`: `{conversationId, change, actorId, userIds, name}` |
@@ -121,6 +122,24 @@ fetch.
 }}
 {"type": "message.deleted", "data": {"conversationId": "...", "messageId": "..."}}
 ```
+
+`attachment.updated` says an attachment's malware scan finished (FR-16.7): `status` is `clean`,
+`infected` or `failed`, never `pending`. It goes out after the commit. Before the file is sent,
+`messageId` is null and only the uploader's tabs get it, so the composer can show the result.
+After it is sent, every current member who can see the message gets it, as in the thread (a
+member who joined later does not); for a deleted message only the uploader. Update the file's
+status in place and fetch nothing. `infected` and `failed` are final: show the file as removed
+or unavailable. A client that missed the event sees the status in the message on its next fetch;
+a download before `clean` answers 409 or 410 (`docs/openapi.yaml`).
+
+```json
+{"type": "attachment.updated", "data": {
+  "conversationId": "...", "messageId": "...", "attachmentId": "...", "status": "clean"
+}}
+```
+
+`message.created`, `message.updated` and the REST `Message` carry `attachments`, each
+`{id, name, size, contentType, status}`; a message may have files and no `body`.
 
 `conversation.updated` follows a request being accepted or declined, a connection activating a
 request, a block or unblock, and the suspension or restoration of either member. It does not

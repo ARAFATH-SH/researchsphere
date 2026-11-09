@@ -32,7 +32,7 @@ export function parseEvent(frame: unknown): RealtimeEvent | null {
     const event = JSON.parse(frame) as { type?: unknown; data?: unknown } | null;
     if (typeof event?.type !== "string" || !types.has(event.type) || typeof event.data !== "object" || !event.data) return null;
     // A group's access-lost update (FR-16.6) waits for the group screens of slice 14B.5, as do
-    // conversation.members events, which are not in types.
+    // conversation.members and attachment.updated (FR-16.7) events, which are not in types.
     if (event.type === "conversation.updated" && (event.data as { accessLost?: unknown }).accessLost === true) return null;
     return event as RealtimeEvent;
   } catch {

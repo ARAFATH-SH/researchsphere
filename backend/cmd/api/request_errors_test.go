@@ -45,7 +45,8 @@ var jsonBodyRoutes = []struct {
 	{http.MethodPost, "/api/v1/conversations/" + okConversationID + "/reports", "reason", `{"reason":5}`, "reason", "reason must be a string."},
 	{http.MethodPost, "/api/v1/admin/message-reports/" + okConversationID + "/resolve", "outcome", `{"outcome":5}`, "outcome", "outcome must be a string."},
 	{http.MethodPost, "/api/v1/messages/direct", "body", `{"body":5}`, "body", "body must be a string."},
-	{http.MethodPost, "/api/v1/conversations/" + okConversationID + "/messages", "body", `{"body":5}`, "body", "body must be a string."},
+	// FR-16.7: body may be left out when attachmentIds is set, so clientId is the one required field.
+	{http.MethodPost, "/api/v1/conversations/" + okConversationID + "/messages", "clientId", `{"body":5}`, "body", "body must be a string."},
 	{http.MethodPost, "/api/v1/conversations/" + okConversationID + "/read", "messageId", `{"messageId":5}`, "messageId", "messageId must be a UUID."},
 	{http.MethodPatch, "/api/v1/conversations/" + okConversationID + "/messages/" + okMessageID, "body", `{"body":5}`, "body", "body must be a string."},
 	{http.MethodPost, "/api/v1/conversations/groups", "clientId", `{"clientId":5}`, "clientId", "clientId must be a UUID."},

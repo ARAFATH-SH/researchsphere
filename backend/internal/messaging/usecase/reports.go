@@ -161,7 +161,8 @@ func (s *Service) ReportDetail(ctx context.Context, adminID, id, before string) 
 	return d, nil
 }
 
-// attachVersions fills each message's Versions, oldest first, as the store returns them.
+// attachVersions fills each message's Versions, oldest first, as the store returns them, and
+// its Attachments.
 func (s *Service) attachVersions(ctx context.Context, reportID string, messages []domain.ReportedMessage) error {
 	if len(messages) == 0 {
 		return nil
@@ -178,6 +179,17 @@ func (s *Service) attachVersions(ctx context.Context, reportID string, messages 
 	for _, v := range versions {
 		if i, ok := at[v.MessageID]; ok {
 			messages[i].Versions = append(messages[i].Versions, v)
+		}
+	}
+	// FR-16.7: the files of each message with their scan status, a deleted message's too.
+	files, err := s.store.ListReportedAttachments(ctx, reportID, ids)
+	if err != nil {
+		return err
+	}
+	for i := range messages {
+		messages[i].Attachments = files[messages[i].ID]
+		if messages[i].Attachments == nil {
+			messages[i].Attachments = []domain.Attachment{}
 		}
 	}
 	return nil

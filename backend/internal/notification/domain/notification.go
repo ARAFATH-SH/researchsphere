@@ -26,6 +26,10 @@ const (
 	// TypeGroupAdded: the actor, a group's owner, added the recipient to the group (FR-16.6).
 	// The subject is the conversation.
 	TypeGroupAdded Type = "group_added"
+	// TypeAttachmentBlocked: the malware scan found something in a file the recipient attached,
+	// and it was deleted (FR-16.7). A system notification: it has no actor. The subject is the
+	// conversation the file was uploaded to.
+	TypeAttachmentBlocked Type = "attachment_blocked"
 )
 
 // Subject kinds: what a notification's SubjectID names.
@@ -59,6 +63,10 @@ var Registry = map[Type]Spec{
 		Link:        func(n Notification) string { return "/warnings/" + n.SubjectID },
 	},
 	TypeGroupAdded: {
+		SubjectKind: SubjectConversation,
+		Link:        func(n Notification) string { return "/messaging/" + n.SubjectID },
+	},
+	TypeAttachmentBlocked: {
 		SubjectKind: SubjectConversation,
 		Link:        func(n Notification) string { return "/messaging/" + n.SubjectID },
 	},

@@ -37,6 +37,8 @@ const (
 	DefaultRequestsPerDay    = 20
 	// How long after sending a message its sender may edit it (FR-16.5).
 	DefaultMessageEditWindow = 15 * time.Minute
+	// clamd, the malware scanner of attachments (FR-16.7), as docker-compose.yml publishes it.
+	DefaultClamAVAddr = "127.0.0.1:3310"
 )
 
 // MinJWTSecretLen is the shortest JWT_SECRET accepted, in bytes: HS256 needs a key at
@@ -78,6 +80,8 @@ type Config struct {
 	RequestsPerDay    int
 	// MessageEditWindow is how long after sending a message its sender may edit it (FR-16.5).
 	MessageEditWindow time.Duration
+	// ClamAVAddr is clamd's TCP address (host:port) for the malware scan (FR-16.7).
+	ClamAVAddr string
 }
 
 // Load reads the settings through getenv (os.Getenv in main). Errors name the
@@ -198,6 +202,11 @@ func Load(getenv func(string) string) (Config, error) {
 		errs = append(errs, err)
 	}
 
+	cfg.ClamAVAddr = orDefault(getenv("CLAMAV_ADDR"), DefaultClamAVAddr)
+	if err := checkHostPort("CLAMAV_ADDR", cfg.ClamAVAddr); err != nil {
+		errs = append(errs, err)
+	}
+
 	if len(errs) > 0 {
 		return Config{}, errors.Join(errs...)
 	}
@@ -223,6 +232,7 @@ func (c Config) LogValue() slog.Value {
 		slog.Bool("s3_use_ssl", c.Storage.UseSSL),
 		slog.String("openalex_base_url", c.OpenAlexBaseURL),
 		slog.String("orcid_base_url", c.ORCIDBaseURL),
+		slog.String("clamav_addr", c.ClamAVAddr),
 	)
 }
 

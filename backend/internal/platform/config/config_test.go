@@ -453,3 +453,20 @@ func TestLoadMessageLimits(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadClamAVAddr(t *testing.T) {
+	cfg, err := Load(env(map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL}))
+	if err != nil || cfg.ClamAVAddr != DefaultClamAVAddr {
+		t.Errorf("default = %q (%v)", cfg.ClamAVAddr, err)
+	}
+	cfg, err = Load(env(map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL, "CLAMAV_ADDR": " clamav:3310 "}))
+	if err != nil || cfg.ClamAVAddr != "clamav:3310" {
+		t.Errorf("set = %q (%v)", cfg.ClamAVAddr, err)
+	}
+	for _, bad := range []string{"clamav", "tcp://clamav:3310", "clamav:port"} {
+		v := map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL, "CLAMAV_ADDR": bad}
+		if _, err := Load(env(v)); err == nil || !strings.Contains(err.Error(), "CLAMAV_ADDR") {
+			t.Errorf("CLAMAV_ADDR=%s: error = %v", bad, err)
+		}
+	}
+}

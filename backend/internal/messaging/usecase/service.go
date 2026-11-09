@@ -87,6 +87,9 @@ func (NopPublisher) MembersChanged(context.Context, string, domain.MemberChange,
 // AccessLost does nothing.
 func (NopPublisher) AccessLost(context.Context, string, []string) {}
 
+// AttachmentUpdated does nothing.
+func (NopPublisher) AttachmentUpdated(context.Context, domain.AttachmentUpdate, []string) {}
+
 // Service handles conversations and messages.
 type Service struct {
 	store       domain.Store
@@ -105,6 +108,9 @@ type Service struct {
 	editWindow  time.Duration
 	now         func() time.Time
 	logger      *slog.Logger
+	files       FileDeps
+	uploads     []window // attachment uploads per hour
+	uploadBytes []window // attachment bytes per day
 }
 
 // New returns a Service. now is time.Now in production and a fixed clock in tests.
@@ -211,7 +217,7 @@ func (s *Service) SendDirect(ctx context.Context, senderID, recipientID, body, c
 			}
 		}
 		newRequest = created && state == domain.StateRequest
-		sent, err = s.add(ctx, c, senderID, text, clientID)
+		sent, err = s.add(ctx, c, senderID, &text, clientID, nil)
 		return err
 	})
 	return s.finish(ctx, sent, err, []string{recipientID}, senderID, clientID, newRequest)
@@ -224,8 +230,21 @@ func (s *Service) SendDirect(ctx context.Context, senderID, recipientID, body, c
 // ErrRequestPending or ErrClosed. In a group there is no other member, no block applies and no
 // request: after the limits only membership is checked again, under the conversation's lock.
 func (s *Service) Send(ctx context.Context, senderID, conversationID, body, clientID string) (domain.Sent, error) {
-	text, err := NormalizeBody(body)
+	return s.SendWithAttachments(ctx, senderID, conversationID, &body, clientID, nil)
+}
+
+// SendWithAttachments is Send with files from UploadAttachment (FR-16.7). body may be nil, or
+// blank, when attachmentIDs is not empty. The IDs are checked first (ErrInvalidAttachment: more
+// than MaxAttachmentsPerMessage, a repeat, or not a UUID), with the body; then the checks of
+// Send in its order; then, in the send's transaction, each attachment must be the sender's, of
+// this conversation, unused, unexpired and not blocked or failed by its scan, else
+// ErrInvalidAttachment and nothing is stored.
+func (s *Service) SendWithAttachments(ctx context.Context, senderID, conversationID string, body *string, clientID string, attachmentIDs []string) (domain.Sent, error) {
+	text, err := normalizeWithAttachments(body, len(attachmentIDs) > 0)
 	if err != nil {
+		return domain.Sent{}, err
+	}
+	if err := checkAttachmentIDs(attachmentIDs); err != nil {
 		return domain.Sent{}, err
 	}
 	c, err := s.store.FindConversation(ctx, conversationID, senderID)
@@ -242,7 +261,7 @@ func (s *Service) Send(ctx context.Context, senderID, conversationID, body, clie
 		return domain.Sent{}, err
 	}
 	if c.IsGroup() {
-		return s.sendInGroup(ctx, conversationID, senderID, text, clientID)
+		return s.sendInGroup(ctx, conversationID, senderID, text, clientID, attachmentIDs)
 	}
 	visible, err := s.store.UserVisible(ctx, c.OtherID)
 	if err != nil {
@@ -269,14 +288,14 @@ func (s *Service) Send(ctx context.Context, senderID, conversationID, body, clie
 		if err := s.admit(ctx, &locked, senderID, c.OtherID); err != nil {
 			return err
 		}
-		sent, err = s.add(ctx, locked, senderID, text, clientID)
+		sent, err = s.add(ctx, locked, senderID, text, clientID, attachmentIDs)
 		return err
 	})
 	return s.finish(ctx, sent, err, []string{c.OtherID}, senderID, clientID, false)
 }
 
 // sendInGroup stores a message in a group and tells every other current member.
-func (s *Service) sendInGroup(ctx context.Context, conversationID, senderID, text, clientID string) (domain.Sent, error) {
+func (s *Service) sendInGroup(ctx context.Context, conversationID, senderID string, text *string, clientID string, attachmentIDs []string) (domain.Sent, error) {
 	var (
 		sent domain.Sent
 		to   []string
@@ -289,7 +308,7 @@ func (s *Service) sendInGroup(ctx context.Context, conversationID, senderID, tex
 		if err != nil {
 			return err
 		}
-		if sent, err = s.add(ctx, locked, senderID, text, clientID); err != nil {
+		if sent, err = s.add(ctx, locked, senderID, text, clientID, attachmentIDs); err != nil {
 			return err
 		}
 		to, err = s.others(ctx, conversationID, senderID)
@@ -396,6 +415,11 @@ func (s *Service) replay(ctx context.Context, senderID, clientID string) (domain
 	if err != nil {
 		return domain.Sent{}, false, err
 	}
+	if found {
+		if err := s.withAttachments(ctx, sent.Message.ConversationID, []*domain.Message{&sent.Message}); err != nil {
+			return domain.Sent{}, false, err
+		}
+	}
 	sent.Replayed = found
 	return sent, found, nil
 }
@@ -424,14 +448,28 @@ func (s *Service) admit(ctx context.Context, c *domain.Conversation, senderID, o
 	return nil
 }
 
-// add stores the message in c.
-func (s *Service) add(ctx context.Context, c domain.Conversation, senderID, text, clientID string) (domain.Sent, error) {
-	m, added, err := s.store.AddMessage(ctx, domain.Message{ConversationID: c.ID, SenderID: senderID, Body: &text, ClientID: clientID})
+// add stores the message in c and ties its attachments to it, in the caller's transaction.
+func (s *Service) add(ctx context.Context, c domain.Conversation, senderID string, text *string, clientID string, attachmentIDs []string) (domain.Sent, error) {
+	m, added, err := s.store.AddMessage(ctx, domain.Message{
+		ConversationID: c.ID, SenderID: senderID, Body: text, ClientID: clientID, HasAttachments: len(attachmentIDs) > 0,
+	})
 	if err != nil {
 		return domain.Sent{}, err
 	}
 	if !added {
 		return domain.Sent{}, errDuplicate
+	}
+	if len(attachmentIDs) > 0 {
+		n, err := s.store.ClaimAttachments(ctx, attachmentIDs, senderID, c.ID, m.ID)
+		if err != nil {
+			return domain.Sent{}, err
+		}
+		if n != len(attachmentIDs) {
+			return domain.Sent{}, domain.ErrInvalidAttachment
+		}
+		if err := s.withAttachments(ctx, c.ID, []*domain.Message{&m}); err != nil {
+			return domain.Sent{}, err
+		}
 	}
 	return domain.Sent{Message: m, State: c.State}, nil
 }
@@ -683,6 +721,13 @@ func (s *Service) Messages(ctx context.Context, userID, id, before string, limit
 		items = items[:limit]
 		last := items[limit-1].ID
 		next = &last
+	}
+	ptrs := make([]*domain.Message, len(items))
+	for i := range items {
+		ptrs[i] = &items[i]
+	}
+	if err := s.withAttachments(ctx, id, ptrs); err != nil {
+		return domain.MessagePage{}, err
 	}
 	page := domain.MessagePage{Items: items, NextBefore: next, OtherReadID: c.OtherReadID}
 	if c.IsGroup() {

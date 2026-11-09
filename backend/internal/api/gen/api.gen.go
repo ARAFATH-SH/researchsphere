@@ -24,6 +24,30 @@ const (
 	CookieAuthScopes cookieAuthContextKey = "cookieAuth.Scopes"
 )
 
+// Defines values for AttachmentStatus.
+const (
+	Clean    AttachmentStatus = "clean"
+	Failed   AttachmentStatus = "failed"
+	Infected AttachmentStatus = "infected"
+	Pending  AttachmentStatus = "pending"
+)
+
+// Valid indicates whether the value is a known member of the AttachmentStatus enum.
+func (e AttachmentStatus) Valid() bool {
+	switch e {
+	case Clean:
+		return true
+	case Failed:
+		return true
+	case Infected:
+		return true
+	case Pending:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ConnectionConflictCode.
 const (
 	AlreadyConnected       ConnectionConflictCode = "already_connected"
@@ -432,6 +456,7 @@ func (e ModerationLinkedReportOutcome) Valid() bool {
 // Defines values for NotificationType.
 const (
 	NotificationTypeAccountWarning            NotificationType = "account_warning"
+	NotificationTypeAttachmentBlocked         NotificationType = "attachment_blocked"
 	NotificationTypeConnectionRequestAccepted NotificationType = "connection_request_accepted"
 	NotificationTypeConnectionRequestReceived NotificationType = "connection_request_received"
 	NotificationTypeGroupAdded                NotificationType = "group_added"
@@ -441,6 +466,8 @@ const (
 func (e NotificationType) Valid() bool {
 	switch e {
 	case NotificationTypeAccountWarning:
+		return true
+	case NotificationTypeAttachmentBlocked:
 		return true
 	case NotificationTypeConnectionRequestAccepted:
 		return true
@@ -566,6 +593,7 @@ func (e RealtimeConversationMembersChange) Valid() bool {
 
 // Defines values for RealtimeEventType.
 const (
+	AttachmentUpdated   RealtimeEventType = "attachment.updated"
 	ConversationMembers RealtimeEventType = "conversation.members"
 	ConversationRead    RealtimeEventType = "conversation.read"
 	ConversationUpdated RealtimeEventType = "conversation.updated"
@@ -582,6 +610,8 @@ const (
 // Valid indicates whether the value is a known member of the RealtimeEventType enum.
 func (e RealtimeEventType) Valid() bool {
 	switch e {
+	case AttachmentUpdated:
+		return true
 	case ConversationMembers:
 		return true
 	case ConversationRead:
@@ -797,6 +827,47 @@ type AdminUser struct {
 
 	// Verified The email address is verified (FR-1.4).
 	Verified bool `json:"verified"`
+}
+
+// Attachment defines model for Attachment.
+type Attachment struct {
+	// ContentType The type found from the content, one of the allowed types.
+	ContentType string `json:"contentType"`
+
+	// Id Download it with `GET /attachments/{id}`.
+	Id openapi_types.UUID `json:"id"`
+
+	// Name The file's name for display, cleaned up; at most 200 characters.
+	Name string `json:"name"`
+
+	// Size Bytes as stored (an image after it was encoded again).
+	Size int64 `json:"size"`
+
+	// Status The malware scan (FR-16.7). `pending`: not scanned yet; nobody can download it.
+	// `clean`: it can be downloaded. `infected`: malware was found and the file deleted.
+	// `failed`: the scanner could not read the file; it will not be served.
+	Status AttachmentStatus `json:"status"`
+}
+
+// AttachmentStatus The malware scan (FR-16.7). `pending`: not scanned yet; nobody can download it.
+// `clean`: it can be downloaded. `infected`: malware was found and the file deleted.
+// `failed`: the scanner could not read the file; it will not be served.
+type AttachmentStatus string
+
+// AttachmentUpload defines model for AttachmentUpload.
+type AttachmentUpload struct {
+	ContentType string `json:"contentType"`
+
+	// ExpiresAt The attachment is deleted when it has not been sent by then.
+	ExpiresAt time.Time          `json:"expiresAt"`
+	Id        openapi_types.UUID `json:"id"`
+	Name      string             `json:"name"`
+	Size      int64              `json:"size"`
+
+	// Status The malware scan (FR-16.7). `pending`: not scanned yet; nobody can download it.
+	// `clean`: it can be downloaded. `infected`: malware was found and the file deleted.
+	// `failed`: the scanner could not read the file; it will not be served.
+	Status AttachmentStatus `json:"status"`
 }
 
 // Birthday A birthday without a year. `day` is a real day of `month`; 29 February is allowed.
@@ -1394,6 +1465,9 @@ type Me struct {
 
 // Message defines model for Message.
 type Message struct {
+	// Attachments The message's files in order (FR-16.7); empty when none and for a deleted message.
+	Attachments []Attachment `json:"attachments"`
+
 	// Body The latest text. Null for a deleted message and for a system message; only
 	// `deleted` says a message was deleted, as a later message may have no text.
 	Body           *string            `json:"body"`
@@ -1443,6 +1517,9 @@ type MessagePage struct {
 
 // MessagePreview defines model for MessagePreview.
 type MessagePreview struct {
+	// AttachmentCount How many files the latest message carries; 0 when deleted. A message may have files and no text.
+	AttachmentCount int `json:"attachmentCount"`
+
 	// Body The first 120 characters of the message's latest text; null when deleted and for a system message.
 	Body      *string   `json:"body"`
 	CreatedAt time.Time `json:"createdAt"`
@@ -1643,7 +1720,8 @@ type Notification struct {
 
 	// Link The web client path of the item it is about (FR-9.5):
 	// `/network` for a received request, `/profile/{actorId}` for an accepted one,
-	// `/warnings/{warningId}` for a warning, `/messaging/{conversationId}` for a group.
+	// `/warnings/{warningId}` for a warning, `/messaging/{conversationId}` for a group
+	// and for a blocked attachment.
 	Link string `json:"link"`
 	Read bool   `json:"read"`
 
@@ -1658,7 +1736,9 @@ type Notification struct {
 	// connection request. `connection_request_accepted`: the actor accepted the caller's
 	// request. `account_warning`: an administrator warned the caller; a system notification,
 	// with no actor. `group_added`: the actor, the group's owner, added the caller to a
-	// group (FR-16.6). Later slices add the project, comment and like types.
+	// group (FR-16.6). `attachment_blocked`: the malware scan found something in a file the
+	// caller attached, and it was deleted (FR-16.7); a system notification, with no actor.
+	// Later slices add the project, comment and like types.
 	Type NotificationType `json:"type"`
 }
 
@@ -1684,7 +1764,9 @@ type NotificationPage struct {
 // connection request. `connection_request_accepted`: the actor accepted the caller's
 // request. `account_warning`: an administrator warned the caller; a system notification,
 // with no actor. `group_added`: the actor, the group's owner, added the caller to a
-// group (FR-16.6). Later slices add the project, comment and like types.
+// group (FR-16.6). `attachment_blocked`: the malware scan found something in a file the
+// caller attached, and it was deleted (FR-16.7); a system notification, with no actor.
+// Later slices add the project, comment and like types.
 type NotificationType string
 
 // NotificationsMarked defines model for NotificationsMarked.
@@ -2187,6 +2269,20 @@ type PublicationUpdate struct {
 	Year     nullable.Nullable[int]    `json:"year,omitempty"`
 }
 
+// RealtimeAttachmentUpdated An attachment's malware scan finished (FR-16.7). Sent to the members who can see its
+// message and to the uploader; before it is sent, only to the uploader, with a null
+// `messageId`.
+type RealtimeAttachmentUpdated struct {
+	AttachmentId   openapi_types.UUID  `json:"attachmentId"`
+	ConversationId openapi_types.UUID  `json:"conversationId"`
+	MessageId      *openapi_types.UUID `json:"messageId"`
+
+	// Status The malware scan (FR-16.7). `pending`: not scanned yet; nobody can download it.
+	// `clean`: it can be downloaded. `infected`: malware was found and the file deleted.
+	// `failed`: the scanner could not read the file; it will not be served.
+	Status AttachmentStatus `json:"status"`
+}
+
 // RealtimeClientEvent One client-to-server WebSocket frame, as JSON text, at most 4 KB. Anything else is
 // ignored.
 type RealtimeClientEvent struct {
@@ -2238,7 +2334,7 @@ type RealtimeConversationUpdated struct {
 }
 
 // RealtimeEvent One server-to-client WebSocket frame, as JSON text. `data` is `RealtimeMessageCreated`,
-// `RealtimeMessageUpdated`, `RealtimeMessageDeleted`, `RealtimeConversationRead`, `RealtimeConversationUpdated`, `RealtimeConversationMembers`, `MessageUnreadCount`,
+// `RealtimeMessageUpdated`, `RealtimeMessageDeleted`, `RealtimeAttachmentUpdated`, `RealtimeConversationRead`, `RealtimeConversationUpdated`, `RealtimeConversationMembers`, `MessageUnreadCount`,
 // `RealtimeTyping`, `PresenceStatus`, `Notification` or `UnreadNotificationCount`,
 // by `type`.
 type RealtimeEvent struct {
@@ -2324,6 +2420,10 @@ type ReportReason string
 // at the report's moment and the texts shown before it. Text written after the report is
 // never shown; `changedAfterReport` only says there was some.
 type ReportedMessage struct {
+	// Attachments The message's files with their scan status, also for a message deleted later. A clean
+	// one can be downloaded with `getReportedAttachment`.
+	Attachments []Attachment `json:"attachments"`
+
 	// Body The text shown at the report's moment; null when the message was deleted by then.
 	Body *string `json:"body"`
 
@@ -2424,8 +2524,12 @@ type SendDirectMessageRequest struct {
 
 // SendMessageRequest defines model for SendMessageRequest.
 type SendMessageRequest struct {
-	// Body 1 to 5,000 characters after trimming; line breaks are kept.
-	Body string `json:"body"`
+	// AttachmentIds Files from `uploadAttachment` to send with the message, in order (FR-16.7).
+	AttachmentIds *[]openapi_types.UUID `json:"attachmentIds,omitempty"`
+
+	// Body 1 to 5,000 characters after trimming; line breaks are kept. May be left out when
+	// `attachmentIds` is not empty.
+	Body *string `json:"body,omitempty"`
 
 	// ClientId Made by the client for each new message and sent again on a retry, so a retry stores nothing new.
 	ClientId openapi_types.UUID `json:"clientId"`
@@ -2551,6 +2655,9 @@ type YearMonth struct {
 	Year int `json:"year"`
 }
 
+// AttachmentId defines model for AttachmentId.
+type AttachmentId = string
+
 // ConnectionListPage defines model for ConnectionListPage.
 type ConnectionListPage = int
 
@@ -2613,6 +2720,15 @@ type WarningId = string
 
 // AccountSuspendedOrForbidden The shape of every error response (SRS 5.3).
 type AccountSuspendedOrForbidden = Error
+
+// AttachmentNotReady The shape of every error response (SRS 5.3).
+type AttachmentNotReady = Error
+
+// AttachmentRateLimited The shape of every error response (SRS 5.3).
+type AttachmentRateLimited = Error
+
+// AttachmentRemoved The shape of every error response (SRS 5.3).
+type AttachmentRemoved = Error
 
 // DOINotFound The shape of every error response (SRS 5.3).
 type DOINotFound = Error
@@ -2713,6 +2829,9 @@ type SearchRateLimited = Error
 // Unauthorized The shape of every error response (SRS 5.3).
 type Unauthorized = Error
 
+// UnsupportedAttachmentType The shape of every error response (SRS 5.3).
+type UnsupportedAttachmentType = Error
+
 // UnsupportedImageType The shape of every error response (SRS 5.3).
 type UnsupportedImageType = Error
 
@@ -2808,6 +2927,11 @@ type ListConversationsParams struct {
 	// Limit Items to return, from 1. Defaults to 20. A larger value than 50 is reduced to
 	// 50; a value below 1 gets 400 `bad_request`.
 	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// UploadAttachmentMultipartBody defines parameters for UploadAttachment.
+type UploadAttachmentMultipartBody struct {
+	File openapi_types.File `json:"file"`
 }
 
 // ListMessagesParams defines parameters for ListMessages.
@@ -2980,6 +3104,9 @@ type CreateGroupJSONRequestBody = CreateGroupRequest
 // RenameGroupJSONRequestBody defines body for RenameGroup for application/json ContentType.
 type RenameGroupJSONRequestBody = RenameGroupRequest
 
+// UploadAttachmentMultipartRequestBody defines body for UploadAttachment for multipart/form-data ContentType.
+type UploadAttachmentMultipartRequestBody UploadAttachmentMultipartBody
+
 // AddGroupMembersJSONRequestBody defines body for AddGroupMembers for application/json ContentType.
 type AddGroupMembersJSONRequestBody = AddGroupMembersRequest
 
@@ -3063,6 +3190,9 @@ type ServerInterface interface {
 	// GetMessageReport Read a report and its conversation up to the report (FR-16.9, NFR-14)
 	// (GET /admin/message-reports/{reportId})
 	GetMessageReport(w http.ResponseWriter, r *http.Request, reportId ReportId, params GetMessageReportParams)
+	// GetReportedAttachment Download an attachment of a reported conversation (FR-16.7, FR-16.9, NFR-14)
+	// (GET /admin/message-reports/{reportId}/attachments/{attachmentId})
+	GetReportedAttachment(w http.ResponseWriter, r *http.Request, reportId ReportId, attachmentId AttachmentId)
 	// ResolveMessageReport Close a report with an outcome (FR-16.9)
 	// (POST /admin/message-reports/{reportId}/resolve)
 	ResolveMessageReport(w http.ResponseWriter, r *http.Request, reportId ReportId)
@@ -3087,6 +3217,9 @@ type ServerInterface interface {
 	// WarnUser Warn a user (FR-15.5)
 	// (POST /admin/users/{userId}/warnings)
 	WarnUser(w http.ResponseWriter, r *http.Request, userId ModeratedUserId)
+	// GetAttachment Download an attachment after a permission check (FR-16.7, NFR-13, NFR-14)
+	// (GET /attachments/{attachmentId})
+	GetAttachment(w http.ResponseWriter, r *http.Request, attachmentId AttachmentId)
 	// LoginUser Log in with email address and password (FR-2.1, FR-1.4, FR-3.4)
 	// (POST /auth/login)
 	LoginUser(w http.ResponseWriter, r *http.Request)
@@ -3165,6 +3298,9 @@ type ServerInterface interface {
 	// AcceptMessageRequest Accept a message request (FR-16.2)
 	// (POST /conversations/{conversationId}/accept)
 	AcceptMessageRequest(w http.ResponseWriter, r *http.Request, conversationId ConversationId)
+	// UploadAttachment Upload a file to send with a message later (FR-16.7, NFR-13)
+	// (POST /conversations/{conversationId}/attachments)
+	UploadAttachment(w http.ResponseWriter, r *http.Request, conversationId ConversationId)
 	// DeclineMessageRequest Decline a message request (FR-16.2)
 	// (POST /conversations/{conversationId}/decline)
 	DeclineMessageRequest(w http.ResponseWriter, r *http.Request, conversationId ConversationId)
@@ -3479,6 +3615,47 @@ func (siw *ServerInterfaceWrapper) GetMessageReport(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// GetReportedAttachment operation middleware
+func (siw *ServerInterfaceWrapper) GetReportedAttachment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "reportId" -------------
+	var reportId ReportId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "reportId", r.PathValue("reportId"), &reportId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "reportId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "attachmentId" -------------
+	var attachmentId AttachmentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "attachmentId", r.PathValue("attachmentId"), &attachmentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "attachmentId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetReportedAttachment(w, r, reportId, attachmentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ResolveMessageReport operation middleware
 func (siw *ServerInterfaceWrapper) ResolveMessageReport(w http.ResponseWriter, r *http.Request) {
 
@@ -3762,6 +3939,38 @@ func (siw *ServerInterfaceWrapper) WarnUser(w http.ResponseWriter, r *http.Reque
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.WarnUser(w, r, userId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetAttachment operation middleware
+func (siw *ServerInterfaceWrapper) GetAttachment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "attachmentId" -------------
+	var attachmentId AttachmentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "attachmentId", r.PathValue("attachmentId"), &attachmentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "attachmentId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAttachment(w, r, attachmentId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4514,6 +4723,38 @@ func (siw *ServerInterfaceWrapper) AcceptMessageRequest(w http.ResponseWriter, r
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.AcceptMessageRequest(w, r, conversationId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UploadAttachment operation middleware
+func (siw *ServerInterfaceWrapper) UploadAttachment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "conversationId" -------------
+	var conversationId ConversationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "conversationId", r.PathValue("conversationId"), &conversationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "conversationId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UploadAttachment(w, r, conversationId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6533,6 +6774,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/admin/users", wrapper.ListUsers)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/admin/message-reports", wrapper.ListMessageReports)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/admin/message-reports/{reportId}", wrapper.GetMessageReport)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/admin/message-reports/{reportId}/attachments/{attachmentId}", wrapper.GetReportedAttachment)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/admin/message-reports/{reportId}/resolve", wrapper.ResolveMessageReport)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/admin/users/{userId}/warnings", wrapper.WarnUser)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/admin/users/{userId}/restrictions", wrapper.RestrictUser)
@@ -6607,6 +6849,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/conversations/{conversationId}/leave", wrapper.LeaveGroup)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/conversations/{conversationId}/messages", wrapper.ListMessages)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/conversations/{conversationId}/messages", wrapper.SendMessage)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/conversations/{conversationId}/attachments", wrapper.UploadAttachment)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/attachments/{attachmentId}", wrapper.GetAttachment)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/conversations/{conversationId}/messages/{messageId}", wrapper.DeleteMessage)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/conversations/{conversationId}/messages/{messageId}", wrapper.EditMessage)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/conversations/{conversationId}/read", wrapper.MarkConversationRead)
@@ -6621,6 +6865,28 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 }
 
 type AccountSuspendedOrForbiddenJSONResponse Error
+
+type AttachmentNotReadyJSONResponse Error
+
+type AttachmentRateLimitedResponseHeaders struct {
+	RetryAfter int
+}
+type AttachmentRateLimitedJSONResponse struct {
+	Body Error
+
+	Headers AttachmentRateLimitedResponseHeaders
+}
+
+type AttachmentRedirectResponseHeaders struct {
+	CacheControl        string
+	Location            string
+	XContentTypeOptions string
+}
+type AttachmentRedirectResponse struct {
+	Headers AttachmentRedirectResponseHeaders
+}
+
+type AttachmentRemovedJSONResponse Error
 
 type DOINotFoundJSONResponse Error
 
@@ -6722,6 +6988,8 @@ type SearchRateLimitedJSONResponse struct {
 }
 
 type UnauthorizedJSONResponse Error
+
+type UnsupportedAttachmentTypeJSONResponse Error
 
 type UnsupportedImageTypeJSONResponse Error
 
@@ -6998,6 +7266,109 @@ func (response GetMessageReport404JSONResponse) VisitGetMessageReportResponse(w 
 type GetMessageReport500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response GetMessageReport500JSONResponse) VisitGetMessageReportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetReportedAttachmentRequestObject struct {
+	ReportId     ReportId     `json:"reportId"`
+	AttachmentId AttachmentId `json:"attachmentId"`
+}
+
+type GetReportedAttachmentResponseObject interface {
+	VisitGetReportedAttachmentResponse(w http.ResponseWriter) error
+}
+
+type GetReportedAttachment302Response = AttachmentRedirectResponse
+
+func (response GetReportedAttachment302Response) VisitGetReportedAttachmentResponse(w http.ResponseWriter) error {
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.Header().Set("Location", fmt.Sprint(response.Headers.Location))
+	w.Header().Set("X-Content-Type-Options", fmt.Sprint(response.Headers.XContentTypeOptions))
+	w.WriteHeader(302)
+	return nil
+}
+
+type GetReportedAttachment401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetReportedAttachment401JSONResponse) VisitGetReportedAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetReportedAttachment403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetReportedAttachment403JSONResponse) VisitGetReportedAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetReportedAttachment404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetReportedAttachment404JSONResponse) VisitGetReportedAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetReportedAttachment409JSONResponse struct{ AttachmentNotReadyJSONResponse }
+
+func (response GetReportedAttachment409JSONResponse) VisitGetReportedAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetReportedAttachment410JSONResponse struct{ AttachmentRemovedJSONResponse }
+
+func (response GetReportedAttachment410JSONResponse) VisitGetReportedAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(410)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetReportedAttachment500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response GetReportedAttachment500JSONResponse) VisitGetReportedAttachmentResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -7815,6 +8186,108 @@ func (response WarnUser409JSONResponse) VisitWarnUserResponse(w http.ResponseWri
 type WarnUser500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response WarnUser500JSONResponse) VisitWarnUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAttachmentRequestObject struct {
+	AttachmentId AttachmentId `json:"attachmentId"`
+}
+
+type GetAttachmentResponseObject interface {
+	VisitGetAttachmentResponse(w http.ResponseWriter) error
+}
+
+type GetAttachment302Response = AttachmentRedirectResponse
+
+func (response GetAttachment302Response) VisitGetAttachmentResponse(w http.ResponseWriter) error {
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.Header().Set("Location", fmt.Sprint(response.Headers.Location))
+	w.Header().Set("X-Content-Type-Options", fmt.Sprint(response.Headers.XContentTypeOptions))
+	w.WriteHeader(302)
+	return nil
+}
+
+type GetAttachment401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetAttachment401JSONResponse) VisitGetAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAttachment403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetAttachment403JSONResponse) VisitGetAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAttachment404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetAttachment404JSONResponse) VisitGetAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAttachment409JSONResponse struct{ AttachmentNotReadyJSONResponse }
+
+func (response GetAttachment409JSONResponse) VisitGetAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAttachment410JSONResponse struct{ AttachmentRemovedJSONResponse }
+
+func (response GetAttachment410JSONResponse) VisitGetAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(410)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAttachment500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response GetAttachment500JSONResponse) VisitGetAttachmentResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -9751,6 +10224,160 @@ func (response AcceptMessageRequest404JSONResponse) VisitAcceptMessageRequestRes
 type AcceptMessageRequest500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response AcceptMessageRequest500JSONResponse) VisitAcceptMessageRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadAttachmentRequestObject struct {
+	ConversationId ConversationId `json:"conversationId"`
+	Body           *multipart.Reader
+}
+
+type UploadAttachmentResponseObject interface {
+	VisitUploadAttachmentResponse(w http.ResponseWriter) error
+}
+
+type UploadAttachment201JSONResponse AttachmentUpload
+
+func (response UploadAttachment201JSONResponse) VisitUploadAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadAttachment400JSONResponse struct{ InvalidImageJSONResponse }
+
+func (response UploadAttachment400JSONResponse) VisitUploadAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadAttachment401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response UploadAttachment401JSONResponse) VisitUploadAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadAttachment403JSONResponse struct{ MessageForbiddenJSONResponse }
+
+func (response UploadAttachment403JSONResponse) VisitUploadAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadAttachment404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response UploadAttachment404JSONResponse) VisitUploadAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadAttachment409JSONResponse struct{ MessageRefusedJSONResponse }
+
+func (response UploadAttachment409JSONResponse) VisitUploadAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadAttachment413JSONResponse struct{ FileTooLargeJSONResponse }
+
+func (response UploadAttachment413JSONResponse) VisitUploadAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(413)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadAttachment415JSONResponse struct {
+	UnsupportedAttachmentTypeJSONResponse
+}
+
+func (response UploadAttachment415JSONResponse) VisitUploadAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(415)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadAttachment429JSONResponse struct {
+	AttachmentRateLimitedJSONResponse
+}
+
+func (response UploadAttachment429JSONResponse) VisitUploadAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadAttachment500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response UploadAttachment500JSONResponse) VisitUploadAttachmentResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -15188,6 +15815,9 @@ type StrictServerInterface interface {
 	// GetMessageReport Read a report and its conversation up to the report (FR-16.9, NFR-14)
 	// (GET /admin/message-reports/{reportId})
 	GetMessageReport(ctx context.Context, request GetMessageReportRequestObject) (GetMessageReportResponseObject, error)
+	// GetReportedAttachment Download an attachment of a reported conversation (FR-16.7, FR-16.9, NFR-14)
+	// (GET /admin/message-reports/{reportId}/attachments/{attachmentId})
+	GetReportedAttachment(ctx context.Context, request GetReportedAttachmentRequestObject) (GetReportedAttachmentResponseObject, error)
 	// ResolveMessageReport Close a report with an outcome (FR-16.9)
 	// (POST /admin/message-reports/{reportId}/resolve)
 	ResolveMessageReport(ctx context.Context, request ResolveMessageReportRequestObject) (ResolveMessageReportResponseObject, error)
@@ -15212,6 +15842,9 @@ type StrictServerInterface interface {
 	// WarnUser Warn a user (FR-15.5)
 	// (POST /admin/users/{userId}/warnings)
 	WarnUser(ctx context.Context, request WarnUserRequestObject) (WarnUserResponseObject, error)
+	// GetAttachment Download an attachment after a permission check (FR-16.7, NFR-13, NFR-14)
+	// (GET /attachments/{attachmentId})
+	GetAttachment(ctx context.Context, request GetAttachmentRequestObject) (GetAttachmentResponseObject, error)
 	// LoginUser Log in with email address and password (FR-2.1, FR-1.4, FR-3.4)
 	// (POST /auth/login)
 	LoginUser(ctx context.Context, request LoginUserRequestObject) (LoginUserResponseObject, error)
@@ -15290,6 +15923,9 @@ type StrictServerInterface interface {
 	// AcceptMessageRequest Accept a message request (FR-16.2)
 	// (POST /conversations/{conversationId}/accept)
 	AcceptMessageRequest(ctx context.Context, request AcceptMessageRequestRequestObject) (AcceptMessageRequestResponseObject, error)
+	// UploadAttachment Upload a file to send with a message later (FR-16.7, NFR-13)
+	// (POST /conversations/{conversationId}/attachments)
+	UploadAttachment(ctx context.Context, request UploadAttachmentRequestObject) (UploadAttachmentResponseObject, error)
 	// DeclineMessageRequest Decline a message request (FR-16.2)
 	// (POST /conversations/{conversationId}/decline)
 	DeclineMessageRequest(ctx context.Context, request DeclineMessageRequestRequestObject) (DeclineMessageRequestResponseObject, error)
@@ -15598,6 +16234,33 @@ func (sh *strictHandler) GetMessageReport(w http.ResponseWriter, r *http.Request
 	}
 }
 
+// GetReportedAttachment operation middleware
+func (sh *strictHandler) GetReportedAttachment(w http.ResponseWriter, r *http.Request, reportId ReportId, attachmentId AttachmentId) {
+	var request GetReportedAttachmentRequestObject
+
+	request.ReportId = reportId
+	request.AttachmentId = attachmentId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetReportedAttachment(ctx, request.(GetReportedAttachmentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetReportedAttachment")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetReportedAttachmentResponseObject); ok {
+		if err := validResponse.VisitGetReportedAttachmentResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ResolveMessageReport operation middleware
 func (sh *strictHandler) ResolveMessageReport(w http.ResponseWriter, r *http.Request, reportId ReportId) {
 	var request ResolveMessageReportRequestObject
@@ -15842,6 +16505,32 @@ func (sh *strictHandler) WarnUser(w http.ResponseWriter, r *http.Request, userId
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(WarnUserResponseObject); ok {
 		if err := validResponse.VisitWarnUserResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetAttachment operation middleware
+func (sh *strictHandler) GetAttachment(w http.ResponseWriter, r *http.Request, attachmentId AttachmentId) {
+	var request GetAttachmentRequestObject
+
+	request.AttachmentId = attachmentId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetAttachment(ctx, request.(GetAttachmentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetAttachment")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetAttachmentResponseObject); ok {
+		if err := validResponse.VisitGetAttachmentResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -16575,6 +17264,39 @@ func (sh *strictHandler) AcceptMessageRequest(w http.ResponseWriter, r *http.Req
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(AcceptMessageRequestResponseObject); ok {
 		if err := validResponse.VisitAcceptMessageRequestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UploadAttachment operation middleware
+func (sh *strictHandler) UploadAttachment(w http.ResponseWriter, r *http.Request, conversationId ConversationId) {
+	var request UploadAttachmentRequestObject
+
+	request.ConversationId = conversationId
+
+	if reader, err := r.MultipartReader(); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode multipart body: %w", err))
+		return
+	} else {
+		request.Body = reader
+	}
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UploadAttachment(ctx, request.(UploadAttachmentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UploadAttachment")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UploadAttachmentResponseObject); ok {
+		if err := validResponse.VisitUploadAttachmentResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

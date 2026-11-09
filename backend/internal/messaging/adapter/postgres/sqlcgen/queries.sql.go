@@ -122,6 +122,52 @@ func (q *Queries) AnswerRequest(ctx context.Context, arg AnswerRequestParams) (p
 	return requested_by, err
 }
 
+const claimAttachments = `-- name: ClaimAttachments :many
+UPDATE message_attachments a
+SET message_id = $1, position = (ids.ord - 1)::smallint
+FROM unnest($4::uuid[]) WITH ORDINALITY AS ids(id, ord), stored_files f
+WHERE a.file_id = ids.id AND f.id = a.file_id
+  AND a.uploader_id = $2 AND a.conversation_id = $3
+  AND a.message_id IS NULL AND a.expires_at > now()
+  AND f.scan_status IN ('pending', 'clean')
+RETURNING a.file_id
+`
+
+type ClaimAttachmentsParams struct {
+	MessageID      pgtype.UUID
+	UploaderID     pgtype.UUID
+	ConversationID pgtype.UUID
+	Ids            []pgtype.UUID
+}
+
+// Ties the sender's unused attachments of this conversation to the message, in the order given.
+// An expired one, or one the scan blocked or could not read, is not taken: the usecase compares
+// the count and rolls back.
+func (q *Queries) ClaimAttachments(ctx context.Context, arg ClaimAttachmentsParams) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, claimAttachments,
+		arg.MessageID,
+		arg.UploaderID,
+		arg.ConversationID,
+		arg.Ids,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var file_id pgtype.UUID
+		if err := rows.Scan(&file_id); err != nil {
+			return nil, err
+		}
+		items = append(items, file_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const countPendingRequests = `-- name: CountPendingRequests :one
 SELECT count(*)
 FROM conversation_members me
@@ -224,6 +270,27 @@ func (q *Queries) DeclineRequestBetween(ctx context.Context, arg DeclineRequestB
 	return err
 }
 
+const deleteExpiredAttachments = `-- name: DeleteExpiredAttachments :execrows
+DELETE FROM message_attachments
+WHERE file_id IN (
+    SELECT file_id FROM message_attachments
+    WHERE message_id IS NULL AND expires_at <= now()
+    ORDER BY expires_at
+    LIMIT $1
+    FOR UPDATE SKIP LOCKED
+)
+`
+
+// Unused attachments past their expiry. The trigger of 000024 deletes the stored file, whose
+// trigger queues the object.
+func (q *Queries) DeleteExpiredAttachments(ctx context.Context, maxRows int32) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteExpiredAttachments, maxRows)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteMessage = `-- name: DeleteMessage :one
 WITH old AS (
     SELECT m.id, m.conversation_id, m.body, COALESCE(m.edited_at, m.created_at) AS shown_from,
@@ -233,12 +300,13 @@ WITH old AS (
 ), kept AS (
     INSERT INTO message_versions (conversation_id, message_id, body, shown_from, shown_until, ended_by)
     SELECT old.conversation_id, old.id, old.body, old.shown_from, old.instant, 'deleted' FROM old
+    WHERE old.body IS NOT NULL -- a message with only attachments had no text to keep
 )
 UPDATE messages m
 SET body = NULL, deleted_at = old.instant
 FROM old
 WHERE m.id = old.id
-RETURNING m.id, m.conversation_id, m.sender_id, m.body, m.client_id, m.created_at, m.edited_at, m.deleted_at, m.kind, m.event, m.event_data
+RETURNING m.id, m.conversation_id, m.sender_id, m.body, m.client_id, m.created_at, m.edited_at, m.deleted_at, m.kind, m.event, m.event_data, m.has_attachments
 `
 
 // Leaves a tombstone and keeps the last text in message_versions, as EditMessage does.
@@ -257,6 +325,7 @@ func (q *Queries) DeleteMessage(ctx context.Context, id pgtype.UUID) (Message, e
 		&i.Kind,
 		&i.Event,
 		&i.EventData,
+		&i.HasAttachments,
 	)
 	return i, err
 }
@@ -306,12 +375,13 @@ WITH old AS (
 ), kept AS (
     INSERT INTO message_versions (conversation_id, message_id, body, shown_from, shown_until, ended_by)
     SELECT old.conversation_id, old.id, old.body, old.shown_from, old.instant, 'edited' FROM old
+    WHERE old.body IS NOT NULL -- a message with only attachments had no text to keep
 )
 UPDATE messages m
 SET body = $1::text, edited_at = old.instant
 FROM old
 WHERE m.id = old.id
-RETURNING m.id, m.conversation_id, m.sender_id, m.body, m.client_id, m.created_at, m.edited_at, m.deleted_at, m.kind, m.event, m.event_data
+RETURNING m.id, m.conversation_id, m.sender_id, m.body, m.client_id, m.created_at, m.edited_at, m.deleted_at, m.kind, m.event, m.event_data, m.has_attachments
 `
 
 type EditMessageParams struct {
@@ -337,6 +407,92 @@ func (q *Queries) EditMessage(ctx context.Context, arg EditMessageParams) (Messa
 		&i.Kind,
 		&i.Event,
 		&i.EventData,
+		&i.HasAttachments,
+	)
+	return i, err
+}
+
+const findAttachment = `-- name: FindAttachment :one
+SELECT a.file_id, a.uploader_id, a.conversation_id, a.message_id, a.name,
+       f.object_key, f.content_type, f.size_bytes, f.scan_status,
+       m.created_at AS message_created_at, (m.deleted_at IS NOT NULL)::boolean AS message_deleted,
+       me.joined_at AS my_joined_at
+FROM message_attachments a
+JOIN stored_files f ON f.id = a.file_id
+LEFT JOIN messages m ON m.conversation_id = a.conversation_id AND m.id = a.message_id
+LEFT JOIN conversation_members me ON me.conversation_id = a.conversation_id AND me.user_id = $1
+WHERE a.file_id = $2
+`
+
+type FindAttachmentParams struct {
+	UserID pgtype.UUID
+	ID     pgtype.UUID
+}
+
+type FindAttachmentRow struct {
+	FileID           pgtype.UUID
+	UploaderID       pgtype.UUID
+	ConversationID   pgtype.UUID
+	MessageID        pgtype.UUID
+	Name             string
+	ObjectKey        string
+	ContentType      string
+	SizeBytes        int64
+	ScanStatus       string
+	MessageCreatedAt pgtype.Timestamptz
+	MessageDeleted   bool
+	MyJoinedAt       pgtype.Timestamptz
+}
+
+// An attachment with what decides who may download it: its message (if sent), and the caller's
+// membership. my_joined_at is null when the caller is not a member now.
+func (q *Queries) FindAttachment(ctx context.Context, arg FindAttachmentParams) (FindAttachmentRow, error) {
+	row := q.db.QueryRow(ctx, findAttachment, arg.UserID, arg.ID)
+	var i FindAttachmentRow
+	err := row.Scan(
+		&i.FileID,
+		&i.UploaderID,
+		&i.ConversationID,
+		&i.MessageID,
+		&i.Name,
+		&i.ObjectKey,
+		&i.ContentType,
+		&i.SizeBytes,
+		&i.ScanStatus,
+		&i.MessageCreatedAt,
+		&i.MessageDeleted,
+		&i.MyJoinedAt,
+	)
+	return i, err
+}
+
+const findAttachmentAudience = `-- name: FindAttachmentAudience :one
+SELECT a.conversation_id, a.message_id, a.uploader_id, m.created_at AS message_created_at,
+       (m.deleted_at IS NOT NULL)::boolean AS message_deleted
+FROM message_attachments a
+LEFT JOIN messages m ON m.conversation_id = a.conversation_id AND m.id = a.message_id
+WHERE a.file_id = $1
+`
+
+type FindAttachmentAudienceRow struct {
+	ConversationID   pgtype.UUID
+	MessageID        pgtype.UUID
+	UploaderID       pgtype.UUID
+	MessageCreatedAt pgtype.Timestamptz
+	MessageDeleted   bool
+}
+
+// Who hears that an attachment's scan finished: its conversation and message, and the time from
+// which a member must have joined to see it.
+func (q *Queries) FindAttachmentAudience(ctx context.Context, fileID pgtype.UUID) (FindAttachmentAudienceRow, error) {
+	row := q.db.QueryRow(ctx, findAttachmentAudience, fileID)
+	var i FindAttachmentAudienceRow
+	err := row.Scan(
+		&i.ConversationID,
+		&i.MessageID,
+		&i.UploaderID,
+		&i.MessageCreatedAt,
+		&i.MessageDeleted,
 	)
 	return i, err
 }
@@ -416,6 +572,7 @@ SELECT c.id, c.kind, c.state, c.requested_by, c.last_message_at, COALESCE(c.name
        lm.sender_id AS last_sender_id, COALESCE(lm.kind, '')::text AS last_kind, lm.event AS last_event,
        COALESCE(lm.preview, '')::text AS last_preview, lm.created_at AS last_created_at,
        COALESCE(lm.deleted, false)::boolean AS last_deleted,
+       COALESCE(lm.attachment_count, 0)::integer AS last_attachment_count,
        unread.n AS unread_count,
        (SELECT count(*) FROM conversation_members gm WHERE c.kind = 'group' AND gm.conversation_id = c.id) AS member_count,
        EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = me.user_id AND b.blocked_id = o.user_id)::boolean AS blocked_by_me,
@@ -426,7 +583,11 @@ LEFT JOIN conversation_members o ON c.kind = 'direct' AND o.conversation_id = c.
 LEFT JOIN users u ON u.id = o.user_id
 LEFT JOIN profiles p ON p.user_id = u.id
 LEFT JOIN LATERAL (
-    SELECT m.sender_id, m.kind, m.event, left(m.body, 120) AS preview, m.created_at, m.deleted_at IS NOT NULL AS deleted
+    SELECT m.sender_id, m.kind, m.event, left(m.body, 120) AS preview, m.created_at, m.deleted_at IS NOT NULL AS deleted,
+           CASE WHEN m.has_attachments AND m.deleted_at IS NULL
+                THEN (SELECT count(*) FROM message_attachments a
+                      WHERE a.conversation_id = m.conversation_id AND a.message_id = m.id)
+                ELSE 0 END AS attachment_count
     FROM messages m WHERE m.conversation_id = c.id AND m.created_at >= me.joined_at
     ORDER BY m.id DESC LIMIT 1
 ) lm ON true
@@ -446,30 +607,31 @@ type FindItemParams struct {
 }
 
 type FindItemRow struct {
-	ID             pgtype.UUID
-	Kind           string
-	State          string
-	RequestedBy    pgtype.UUID
-	LastMessageAt  pgtype.Timestamptz
-	Name           string
-	MyRole         string
-	MyJoinedAt     pgtype.Timestamptz
-	OtherID        pgtype.UUID
-	OtherReadID    pgtype.UUID
-	FullName       string
-	Headline       pgtype.Text
-	PhotoFileID    pgtype.UUID
-	OtherAvailable bool
-	LastSenderID   pgtype.UUID
-	LastKind       string
-	LastEvent      pgtype.Text
-	LastPreview    string
-	LastCreatedAt  pgtype.Timestamptz
-	LastDeleted    bool
-	UnreadCount    int64
-	MemberCount    int64
-	BlockedByMe    bool
-	BlockedMe      bool
+	ID                  pgtype.UUID
+	Kind                string
+	State               string
+	RequestedBy         pgtype.UUID
+	LastMessageAt       pgtype.Timestamptz
+	Name                string
+	MyRole              string
+	MyJoinedAt          pgtype.Timestamptz
+	OtherID             pgtype.UUID
+	OtherReadID         pgtype.UUID
+	FullName            string
+	Headline            pgtype.Text
+	PhotoFileID         pgtype.UUID
+	OtherAvailable      bool
+	LastSenderID        pgtype.UUID
+	LastKind            string
+	LastEvent           pgtype.Text
+	LastPreview         string
+	LastCreatedAt       pgtype.Timestamptz
+	LastDeleted         bool
+	LastAttachmentCount int32
+	UnreadCount         int64
+	MemberCount         int64
+	BlockedByMe         bool
+	BlockedMe           bool
 }
 
 func (q *Queries) FindItem(ctx context.Context, arg FindItemParams) (FindItemRow, error) {
@@ -496,6 +658,7 @@ func (q *Queries) FindItem(ctx context.Context, arg FindItemParams) (FindItemRow
 		&i.LastPreview,
 		&i.LastCreatedAt,
 		&i.LastDeleted,
+		&i.LastAttachmentCount,
 		&i.UnreadCount,
 		&i.MemberCount,
 		&i.BlockedByMe,
@@ -524,7 +687,7 @@ func (q *Queries) FindMessageSender(ctx context.Context, arg FindMessageSenderPa
 }
 
 const findOwnMessage = `-- name: FindOwnMessage :one
-SELECT id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at, kind, event, event_data
+SELECT id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at, kind, event, event_data, has_attachments
 FROM messages
 WHERE conversation_id = $1 AND id = $2 AND sender_id = $3 AND kind = 'text'
 `
@@ -551,6 +714,7 @@ func (q *Queries) FindOwnMessage(ctx context.Context, arg FindOwnMessageParams) 
 		&i.Kind,
 		&i.Event,
 		&i.EventData,
+		&i.HasAttachments,
 	)
 	return i, err
 }
@@ -623,8 +787,45 @@ func (q *Queries) FindReport(ctx context.Context, id pgtype.UUID) (FindReportRow
 	return i, err
 }
 
+const findReportedAttachment = `-- name: FindReportedAttachment :one
+SELECT a.file_id, a.name, f.object_key, f.content_type, f.scan_status
+FROM message_reports r
+JOIN message_attachments a ON a.conversation_id = r.conversation_id
+JOIN messages m ON m.conversation_id = a.conversation_id AND m.id = a.message_id AND m.created_at <= r.created_at
+JOIN stored_files f ON f.id = a.file_id
+WHERE r.id = $1 AND a.file_id = $2
+`
+
+type FindReportedAttachmentParams struct {
+	ReportID pgtype.UUID
+	FileID   pgtype.UUID
+}
+
+type FindReportedAttachmentRow struct {
+	FileID      pgtype.UUID
+	Name        string
+	ObjectKey   string
+	ContentType string
+	ScanStatus  string
+}
+
+// An attachment as the administrator may reach it (NFR-14): starting from the report, only of a
+// message of the reported conversation sent by the report's moment.
+func (q *Queries) FindReportedAttachment(ctx context.Context, arg FindReportedAttachmentParams) (FindReportedAttachmentRow, error) {
+	row := q.db.QueryRow(ctx, findReportedAttachment, arg.ReportID, arg.FileID)
+	var i FindReportedAttachmentRow
+	err := row.Scan(
+		&i.FileID,
+		&i.Name,
+		&i.ObjectKey,
+		&i.ContentType,
+		&i.ScanStatus,
+	)
+	return i, err
+}
+
 const findSent = `-- name: FindSent :one
-SELECT m.id, m.conversation_id, m.sender_id, m.body, m.client_id, m.created_at, m.edited_at, m.deleted_at, m.kind, m.event, m.event_data, c.state
+SELECT m.id, m.conversation_id, m.sender_id, m.body, m.client_id, m.created_at, m.edited_at, m.deleted_at, m.kind, m.event, m.event_data, m.has_attachments, c.state
 FROM messages m
 JOIN conversations c ON c.id = m.conversation_id
 WHERE m.sender_id = $1 AND m.client_id = $2
@@ -647,6 +848,7 @@ type FindSentRow struct {
 	Kind           string
 	Event          pgtype.Text
 	EventData      []byte
+	HasAttachments bool
 	State          string
 }
 
@@ -665,6 +867,7 @@ func (q *Queries) FindSent(ctx context.Context, arg FindSentParams) (FindSentRow
 		&i.Kind,
 		&i.Event,
 		&i.EventData,
+		&i.HasAttachments,
 		&i.State,
 	)
 	return i, err
@@ -752,6 +955,77 @@ func (q *Queries) GroupMemberIDs(ctx context.Context, conversationID pgtype.UUID
 	return items, nil
 }
 
+const insertAttachment = `-- name: InsertAttachment :one
+
+WITH f AS (
+    INSERT INTO stored_files (id, owner_user_id, purpose, object_key, content_type, size_bytes, width, height, scan_status)
+    VALUES ($4, $5, 'attachment', $6, $7, $8,
+            $9, $10, 'pending')
+    RETURNING id, owner_user_id, size_bytes, content_type, scan_status
+)
+INSERT INTO message_attachments (file_id, uploader_id, conversation_id, name, expires_at)
+SELECT f.id, f.owner_user_id, $1, $2, $3 FROM f
+RETURNING file_id, created_at, expires_at
+`
+
+type InsertAttachmentParams struct {
+	ConversationID pgtype.UUID
+	Name           string
+	ExpiresAt      pgtype.Timestamptz
+	ID             pgtype.UUID
+	UploaderID     pgtype.UUID
+	ObjectKey      string
+	ContentType    string
+	SizeBytes      int64
+	Width          pgtype.Int4
+	Height         pgtype.Int4
+}
+
+type InsertAttachmentRow struct {
+	FileID    pgtype.UUID
+	CreatedAt pgtype.Timestamptz
+	ExpiresAt pgtype.Timestamptz
+}
+
+// ---------------------------------------------------------------------------
+// Attachments (FR-16.7, NFR-13; slice 14B, chunk 14B.3). An attachment is the stored_files row
+// (purpose 'attachment') and its message_attachments row; the ID of both is the file's.
+// ---------------------------------------------------------------------------
+// The file's row starts pending: the scan worker (media module) picks it up.
+func (q *Queries) InsertAttachment(ctx context.Context, arg InsertAttachmentParams) (InsertAttachmentRow, error) {
+	row := q.db.QueryRow(ctx, insertAttachment,
+		arg.ConversationID,
+		arg.Name,
+		arg.ExpiresAt,
+		arg.ID,
+		arg.UploaderID,
+		arg.ObjectKey,
+		arg.ContentType,
+		arg.SizeBytes,
+		arg.Width,
+		arg.Height,
+	)
+	var i InsertAttachmentRow
+	err := row.Scan(&i.FileID, &i.CreatedAt, &i.ExpiresAt)
+	return i, err
+}
+
+const insertAttachmentDownload = `-- name: InsertAttachmentDownload :exec
+INSERT INTO message_report_attachment_downloads (report_id, file_id, admin_id)
+VALUES ($1, $2, $3)
+`
+
+type InsertAttachmentDownloadParams struct {
+	ReportID pgtype.UUID
+	FileID   pgtype.UUID
+	AdminID  pgtype.UUID
+}
+
+func (q *Queries) InsertAttachmentDownload(ctx context.Context, arg InsertAttachmentDownloadParams) error {
+	_, err := q.db.Exec(ctx, insertAttachmentDownload, arg.ReportID, arg.FileID, arg.AdminID)
+	return err
+}
+
 const insertGroup = `-- name: InsertGroup :one
 INSERT INTO conversations (kind, state, name, created_by, client_id)
 VALUES ('group', 'active', $1, $2, $3)
@@ -774,21 +1048,22 @@ func (q *Queries) InsertGroup(ctx context.Context, arg InsertGroupParams) (pgtyp
 }
 
 const insertMessage = `-- name: InsertMessage :one
-INSERT INTO messages (id, conversation_id, sender_id, body, client_id, created_at)
-SELECT uuid_v7_at(t.instant), c.id, $1::uuid, $2::text, $3::uuid, t.instant
+INSERT INTO messages (id, conversation_id, sender_id, body, client_id, created_at, has_attachments)
+SELECT uuid_v7_at(t.instant), c.id, $1::uuid, $2::text, $3::uuid, t.instant, $4::boolean
 FROM conversations c
 CROSS JOIN LATERAL (
     SELECT GREATEST(clock_timestamp(), c.last_message_at + interval '1 microsecond') AS instant
 ) t
-WHERE c.id = $4::uuid
+WHERE c.id = $5::uuid
 ON CONFLICT (sender_id, client_id) DO NOTHING
-RETURNING id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at, kind, event, event_data
+RETURNING id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at, kind, event, event_data, has_attachments
 `
 
 type InsertMessageParams struct {
 	SenderID       pgtype.UUID
-	Body           string
+	Body           pgtype.Text
 	ClientID       pgtype.UUID
+	HasAttachments bool
 	ConversationID pgtype.UUID
 }
 
@@ -796,12 +1071,14 @@ type InsertMessageParams struct {
 // send runs. The ID and created_at come from one instant, after that lock, and always later
 // than the last message, even in the same microsecond or if the clock steps back: the ID
 // alone decides the order of a conversation's messages, and created_at agrees with it.
-// ON CONFLICT also settles two sends of one client_id at the same moment.
+// ON CONFLICT also settles two sends of one client_id at the same moment. body is null only
+// for a message that carries attachments (FR-16.7).
 func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (Message, error) {
 	row := q.db.QueryRow(ctx, insertMessage,
 		arg.SenderID,
 		arg.Body,
 		arg.ClientID,
+		arg.HasAttachments,
 		arg.ConversationID,
 	)
 	var i Message
@@ -817,6 +1094,7 @@ func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (M
 		&i.Kind,
 		&i.Event,
 		&i.EventData,
+		&i.HasAttachments,
 	)
 	return i, err
 }
@@ -877,7 +1155,7 @@ CROSS JOIN LATERAL (
     SELECT GREATEST(clock_timestamp(), c.last_message_at + interval '1 microsecond') AS instant
 ) t
 WHERE c.id = $4::uuid
-RETURNING id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at, kind, event, event_data
+RETURNING id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at, kind, event, event_data, has_attachments
 `
 
 type InsertSystemMessageParams struct {
@@ -908,6 +1186,7 @@ func (q *Queries) InsertSystemMessage(ctx context.Context, arg InsertSystemMessa
 		&i.Kind,
 		&i.Event,
 		&i.EventData,
+		&i.HasAttachments,
 	)
 	return i, err
 }
@@ -967,6 +1246,7 @@ SELECT c.id, c.kind, c.state, c.requested_by, c.last_message_at, COALESCE(c.name
        lm.sender_id AS last_sender_id, COALESCE(lm.kind, '')::text AS last_kind, lm.event AS last_event,
        COALESCE(lm.preview, '')::text AS last_preview, lm.created_at AS last_created_at,
        COALESCE(lm.deleted, false)::boolean AS last_deleted,
+       COALESCE(lm.attachment_count, 0)::integer AS last_attachment_count,
        unread.n AS unread_count,
        (SELECT count(*) FROM conversation_members gm WHERE c.kind = 'group' AND gm.conversation_id = c.id) AS member_count,
        EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = me.user_id AND b.blocked_id = o.user_id)::boolean AS blocked_by_me,
@@ -977,7 +1257,11 @@ LEFT JOIN conversation_members o ON c.kind = 'direct' AND o.conversation_id = c.
 LEFT JOIN users u ON u.id = o.user_id
 LEFT JOIN profiles p ON p.user_id = u.id
 LEFT JOIN LATERAL (
-    SELECT m.sender_id, m.kind, m.event, left(m.body, 120) AS preview, m.created_at, m.deleted_at IS NOT NULL AS deleted
+    SELECT m.sender_id, m.kind, m.event, left(m.body, 120) AS preview, m.created_at, m.deleted_at IS NOT NULL AS deleted,
+           CASE WHEN m.has_attachments AND m.deleted_at IS NULL
+                THEN (SELECT count(*) FROM message_attachments a
+                      WHERE a.conversation_id = m.conversation_id AND a.message_id = m.id)
+                ELSE 0 END AS attachment_count
     FROM messages m WHERE m.conversation_id = c.id AND m.created_at >= me.joined_at
     ORDER BY m.id DESC LIMIT 1
 ) lm ON true
@@ -1009,30 +1293,31 @@ type ListItemsParams struct {
 }
 
 type ListItemsRow struct {
-	ID             pgtype.UUID
-	Kind           string
-	State          string
-	RequestedBy    pgtype.UUID
-	LastMessageAt  pgtype.Timestamptz
-	Name           string
-	MyRole         string
-	MyJoinedAt     pgtype.Timestamptz
-	OtherID        pgtype.UUID
-	OtherReadID    pgtype.UUID
-	FullName       string
-	Headline       pgtype.Text
-	PhotoFileID    pgtype.UUID
-	OtherAvailable bool
-	LastSenderID   pgtype.UUID
-	LastKind       string
-	LastEvent      pgtype.Text
-	LastPreview    string
-	LastCreatedAt  pgtype.Timestamptz
-	LastDeleted    bool
-	UnreadCount    int64
-	MemberCount    int64
-	BlockedByMe    bool
-	BlockedMe      bool
+	ID                  pgtype.UUID
+	Kind                string
+	State               string
+	RequestedBy         pgtype.UUID
+	LastMessageAt       pgtype.Timestamptz
+	Name                string
+	MyRole              string
+	MyJoinedAt          pgtype.Timestamptz
+	OtherID             pgtype.UUID
+	OtherReadID         pgtype.UUID
+	FullName            string
+	Headline            pgtype.Text
+	PhotoFileID         pgtype.UUID
+	OtherAvailable      bool
+	LastSenderID        pgtype.UUID
+	LastKind            string
+	LastEvent           pgtype.Text
+	LastPreview         string
+	LastCreatedAt       pgtype.Timestamptz
+	LastDeleted         bool
+	LastAttachmentCount int32
+	UnreadCount         int64
+	MemberCount         int64
+	BlockedByMe         bool
+	BlockedMe           bool
 }
 
 // The columns and joins of FindItem. A request whose sender is no longer verified or is
@@ -1075,6 +1360,7 @@ func (q *Queries) ListItems(ctx context.Context, arg ListItemsParams) ([]ListIte
 			&i.LastPreview,
 			&i.LastCreatedAt,
 			&i.LastDeleted,
+			&i.LastAttachmentCount,
 			&i.UnreadCount,
 			&i.MemberCount,
 			&i.BlockedByMe,
@@ -1090,8 +1376,59 @@ func (q *Queries) ListItems(ctx context.Context, arg ListItemsParams) ([]ListIte
 	return items, nil
 }
 
+const listMessageAttachments = `-- name: ListMessageAttachments :many
+SELECT a.message_id::uuid AS message_id, a.file_id, a.name, f.size_bytes, f.content_type, f.scan_status
+FROM message_attachments a
+JOIN stored_files f ON f.id = a.file_id
+WHERE a.conversation_id = $1 AND a.message_id = ANY($2::uuid[])
+ORDER BY a.message_id, a.position
+`
+
+type ListMessageAttachmentsParams struct {
+	ConversationID pgtype.UUID
+	MessageIds     []pgtype.UUID
+}
+
+type ListMessageAttachmentsRow struct {
+	MessageID   pgtype.UUID
+	FileID      pgtype.UUID
+	Name        string
+	SizeBytes   int64
+	ContentType string
+	ScanStatus  string
+}
+
+// The attachments of the listed messages, in order. The caller has already checked who may see
+// the messages.
+func (q *Queries) ListMessageAttachments(ctx context.Context, arg ListMessageAttachmentsParams) ([]ListMessageAttachmentsRow, error) {
+	rows, err := q.db.Query(ctx, listMessageAttachments, arg.ConversationID, arg.MessageIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListMessageAttachmentsRow
+	for rows.Next() {
+		var i ListMessageAttachmentsRow
+		if err := rows.Scan(
+			&i.MessageID,
+			&i.FileID,
+			&i.Name,
+			&i.SizeBytes,
+			&i.ContentType,
+			&i.ScanStatus,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listMessages = `-- name: ListMessages :many
-SELECT id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at, kind, event, event_data
+SELECT id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at, kind, event, event_data, has_attachments
 FROM messages
 WHERE conversation_id = $1 AND created_at >= $2::timestamptz
   AND (NOT $3::boolean OR id < $4::uuid)
@@ -1137,6 +1474,7 @@ func (q *Queries) ListMessages(ctx context.Context, arg ListMessagesParams) ([]M
 			&i.Kind,
 			&i.Event,
 			&i.EventData,
+			&i.HasAttachments,
 		); err != nil {
 			return nil, err
 		}
@@ -1208,6 +1546,59 @@ func (q *Queries) ListReaders(ctx context.Context, arg ListReadersParams) ([]Lis
 	for rows.Next() {
 		var i ListReadersRow
 		if err := rows.Scan(&i.UserID, &i.LastReadMessageID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listReportedAttachments = `-- name: ListReportedAttachments :many
+SELECT a.message_id::uuid AS message_id, a.file_id, a.name, f.size_bytes, f.content_type, f.scan_status
+FROM message_reports r
+JOIN message_attachments a ON a.conversation_id = r.conversation_id
+JOIN messages m ON m.conversation_id = a.conversation_id AND m.id = a.message_id AND m.created_at <= r.created_at
+JOIN stored_files f ON f.id = a.file_id
+WHERE r.id = $1 AND a.message_id = ANY($2::uuid[])
+ORDER BY a.message_id, a.position
+`
+
+type ListReportedAttachmentsParams struct {
+	ReportID   pgtype.UUID
+	MessageIds []pgtype.UUID
+}
+
+type ListReportedAttachmentsRow struct {
+	MessageID   pgtype.UUID
+	FileID      pgtype.UUID
+	Name        string
+	SizeBytes   int64
+	ContentType string
+	ScanStatus  string
+}
+
+// The attachments of the listed messages of a report, deleted messages' included. Like
+// ListReportedMessages it starts from the report (NFR-14).
+func (q *Queries) ListReportedAttachments(ctx context.Context, arg ListReportedAttachmentsParams) ([]ListReportedAttachmentsRow, error) {
+	rows, err := q.db.Query(ctx, listReportedAttachments, arg.ReportID, arg.MessageIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListReportedAttachmentsRow
+	for rows.Next() {
+		var i ListReportedAttachmentsRow
+		if err := rows.Scan(
+			&i.MessageID,
+			&i.FileID,
+			&i.Name,
+			&i.SizeBytes,
+			&i.ContentType,
+			&i.ScanStatus,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -1504,7 +1895,7 @@ func (q *Queries) LockDirect(ctx context.Context, arg LockDirectParams) (LockDir
 }
 
 const lockOwnMessage = `-- name: LockOwnMessage :one
-SELECT id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at, kind, event, event_data
+SELECT id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at, kind, event, event_data, has_attachments
 FROM messages
 WHERE conversation_id = $1 AND id = $2 AND sender_id = $3 AND kind = 'text'
 FOR UPDATE
@@ -1534,6 +1925,7 @@ func (q *Queries) LockOwnMessage(ctx context.Context, arg LockOwnMessageParams) 
 		&i.Kind,
 		&i.Event,
 		&i.EventData,
+		&i.HasAttachments,
 	)
 	return i, err
 }
@@ -1599,6 +1991,37 @@ func (q *Queries) MembersAtReport(ctx context.Context, reportID pgtype.UUID) ([]
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const membersSince = `-- name: MembersSince :many
+SELECT user_id FROM conversation_members
+WHERE conversation_id = $1 AND joined_at <= $2::timestamptz
+`
+
+type MembersSinceParams struct {
+	ConversationID pgtype.UUID
+	At             pgtype.Timestamptz
+}
+
+// The current members who joined at or before the moment (they can see a message sent then).
+func (q *Queries) MembersSince(ctx context.Context, arg MembersSinceParams) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, membersSince, arg.ConversationID, arg.At)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var user_id pgtype.UUID
+		if err := rows.Scan(&user_id); err != nil {
+			return nil, err
+		}
+		items = append(items, user_id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -1708,7 +2131,7 @@ func (q *Queries) ResolveReport(ctx context.Context, arg ResolveReportParams) (i
 }
 
 const systemMessagesAfter = `-- name: SystemMessagesAfter :many
-SELECT id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at, kind, event, event_data
+SELECT id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at, kind, event, event_data, has_attachments
 FROM messages
 WHERE conversation_id = $1 AND kind = 'system' AND id > $2
 ORDER BY id
@@ -1740,6 +2163,7 @@ func (q *Queries) SystemMessagesAfter(ctx context.Context, arg SystemMessagesAft
 			&i.Kind,
 			&i.Event,
 			&i.EventData,
+			&i.HasAttachments,
 		); err != nil {
 			return nil, err
 		}

@@ -26,7 +26,8 @@ recommendations. One developer builds it in 30 slices over 12 weeks.
 | `design/` | Reference design: one HTML artboard per screen, desktop and `_m` mobile (not served, not imported) | HTML, CSS |
 
 Data stores: PostgreSQL 16 with pgvector, Redis, and S3-compatible object storage (MinIO
-locally, console at http://localhost:9001). All run in Docker, with Mailpit for local email.
+locally, console at http://localhost:9001). All run in Docker, with Mailpit for local email
+and ClamAV (clamd), which scans message attachments for malware.
 
 ## Commands
 
@@ -34,8 +35,8 @@ Run these from the repository root. `make help` prints the current list.
 
 | Command | What it does |
 | --- | --- |
-| `make up` / `make down` | Start or stop PostgreSQL, Redis, Mailpit (local email inbox at http://localhost:8025) and MinIO; `make up` also creates the private bucket |
-| `make check` | Confirm that PostgreSQL, pgvector, Redis and storage respond, and that the bucket refuses anonymous access |
+| `make up` / `make down` | Start or stop PostgreSQL, Redis, Mailpit (local email inbox at http://localhost:8025), MinIO and ClamAV; `make up` also creates the private bucket, and starts ClamAV last without waiting for it (clamd takes 30 to 90 seconds and 1.5 to 3 GB of memory to load its signatures; attachments stay pending until it answers) |
+| `make check` | Confirm that PostgreSQL, pgvector, Redis and storage respond, and that the bucket refuses anonymous access; show whether ClamAV answers yet (not a failure) |
 | `make psql` | Open a psql prompt in the database |
 | `make migrate` / `make migrate-down` | Apply all migrations, or undo the latest one |
 | `make migrate-new name=add_users` | Create a new migration pair |

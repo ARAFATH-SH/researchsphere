@@ -336,6 +336,18 @@ func (fakeAPI) EditMessage(context.Context, gen.EditMessageRequestObject) (gen.E
 	return gen.EditMessage200JSONResponse{}, nil
 }
 
+func (fakeAPI) UploadAttachment(context.Context, gen.UploadAttachmentRequestObject) (gen.UploadAttachmentResponseObject, error) {
+	return gen.UploadAttachment201JSONResponse{}, nil
+}
+
+func (fakeAPI) GetAttachment(context.Context, gen.GetAttachmentRequestObject) (gen.GetAttachmentResponseObject, error) {
+	return gen.GetAttachment302Response{Headers: gen.AttachmentRedirectResponseHeaders{Location: "http://localhost/x", CacheControl: "no-store", XContentTypeOptions: "nosniff"}}, nil
+}
+
+func (fakeAPI) GetReportedAttachment(context.Context, gen.GetReportedAttachmentRequestObject) (gen.GetReportedAttachmentResponseObject, error) {
+	return gen.GetReportedAttachment302Response{Headers: gen.AttachmentRedirectResponseHeaders{Location: "http://localhost/x", CacheControl: "no-store", XContentTypeOptions: "nosniff"}}, nil
+}
+
 func (fakeAPI) DeleteMessage(context.Context, gen.DeleteMessageRequestObject) (gen.DeleteMessageResponseObject, error) {
 	return gen.DeleteMessage204Response{}, nil
 }
@@ -796,8 +808,8 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 
 func TestRoutes(t *testing.T) {
 	got := Routes()
-	if len(got) != 98 {
-		t.Errorf("Routes() returned %d routes, want the 98 operations in the contract: %v", len(got), got)
+	if len(got) != 101 {
+		t.Errorf("Routes() returned %d routes, want the 101 operations in the contract: %v", len(got), got)
 	}
 	seen := map[string]bool{}
 	for _, p := range got {
@@ -806,7 +818,8 @@ func TestRoutes(t *testing.T) {
 		}
 		seen[p] = true
 	}
-	for _, want := range []string{"GET /api/v1/health", "GET /api/v1/auth/me", "POST /api/v1/account/delete", "POST /api/v1/admin/restrictions/{restrictionId}/lift", "GET /api/v1/media/{fileId}", "GET /api/v1/notifications/unread-count"} {
+	for _, want := range []string{"GET /api/v1/health", "GET /api/v1/auth/me", "POST /api/v1/account/delete", "POST /api/v1/admin/restrictions/{restrictionId}/lift", "GET /api/v1/media/{fileId}", "GET /api/v1/notifications/unread-count",
+		"POST /api/v1/conversations/{conversationId}/attachments", "GET /api/v1/attachments/{attachmentId}", "GET /api/v1/admin/message-reports/{reportId}/attachments/{attachmentId}"} {
 		if !seen[want] {
 			t.Errorf("Routes() lacks %q", want)
 		}

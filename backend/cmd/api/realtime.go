@@ -168,6 +168,32 @@ func (e *realtimeEvents) MessageDeleted(ctx context.Context, m messagingdomain.M
 	})
 }
 
+// AttachmentUpdated tells who can see an attachment that its scan finished (FR-16.7).
+func (e *realtimeEvents) AttachmentUpdated(ctx context.Context, u messagingdomain.AttachmentUpdate, to []string) {
+	postgres.AfterCommit(ctx, func(ctx context.Context) {
+		c, err1 := parseUUID(u.ConversationID)
+		a, err2 := parseUUID(u.AttachmentID)
+		var msg *openapi_types.UUID
+		if u.MessageID != nil {
+			m, err := parseUUID(*u.MessageID)
+			if err != nil {
+				err2 = errors.Join(err2, err)
+			}
+			msg = &m
+		}
+		if err := errors.Join(err1, err2); err != nil {
+			e.logger.ErrorContext(ctx, "realtime: attachment event", slog.Any("error", err))
+			return
+		}
+		ev := realtimedomain.Event{Type: realtimedomain.EventAttachmentUpdated, Data: gen.RealtimeAttachmentUpdated{
+			ConversationId: c, MessageId: msg, AttachmentId: a, Status: gen.AttachmentStatus(u.Status),
+		}}
+		for _, userID := range to {
+			e.hub.Send(ctx, userID, ev)
+		}
+	})
+}
+
 // ReadMoved tells the other member for "Seen", and the reader's own tabs their new counts.
 func (e *realtimeEvents) ReadMoved(ctx context.Context, conversationID, readerID, messageID string, to []string) {
 	postgres.AfterCommit(ctx, func(ctx context.Context) {

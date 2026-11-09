@@ -36,7 +36,7 @@ func (s *Service) Edit(ctx context.Context, editorID, conversationID, messageID,
 		return domain.Message{}, err
 	}
 	if m.Body != nil && *m.Body == text {
-		return m, nil
+		return s.edited(ctx, m, errUnchanged, editorID, nil)
 	}
 	if err := s.refuseSender(ctx, editorID); err != nil {
 		return domain.Message{}, err
@@ -124,11 +124,14 @@ func (s *Service) editLocked(ctx context.Context, conversationID, messageID, edi
 // edited runs after an edit's transaction: an unchanged text returns the message, and a stored
 // edit is counted and published.
 func (s *Service) edited(ctx context.Context, m domain.Message, err error, editorID string, to []string) (domain.Message, error) {
+	if err != nil && !errors.Is(err, errUnchanged) {
+		return domain.Message{}, err
+	}
+	if aerr := s.withAttachments(ctx, m.ConversationID, []*domain.Message{&m}); aerr != nil {
+		return domain.Message{}, aerr
+	}
 	if errors.Is(err, errUnchanged) {
 		return m, nil
-	}
-	if err != nil {
-		return domain.Message{}, err
 	}
 	s.record(ctx, editorID, s.messages, 1)
 	s.publisher.MessageEdited(ctx, m, to)

@@ -70,6 +70,16 @@ type ImageCodec interface {
 	Render(r io.Reader, f Format, width, height, quality int) ([]byte, error)
 }
 
+// ImageReencoder encodes an image again at its own size (message attachments, FR-16.7).
+type ImageReencoder interface {
+	// Reencode decodes an image in format f, turns it upright when its metadata says it is
+	// rotated, and encodes it again at its own size: a JPEG as a JPEG of the given quality, a
+	// PNG as a PNG, and a WebP as a PNG when it has transparent pixels, else as a JPEG. It
+	// returns the bytes and their format. Nothing of the original file but its pixels is kept.
+	// It returns ErrInvalidImage when the image cannot be decoded.
+	Reencode(r io.Reader, f Format, quality int) ([]byte, Format, error)
+}
+
 // NewFile is a stored_files row to insert for an image the API has re-encoded.
 type NewFile struct {
 	OwnerID     string

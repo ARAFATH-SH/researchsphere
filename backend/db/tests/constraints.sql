@@ -548,9 +548,13 @@ SELECT pg_temp.expect_ok('Stored file: every purpose is accepted, a 5 MB pdf too
 SELECT pg_temp.expect_error('Stored file: unknown purpose',
     $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes)
        VALUES ('00000000-0000-0000-0000-000000000001', 'avatar', pg_temp.t('x/1'), 'image/png', 10)$s$, '23514');
+-- 'rejected' was the old name; 000024 replaced it with infected and failed (FR-16.7).
 SELECT pg_temp.expect_error('Stored file: unknown scan status',
     $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes, scan_status)
-       VALUES ('00000000-0000-0000-0000-000000000001', 'photo', pg_temp.t('x/2'), 'image/png', 10, 'infected')$s$, '23514');
+       VALUES ('00000000-0000-0000-0000-000000000001', 'photo', pg_temp.t('x/2'), 'image/png', 10, 'rejected')$s$, '23514');
+SELECT pg_temp.expect_error('Stored file: an attachment is at most 25 MB',
+    $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'attachment', pg_temp.t('x/2b'), 'application/pdf', 26214401)$s$, '23514');
 SELECT pg_temp.expect_error('Stored file: size must be more than 0',
     $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes)
        VALUES ('00000000-0000-0000-0000-000000000001', 'pdf', pg_temp.t('x/3'), 'application/pdf', 0)$s$, '23514');

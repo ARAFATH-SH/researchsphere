@@ -15,6 +15,7 @@ const (
 	EventMessageCreated      = "message.created"
 	EventMessageUpdated      = "message.updated"
 	EventMessageDeleted      = "message.deleted"
+	EventAttachmentUpdated   = "attachment.updated"
 	EventConversationRead    = "conversation.read"
 	EventConversationUpdated = "conversation.updated"
 	EventConversationMembers = "conversation.members"

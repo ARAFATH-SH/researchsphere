@@ -25,9 +25,10 @@ MIGRATIONS_DIR := backend/db/migrations
 help: ## List the available commands
 	@grep -hE '^[a-zA-Z_-]+:.*## ' $(firstword $(MAKEFILE_LIST)) | awk 'BEGIN {FS = ":.*## "} {printf "  make %-16s %s\n", $$1, $$2}'
 
-up: ## Start PostgreSQL, Redis, Mailpit and MinIO, wait until healthy, create the bucket
-	docker compose up -d --wait
+up: ## Start PostgreSQL, Redis, Mailpit and MinIO, wait until healthy, create the bucket; start ClamAV without waiting
+	docker compose up -d --wait postgres redis mailpit minio
 	docker compose run --rm minio-init
+	docker compose up -d clamav
 
 down: ## Stop the containers (data, including stored files, is kept)
 	docker compose down
@@ -41,7 +42,7 @@ ps: ## Show the status of the containers
 psql: ## Open a psql prompt in the database
 	docker compose exec postgres psql -U $(POSTGRES_USER) -d $(POSTGRES_DB)
 
-check: ## Check that PostgreSQL, pgvector, Redis and storage respond, and the bucket is private
+check: ## Check that PostgreSQL, pgvector, Redis and storage respond, and the bucket is private; show whether ClamAV answers
 	@docker compose exec -T postgres psql -U $(POSTGRES_USER) -d $(POSTGRES_DB) -tAc "SELECT 'postgres ok: ' || current_setting('server_version')"
 	@docker compose exec -T postgres psql -U $(POSTGRES_USER) -d $(POSTGRES_DB) -tAc "SELECT 'pgvector available: ' || default_version FROM pg_available_extensions WHERE name = 'vector'"
 	@echo "redis: $$(docker compose exec -T redis redis-cli ping)"
@@ -49,6 +50,7 @@ check: ## Check that PostgreSQL, pgvector, Redis and storage respond, and the bu
 	@status=$$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$(MINIO_API_PORT)/$(S3_BUCKET)/"); \
 	if [[ "$$status" != 403 ]]; then echo "storage: anonymous listing of $(S3_BUCKET) returned $$status, want 403 (bucket must be private)"; exit 1; fi
 	@echo "storage ok (bucket $(S3_BUCKET) is private)"
+	@echo "clamav: $$(docker compose exec -T clamav clamdscan --ping 1 >/dev/null 2>&1 && echo ready || echo 'not ready yet (attachments stay pending until it answers)')"
 
 migrate: ## Apply all database migrations
 	migrate -path $(MIGRATIONS_DIR) -database "$(DATABASE_URL)" up

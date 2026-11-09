@@ -159,10 +159,15 @@ func reportedMessageBody(m domain.ReportedMessage) (gen.ReportedMessage, error) 
 	for i, v := range m.Versions {
 		versions[i] = gen.MessageVersion{Body: v.Body, ShownFrom: v.ShownFrom, ShownUntil: v.ShownUntil, EndedBy: gen.MessageVersionEndedBy(v.EndedBy)}
 	}
+	files, err := attachmentsBody(m.Attachments)
+	if err != nil {
+		return gen.ReportedMessage{}, err
+	}
 	return gen.ReportedMessage{
 		Id: id, ConversationId: conversation, SenderId: sender, Kind: messageKind(m.Kind), Event: event,
 		CreatedAt: m.CreatedAt, Body: m.Body,
 		EditedAt: m.EditedAt, DeletedAt: m.DeletedAt, ChangedAfterReport: m.ChangedAfterReport, Versions: versions,
+		Attachments: files,
 	}, nil
 }
 

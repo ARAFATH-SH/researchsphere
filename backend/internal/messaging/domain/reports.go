@@ -135,6 +135,7 @@ type ReportedMessage struct {
 	DeletedAt          *time.Time
 	ChangedAfterReport bool
 	Versions           []MessageVersion // oldest first
+	Attachments        []Attachment     // with their scan status, also of a message deleted later
 }
 
 // ReportDetail is a report and one page of its conversation, newest first. NextBefore is nil

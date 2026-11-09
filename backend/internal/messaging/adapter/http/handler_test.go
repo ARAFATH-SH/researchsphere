@@ -55,6 +55,8 @@ type fakeService struct {
 	page    *domain.MessagePage
 	detail  *domain.ReportDetail
 	receipt *domain.ReportReceipt
+	// upload is what UploadAttachment answers.
+	upload domain.Upload
 }
 
 func (f *fakeService) CreateGroup(_ context.Context, creatorID string, in domain.GroupInput) (domain.Item, bool, error) {

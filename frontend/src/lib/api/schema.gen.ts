@@ -358,6 +358,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/message-reports/{reportId}/attachments/{attachmentId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download an attachment of a reported conversation (FR-16.7, FR-16.9, NFR-14)
+         * @description Needs the access cookie and the platform action "Review reported conversations"
+         *     (SRS 2.3). Only an attachment of a message of the reported conversation sent at or
+         *     before the report's moment, as `getMessageReport` lists it, also when the message was
+         *     deleted later. Every download writes one audit row (administrator, report, file, time)
+         *     in the same transaction as the permission check. The scan answers and the redirect are
+         *     those of `getAttachment`.
+         */
+        get: operations["getReportedAttachment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/message-reports/{reportId}/resolve": {
         parameters: {
             query?: never;
@@ -1962,8 +1987,87 @@ export interface paths {
          *     `POST /messages/direct`. In a group there is no other member and no request: after the
          *     limits, a former member gets 404 `not_found`, and a block between two members stops
          *     nobody (FR-16.6).
+         *
+         *     `attachmentIds` (FR-16.7) sends up to 5 files from `uploadAttachment`, in that order;
+         *     `body` may then be left out. Each must have been uploaded by the caller to this
+         *     conversation, not be sent yet, not have expired and not have failed or been blocked by
+         *     its scan, else 400 `invalid_attachment` (`field: attachmentIds`) and nothing is sent. A
+         *     file still being scanned may be sent; the others see it once it is clean.
          */
         post: operations["sendMessage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/conversations/{conversationId}/attachments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload a file to send with a message later (FR-16.7, NFR-13)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Only a member who can send in the conversation now may upload,
+         *     with the checks of `sendMessage` in the same order and codes, except that the message
+         *     limits do not apply: membership (404 `not_found`), standing (`account_suspended`,
+         *     `messaging_restricted`), the other member (404), a block (`cannot_message`,
+         *     `you_blocked_this_user`) and the state (`request_pending`, `conversation_closed`).
+         *
+         *     The file may be at most 25 MB. Its type is read from its content, never from its name
+         *     or the part's header: PDF, PNG, JPEG, WebP (not animated), DOCX, XLSX or PPTX. An Office
+         *     file must be an Office Open XML package whose main part is a document, workbook or
+         *     presentation; macro-enabled files (docm, xlsm, pptm), templates, slide shows and the
+         *     legacy formats (doc, xls, ppt) are refused with `unsupported_type`. An image is decoded
+         *     and encoded again at its own size, so EXIF, GPS and any other data in the file are
+         *     dropped: a JPEG stays a JPEG, a PNG a PNG, and a WebP becomes a PNG when it has
+         *     transparency and a JPEG otherwise. Documents are stored as uploaded.
+         *
+         *     The name the client gave the file is kept for display only, cleaned up: no folders,
+         *     control characters or quotes, at most 200 characters, and ending with the extension of
+         *     the type that was found. The file is scanned for malware after the upload; nobody,
+         *     the uploader included, can download it before the scan says `clean`.
+         *
+         *     The answer's `id` goes into `attachmentIds` of `sendMessage` in this conversation. An
+         *     attachment that is not sent by `expiresAt` (24 hours) is deleted. A user may upload at
+         *     most 20 files per hour and 200 MB per day; refused files do not count.
+         */
+        post: operations["uploadAttachment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/attachments/{attachmentId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download an attachment after a permission check (FR-16.7, NFR-13, NFR-14)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed,
+         *     events and recommendations" (SRS 2.3). Only a current member who can see the message
+         *     may download: in a group, a member sees only the messages from the moment they joined.
+         *     The uploader may also download an attachment not sent yet. An attachment of a deleted
+         *     message, one the caller may not see and an unknown ID all get the same 404 `not_found`.
+         *
+         *     Then the scan decides: `scan_pending` (409) while it runs, `scan_failed` (409) when the
+         *     scanner could not read the file, `file_removed` (410) when malware was found and the
+         *     file was deleted. A clean file redirects to a presigned URL valid for 5 minutes, whose
+         *     answer carries `Content-Disposition: attachment` with the file's name and the stored
+         *     content type, so a browser saves the file and never shows it inline.
+         */
+        get: operations["getAttachment"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2721,10 +2825,12 @@ export interface components {
          *     connection request. `connection_request_accepted`: the actor accepted the caller's
          *     request. `account_warning`: an administrator warned the caller; a system notification,
          *     with no actor. `group_added`: the actor, the group's owner, added the caller to a
-         *     group (FR-16.6). Later slices add the project, comment and like types.
+         *     group (FR-16.6). `attachment_blocked`: the malware scan found something in a file the
+         *     caller attached, and it was deleted (FR-16.7); a system notification, with no actor.
+         *     Later slices add the project, comment and like types.
          * @enum {string}
          */
-        NotificationType: "connection_request_received" | "connection_request_accepted" | "account_warning" | "group_added";
+        NotificationType: "connection_request_received" | "connection_request_accepted" | "account_warning" | "group_added" | "attachment_blocked";
         /**
          * @description The user who caused the notification. A system notification comes from ResearchSphere
          *     and has no actor: the field is left out, and a client treats null the same way.
@@ -2746,7 +2852,8 @@ export interface components {
             /**
              * @description The web client path of the item it is about (FR-9.5):
              *     `/network` for a received request, `/profile/{actorId}` for an accepted one,
-             *     `/warnings/{warningId}` for a warning, `/messaging/{conversationId}` for a group.
+             *     `/warnings/{warningId}` for a warning, `/messaging/{conversationId}` for a group
+             *     and for a blocked attachment.
              */
             link: string;
             actor?: components["schemas"]["NotificationActor"];
@@ -2781,13 +2888,18 @@ export interface components {
             clientId: string;
         };
         SendMessageRequest: {
-            /** @description 1 to 5,000 characters after trimming; line breaks are kept. */
-            body: string;
+            /**
+             * @description 1 to 5,000 characters after trimming; line breaks are kept. May be left out when
+             *     `attachmentIds` is not empty.
+             */
+            body?: string;
             /**
              * Format: uuid
              * @description Made by the client for each new message and sent again on a retry, so a retry stores nothing new.
              */
             clientId: string;
+            /** @description Files from `uploadAttachment` to send with the message, in order (FR-16.7). */
+            attachmentIds?: string[];
         };
         EditMessageRequest: {
             /** @description 1 to 5,000 characters after trimming; line breaks are kept. */
@@ -2834,6 +2946,44 @@ export interface components {
             oldName: string | null;
             newName: string | null;
         };
+        /**
+         * @description The malware scan (FR-16.7). `pending`: not scanned yet; nobody can download it.
+         *     `clean`: it can be downloaded. `infected`: malware was found and the file deleted.
+         *     `failed`: the scanner could not read the file; it will not be served.
+         * @enum {string}
+         */
+        AttachmentStatus: "pending" | "clean" | "infected" | "failed";
+        Attachment: {
+            /**
+             * Format: uuid
+             * @description Download it with `GET /attachments/{id}`.
+             */
+            id: string;
+            /** @description The file's name for display, cleaned up; at most 200 characters. */
+            name: string;
+            /**
+             * Format: int64
+             * @description Bytes as stored (an image after it was encoded again).
+             */
+            size: number;
+            /** @description The type found from the content, one of the allowed types. */
+            contentType: string;
+            status: components["schemas"]["AttachmentStatus"];
+        };
+        AttachmentUpload: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** Format: int64 */
+            size: number;
+            contentType: string;
+            status: components["schemas"]["AttachmentStatus"];
+            /**
+             * Format: date-time
+             * @description The attachment is deleted when it has not been sent by then.
+             */
+            expiresAt: string;
+        };
         Message: {
             /**
              * Format: uuid
@@ -2864,6 +3014,8 @@ export interface components {
             editedAt: string | null;
             /** @description True when the sender deleted the message. It stays in its place, with no body. */
             deleted: boolean;
+            /** @description The message's files in order (FR-16.7); empty when none and for a deleted message. */
+            attachments: components["schemas"]["Attachment"][];
         };
         SentMessage: {
             message: components["schemas"]["Message"];
@@ -2893,6 +3045,8 @@ export interface components {
             body: string | null;
             /** @description True when the latest message was deleted; the client says so. */
             deleted: boolean;
+            /** @description How many files the latest message carries; 0 when deleted. A message may have files and no text. */
+            attachmentCount: number;
             /** Format: date-time */
             createdAt: string;
         };
@@ -3174,6 +3328,11 @@ export interface components {
              *     ended with an edit or with the deletion. Empty when the text never changed by then.
              */
             versions: components["schemas"]["MessageVersion"][];
+            /**
+             * @description The message's files with their scan status, also for a message deleted later. A clean
+             *     one can be downloaded with `getReportedAttachment`.
+             */
+            attachments: components["schemas"]["Attachment"][];
         };
         MessageVersion: {
             body: string;
@@ -3219,10 +3378,10 @@ export interface components {
          * @description The `type` of a server event. `docs/realtime.md` gives each one's `data`.
          * @enum {string}
          */
-        RealtimeEventType: "message.created" | "message.updated" | "message.deleted" | "conversation.read" | "conversation.updated" | "conversation.members" | "unread.changed" | "typing" | "presence" | "notification.created" | "notifications.unread";
+        RealtimeEventType: "message.created" | "message.updated" | "message.deleted" | "attachment.updated" | "conversation.read" | "conversation.updated" | "conversation.members" | "unread.changed" | "typing" | "presence" | "notification.created" | "notifications.unread";
         /**
          * @description One server-to-client WebSocket frame, as JSON text. `data` is `RealtimeMessageCreated`,
-         *     `RealtimeMessageUpdated`, `RealtimeMessageDeleted`, `RealtimeConversationRead`, `RealtimeConversationUpdated`, `RealtimeConversationMembers`, `MessageUnreadCount`,
+         *     `RealtimeMessageUpdated`, `RealtimeMessageDeleted`, `RealtimeAttachmentUpdated`, `RealtimeConversationRead`, `RealtimeConversationUpdated`, `RealtimeConversationMembers`, `MessageUnreadCount`,
          *     `RealtimeTyping`, `PresenceStatus`, `Notification` or `UnreadNotificationCount`,
          *     by `type`.
          */
@@ -3250,6 +3409,20 @@ export interface components {
             conversationId: string;
             /** Format: uuid */
             messageId: string;
+        };
+        /**
+         * @description An attachment's malware scan finished (FR-16.7). Sent to the members who can see its
+         *     message and to the uploader; before it is sent, only to the uploader, with a null
+         *     `messageId`.
+         */
+        RealtimeAttachmentUpdated: {
+            /** Format: uuid */
+            conversationId: string;
+            /** Format: uuid */
+            messageId: string | null;
+            /** Format: uuid */
+            attachmentId: string;
+            status: components["schemas"]["AttachmentStatus"];
         };
         /** @description The other member moved their read marker (FR-16.3). */
         RealtimeConversationRead: {
@@ -3816,8 +3989,10 @@ export interface components {
     responses: {
         /**
          * @description `cannot_message_self`, `invalid_body` (empty after trimming, over 5,000 characters,
-         *     or holding a NUL character), or `bad_request` for a body that is not JSON or a
-         *     missing or malformed `userId` or `clientId`.
+         *     or holding a NUL character; or no body and no attachments), `invalid_attachment`
+         *     (`field: attachmentIds`: more than 5, a repeated ID, or one that cannot be sent), or
+         *     `bad_request` for a body that is not JSON or a missing or malformed `userId` or
+         *     `clientId`.
          */
         InvalidMessage: {
             headers: {
@@ -4127,6 +4302,69 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
+        /**
+         * @description The file is not a PDF, PNG, JPEG, still WebP, DOCX, XLSX or PPTX file by its content
+         *     (`unsupported_type`).
+         */
+        UnsupportedAttachmentType: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /**
+         * @description The user has uploaded 20 files in the current hour or 200 MB in the current day
+         *     (`rate_limited`).
+         */
+        AttachmentRateLimited: {
+            headers: {
+                /** @description Seconds until the window ends and uploads are accepted again. */
+                "Retry-After": number;
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description The scan said clean; the file is at the URL in `Location`. */
+        AttachmentRedirect: {
+            headers: {
+                /**
+                 * @description A presigned URL to the object, valid for 5 minutes. Its answer has
+                 *     `Content-Disposition: attachment` with the file's name and the stored content type.
+                 */
+                Location: string;
+                /** @description Always `no-store`. */
+                "Cache-Control": string;
+                /** @description Always `nosniff`. */
+                "X-Content-Type-Options": string;
+                [name: string]: unknown;
+            };
+            content?: never;
+        };
+        /**
+         * @description `scan_pending`: the malware scan has not finished. `scan_failed`: the scanner could not
+         *     read the file; it will not be served.
+         */
+        AttachmentNotReady: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description `file_removed`: the scan found malware and the file was deleted. */
+        AttachmentRemoved: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
         /** @description The user has uploaded 5 images in the current hour (`rate_limited`). */
         UploadRateLimited: {
             headers: {
@@ -4276,6 +4514,12 @@ export interface components {
          *     conversation and gets 404 `not_found`.
          */
         ConversationId: string;
+        /**
+         * @description The attachment's ID, a UUID. It is declared as a plain string so that the login check
+         *     runs before it is read (FR-3.1); a value that is not a UUID names no attachment and
+         *     gets 404 `not_found`.
+         */
+        AttachmentId: string;
         /** @description The page to return, from 1, 20 items each. Defaults to 1. */
         ConnectionListPage: number;
         /**
@@ -4344,6 +4588,18 @@ export interface components {
         RefreshCookie: string;
     };
     requestBodies: {
+        /**
+         * @description The file in the part named `file`. Its content type is ignored; its file name is kept
+         *     for display only, cleaned up.
+         */
+        AttachmentUpload: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                };
+            };
+        };
         /** @description The image in the part named `file`. Its file name and content type are ignored. */
         ImageUpload: {
             content: {
@@ -4984,6 +5240,36 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getReportedAttachment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The report's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                reportId: components["parameters"]["ReportId"];
+                /**
+                 * @description The attachment's ID, a UUID. It is declared as a plain string so that the login check
+                 *     runs before it is read (FR-3.1); a value that is not a UUID names no attachment and
+                 *     gets 404 `not_found`.
+                 */
+                attachmentId: components["parameters"]["AttachmentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            302: components["responses"]["AttachmentRedirect"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["AttachmentNotReady"];
+            410: components["responses"]["AttachmentRemoved"];
             500: components["responses"]["InternalError"];
         };
     };
@@ -7718,6 +8004,67 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["MessageRefused"];
             429: components["responses"]["MessageRateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    uploadAttachment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The conversation's ID, a UUID. It is declared as a plain string so that the login
+                 *     check runs before it is read (FR-3.1); a value that is not a UUID names no
+                 *     conversation and gets 404 `not_found`.
+                 */
+                conversationId: components["parameters"]["ConversationId"];
+            };
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["AttachmentUpload"];
+        responses: {
+            /** @description The file is stored and waits for its scan. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttachmentUpload"];
+                };
+            };
+            400: components["responses"]["InvalidImage"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["MessageForbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["MessageRefused"];
+            413: components["responses"]["FileTooLarge"];
+            415: components["responses"]["UnsupportedAttachmentType"];
+            429: components["responses"]["AttachmentRateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getAttachment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The attachment's ID, a UUID. It is declared as a plain string so that the login check
+                 *     runs before it is read (FR-3.1); a value that is not a UUID names no attachment and
+                 *     gets 404 `not_found`.
+                 */
+                attachmentId: components["parameters"]["AttachmentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            302: components["responses"]["AttachmentRedirect"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["AttachmentNotReady"];
+            410: components["responses"]["AttachmentRemoved"];
             500: components["responses"]["InternalError"];
         };
     };

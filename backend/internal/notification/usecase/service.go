@@ -83,6 +83,12 @@ func (s *Service) AccountWarned(ctx context.Context, warningID, userID string) e
 	return s.put(ctx, domain.Notification{RecipientID: userID, Type: domain.TypeAccountWarning, SubjectID: warningID})
 }
 
+// AttachmentBlocked tells userID that a file they attached in conversationID was deleted
+// because the malware scan found something in it (FR-16.7). A system notification.
+func (s *Service) AttachmentBlocked(ctx context.Context, conversationID, userID string) error {
+	return s.put(ctx, domain.Notification{RecipientID: userID, Type: domain.TypeAttachmentBlocked, SubjectID: conversationID})
+}
+
 // GroupMembersAdded tells each user that ownerID added them to group conversationID (FR-16.6).
 func (s *Service) GroupMembersAdded(ctx context.Context, conversationID, ownerID string, userIDs []string) error {
 	for _, u := range userIDs {

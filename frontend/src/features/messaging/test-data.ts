@@ -13,7 +13,7 @@ export function conversation(overrides: Partial<Conversation> = {}): Conversatio
     group: null,
     state: "active",
     otherMember: { userId: bobID, fullName: "Bob Babbage", photoUrl: null, headline: "Analyst", available: true },
-    lastMessage: { senderId: bobID, kind: "text", event: null, body: "See you", deleted: false, createdAt: "2026-11-05T09:00:00Z" },
+    lastMessage: { senderId: bobID, kind: "text", event: null, body: "See you", deleted: false, attachmentCount: 0, createdAt: "2026-11-05T09:00:00Z" },
     unreadCount: 0,
     requestedBy: null,
     lastMessageAt: "2026-11-05T09:00:00Z",
@@ -35,5 +35,6 @@ export function message(n: number, senderId: string, body = `message ${n}`, crea
     createdAt,
     editedAt: null,
     deleted: false,
+    attachments: [],
   };
 }

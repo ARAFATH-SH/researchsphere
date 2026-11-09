@@ -24,6 +24,7 @@ const (
 	NotificationTypePostLike                   NotificationType = "post_like"
 	NotificationTypeAccountWarning             NotificationType = "account_warning"
 	NotificationTypeGroupAdded                 NotificationType = "group_added"
+	NotificationTypeAttachmentBlocked          NotificationType = "attachment_blocked"
 )
 
 func (e *NotificationType) Scan(src interface{}) error {

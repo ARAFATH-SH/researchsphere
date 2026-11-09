@@ -472,7 +472,7 @@ NFR-1 to NFR-7 come from the proposal. NFR-8 to NFR-14 are added here.
 
 ## 7. Data Requirements
 
-The database holds the 32 kinds of record below. The rules below are enforced by the database itself, so that a fault in the application cannot break them.
+The database holds the 34 kinds of record below. The rules below are enforced by the database itself, so that a fault in the application cannot break them.
 
 | Entity | Main attributes | Rules |
 | --- | --- | --- |
@@ -499,11 +499,13 @@ The database holds the 32 kinds of record below. The rules below are enforced by
 | Conversation | Kind (direct or group), state (active, request or declined), who requested it, the pair of users, last message time; for a group its name, creator, the creator's client ID and closed time | One direct conversation per pair of users; a request names who requested it; a group has a name of 1 to 100 characters on one line, is always active, and is one per creator and client ID |
 | Conversation member | Conversation, user, role (owner or member), joined time, read marker and its time | One row per user per conversation; at most one owner per group; the read marker is a message of the same conversation; a member sees only messages from the time they joined |
 | Group membership | Group, user, joined time, left time | One per stay; at most one open stay per user and group; read only through an administrator's report (NFR-14); deleted with the user or the group |
-| Message | Conversation, sender, kind (text or system), text, system event and its details, client ID, sent, edited and deleted times | A text message has a sender, 1 to 5,000 characters, trimmed, and a client ID used once per sender; a system message records a group change, has no text or client ID, may have no sender, and is never edited or deleted; a deleted message keeps its place with no text; edited and deleted after it was sent |
+| Message | Conversation, sender, kind (text or system), text, whether it has attachments, system event and its details, client ID, sent, edited and deleted times | A text message has a sender, a client ID used once per sender, and text of 1 to 5,000 characters, trimmed, unless it has attachments; a system message records a group change, has no text, attachments or client ID, may have no sender, and is never edited or deleted; a deleted message keeps its place with no text; edited and deleted after it was sent |
+| Message attachment | Stored file (owner, object key, content type, size, scan status, scan tries and last error), uploader, conversation, message, position, display name, upload and expiry times | The file belongs to the uploader; scan status is pending, clean, infected or failed; at most 25 MB; at most 5 per message, in order; sent with at most one message, never moved; a display name of 1 to 200 characters with no folder or control characters; deleting the row deletes the stored file and queues its object |
 | Message version | Message, text, shown from, shown until, ended by (edit or deletion) | One per replaced text, at most one deletion per message; read only through an administrator's report (NFR-14); deleted with the message |
 | Block | Blocker, blocked user, time | One per direction; no self-block; deleted with either user |
 | Message report | Conversation, reporter, reported user, message, reason, details, time, resolution (time, administrator, outcome, note) | A reported message belongs to the conversation; a report of a whole group names no reported user; deleted with the conversation |
 | Report view | Report, administrator, time | One per administrator's read; holds no message text and outlives the report |
+| Report attachment download | Report, file, administrator, time | One per administrator's download of an attachment through a report; outlives the report and the file |
 | Account warning | User, reason, time, acknowledged time | Reason of 10 to 1,000 characters; deleted with the user |
 | Account restriction | User, kind, start, end, lifted time, who lifted it | Ends after it starts; deleted with the user |
 | Moderation action | User, administrator, action, reason, internal note, report, warning or restriction, end, time | One per action, never changed; deleted with the user, keeps its row without the name when the administrator's account is deleted, and outlives its report |
@@ -516,6 +518,10 @@ The database holds the 32 kinds of record below. The rules below are enforced by
 - Earlier versions of edited messages and the text of deleted ones are deleted 30 days after they
   were replaced. A version of a conversation that was reported while or after that text was shown
   is kept until 30 days after the report is resolved (purge job: slice 29A).
+- A deleted message's attachments are hidden from members at once and kept with its text under
+  the rule above; the purge of slice 29A deletes them with it. An attachment not sent within 24
+  hours of its upload is deleted. A file the malware scan finds infected is deleted from storage
+  at once; its row stays, as a record, with the conversation.
 
 ## 8. Out of Scope and Open Questions
 

@@ -92,6 +92,45 @@ func (s *S3) PresignGet(ctx context.Context, key string, expiry time.Duration) (
 	return u, nil
 }
 
+// PresignDownload signs a GET URL whose answer is a download: S3's response-content-disposition
+// and response-content-type parameters override what was stored with the object.
+func (s *S3) PresignDownload(ctx context.Context, key string, expiry time.Duration, filename, contentType string) (*url.URL, error) {
+	if key == "" || contentType == "" {
+		return nil, errors.New("storage: presign download needs a key and a content type")
+	}
+	if expiry <= 0 || expiry > MaxPresignExpiry {
+		return nil, fmt.Errorf("storage: presign expiry must be more than 0 and at most %v, got %v", MaxPresignExpiry, expiry)
+	}
+	params := url.Values{}
+	params.Set("response-content-disposition", ContentDisposition(filename))
+	params.Set("response-content-type", contentType)
+	u, err := s.client.PresignedGetObject(ctx, s.bucket, key, expiry, params)
+	if err != nil {
+		return nil, fmt.Errorf("storage: presign %s: %w", key, err)
+	}
+	return u, nil
+}
+
+// Get opens the object. minio-go sends the request on the first read, so the object is
+// stat-ed first to tell a missing object apart.
+func (s *S3) Get(ctx context.Context, key string) (io.ReadCloser, error) {
+	if key == "" {
+		return nil, errors.New("storage: get needs a key")
+	}
+	obj, err := s.client.GetObject(ctx, s.bucket, key, minio.GetObjectOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("storage: get %s: %w", key, err)
+	}
+	if _, err := obj.Stat(); err != nil {
+		_ = obj.Close()
+		if minio.ToErrorResponse(err).Code == minio.NoSuchKey {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("storage: get %s: %w", key, err)
+	}
+	return obj, nil
+}
+
 // Stat returns ErrNotFound when no object has the key.
 func (s *S3) Stat(ctx context.Context, key string) (ObjectInfo, error) {
 	info, err := s.client.StatObject(ctx, s.bucket, key, minio.StatObjectOptions{})

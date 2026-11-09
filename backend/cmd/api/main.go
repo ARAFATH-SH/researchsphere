@@ -23,6 +23,7 @@ import (
 	authusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/usecase"
 	healthpg "github.com/ARAFATH-SH/researchsphere/backend/internal/health/adapter/postgres"
 	healthredis "github.com/ARAFATH-SH/researchsphere/backend/internal/health/adapter/redis"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/clamav"
 	mediahttp "github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/http"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/imaging"
 	mediapg "github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/postgres"
@@ -65,6 +66,9 @@ const accessTTL = 15 * time.Minute
 
 // cleanupInterval is how often queued objects are deleted from storage (docs/decisions.md).
 const cleanupInterval = time.Minute
+
+// attachmentPurgeInterval is how often attachments not sent within a day are deleted (FR-16.7).
+const attachmentPurgeInterval = 10 * time.Minute
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -142,6 +146,11 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 		connectionNotifier{notifications: notifications, messaging: messaging, events: realtime.events}, socialActors{standings: standings}, logger)
 	connected.social = social
 	realtime.bind(messaging, notifications)
+	// Attachments (FR-16.7): media checks types and scans, messaging owns who may see a file.
+	messaging.UseFiles(messagingusecase.FileDeps{Intake: fileIntake{media: mediausecase.NewAttachments(images, imaging.Codec{})}, Objects: files})
+	go messaging.RunAttachmentPurge(ctx, attachmentPurgeInterval)
+	go mediausecase.NewScanWorker(mediaStore, postgres.NewTransactor(pool), scanObjects{files: files}, files, clamav.New(cfg.ClamAVAddr),
+		scanListener{messaging: messaging, notifications: notifications, logger: logger}, logger).Run(ctx)
 
 	lookups := profileredis.New(rdb)
 	defer func() { _ = lookups.Close() }()

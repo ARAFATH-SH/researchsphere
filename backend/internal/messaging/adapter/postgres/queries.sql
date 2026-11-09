@@ -17,7 +17,7 @@ SELECT EXISTS (
 )::boolean AS visible;
 
 -- name: FindSent :one
-SELECT m.id, m.conversation_id, m.sender_id, m.body, m.client_id, m.created_at, m.edited_at, m.deleted_at, m.kind, m.event, m.event_data, c.state
+SELECT m.id, m.conversation_id, m.sender_id, m.body, m.client_id, m.created_at, m.edited_at, m.deleted_at, m.kind, m.event, m.event_data, m.has_attachments, c.state
 FROM messages m
 JOIN conversations c ON c.id = m.conversation_id
 WHERE m.sender_id = @sender_id AND m.client_id = @client_id;
@@ -65,16 +65,17 @@ WHERE user_low = LEAST(@a::uuid, @b::uuid) AND user_high = GREATEST(@a::uuid, @b
 -- send runs. The ID and created_at come from one instant, after that lock, and always later
 -- than the last message, even in the same microsecond or if the clock steps back: the ID
 -- alone decides the order of a conversation's messages, and created_at agrees with it.
--- ON CONFLICT also settles two sends of one client_id at the same moment.
-INSERT INTO messages (id, conversation_id, sender_id, body, client_id, created_at)
-SELECT uuid_v7_at(t.instant), c.id, @sender_id::uuid, @body::text, @client_id::uuid, t.instant
+-- ON CONFLICT also settles two sends of one client_id at the same moment. body is null only
+-- for a message that carries attachments (FR-16.7).
+INSERT INTO messages (id, conversation_id, sender_id, body, client_id, created_at, has_attachments)
+SELECT uuid_v7_at(t.instant), c.id, @sender_id::uuid, sqlc.narg(body)::text, @client_id::uuid, t.instant, @has_attachments::boolean
 FROM conversations c
 CROSS JOIN LATERAL (
     SELECT GREATEST(clock_timestamp(), c.last_message_at + interval '1 microsecond') AS instant
 ) t
 WHERE c.id = @conversation_id::uuid
 ON CONFLICT (sender_id, client_id) DO NOTHING
-RETURNING id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at, kind, event, event_data;
+RETURNING id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at, kind, event, event_data, has_attachments;
 
 -- name: TouchConversation :exec
 UPDATE conversations SET last_message_at = @last_message_at WHERE id = @id;
@@ -106,6 +107,7 @@ SELECT c.id, c.kind, c.state, c.requested_by, c.last_message_at, COALESCE(c.name
        lm.sender_id AS last_sender_id, COALESCE(lm.kind, '')::text AS last_kind, lm.event AS last_event,
        COALESCE(lm.preview, '')::text AS last_preview, lm.created_at AS last_created_at,
        COALESCE(lm.deleted, false)::boolean AS last_deleted,
+       COALESCE(lm.attachment_count, 0)::integer AS last_attachment_count,
        unread.n AS unread_count,
        (SELECT count(*) FROM conversation_members gm WHERE c.kind = 'group' AND gm.conversation_id = c.id) AS member_count,
        EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = me.user_id AND b.blocked_id = o.user_id)::boolean AS blocked_by_me,
@@ -116,7 +118,11 @@ LEFT JOIN conversation_members o ON c.kind = 'direct' AND o.conversation_id = c.
 LEFT JOIN users u ON u.id = o.user_id
 LEFT JOIN profiles p ON p.user_id = u.id
 LEFT JOIN LATERAL (
-    SELECT m.sender_id, m.kind, m.event, left(m.body, 120) AS preview, m.created_at, m.deleted_at IS NOT NULL AS deleted
+    SELECT m.sender_id, m.kind, m.event, left(m.body, 120) AS preview, m.created_at, m.deleted_at IS NOT NULL AS deleted,
+           CASE WHEN m.has_attachments AND m.deleted_at IS NULL
+                THEN (SELECT count(*) FROM message_attachments a
+                      WHERE a.conversation_id = m.conversation_id AND a.message_id = m.id)
+                ELSE 0 END AS attachment_count
     FROM messages m WHERE m.conversation_id = c.id AND m.created_at >= me.joined_at
     ORDER BY m.id DESC LIMIT 1
 ) lm ON true
@@ -141,6 +147,7 @@ SELECT c.id, c.kind, c.state, c.requested_by, c.last_message_at, COALESCE(c.name
        lm.sender_id AS last_sender_id, COALESCE(lm.kind, '')::text AS last_kind, lm.event AS last_event,
        COALESCE(lm.preview, '')::text AS last_preview, lm.created_at AS last_created_at,
        COALESCE(lm.deleted, false)::boolean AS last_deleted,
+       COALESCE(lm.attachment_count, 0)::integer AS last_attachment_count,
        unread.n AS unread_count,
        (SELECT count(*) FROM conversation_members gm WHERE c.kind = 'group' AND gm.conversation_id = c.id) AS member_count,
        EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = me.user_id AND b.blocked_id = o.user_id)::boolean AS blocked_by_me,
@@ -151,7 +158,11 @@ LEFT JOIN conversation_members o ON c.kind = 'direct' AND o.conversation_id = c.
 LEFT JOIN users u ON u.id = o.user_id
 LEFT JOIN profiles p ON p.user_id = u.id
 LEFT JOIN LATERAL (
-    SELECT m.sender_id, m.kind, m.event, left(m.body, 120) AS preview, m.created_at, m.deleted_at IS NOT NULL AS deleted
+    SELECT m.sender_id, m.kind, m.event, left(m.body, 120) AS preview, m.created_at, m.deleted_at IS NOT NULL AS deleted,
+           CASE WHEN m.has_attachments AND m.deleted_at IS NULL
+                THEN (SELECT count(*) FROM message_attachments a
+                      WHERE a.conversation_id = m.conversation_id AND a.message_id = m.id)
+                ELSE 0 END AS attachment_count
     FROM messages m WHERE m.conversation_id = c.id AND m.created_at >= me.joined_at
     ORDER BY m.id DESC LIMIT 1
 ) lm ON true
@@ -176,7 +187,7 @@ LIMIT @lim;
 -- messages_conversation_id_uq, scanned backward, serves this. A deleted message is listed in
 -- its place with no body; message_versions is never read for a member (NFR-14). since is the
 -- member's joining time.
-SELECT id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at, kind, event, event_data
+SELECT id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at, kind, event, event_data, has_attachments
 FROM messages
 WHERE conversation_id = @conversation_id AND created_at >= @since::timestamptz
   AND (NOT @has_before::boolean OR id < @before_id::uuid)
@@ -187,14 +198,14 @@ LIMIT @lim;
 -- The sender's message in the conversation, held until the transaction ends so an edit and a
 -- deletion of one message run one at a time. No row for anyone else's (NFR-14), nor for a
 -- system message, which is no one's to edit or delete.
-SELECT id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at, kind, event, event_data
+SELECT id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at, kind, event, event_data, has_attachments
 FROM messages
 WHERE conversation_id = @conversation_id AND id = @id AND sender_id = @sender_id AND kind = 'text'
 FOR UPDATE;
 
 -- name: FindOwnMessage :one
 -- LockOwnMessage without the lock, for the checks before the transaction.
-SELECT id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at, kind, event, event_data
+SELECT id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at, kind, event, event_data, has_attachments
 FROM messages
 WHERE conversation_id = @conversation_id AND id = @id AND sender_id = @sender_id AND kind = 'text';
 
@@ -210,12 +221,13 @@ WITH old AS (
 ), kept AS (
     INSERT INTO message_versions (conversation_id, message_id, body, shown_from, shown_until, ended_by)
     SELECT old.conversation_id, old.id, old.body, old.shown_from, old.instant, 'edited' FROM old
+    WHERE old.body IS NOT NULL -- a message with only attachments had no text to keep
 )
 UPDATE messages m
 SET body = @body::text, edited_at = old.instant
 FROM old
 WHERE m.id = old.id
-RETURNING m.id, m.conversation_id, m.sender_id, m.body, m.client_id, m.created_at, m.edited_at, m.deleted_at, m.kind, m.event, m.event_data;
+RETURNING m.id, m.conversation_id, m.sender_id, m.body, m.client_id, m.created_at, m.edited_at, m.deleted_at, m.kind, m.event, m.event_data, m.has_attachments;
 
 -- name: DeleteMessage :one
 -- Leaves a tombstone and keeps the last text in message_versions, as EditMessage does.
@@ -227,12 +239,13 @@ WITH old AS (
 ), kept AS (
     INSERT INTO message_versions (conversation_id, message_id, body, shown_from, shown_until, ended_by)
     SELECT old.conversation_id, old.id, old.body, old.shown_from, old.instant, 'deleted' FROM old
+    WHERE old.body IS NOT NULL -- a message with only attachments had no text to keep
 )
 UPDATE messages m
 SET body = NULL, deleted_at = old.instant
 FROM old
 WHERE m.id = old.id
-RETURNING m.id, m.conversation_id, m.sender_id, m.body, m.client_id, m.created_at, m.edited_at, m.deleted_at, m.kind, m.event, m.event_data;
+RETURNING m.id, m.conversation_id, m.sender_id, m.body, m.client_id, m.created_at, m.edited_at, m.deleted_at, m.kind, m.event, m.event_data, m.has_attachments;
 
 -- name: MessageIn :one
 -- since is the member's joining time: a message from before it is not theirs to see.
@@ -437,7 +450,7 @@ CROSS JOIN LATERAL (
     SELECT GREATEST(clock_timestamp(), c.last_message_at + interval '1 microsecond') AS instant
 ) t
 WHERE c.id = @conversation_id::uuid
-RETURNING id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at, kind, event, event_data;
+RETURNING id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at, kind, event, event_data, has_attachments;
 
 -- name: AddGroupMember :exec
 -- conversation_members_joined (migration 000021) opens the stay in conversation_memberships.
@@ -486,7 +499,110 @@ WHERE conversation_id = @conversation_id AND user_id <> @viewer_id
 ORDER BY joined_at, user_id;
 
 -- name: SystemMessagesAfter :many
-SELECT id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at, kind, event, event_data
+SELECT id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at, kind, event, event_data, has_attachments
 FROM messages
 WHERE conversation_id = @conversation_id AND kind = 'system' AND id > @after_id
 ORDER BY id;
+
+-- ---------------------------------------------------------------------------
+-- Attachments (FR-16.7, NFR-13; slice 14B, chunk 14B.3). An attachment is the stored_files row
+-- (purpose 'attachment') and its message_attachments row; the ID of both is the file's.
+-- ---------------------------------------------------------------------------
+
+-- name: InsertAttachment :one
+-- The file's row starts pending: the scan worker (media module) picks it up.
+WITH f AS (
+    INSERT INTO stored_files (id, owner_user_id, purpose, object_key, content_type, size_bytes, width, height, scan_status)
+    VALUES (@id, @uploader_id, 'attachment', @object_key, @content_type, @size_bytes,
+            sqlc.narg(width), sqlc.narg(height), 'pending')
+    RETURNING id, owner_user_id, size_bytes, content_type, scan_status
+)
+INSERT INTO message_attachments (file_id, uploader_id, conversation_id, name, expires_at)
+SELECT f.id, f.owner_user_id, @conversation_id, @name, @expires_at FROM f
+RETURNING file_id, created_at, expires_at;
+
+-- name: ClaimAttachments :many
+-- Ties the sender's unused attachments of this conversation to the message, in the order given.
+-- An expired one, or one the scan blocked or could not read, is not taken: the usecase compares
+-- the count and rolls back.
+UPDATE message_attachments a
+SET message_id = @message_id, position = (ids.ord - 1)::smallint
+FROM unnest(@ids::uuid[]) WITH ORDINALITY AS ids(id, ord), stored_files f
+WHERE a.file_id = ids.id AND f.id = a.file_id
+  AND a.uploader_id = @uploader_id AND a.conversation_id = @conversation_id
+  AND a.message_id IS NULL AND a.expires_at > now()
+  AND f.scan_status IN ('pending', 'clean')
+RETURNING a.file_id;
+
+-- name: ListMessageAttachments :many
+-- The attachments of the listed messages, in order. The caller has already checked who may see
+-- the messages.
+SELECT a.message_id::uuid AS message_id, a.file_id, a.name, f.size_bytes, f.content_type, f.scan_status
+FROM message_attachments a
+JOIN stored_files f ON f.id = a.file_id
+WHERE a.conversation_id = @conversation_id AND a.message_id = ANY(@message_ids::uuid[])
+ORDER BY a.message_id, a.position;
+
+-- name: FindAttachment :one
+-- An attachment with what decides who may download it: its message (if sent), and the caller's
+-- membership. my_joined_at is null when the caller is not a member now.
+SELECT a.file_id, a.uploader_id, a.conversation_id, a.message_id, a.name,
+       f.object_key, f.content_type, f.size_bytes, f.scan_status,
+       m.created_at AS message_created_at, (m.deleted_at IS NOT NULL)::boolean AS message_deleted,
+       me.joined_at AS my_joined_at
+FROM message_attachments a
+JOIN stored_files f ON f.id = a.file_id
+LEFT JOIN messages m ON m.conversation_id = a.conversation_id AND m.id = a.message_id
+LEFT JOIN conversation_members me ON me.conversation_id = a.conversation_id AND me.user_id = @user_id
+WHERE a.file_id = @id;
+
+-- name: FindReportedAttachment :one
+-- An attachment as the administrator may reach it (NFR-14): starting from the report, only of a
+-- message of the reported conversation sent by the report's moment.
+SELECT a.file_id, a.name, f.object_key, f.content_type, f.scan_status
+FROM message_reports r
+JOIN message_attachments a ON a.conversation_id = r.conversation_id
+JOIN messages m ON m.conversation_id = a.conversation_id AND m.id = a.message_id AND m.created_at <= r.created_at
+JOIN stored_files f ON f.id = a.file_id
+WHERE r.id = @report_id AND a.file_id = @file_id;
+
+-- name: ListReportedAttachments :many
+-- The attachments of the listed messages of a report, deleted messages' included. Like
+-- ListReportedMessages it starts from the report (NFR-14).
+SELECT a.message_id::uuid AS message_id, a.file_id, a.name, f.size_bytes, f.content_type, f.scan_status
+FROM message_reports r
+JOIN message_attachments a ON a.conversation_id = r.conversation_id
+JOIN messages m ON m.conversation_id = a.conversation_id AND m.id = a.message_id AND m.created_at <= r.created_at
+JOIN stored_files f ON f.id = a.file_id
+WHERE r.id = @report_id AND a.message_id = ANY(@message_ids::uuid[])
+ORDER BY a.message_id, a.position;
+
+-- name: InsertAttachmentDownload :exec
+INSERT INTO message_report_attachment_downloads (report_id, file_id, admin_id)
+VALUES (@report_id, @file_id, @admin_id);
+
+-- name: FindAttachmentAudience :one
+-- Who hears that an attachment's scan finished: its conversation and message, and the time from
+-- which a member must have joined to see it.
+SELECT a.conversation_id, a.message_id, a.uploader_id, m.created_at AS message_created_at,
+       (m.deleted_at IS NOT NULL)::boolean AS message_deleted
+FROM message_attachments a
+LEFT JOIN messages m ON m.conversation_id = a.conversation_id AND m.id = a.message_id
+WHERE a.file_id = @file_id;
+
+-- name: MembersSince :many
+-- The current members who joined at or before the moment (they can see a message sent then).
+SELECT user_id FROM conversation_members
+WHERE conversation_id = @conversation_id AND joined_at <= @at::timestamptz;
+
+-- name: DeleteExpiredAttachments :execrows
+-- Unused attachments past their expiry. The trigger of 000024 deletes the stored file, whose
+-- trigger queues the object.
+DELETE FROM message_attachments
+WHERE file_id IN (
+    SELECT file_id FROM message_attachments
+    WHERE message_id IS NULL AND expires_at <= now()
+    ORDER BY expires_at
+    LIMIT @max_rows
+    FOR UPDATE SKIP LOCKED
+);

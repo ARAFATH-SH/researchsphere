@@ -72,9 +72,10 @@ var platformGuards = map[string]authz.Action{
 	"POST /api/v1/me/warnings/{warningId}/acknowledge":     authz.ViewContent,
 
 	// Reported conversations (FR-16.9, NFR-14): the only way an administrator reads messages.
-	"GET /api/v1/admin/message-reports":                     authz.ReviewMessageReports,
-	"GET /api/v1/admin/message-reports/{reportId}":          authz.ReviewMessageReports,
-	"POST /api/v1/admin/message-reports/{reportId}/resolve": authz.ReviewMessageReports,
+	"GET /api/v1/admin/message-reports":                                       authz.ReviewMessageReports,
+	"GET /api/v1/admin/message-reports/{reportId}":                            authz.ReviewMessageReports,
+	"GET /api/v1/admin/message-reports/{reportId}/attachments/{attachmentId}": authz.ReviewMessageReports,
+	"POST /api/v1/admin/message-reports/{reportId}/resolve":                   authz.ReviewMessageReports,
 
 	// Profiles (FR-4.1, FR-4.5): reading any profile, the caller's own included, is the
 	// row "View profiles, ..."; editing is the row "Edit own profile, ...".
@@ -171,6 +172,8 @@ var platformGuards = map[string]authz.Action{
 	"GET /api/v1/conversations/{conversationId}":                         authz.ViewContent,
 	"GET /api/v1/conversations/{conversationId}/messages":                authz.ViewContent,
 	"POST /api/v1/conversations/{conversationId}/messages":               authz.ActAsMember,
+	"POST /api/v1/conversations/{conversationId}/attachments":            authz.ActAsMember,
+	"GET /api/v1/attachments/{attachmentId}":                             authz.ViewContent,
 	"POST /api/v1/conversations/{conversationId}/read":                   authz.ActAsMember,
 	"PATCH /api/v1/conversations/{conversationId}/messages/{messageId}":  authz.ActAsMember,
 	"DELETE /api/v1/conversations/{conversationId}/messages/{messageId}": authz.ActAsMember,
@@ -207,6 +210,8 @@ const multipartOverhead = 64 << 10
 var bodyLimits = map[string]int64{
 	"PUT /api/v1/profiles/me/photo": mediausecase.Specs[mediadomain.PurposePhoto].MaxBytes + multipartOverhead,
 	"PUT /api/v1/profiles/me/cover": mediausecase.Specs[mediadomain.PurposeCover].MaxBytes + multipartOverhead,
+	// FR-16.7: 25 MB.
+	"POST /api/v1/conversations/{conversationId}/attachments": mediausecase.MaxAttachmentBytes + multipartOverhead,
 }
 
 // limitBody wraps the request body of the routes in bodyLimits in http.MaxBytesReader.
