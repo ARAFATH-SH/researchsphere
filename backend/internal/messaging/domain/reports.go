@@ -44,11 +44,12 @@ type ReportInput struct {
 	MessageID *string
 }
 
-// NewReport is a validated report, ready to store.
+// NewReport is a validated report, ready to store. ReportedID is nil for a report of a whole
+// group.
 type NewReport struct {
 	ConversationID string
 	ReporterID     string
-	ReportedID     string
+	ReportedID     *string
 	MessageID      *string
 	Reason         ReportReason
 	Details        *string
@@ -59,7 +60,7 @@ type NewReport struct {
 type ReportReceipt struct {
 	ID          string
 	CreatedAt   time.Time
-	ReportedID  string
+	ReportedID  *string // nil for a report of a whole group
 	BlockedByMe bool
 }
 
@@ -77,17 +78,19 @@ type ReportPerson struct {
 // Report is a stored report. CreatedAt is its moment: an administrator sees the
 // conversation's messages only up to it (NFR-14). ResolvedAt is nil while it is open.
 type Report struct {
-	ID             string
-	ConversationID string
-	Reason         ReportReason
-	Details        *string
-	MessageID      *string
-	Reporter       ReportPerson
-	Reported       ReportPerson
-	CreatedAt      time.Time
-	Outcome        *ReportOutcome
-	Note           *string
-	ResolvedAt     *time.Time
+	ID               string
+	ConversationID   string
+	ConversationKind Kind
+	GroupName        *string // the group's name now, nil for a direct conversation
+	Reason           ReportReason
+	Details          *string
+	MessageID        *string
+	Reporter         ReportPerson
+	Reported         *ReportPerson // nil for a report of a whole group
+	CreatedAt        time.Time
+	Outcome          *ReportOutcome
+	Note             *string
+	ResolvedAt       *time.Time
 }
 
 // ReportPage is one page of reports.
@@ -123,7 +126,9 @@ type MessageVersion struct {
 type ReportedMessage struct {
 	ID                 string
 	ConversationID     string
-	SenderID           string
+	SenderID           string // empty for a system message with no actor
+	Kind               MessageKind
+	Event              *SystemEvent
 	CreatedAt          time.Time
 	Body               *string // the text at the report's moment, nil when deleted by then
 	EditedAt           *time.Time
@@ -135,17 +140,21 @@ type ReportedMessage struct {
 // ReportDetail is a report and one page of its conversation, newest first. NextBefore is nil
 // on the last page.
 type ReportDetail struct {
-	Report     Report
-	Messages   []ReportedMessage
-	NextBefore *string
+	Report Report
+	// MembersAtReport is, for a group, everyone who was a member at the report's moment; nil
+	// for a direct conversation.
+	MembersAtReport []ReportPerson
+	Messages        []ReportedMessage
+	NextBefore      *string
 }
 
 // ReportStore reads and writes reports. There is deliberately no way to read messages by
 // conversation here: ListReportedMessages starts from a report (NFR-14).
 type ReportStore interface {
-	// FindMessageSender returns who sent the message; found is false when it is not in the
-	// conversation, also for a value that is not a UUID.
-	FindMessageSender(ctx context.Context, conversationID, messageID string) (senderID string, found bool, err error)
+	// FindMessageSender returns who sent the text message; found is false when it is not in the
+	// conversation, was created before since, or is a system message, also for a value that is
+	// not a UUID.
+	FindMessageSender(ctx context.Context, conversationID, messageID string, since time.Time) (senderID string, found bool, err error)
 	// InsertReport stores r and returns its ID and moment.
 	InsertReport(ctx context.Context, r NewReport) (id string, createdAt time.Time, err error)
 	// ListReports returns one page of open or resolved reports, newest first, and the total
@@ -160,6 +169,11 @@ type ReportStore interface {
 	// or before the report's moment, oldest first per message, without Versions filled in on
 	// the messages.
 	ListReportedVersions(ctx context.Context, reportID string, messageIDs []string) ([]MessageVersion, error)
+	// MembersAtReport returns everyone who was a member of the report's group at the report's
+	// moment, by name. It starts from the report (NFR-14).
+	MembersAtReport(ctx context.Context, reportID string) ([]ReportPerson, error)
+	// MemberAtReport reports whether userID was a member of the report's group at its moment.
+	MemberAtReport(ctx context.Context, reportID, userID string) (bool, error)
 	// AddReportView records that adminID read the report's conversation.
 	AddReportView(ctx context.Context, reportID, adminID string) error
 	// ResolveReport closes an open report. resolved is false when no open report has the ID.
@@ -171,7 +185,7 @@ var (
 	ErrOwnMessage      = errors.New("messaging: the message is the reporter's own")
 	ErrAlreadyResolved = errors.New("messaging: the report is already resolved")
 	// ErrReportAboutOther refuses a moderation action on one user that names a report about
-	// another (FR-15.8).
+	// another, or, for a group, a user who was not a member at the report's moment (FR-15.8).
 	ErrReportAboutOther = errors.New("messaging: the report is about another user")
 	ErrInvalidStatus    = errors.New("messaging: unknown report status")
 	ErrInvalidPage      = errors.New("messaging: page is not a whole number of at least 1")

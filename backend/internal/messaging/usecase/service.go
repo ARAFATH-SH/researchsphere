@@ -1,8 +1,9 @@
 // Package usecase holds the messaging module's logic: direct conversations between
 // connections (FR-16.1), message requests to everyone else (FR-16.2), unread counts and
-// read markers (FR-16.3), the send limits (FR-16.10), the membership check on every read
-// and write (NFR-14), blocks and reports (FR-16.9) and an administrator's review of reports
-// (NFR-14). It imports only the messaging domain.
+// read markers (FR-16.3), editing and deleting (FR-16.5), group conversations (FR-16.6), the
+// send limits (FR-16.10), the membership check on every read and write (NFR-14), blocks and
+// reports (FR-16.9) and an administrator's review of reports (NFR-14). It imports only the
+// messaging domain.
 package usecase
 
 import (
@@ -80,6 +81,12 @@ func (NopPublisher) RequestDeclined(context.Context, string, []string) {}
 // PairChanged does nothing.
 func (NopPublisher) PairChanged(context.Context, string, string) {}
 
+// MembersChanged does nothing.
+func (NopPublisher) MembersChanged(context.Context, string, domain.MemberChange, []string) {}
+
+// AccessLost does nothing.
+func (NopPublisher) AccessLost(context.Context, string, []string) {}
+
 // Service handles conversations and messages.
 type Service struct {
 	store       domain.Store
@@ -89,9 +96,12 @@ type Service struct {
 	actors      domain.Actors
 	limiter     domain.Limiter
 	publisher   domain.Publisher
+	notifier    domain.GroupNotifier
 	messages    []window
 	requests    []window
 	reports     []window
+	groups      []window
+	members     []window // members added to groups
 	editWindow  time.Duration
 	now         func() time.Time
 	logger      *slog.Logger
@@ -99,10 +109,11 @@ type Service struct {
 
 // New returns a Service. now is time.Now in production and a fixed clock in tests.
 func New(store domain.Store, tx domain.Transactor, connections domain.Connections, blocks domain.Blocks, actors domain.Actors,
-	limiter domain.Limiter, publisher domain.Publisher, limits Limits, now func() time.Time, logger *slog.Logger,
+	limiter domain.Limiter, publisher domain.Publisher, notifier domain.GroupNotifier, limits Limits, now func() time.Time, logger *slog.Logger,
 ) *Service {
 	return &Service{
-		store: store, tx: tx, connections: connections, blocks: blocks, actors: actors, limiter: limiter, publisher: publisher, logger: logger,
+		store: store, tx: tx, connections: connections, blocks: blocks, actors: actors, limiter: limiter, publisher: publisher,
+		notifier: notifier, logger: logger,
 		editWindow: limits.EditWindow, now: now,
 		messages: []window{
 			{"messages:minute", limits.MessagesPerMinute, time.Minute},
@@ -113,6 +124,8 @@ func New(store domain.Store, tx domain.Transactor, connections domain.Connection
 			{"requests:day", limits.RequestsPerDay, day},
 		},
 		reports: []window{{"reports:day", ReportsPerDay, day}},
+		groups:  []window{{"groups:day", GroupsPerDay, day}},
+		members: []window{{"group-members:day", GroupMembersPerDay, day}},
 	}
 }
 
@@ -136,7 +149,7 @@ func (s *Service) SendDirect(ctx context.Context, senderID, recipientID, body, c
 	if err := s.refuseSender(ctx, senderID); err != nil {
 		return domain.Sent{}, err
 	}
-	if err := s.checkLimits(ctx, senderID, s.messages); err != nil {
+	if err := s.checkLimits(ctx, senderID, s.messages, 1); err != nil {
 		return domain.Sent{}, err
 	}
 	visible, err := s.store.UserVisible(ctx, recipientID)
@@ -160,7 +173,7 @@ func (s *Service) SendDirect(ctx context.Context, senderID, recipientID, body, c
 			return domain.Sent{}, err
 		}
 		if !connected {
-			if err := s.checkLimits(ctx, senderID, s.requests); err != nil {
+			if err := s.checkLimits(ctx, senderID, s.requests, 1); err != nil {
 				return domain.Sent{}, err
 			}
 			state, requester = domain.StateRequest, &senderID
@@ -201,13 +214,15 @@ func (s *Service) SendDirect(ctx context.Context, senderID, recipientID, body, c
 		sent, err = s.add(ctx, c, senderID, text, clientID)
 		return err
 	})
-	return s.finish(ctx, sent, err, recipientID, senderID, clientID, newRequest)
+	return s.finish(ctx, sent, err, []string{recipientID}, senderID, clientID, newRequest)
 }
 
-// Send sends a message in a conversation (FR-16.1, FR-16.2, NFR-14). Checks run in this
-// order: ErrInvalidBody, ErrNotFound when senderID is not a member, the client ID as in
-// SendDirect, the sender's standing (see refuseSender), *RateLimitedError, ErrNotFound when the other member is suspended or not
-// verified, a block (see refuseBlocked), then ErrRequestPending or ErrClosed.
+// Send sends a message in a conversation (FR-16.1, FR-16.2, FR-16.6, NFR-14). Checks run in
+// this order: ErrInvalidBody, ErrNotFound when senderID is not a member, the client ID as in
+// SendDirect, the sender's standing (see refuseSender), *RateLimitedError, ErrNotFound when the
+// other member is suspended or not verified, a block (see refuseBlocked), then
+// ErrRequestPending or ErrClosed. In a group there is no other member, no block applies and no
+// request: after the limits only membership is checked again, under the conversation's lock.
 func (s *Service) Send(ctx context.Context, senderID, conversationID, body, clientID string) (domain.Sent, error) {
 	text, err := NormalizeBody(body)
 	if err != nil {
@@ -223,8 +238,11 @@ func (s *Service) Send(ctx context.Context, senderID, conversationID, body, clie
 	if err := s.refuseSender(ctx, senderID); err != nil {
 		return domain.Sent{}, err
 	}
-	if err := s.checkLimits(ctx, senderID, s.messages); err != nil {
+	if err := s.checkLimits(ctx, senderID, s.messages, 1); err != nil {
 		return domain.Sent{}, err
+	}
+	if c.IsGroup() {
+		return s.sendInGroup(ctx, conversationID, senderID, text, clientID)
 	}
 	visible, err := s.store.UserVisible(ctx, c.OtherID)
 	if err != nil {
@@ -254,7 +272,63 @@ func (s *Service) Send(ctx context.Context, senderID, conversationID, body, clie
 		sent, err = s.add(ctx, locked, senderID, text, clientID)
 		return err
 	})
-	return s.finish(ctx, sent, err, c.OtherID, senderID, clientID, false)
+	return s.finish(ctx, sent, err, []string{c.OtherID}, senderID, clientID, false)
+}
+
+// sendInGroup stores a message in a group and tells every other current member.
+func (s *Service) sendInGroup(ctx context.Context, conversationID, senderID, text, clientID string) (domain.Sent, error) {
+	var (
+		sent domain.Sent
+		to   []string
+	)
+	err := s.tx.InTx(ctx, func(ctx context.Context) error {
+		if err := s.refuseSender(ctx, senderID); err != nil {
+			return err
+		}
+		locked, err := s.lockMember(ctx, conversationID, senderID)
+		if err != nil {
+			return err
+		}
+		if sent, err = s.add(ctx, locked, senderID, text, clientID); err != nil {
+			return err
+		}
+		to, err = s.others(ctx, conversationID, senderID)
+		return err
+	})
+	return s.finish(ctx, sent, err, to, senderID, clientID, false)
+}
+
+// lockMember holds the conversation's row and reads it again as userID sees it, so a removal
+// or a leave that committed meanwhile wins: a former member gets ErrNotFound (NFR-14).
+func (s *Service) lockMember(ctx context.Context, conversationID, userID string) (domain.Conversation, error) {
+	if _, err := s.store.LockConversation(ctx, conversationID); err != nil {
+		return domain.Conversation{}, err
+	}
+	return s.store.FindConversation(ctx, conversationID, userID)
+}
+
+// others returns the conversation's current members other than userID.
+func (s *Service) others(ctx context.Context, conversationID, userID string) ([]string, error) {
+	ids, err := s.store.GroupMemberIDs(ctx, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if id != userID {
+			out = append(out, id)
+		}
+	}
+	return out, nil
+}
+
+// recipients is who hears about a change in c besides userID: the other member of a direct
+// conversation, the other current members of a group.
+func (s *Service) recipients(ctx context.Context, c domain.Conversation, userID string) ([]string, error) {
+	if c.IsGroup() {
+		return s.others(ctx, c.ID, userID)
+	}
+	return []string{c.OtherID}, nil
 }
 
 // refuseSuspended returns *SuspendedError when the user's account is suspended now. Inside a
@@ -365,7 +439,7 @@ func (s *Service) add(ctx context.Context, c domain.Conversation, senderID, text
 // finish runs after the transaction. A send that lost a race for its client ID, or that a
 // racing send of the same client ID left refused, gets the original message. Otherwise it
 // counts and publishes a stored message; a limiter failure only logs (fail open).
-func (s *Service) finish(ctx context.Context, sent domain.Sent, err error, recipientID, senderID, clientID string, newRequest bool) (domain.Sent, error) {
+func (s *Service) finish(ctx context.Context, sent domain.Sent, err error, to []string, senderID, clientID string, newRequest bool) (domain.Sent, error) {
 	if errors.Is(err, errDuplicate) || errors.Is(err, domain.ErrRequestPending) || errors.Is(err, domain.ErrClosed) {
 		won, found, findErr := s.replay(ctx, senderID, clientID)
 		switch {
@@ -381,17 +455,18 @@ func (s *Service) finish(ctx context.Context, sent domain.Sent, err error, recip
 	if err != nil {
 		return domain.Sent{}, err
 	}
-	s.record(ctx, senderID, s.messages)
+	s.record(ctx, senderID, s.messages, 1)
 	if newRequest {
-		s.record(ctx, senderID, s.requests)
+		s.record(ctx, senderID, s.requests, 1)
 	}
-	s.publisher.MessageSent(ctx, sent, []string{recipientID})
+	s.publisher.MessageSent(ctx, sent, to)
 	return sent, nil
 }
 
-// checkLimits returns *RateLimitedError when any of the windows is full, with the longest
-// wait. A window the limiter cannot answer for is skipped (fail open, as the login lockout).
-func (s *Service) checkLimits(ctx context.Context, userID string, windows []window) error {
+// checkLimits returns *RateLimitedError when n more would pass any of the windows, with the
+// longest wait. A window the limiter cannot answer for is skipped (fail open, as the login
+// lockout).
+func (s *Service) checkLimits(ctx context.Context, userID string, windows []window, n int) error {
 	var (
 		full bool
 		wait time.Duration
@@ -402,7 +477,7 @@ func (s *Service) checkLimits(ctx context.Context, userID string, windows []wind
 			s.logger.WarnContext(ctx, "message rate limit unavailable, allowing the send", slog.Any("error", err))
 			continue
 		}
-		if used >= w.limit {
+		if used+n > w.limit {
 			full, wait = true, max(wait, left)
 		}
 	}
@@ -412,9 +487,9 @@ func (s *Service) checkLimits(ctx context.Context, userID string, windows []wind
 	return nil
 }
 
-func (s *Service) record(ctx context.Context, userID string, windows []window) {
+func (s *Service) record(ctx context.Context, userID string, windows []window, n int) {
 	for _, w := range windows {
-		if err := s.limiter.Record(ctx, w.name, userID, w.length); err != nil {
+		if err := s.limiter.Record(ctx, w.name, userID, n, w.length); err != nil {
 			s.logger.WarnContext(ctx, "message rate limit not recorded", slog.Any("error", err))
 		}
 	}
@@ -465,18 +540,52 @@ func (s *Service) ConversationBetween(ctx context.Context, a, b string) (string,
 	return s.store.DirectID(ctx, a, b)
 }
 
-// TypingPeer returns the other member when userID may tell them about typing now: userID is a
-// member, the conversation is active, the other member is available and neither blocked the
-// other (FR-16.4). Anything else, an unknown ID included, is ok false.
-func (s *Service) TypingPeer(ctx context.Context, userID, id string) (string, bool, error) {
-	it, err := s.store.FindItem(ctx, id, userID)
+// TypingPeers returns who userID may tell about typing now (FR-16.4). In a direct
+// conversation, the other member when userID is a member, it is active, the other member is
+// available and neither blocked the other. In a group, every other current member except those
+// in a block with userID either way (FR-16.6). Anything else, an unknown ID included, is none.
+func (s *Service) TypingPeers(ctx context.Context, userID, id string) ([]string, error) {
+	c, err := s.store.FindConversation(ctx, id, userID)
 	if errors.Is(err, domain.ErrNotFound) {
-		return "", false, nil
+		return nil, nil
 	}
 	if err != nil {
-		return "", false, err
+		return nil, err
 	}
-	return it.OtherID, it.CanMessage(), nil
+	if !c.IsGroup() {
+		it, err := s.store.FindItem(ctx, id, userID)
+		if errors.Is(err, domain.ErrNotFound) || (err == nil && !it.CanMessage()) {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		return []string{it.OtherID}, nil
+	}
+	others, err := s.others(ctx, id, userID)
+	if err != nil || len(others) == 0 {
+		return nil, err
+	}
+	blocked, err := s.blocks.BlockedAmong(ctx, userID, others)
+	if err != nil {
+		return nil, err
+	}
+	return without(others, blocked), nil
+}
+
+// without returns ids without those in drop, in their order.
+func without(ids, drop []string) []string {
+	skip := make(map[string]bool, len(drop))
+	for _, id := range drop {
+		skip[id] = true
+	}
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if !skip[id] {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 // ActivePeers returns who may see the user's presence (FR-16.4).
@@ -533,13 +642,23 @@ func (s *Service) List(ctx context.Context, userID, box, cursor string, limitPar
 	return domain.Page{Items: items, NextCursor: next}, nil
 }
 
-// Get returns one of userID's conversations, ErrNotFound when they are not a member.
+// Get returns one of userID's conversations, ErrNotFound when they are not a member. A
+// group comes with its current members.
 func (s *Service) Get(ctx context.Context, userID, id string) (domain.Item, error) {
-	return s.store.FindItem(ctx, id, userID)
+	it, err := s.store.FindItem(ctx, id, userID)
+	if err != nil || it.Group == nil {
+		return it, err
+	}
+	if it.Group.Members, err = s.store.ListGroupMembers(ctx, id); err != nil {
+		return domain.Item{}, err
+	}
+	return it, nil
 }
 
 // Messages returns one page of a conversation's messages, newest first, and the other
-// member's read marker (FR-16.3). ErrNotFound when userID is not a member; before is the
+// member's read marker (FR-16.3), or in a group every other member's. A member sees only the
+// messages created from the moment they joined (FR-16.6). ErrNotFound when userID is not a
+// member; before is the
 // previous page's NextBefore, or empty, and anything but a UUID is ErrInvalidCursor. A nil
 // limit means DefaultMessageLimit; above MaxMessageLimit it is reduced; below 1 it is
 // ErrInvalidLimit.
@@ -555,7 +674,7 @@ func (s *Service) Messages(ctx context.Context, userID, id, before string, limit
 	if err != nil {
 		return domain.MessagePage{}, err
 	}
-	items, err := s.store.ListMessages(ctx, id, before, limit+1)
+	items, err := s.store.ListMessages(ctx, id, c.JoinedAt, before, limit+1)
 	if err != nil {
 		return domain.MessagePage{}, err
 	}
@@ -565,18 +684,24 @@ func (s *Service) Messages(ctx context.Context, userID, id, before string, limit
 		last := items[limit-1].ID
 		next = &last
 	}
-	return domain.MessagePage{Items: items, NextBefore: next, OtherReadID: c.OtherReadID}, nil
+	page := domain.MessagePage{Items: items, NextBefore: next, OtherReadID: c.OtherReadID}
+	if c.IsGroup() {
+		if page.Readers, err = s.store.ListReaders(ctx, id, userID); err != nil {
+			return domain.MessagePage{}, err
+		}
+	}
+	return page, nil
 }
 
 // MarkRead moves userID's read marker forward to messageID (FR-16.3). A message at or
 // before the marker succeeds and changes nothing. ErrNotFound when userID is not a member
-// or the message is not in this conversation.
+// or the message is not in this conversation, or from before they joined.
 func (s *Service) MarkRead(ctx context.Context, userID, id, messageID string) error {
 	c, err := s.store.FindConversation(ctx, id, userID)
 	if err != nil {
 		return err
 	}
-	in, err := s.store.MessageIn(ctx, id, messageID)
+	in, err := s.store.MessageIn(ctx, id, messageID, c.JoinedAt)
 	if err != nil {
 		return err
 	}
@@ -587,9 +712,14 @@ func (s *Service) MarkRead(ctx context.Context, userID, id, messageID string) er
 	if err != nil {
 		return err
 	}
-	if moved {
-		s.publisher.ReadMoved(ctx, id, userID, messageID, []string{c.OtherID})
+	if !moved {
+		return nil
 	}
+	to, err := s.recipients(ctx, c, userID)
+	if err != nil {
+		return err
+	}
+	s.publisher.ReadMoved(ctx, id, userID, messageID, to)
 	return nil
 }
 

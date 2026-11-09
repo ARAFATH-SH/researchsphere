@@ -154,6 +154,9 @@ type Store interface {
 	LockPair(ctx context.Context, a, b string) error
 	// BlockBetween reads who has blocked whom between me and other.
 	BlockBetween(ctx context.Context, me, other string) (BlockState, error)
+	// BlockedAmong returns which of ids are in a block with userID, either way. IDs that are
+	// not UUIDs are not.
+	BlockedAmong(ctx context.Context, userID string, ids []string) ([]string, error)
 	// AddBlock stores that blockerID blocks blockedID. added is false when it already did.
 	AddBlock(ctx context.Context, blockerID, blockedID string) (added bool, err error)
 	// RemoveBlock deletes that block, if there is one. An ID that is not a UUID is none.

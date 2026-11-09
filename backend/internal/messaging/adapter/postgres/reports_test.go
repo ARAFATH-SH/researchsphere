@@ -3,6 +3,8 @@
 package postgres
 
 import (
+	"time"
+
 	"errors"
 	"testing"
 
@@ -11,7 +13,7 @@ import (
 
 func newReport(t *testing.T, s *Store, c, reporter, reported string, message *string) string {
 	t.Helper()
-	id, at, err := s.InsertReport(t.Context(), domain.NewReport{ConversationID: c, ReporterID: reporter, ReportedID: reported,
+	id, at, err := s.InsertReport(t.Context(), domain.NewReport{ConversationID: c, ReporterID: reporter, ReportedID: &reported,
 		MessageID: message, Reason: domain.ReasonSpam})
 	if err != nil || at.IsZero() {
 		t.Fatalf("InsertReport: %v, %v", at, err)
@@ -66,10 +68,10 @@ func TestReportRoundTrip(t *testing.T) {
 	if _, err := s.FindReport(ctx, "not-a-uuid"); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("bad ID: %v", err)
 	}
-	if sender, found, err := s.FindMessageSender(ctx, c.ID, m.ID); err != nil || !found || sender != bob {
+	if sender, found, err := s.FindMessageSender(ctx, c.ID, m.ID, time.Time{}); err != nil || !found || sender != bob {
 		t.Errorf("FindMessageSender = %s, %v, %v", sender, found, err)
 	}
-	if _, found, err := s.FindMessageSender(ctx, c.ID, id); err != nil || found {
+	if _, found, err := s.FindMessageSender(ctx, c.ID, id, time.Time{}); err != nil || found {
 		t.Errorf("an unknown message: %v, %v", found, err)
 	}
 

@@ -233,6 +233,8 @@ function withLastMessage(conversation: Conversation, message: SentMessage["messa
     unreadCount: 0,
     lastMessage: {
       senderId: message.senderId,
+      kind: "text",
+      event: null,
       body: [...(message.body ?? "")].slice(0, 120).join(""),
       deleted: message.deleted,
       createdAt: message.createdAt,

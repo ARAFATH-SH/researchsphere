@@ -3,10 +3,30 @@ package main
 import (
 	"context"
 
+	messagingdomain "github.com/ARAFATH-SH/researchsphere/backend/internal/messaging/domain"
 	messagingusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/messaging/usecase"
 	notificationusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/notification/usecase"
 	socialdomain "github.com/ARAFATH-SH/researchsphere/backend/internal/social/domain"
 )
+
+// groupNotifier turns the messaging module's group changes into notifications (FR-16.6), inside
+// the change's transaction. Neither module imports the other; this is the only place that
+// joins them.
+type groupNotifier struct {
+	notifications *notificationusecase.Service
+}
+
+var _ messagingdomain.GroupNotifier = groupNotifier{}
+
+// MembersAdded notifies each new member; the owner is the actor.
+func (n groupNotifier) MembersAdded(ctx context.Context, conversationID, ownerID string, userIDs []string) error {
+	return n.notifications.GroupMembersAdded(ctx, conversationID, ownerID, userIDs)
+}
+
+// AccessLost takes back the notification of a member who left or was removed.
+func (n groupNotifier) AccessLost(ctx context.Context, conversationID, userID string) error {
+	return n.notifications.GroupAccessLost(ctx, conversationID, userID)
+}
 
 // connectionNotifier turns the social module's connection events into notifications
 // (FR-9.1). Neither module imports the other; this is the only place that joins them. It

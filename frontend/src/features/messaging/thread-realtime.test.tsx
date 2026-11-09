@@ -26,7 +26,7 @@ function load(c: Conversation, items: Message[], extra: { nextBefore?: string | 
   mockGet.mockResolvedValue({ ok: true, data: c });
   mockMessages.mockResolvedValue({
     ok: true,
-    data: { items: [...items].reverse(), nextBefore: extra.nextBefore ?? null, otherLastReadMessageId: extra.otherLastReadMessageId ?? null },
+    data: { items: [...items].reverse(), nextBefore: extra.nextBefore ?? null, otherLastReadMessageId: extra.otherLastReadMessageId ?? null, readers: null },
   });
 }
 

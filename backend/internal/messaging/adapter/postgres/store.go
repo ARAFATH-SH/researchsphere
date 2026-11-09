@@ -48,6 +48,15 @@ func (s *Store) UserVisible(ctx context.Context, userID string) (bool, error) {
 	return v, nil
 }
 
+// UsersVisible leaves out IDs that are not UUIDs.
+func (s *Store) UsersVisible(ctx context.Context, ids []string) ([]string, error) {
+	rows, err := s.q(ctx).UsersVisible(ctx, parseUUIDs(ids))
+	if err != nil {
+		return nil, fmt.Errorf("check users: %w", err)
+	}
+	return uuidStrings(rows), nil
+}
+
 // FindSent finds nothing for IDs that are not UUIDs.
 func (s *Store) FindSent(ctx context.Context, senderID, clientID string) (domain.Sent, bool, error) {
 	sender, ok1 := parseUUID(senderID)
@@ -62,7 +71,10 @@ func (s *Store) FindSent(ctx context.Context, senderID, clientID string) (domain
 	if err != nil {
 		return domain.Sent{}, false, fmt.Errorf("find sent message: %w", err)
 	}
-	m := message(r.ID, r.ConversationID, r.SenderID, r.Body, r.ClientID, r.CreatedAt, r.EditedAt, r.DeletedAt)
+	m := message(sqlcgen.Message{
+		ID: r.ID, ConversationID: r.ConversationID, SenderID: r.SenderID, Body: r.Body, ClientID: r.ClientID,
+		CreatedAt: r.CreatedAt, EditedAt: r.EditedAt, DeletedAt: r.DeletedAt, Kind: r.Kind, Event: r.Event, EventData: r.EventData,
+	})
 	return domain.Sent{Message: m, State: domain.State(r.State)}, true, nil
 }
 
@@ -185,7 +197,7 @@ func (s *Store) AddMessage(ctx context.Context, m domain.Message) (domain.Messag
 	if _, err := q.MoveReadMarker(ctx, sqlcgen.MoveReadMarkerParams{MessageID: r.ID, ConversationID: conv, UserID: sender}); err != nil {
 		return domain.Message{}, false, fmt.Errorf("move sender's read marker: %w", err)
 	}
-	return message(r.ID, r.ConversationID, r.SenderID, r.Body, r.ClientID, r.CreatedAt, r.EditedAt, r.DeletedAt), true, nil
+	return message(r), true, nil
 }
 
 // FindConversation returns domain.ErrNotFound for a bad ID or a non-member.
@@ -203,7 +215,11 @@ func (s *Store) FindConversation(ctx context.Context, id, memberID string) (doma
 		return domain.Conversation{}, fmt.Errorf("find conversation: %w", err)
 	}
 	c := conversation(r.ID, r.State, r.RequestedBy, r.LastMessageAt)
+	c.Kind, c.Name, c.JoinedAt = domain.Kind(r.Kind), r.Name, r.MyJoinedAt.Time
 	c.OtherID, c.OtherReadID = r.OtherID.String(), uuidPtr(r.OtherReadID)
+	if c.IsGroup() {
+		c.MyRole = domain.Role(r.MyRole)
+	}
 	return c, nil
 }
 
@@ -221,7 +237,11 @@ func (s *Store) FindItem(ctx context.Context, id, memberID string) (domain.Item,
 	if err != nil {
 		return domain.Item{}, fmt.Errorf("find conversation: %w", err)
 	}
-	return item(sqlcgen.ListItemsRow(r)), nil
+	it := item(sqlcgen.ListItemsRow(r))
+	if err := s.fillAvatars(ctx, memberID, []*domain.Item{&it}); err != nil {
+		return domain.Item{}, err
+	}
+	return it, nil
 }
 
 // ListItems finds nothing for a member that is not a UUID. The cursor's ID was checked
@@ -246,19 +266,24 @@ func (s *Store) ListItems(ctx context.Context, memberID string, box domain.Box, 
 		return nil, fmt.Errorf("list conversations: %w", err)
 	}
 	items := make([]domain.Item, len(rows))
+	ptrs := make([]*domain.Item, len(rows))
 	for i, r := range rows {
 		items[i] = item(r)
+		ptrs[i] = &items[i]
+	}
+	if err := s.fillAvatars(ctx, memberID, ptrs); err != nil {
+		return nil, err
 	}
 	return items, nil
 }
 
 // ListMessages finds nothing for a conversation that is not a UUID.
-func (s *Store) ListMessages(ctx context.Context, conversationID, before string, limit int) ([]domain.Message, error) {
+func (s *Store) ListMessages(ctx context.Context, conversationID string, since time.Time, before string, limit int) ([]domain.Message, error) {
 	conv, ok := parseUUID(conversationID)
 	if !ok {
 		return nil, nil
 	}
-	arg := sqlcgen.ListMessagesParams{ConversationID: conv, Lim: int32(min(limit, 1000))} //nolint:gosec // bounded above
+	arg := sqlcgen.ListMessagesParams{ConversationID: conv, Since: timestamptz(since), Lim: int32(min(limit, 1000))} //nolint:gosec // bounded above
 	if before != "" {
 		id, ok := parseUUID(before)
 		if !ok {
@@ -270,11 +295,7 @@ func (s *Store) ListMessages(ctx context.Context, conversationID, before string,
 	if err != nil {
 		return nil, fmt.Errorf("list messages: %w", err)
 	}
-	items := make([]domain.Message, len(rows))
-	for i, r := range rows {
-		items[i] = message(r.ID, r.ConversationID, r.SenderID, r.Body, r.ClientID, r.CreatedAt, r.EditedAt, r.DeletedAt)
-	}
-	return items, nil
+	return messages(rows), nil
 }
 
 // FindOwnMessage returns domain.ErrNotFound for IDs that are not UUIDs.
@@ -335,17 +356,17 @@ func stored(r sqlcgen.Message, err error, what string) (domain.Message, error) {
 	if err != nil {
 		return domain.Message{}, fmt.Errorf("%s: %w", what, err)
 	}
-	return message(r.ID, r.ConversationID, r.SenderID, r.Body, r.ClientID, r.CreatedAt, r.EditedAt, r.DeletedAt), nil
+	return message(r), nil
 }
 
 // MessageIn is false for IDs that are not UUIDs.
-func (s *Store) MessageIn(ctx context.Context, conversationID, messageID string) (bool, error) {
+func (s *Store) MessageIn(ctx context.Context, conversationID, messageID string, since time.Time) (bool, error) {
 	conv, ok1 := parseUUID(conversationID)
 	id, ok2 := parseUUID(messageID)
 	if !ok1 || !ok2 {
 		return false, nil
 	}
-	v, err := s.q(ctx).MessageIn(ctx, sqlcgen.MessageInParams{ConversationID: conv, ID: id})
+	v, err := s.q(ctx).MessageIn(ctx, sqlcgen.MessageInParams{ConversationID: conv, ID: id, Since: timestamptz(since)})
 	if err != nil {
 		return false, fmt.Errorf("find message: %w", err)
 	}
@@ -419,14 +440,26 @@ func conversation(id pgtype.UUID, state string, requestedBy pgtype.UUID, last pg
 	return domain.Conversation{ID: id.String(), State: domain.State(state), RequestedBy: uuidPtr(requestedBy), LastMessageAt: last.Time}
 }
 
-func message(id, conversationID, senderID pgtype.UUID, body pgtype.Text, clientID pgtype.UUID,
-	createdAt, editedAt, deletedAt pgtype.Timestamptz,
-) domain.Message {
+// message maps a row of messages. An invalid UUID (no sender, no client ID) maps to "".
+func message(r sqlcgen.Message) domain.Message {
 	return domain.Message{
-		ID: id.String(), ConversationID: conversationID.String(), SenderID: senderID.String(),
-		Body: textPtr(body), ClientID: clientID.String(), CreatedAt: createdAt.Time,
-		EditedAt: timePtr(editedAt), DeletedAt: timePtr(deletedAt),
+		ID: r.ID.String(), ConversationID: r.ConversationID.String(), SenderID: r.SenderID.String(),
+		Kind: domain.MessageKind(r.Kind), Event: systemEvent(r.Event, r.EventData),
+		Body: textPtr(r.Body), ClientID: r.ClientID.String(), CreatedAt: r.CreatedAt.Time,
+		EditedAt: timePtr(r.EditedAt), DeletedAt: timePtr(r.DeletedAt),
 	}
+}
+
+func messages(rows []sqlcgen.Message) []domain.Message {
+	out := make([]domain.Message, len(rows))
+	for i, r := range rows {
+		out[i] = message(r)
+	}
+	return out
+}
+
+func timestamptz(t time.Time) pgtype.Timestamptz {
+	return pgtype.Timestamptz{Time: t, Valid: true}
 }
 
 func timePtr(t pgtype.Timestamptz) *time.Time {
@@ -439,29 +472,35 @@ func timePtr(t pgtype.Timestamptz) *time.Time {
 func item(r sqlcgen.ListItemsRow) domain.Item {
 	it := domain.Item{
 		Conversation: conversation(r.ID, r.State, r.RequestedBy, r.LastMessageAt),
-		Other: domain.Person{
+		UnreadCount:  int(r.UnreadCount), BlockedByMe: r.BlockedByMe, BlockedMe: r.BlockedMe,
+	}
+	it.Kind, it.Name, it.JoinedAt = domain.Kind(r.Kind), r.Name, r.MyJoinedAt.Time
+	if it.IsGroup() {
+		it.MyRole = domain.Role(r.MyRole)
+		it.Group = &domain.GroupInfo{Name: r.Name, MemberCount: int(r.MemberCount), MyRole: it.MyRole, Avatars: []domain.Person{}}
+	} else {
+		it.Other = domain.Person{
 			UserID: r.OtherID.String(), FullName: r.FullName, Headline: textPtr(r.Headline),
 			PhotoFileID: uuidPtr(r.PhotoFileID), Available: r.OtherAvailable,
-		},
-		UnreadCount: int(r.UnreadCount), BlockedByMe: r.BlockedByMe, BlockedMe: r.BlockedMe,
+		}
+		it.OtherID, it.OtherReadID = r.OtherID.String(), uuidPtr(r.OtherReadID)
 	}
-	it.OtherID, it.OtherReadID = r.OtherID.String(), uuidPtr(r.OtherReadID)
-	if r.LastSenderID.Valid {
-		// The query cannot say the preview is null; last_deleted does.
-		it.LastMessage = &domain.Preview{SenderID: r.LastSenderID.String(), Deleted: r.LastDeleted, CreatedAt: timeOf(r.LastCreatedAt)}
-		if !r.LastDeleted {
+	if r.LastCreatedAt.Valid {
+		// The query cannot say the preview is null; last_deleted and last_kind do.
+		it.LastMessage = &domain.Preview{
+			SenderID: r.LastSenderID.String(), Kind: domain.MessageKind(r.LastKind),
+			Deleted: r.LastDeleted, CreatedAt: r.LastCreatedAt.Time,
+		}
+		switch {
+		case r.LastEvent.Valid:
+			ev := domain.EventType(r.LastEvent.String)
+			it.LastMessage.Event = &ev
+		case !r.LastDeleted:
 			body := r.LastPreview
 			it.LastMessage.Body = &body
 		}
 	}
 	return it
-}
-
-func timeOf(t pgtype.Timestamptz) time.Time {
-	if !t.Valid {
-		return time.Time{}
-	}
-	return t.Time
 }
 
 // ActivePeers finds nothing for a user who is not a UUID.
@@ -483,13 +522,7 @@ func (s *Store) VisiblePeers(ctx context.Context, viewerID string, ids []string)
 	if !ok {
 		return nil, nil
 	}
-	parsed := make([]pgtype.UUID, 0, len(ids))
-	for _, id := range ids {
-		if u, ok := parseUUID(id); ok {
-			parsed = append(parsed, u)
-		}
-	}
-	rows, err := s.q(ctx).VisiblePeers(ctx, sqlcgen.VisiblePeersParams{UserID: viewer, Ids: parsed})
+	rows, err := s.q(ctx).VisiblePeers(ctx, sqlcgen.VisiblePeersParams{UserID: viewer, Ids: parseUUIDs(ids)})
 	if err != nil {
 		return nil, fmt.Errorf("list visible peers: %w", err)
 	}
@@ -534,6 +567,17 @@ func uuidStrings(ids []pgtype.UUID) []string {
 	out := make([]string, len(ids))
 	for i, id := range ids {
 		out[i] = id.String()
+	}
+	return out
+}
+
+// parseUUIDs leaves out the values that are not UUIDs.
+func parseUUIDs(ids []string) []pgtype.UUID {
+	out := make([]pgtype.UUID, 0, len(ids))
+	for _, id := range ids {
+		if u, ok := parseUUID(id); ok {
+			out = append(out, u)
+		}
 	}
 	return out
 }

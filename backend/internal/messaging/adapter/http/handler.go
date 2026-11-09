@@ -46,6 +46,11 @@ type Service interface {
 	Accept(ctx context.Context, userID, id string) (domain.Item, error)
 	Decline(ctx context.Context, userID, id string) (domain.Item, error)
 	UnreadCounts(ctx context.Context, userID string) (domain.UnreadCounts, error)
+	CreateGroup(ctx context.Context, creatorID string, in domain.GroupInput) (domain.Item, bool, error)
+	RenameGroup(ctx context.Context, ownerID, id, name string) (domain.Item, error)
+	AddMembers(ctx context.Context, ownerID, id string, userIDs []string) (domain.Item, error)
+	RemoveMember(ctx context.Context, ownerID, id, userID string) error
+	Leave(ctx context.Context, userID, id string) error
 	Report(ctx context.Context, reporterID, conversationID string, in domain.ReportInput) (domain.ReportReceipt, error)
 	ListReports(ctx context.Context, status string, page int) (domain.ReportPage, error)
 	ReportDetail(ctx context.Context, adminID, id, before string) (domain.ReportDetail, error)
@@ -272,7 +277,11 @@ func (h *Handler) ListMessages(ctx context.Context, req gen.ListMessagesRequestO
 	if err != nil {
 		return nil, err
 	}
-	return gen.ListMessages200JSONResponse{Items: items, NextBefore: p.NextBefore, OtherLastReadMessageId: read}, nil
+	readers, err := readersBody(p.Readers)
+	if err != nil {
+		return nil, err
+	}
+	return gen.ListMessages200JSONResponse{Items: items, NextBefore: p.NextBefore, OtherLastReadMessageId: read, Readers: readers}, nil
 }
 
 // MarkConversationRead moves the caller's read marker forward (FR-16.3).
@@ -373,22 +382,81 @@ func MessageBody(m domain.Message) (gen.Message, error) {
 	if err != nil {
 		return gen.Message{}, err
 	}
-	sender, err := uuid(m.SenderID)
+	sender, err := senderUUID(m.SenderID)
+	if err != nil {
+		return gen.Message{}, err
+	}
+	event, err := eventBody(m.Event, sender)
 	if err != nil {
 		return gen.Message{}, err
 	}
 	return gen.Message{
-		Id: id, ConversationId: conversation, SenderId: sender, Body: m.Body, CreatedAt: m.CreatedAt,
-		EditedAt: m.EditedAt, Deleted: m.Deleted(),
+		Id: id, ConversationId: conversation, SenderId: sender, Kind: messageKind(m.Kind), Event: event,
+		Body: m.Body, CreatedAt: m.CreatedAt, EditedAt: m.EditedAt, Deleted: m.Deleted(),
 	}, nil
+}
+
+// messageKind is text unless the store says system.
+func messageKind(k domain.MessageKind) gen.MessageKind {
+	if k == domain.KindSystem {
+		return gen.System
+	}
+	return gen.Text
+}
+
+// senderUUID is nil for a system message with no actor.
+func senderUUID(s string) (*openapi_types.UUID, error) {
+	if s == "" {
+		return nil, nil
+	}
+	return optionalUUID(&s)
+}
+
+// eventBody is a system message's event; actor is its sender.
+func eventBody(ev *domain.SystemEvent, actor *openapi_types.UUID) (*gen.SystemEvent, error) {
+	if ev == nil {
+		return nil, nil
+	}
+	users, err := uuids(ev.UserIDs)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.SystemEvent{Type: gen.SystemEventType(ev.Type), ActorId: actor, UserIds: users, OldName: ev.OldName, NewName: ev.NewName}, nil
+}
+
+func uuids(ids []string) ([]openapi_types.UUID, error) {
+	out := make([]openapi_types.UUID, len(ids))
+	for i, s := range ids {
+		id, err := uuid(s)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = id
+	}
+	return out, nil
+}
+
+func readersBody(rs []domain.Reader) (*[]gen.MessageReader, error) {
+	if rs == nil {
+		return nil, nil
+	}
+	out := make([]gen.MessageReader, len(rs))
+	for i, r := range rs {
+		user, err := uuid(r.UserID)
+		if err != nil {
+			return nil, err
+		}
+		read, err := optionalUUID(r.LastReadMessageID)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = gen.MessageReader{UserId: user, LastReadMessageId: read}
+	}
+	return &out, nil
 }
 
 func conversationBody(it domain.Item) (gen.Conversation, error) {
 	id, err := uuid(it.ID)
-	if err != nil {
-		return gen.Conversation{}, err
-	}
-	other, err := uuid(it.Other.UserID)
 	if err != nil {
 		return gen.Conversation{}, err
 	}
@@ -397,22 +465,66 @@ func conversationBody(it domain.Item) (gen.Conversation, error) {
 		return gen.Conversation{}, err
 	}
 	c := gen.Conversation{
-		Id: id, State: gen.ConversationState(it.State), RequestedBy: requester,
+		Id: id, Kind: gen.Direct, State: gen.ConversationState(it.State), RequestedBy: requester,
 		LastMessageAt: it.LastMessageAt, UnreadCount: it.UnreadCount,
 		CanMessage: it.CanMessage(), BlockedByMe: it.BlockedByMe,
-		OtherMember: gen.ConversationMember{
-			UserId: other, FullName: it.Other.FullName, Headline: it.Other.Headline,
-			PhotoUrl: mediaURL(it.Other.PhotoFileID), Available: it.Other.Available,
-		},
 	}
-	if it.LastMessage != nil {
-		sender, err := uuid(it.LastMessage.SenderID)
+	if it.Group != nil {
+		c.Kind = gen.Group
+		if c.Group, err = groupBody(*it.Group); err != nil {
+			return gen.Conversation{}, err
+		}
+	} else {
+		other, err := uuid(it.Other.UserID)
 		if err != nil {
 			return gen.Conversation{}, err
 		}
-		c.LastMessage = &gen.MessagePreview{SenderId: sender, Body: it.LastMessage.Body, Deleted: it.LastMessage.Deleted, CreatedAt: it.LastMessage.CreatedAt}
+		c.OtherMember = &gen.ConversationMember{
+			UserId: other, FullName: it.Other.FullName, Headline: it.Other.Headline,
+			PhotoUrl: mediaURL(it.Other.PhotoFileID), Available: it.Other.Available,
+		}
+	}
+	if it.LastMessage != nil {
+		sender, err := senderUUID(it.LastMessage.SenderID)
+		if err != nil {
+			return gen.Conversation{}, err
+		}
+		c.LastMessage = &gen.MessagePreview{
+			SenderId: sender, Kind: messageKind(it.LastMessage.Kind), Body: it.LastMessage.Body,
+			Deleted: it.LastMessage.Deleted, CreatedAt: it.LastMessage.CreatedAt,
+		}
+		if it.LastMessage.Event != nil {
+			ev := gen.SystemEventType(*it.LastMessage.Event)
+			c.LastMessage.Event = &ev
+		}
 	}
 	return c, nil
+}
+
+func groupBody(g domain.GroupInfo) (*gen.ConversationGroup, error) {
+	b := gen.ConversationGroup{Name: g.Name, MemberCount: g.MemberCount, MyRole: gen.GroupRole(g.MyRole), Avatars: []gen.GroupAvatar{}}
+	for _, p := range g.Avatars {
+		user, err := uuid(p.UserID)
+		if err != nil {
+			return nil, err
+		}
+		b.Avatars = append(b.Avatars, gen.GroupAvatar{UserId: user, FullName: p.FullName, PhotoUrl: mediaURL(p.PhotoFileID)})
+	}
+	if g.Members != nil {
+		members := make([]gen.GroupMember, len(g.Members))
+		for i, m := range g.Members {
+			user, err := uuid(m.UserID)
+			if err != nil {
+				return nil, err
+			}
+			members[i] = gen.GroupMember{
+				UserId: user, FullName: m.FullName, PhotoUrl: mediaURL(m.PhotoFileID),
+				Role: gen.GroupRole(m.Role), JoinedAt: m.JoinedAt, Available: m.Available,
+			}
+		}
+		b.Members = &members
+	}
+	return &b, nil
 }
 
 func uuid(s string) (openapi_types.UUID, error) {

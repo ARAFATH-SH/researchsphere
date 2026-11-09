@@ -1,9 +1,11 @@
 import { api } from "@/lib/api/client";
 
-import { sendDirectMessage, sendMessage } from "./api";
+import { getConversation, listConversations, sendDirectMessage, sendMessage } from "./api";
+import { conversation } from "./test-data";
 
-jest.mock("@/lib/api/client", () => ({ api: { POST: jest.fn() } }));
+jest.mock("@/lib/api/client", () => ({ api: { POST: jest.fn(), GET: jest.fn() } }));
 const mockPost = jest.mocked(api.POST);
+const mockGet = jest.mocked(api.GET);
 
 type Reply = Awaited<ReturnType<typeof api.POST>>;
 
@@ -51,5 +53,30 @@ describe("sending", () => {
   it("turns a lost connection into a failure", async () => {
     mockPost.mockRejectedValue(new Error("offline"));
     await expect(sendMessage("c1", "hi", "client")).resolves.toMatchObject({ ok: false, code: "network_error" });
+  });
+});
+
+// Groups (FR-16.6) have no screens until slice 14B.5: the client drops them where they arrive.
+describe("groups", () => {
+  const group = {
+    ...conversation({ id: "g1" }),
+    kind: "group",
+    otherMember: null,
+    group: { name: "Lab", memberCount: 3, avatars: [], myRole: "member", members: null },
+  };
+  type GetReply = Awaited<ReturnType<typeof api.GET>>;
+  const ok = (body: object) => ({ data: body, response: { status: 200, ok: true, headers: new Map() } }) as unknown as GetReply;
+
+  it("leaves groups out of a box", async () => {
+    mockGet.mockResolvedValue(ok({ items: [group, conversation()], nextCursor: "next" }));
+    const res = await listConversations("inbox");
+    expect(res).toEqual({ ok: true, data: { items: [conversation()], nextCursor: "next" } });
+  });
+
+  it("answers a group as not found", async () => {
+    mockGet.mockResolvedValue(ok(group));
+    await expect(getConversation("g1")).resolves.toMatchObject({ ok: false, code: "not_found" });
+    mockGet.mockResolvedValue(ok(conversation()));
+    await expect(getConversation("c1")).resolves.toEqual({ ok: true, data: conversation() });
   });
 });

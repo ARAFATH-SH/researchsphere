@@ -134,6 +134,13 @@ SELECT pg_advisory_xact_lock(hashtextextended(LEAST(@a::uuid, @b::uuid)::text ||
 SELECT EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = @me::uuid AND b.blocked_id = @other::uuid)::boolean AS by_me,
        EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = @other::uuid AND b.blocked_id = @me::uuid)::boolean AS by_them;
 
+-- name: BlockedAmong :many
+-- Which of the IDs are in a block with the user, either way: a blocked pair cannot be put in a
+-- new group by either of them (FR-16.6). blocks_blocked_idx serves the second half.
+SELECT b.blocked_id AS user_id FROM blocks b WHERE b.blocker_id = @user_id::uuid AND b.blocked_id = ANY(@ids::uuid[])
+UNION
+SELECT b.blocker_id FROM blocks b WHERE b.blocked_id = @user_id::uuid AND b.blocker_id = ANY(@ids::uuid[]);
+
 -- name: AddBlock :execrows
 INSERT INTO blocks (blocker_id, blocked_id) VALUES (@blocker_id, @blocked_id)
 ON CONFLICT (blocker_id, blocked_id) DO NOTHING;

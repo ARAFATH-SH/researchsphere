@@ -26,6 +26,12 @@ describe("AdminReports", () => {
     expect(screen.getByRole("link", { name: "Review the report by Cyd Charisse" }).getAttribute("href")).toBe(`/admin/reports/${reportID}`);
   });
 
+  it("says when a report is of a whole group", async () => {
+    mockList.mockResolvedValue(page([report({ reportedUser: null, conversationKind: "group", groupName: "Lab" })]));
+    render(<AdminReports />);
+    expect((await screen.findByRole("listitem")).textContent).toContain("Cyd Charisse reported a whole group");
+  });
+
   it("moves to resolved reports, with their outcome", async () => {
     mockList.mockResolvedValueOnce(page([report()]));
     render(<AdminReports />);

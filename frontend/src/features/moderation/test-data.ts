@@ -13,6 +13,8 @@ export function report(overrides: Partial<MessageReport> = {}): MessageReport {
   return {
     id: reportID,
     conversationId: "4c2f7d3e-0000-4000-8000-0000000000c1",
+    conversationKind: "direct",
+    groupName: null,
     status: "open",
     reason: "harassment",
     details: "Rude messages",

@@ -33,7 +33,7 @@ function load(c: Conversation, items: Message[], extra: { nextBefore?: string | 
   mockGet.mockResolvedValue({ ok: true, data: c });
   mockMessages.mockResolvedValue({
     ok: true,
-    data: { items: [...items].reverse(), nextBefore: extra.nextBefore ?? null, otherLastReadMessageId: extra.otherLastReadMessageId ?? null },
+    data: { items: [...items].reverse(), nextBefore: extra.nextBefore ?? null, otherLastReadMessageId: extra.otherLastReadMessageId ?? null, readers: null },
   });
 }
 
@@ -131,7 +131,7 @@ describe("Load earlier", () => {
     sizes(log(), heights);
     mockMessages.mockResolvedValueOnce({
       ok: true,
-      data: { items: [message(9, bobID, "earlier")], nextBefore: null, otherLastReadMessageId: null },
+      data: { items: [message(9, bobID, "earlier")], nextBefore: null, otherLastReadMessageId: null, readers: null },
     });
 
     log().scrollTop = 20;
@@ -171,7 +171,7 @@ describe("Load earlier", () => {
     expect(screen.getByText("Couldn't load earlier messages.")).toBeTruthy();
     mockMessages.mockResolvedValueOnce({
       ok: true,
-      data: { items: [message(9, bobID, "earlier")], nextBefore: null, otherLastReadMessageId: null },
+      data: { items: [message(9, bobID, "earlier")], nextBefore: null, otherLastReadMessageId: null, readers: null },
     });
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Load earlier messages" })));
     expect(await screen.findByText("earlier")).toBeTruthy();

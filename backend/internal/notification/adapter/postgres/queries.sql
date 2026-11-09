@@ -19,6 +19,9 @@ RETURNING id;
 DELETE FROM notifications WHERE type = @type AND entity_id = @entity_id
 RETURNING user_id;
 
+-- name: DeleteNotificationsFor :execrows
+DELETE FROM notifications WHERE type = @type AND entity_id = @entity_id AND user_id = @user_id;
+
 -- name: DeleteNotificationsBetween :exec
 -- Everything either user was told about the other, of any type (FR-16.9).
 DELETE FROM notifications

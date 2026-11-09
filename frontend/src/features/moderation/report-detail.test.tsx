@@ -20,6 +20,8 @@ function msg(n: number, senderId: string, body: string): ReportedMessage {
     id: `m${n}`,
     conversationId: "c",
     senderId,
+    kind: "text",
+    event: null,
     body,
     createdAt: "2026-11-05T08:00:00Z",
     editedAt: null,
@@ -30,7 +32,7 @@ function msg(n: number, senderId: string, body: string): ReportedMessage {
 }
 
 function load(r: MessageReport, messages: ReportedMessage[] = [msg(2, bobID, "second"), msg(1, cyd.userId, "first")], nextBefore: string | null = null) {
-  mockGet.mockResolvedValue({ ok: true, data: { report: r, messages, nextBefore } });
+  mockGet.mockResolvedValue({ ok: true, data: { report: r, membersAtReport: null, messages, nextBefore } });
 }
 
 async function open() {
@@ -85,7 +87,7 @@ describe("ReportDetail", () => {
   it("loads earlier messages above the others", async () => {
     load(report(), [msg(2, bobID, "second")], "m2");
     await open();
-    mockGet.mockResolvedValueOnce({ ok: true, data: { report: report(), messages: [msg(1, cyd.userId, "first")], nextBefore: null } });
+    mockGet.mockResolvedValueOnce({ ok: true, data: { report: report(), membersAtReport: null, messages: [msg(1, cyd.userId, "first")], nextBefore: null } });
     await act(async () => fireEvent.click(button("Load earlier")));
     expect(mockGet).toHaveBeenLastCalledWith(reportID, "m2");
     const items = within(screen.getByRole("list", { name: "Messages up to the report" })).getAllByRole("listitem");
@@ -102,6 +104,16 @@ describe("ReportDetail", () => {
       "Restrict messaging",
       "Suspend",
     ]);
+  });
+
+  // A report of a whole group names nobody; picking a member comes with slice 14B.5 (FR-16.6).
+  it("shows a whole-group report with only Dismiss", async () => {
+    load(report({ reportedUser: null, conversationKind: "group", groupName: "Lab" }), [msg(2, bobID, "second"), msg(1, cyd.userId, "first")]);
+    await open();
+    expect(screen.getByText("Whole group")).toBeTruthy();
+    expect(within(actions()!).getAllByRole("button").map((b) => b.textContent)).toEqual(["Dismiss report"]);
+    expect(actions()!.textContent).not.toContain("Administrators");
+    expect(screen.getByText("second").closest("li")!.textContent).toContain("A member");
   });
 
   it("offers no actions on a resolved report", async () => {

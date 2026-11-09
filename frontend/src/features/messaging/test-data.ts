@@ -9,9 +9,11 @@ export const conversationID = "4c2f7d3e-0000-4000-8000-0000000000c1";
 export function conversation(overrides: Partial<Conversation> = {}): Conversation {
   return {
     id: conversationID,
+    kind: "direct",
+    group: null,
     state: "active",
     otherMember: { userId: bobID, fullName: "Bob Babbage", photoUrl: null, headline: "Analyst", available: true },
-    lastMessage: { senderId: bobID, body: "See you", deleted: false, createdAt: "2026-11-05T09:00:00Z" },
+    lastMessage: { senderId: bobID, kind: "text", event: null, body: "See you", deleted: false, createdAt: "2026-11-05T09:00:00Z" },
     unreadCount: 0,
     requestedBy: null,
     lastMessageAt: "2026-11-05T09:00:00Z",
@@ -27,6 +29,8 @@ export function message(n: number, senderId: string, body = `message ${n}`, crea
     id: `019a5c2e-0000-7000-8000-${String(n).padStart(12, "0")}`,
     conversationId: conversationID,
     senderId,
+    kind: "text",
+    event: null,
     body,
     createdAt,
     editedAt: null,

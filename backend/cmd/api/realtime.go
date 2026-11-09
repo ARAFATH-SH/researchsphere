@@ -64,8 +64,8 @@ type realtimeAccess struct {
 
 var _ realtimedomain.Access = (*realtimeAccess)(nil)
 
-func (a *realtimeAccess) TypingPeer(ctx context.Context, userID, conversationID string) (string, bool, error) {
-	return a.messaging.TypingPeer(ctx, userID, conversationID)
+func (a *realtimeAccess) TypingPeers(ctx context.Context, userID, conversationID string) ([]string, error) {
+	return a.messaging.TypingPeers(ctx, userID, conversationID)
 }
 
 func (a *realtimeAccess) Peers(ctx context.Context, userID string) ([]string, error) {
@@ -104,8 +104,9 @@ var (
 	_ authdomain.SessionListener   = (*realtimeEvents)(nil)
 )
 
-// MessageSent tells the other member, and the sender's own tabs, with clientId for those only
-// (docs/realtime.md). Sending also moves the sender's read marker, so both counts may change.
+// MessageSent tells the other members, and the sender's own tabs, with clientId for those only
+// (docs/realtime.md). Sending also moves the sender's read marker, so both counts may change. A
+// system message of a group goes to the to list only and changes no count.
 func (e *realtimeEvents) MessageSent(ctx context.Context, sent messagingdomain.Sent, to []string) {
 	postgres.AfterCommit(ctx, func(ctx context.Context) {
 		body, err := messaginghttp.MessageBody(sent.Message)
@@ -114,6 +115,12 @@ func (e *realtimeEvents) MessageSent(ctx context.Context, sent messagingdomain.S
 			return
 		}
 		data := gen.RealtimeMessageCreated{Message: body, ConversationState: gen.ConversationState(sent.State)}
+		if sent.Message.System() {
+			for _, userID := range to {
+				e.hub.Send(ctx, userID, realtimedomain.Event{Type: realtimedomain.EventMessageCreated, Data: data})
+			}
+			return
+		}
 		for _, userID := range to {
 			e.hub.Send(ctx, userID, realtimedomain.Event{Type: realtimedomain.EventMessageCreated, Data: data})
 			e.sendUnread(ctx, userID)
@@ -212,6 +219,59 @@ func (e *realtimeEvents) PairChanged(ctx context.Context, a, b string) {
 		if found {
 			e.conversationChanged(ctx, id, a)
 			e.conversationChanged(ctx, id, b)
+		}
+	})
+}
+
+// MembersChanged tells the group's current members what changed (FR-16.6), so they refetch it.
+func (e *realtimeEvents) MembersChanged(ctx context.Context, conversationID string, change messagingdomain.MemberChange, to []string) {
+	postgres.AfterCommit(ctx, func(ctx context.Context) {
+		id, err := parseUUID(conversationID)
+		if err != nil {
+			e.logger.ErrorContext(ctx, "realtime: members event", slog.Any("error", err))
+			return
+		}
+		users := make([]openapi_types.UUID, 0, len(change.UserIDs))
+		for _, u := range change.UserIDs {
+			uid, err := parseUUID(u)
+			if err != nil {
+				e.logger.ErrorContext(ctx, "realtime: members event", slog.Any("error", err))
+				return
+			}
+			users = append(users, uid)
+		}
+		data := gen.RealtimeConversationMembers{
+			ConversationId: id, Change: gen.RealtimeConversationMembersChange(change.Kind), UserIds: users, Name: change.Name,
+		}
+		if change.ActorID != "" {
+			actor, err := parseUUID(change.ActorID)
+			if err != nil {
+				e.logger.ErrorContext(ctx, "realtime: members event", slog.Any("error", err))
+				return
+			}
+			data.ActorId = &actor
+		}
+		for _, userID := range to {
+			e.hub.Send(ctx, userID, realtimedomain.Event{Type: realtimedomain.EventConversationMembers, Data: data})
+		}
+	})
+}
+
+// AccessLost tells each user who left or was removed that the group is gone for them, so an
+// open thread closes, and sends their counts, which no longer include it.
+func (e *realtimeEvents) AccessLost(ctx context.Context, conversationID string, userIDs []string) {
+	postgres.AfterCommit(ctx, func(ctx context.Context) {
+		id, err := parseUUID(conversationID)
+		if err != nil {
+			e.logger.ErrorContext(ctx, "realtime: access lost event", slog.Any("error", err))
+			return
+		}
+		for _, userID := range userIDs {
+			e.hub.Send(ctx, userID, realtimedomain.Event{
+				Type: realtimedomain.EventConversationUpdated,
+				Data: gen.RealtimeConversationUpdated{ConversationId: id, State: gen.Active, CanMessage: false, AccessLost: true},
+			})
+			e.sendUnread(ctx, userID)
 		}
 	})
 }

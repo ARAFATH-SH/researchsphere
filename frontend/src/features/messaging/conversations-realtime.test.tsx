@@ -92,6 +92,20 @@ describe("message.created", () => {
     expect(names()).toEqual(["Carol Clark", "Bob Babbage"]);
   });
 
+  // getConversation answers a group as not found (api.ts), so a group's message adds no row.
+  it("adds no row for a group's message", async () => {
+    lists([first]);
+    mockGet.mockResolvedValue({ ok: false, code: "not_found", message: "This conversation does not exist." });
+    await connectAndRender();
+    await receive("message.created", {
+      message: { ...message(2, "u-carol", "to the group"), conversationId: "group-1", kind: "text" },
+      conversationState: "active",
+    });
+    expect(mockGet).toHaveBeenCalledWith("group-1");
+    expect(names()).toEqual(["Bob Babbage"]);
+    expect(screen.queryByText("to the group")).toBeNull();
+  });
+
   it("fetches nothing for a request while the Requests box has not been opened", async () => {
     lists([first]);
     await connectAndRender();

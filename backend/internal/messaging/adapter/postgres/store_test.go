@@ -261,7 +261,7 @@ func TestLockedSendsAreInOrder(t *testing.T) {
 				}()
 			}
 			wg.Wait()
-			newestFirst, err := s.ListMessages(t.Context(), c.ID, "", sends)
+			newestFirst, err := s.ListMessages(t.Context(), c.ID, time.Time{}, "", sends)
 			if err != nil || len(newestFirst) != sends {
 				t.Fatalf("%d messages, %v", len(newestFirst), err)
 			}
@@ -325,7 +325,7 @@ func TestReadMarkerOnlyMovesForward(t *testing.T) {
 	// The database refuses a marker that points into another conversation.
 	d := create(t, s, ada, cy, domain.StateActive, nil)
 	foreign := add(t, s, d.ID, ada, "elsewhere")
-	if in, err := s.MessageIn(ctx, c.ID, foreign.ID); err != nil || in {
+	if in, err := s.MessageIn(ctx, c.ID, foreign.ID, time.Time{}); err != nil || in {
 		t.Errorf("MessageIn: %v, %v", in, err)
 	}
 	_, err := s.MoveReadMarker(ctx, c.ID, bob, "ffffffff-ffff-7fff-bfff-ffffffffffff")
@@ -476,11 +476,11 @@ func TestListMessagesPages(t *testing.T) {
 	for range 5 {
 		sent = append(sent, add(t, s, c.ID, ada, "x"))
 	}
-	page, err := s.ListMessages(ctx, c.ID, "", 2)
+	page, err := s.ListMessages(ctx, c.ID, time.Time{}, "", 2)
 	if err != nil || len(page) != 2 || page[0].ID != sent[4].ID || page[1].ID != sent[3].ID {
 		t.Fatalf("first page: %+v, %v", page, err)
 	}
-	page, err = s.ListMessages(ctx, c.ID, page[1].ID, 10)
+	page, err = s.ListMessages(ctx, c.ID, time.Time{}, page[1].ID, 10)
 	if err != nil || len(page) != 3 || page[0].ID != sent[2].ID {
 		t.Fatalf("second page: %+v, %v", page, err)
 	}

@@ -88,6 +88,39 @@ func (q *Queries) BlockBetween(ctx context.Context, arg BlockBetweenParams) (Blo
 	return i, err
 }
 
+const blockedAmong = `-- name: BlockedAmong :many
+SELECT b.blocked_id AS user_id FROM blocks b WHERE b.blocker_id = $1::uuid AND b.blocked_id = ANY($2::uuid[])
+UNION
+SELECT b.blocker_id FROM blocks b WHERE b.blocked_id = $1::uuid AND b.blocker_id = ANY($2::uuid[])
+`
+
+type BlockedAmongParams struct {
+	UserID pgtype.UUID
+	Ids    []pgtype.UUID
+}
+
+// Which of the IDs are in a block with the user, either way: a blocked pair cannot be put in a
+// new group by either of them (FR-16.6). blocks_blocked_idx serves the second half.
+func (q *Queries) BlockedAmong(ctx context.Context, arg BlockedAmongParams) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, blockedAmong, arg.UserID, arg.Ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var user_id pgtype.UUID
+		if err := rows.Scan(&user_id); err != nil {
+			return nil, err
+		}
+		items = append(items, user_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const cancelRequest = `-- name: CancelRequest :execrows
 DELETE FROM connections
 WHERE id = $1 AND requester_id = $2 AND status = 'pending'

@@ -83,6 +83,29 @@ func (s *Service) AccountWarned(ctx context.Context, warningID, userID string) e
 	return s.put(ctx, domain.Notification{RecipientID: userID, Type: domain.TypeAccountWarning, SubjectID: warningID})
 }
 
+// GroupMembersAdded tells each user that ownerID added them to group conversationID (FR-16.6).
+func (s *Service) GroupMembersAdded(ctx context.Context, conversationID, ownerID string, userIDs []string) error {
+	for _, u := range userIDs {
+		if err := s.put(ctx, domain.Notification{RecipientID: u, ActorID: ownerID, Type: domain.TypeGroupAdded, SubjectID: conversationID}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// GroupAccessLost takes back userID's notification of being added to group conversationID
+// once they left or were removed: its link would lead to a 404.
+func (s *Service) GroupAccessLost(ctx context.Context, conversationID, userID string) error {
+	deleted, err := s.store.DeleteFor(ctx, domain.TypeGroupAdded, conversationID, userID)
+	if err != nil {
+		return err
+	}
+	if deleted {
+		s.publisher.UnreadChanged(ctx, userID)
+	}
+	return nil
+}
+
 // ConnectionRequestWithdrawn removes the notification of request requestID after the
 // sender cancelled it or the receiver rejected it, so no stale Accept remains. Nobody is
 // told about a rejection (FR-7.6).

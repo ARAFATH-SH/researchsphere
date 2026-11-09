@@ -17,4 +17,7 @@ type Message struct {
 	CreatedAt      pgtype.Timestamptz
 	EditedAt       pgtype.Timestamptz
 	DeletedAt      pgtype.Timestamptz
+	Kind           string
+	Event          pgtype.Text
+	EventData      []byte
 }

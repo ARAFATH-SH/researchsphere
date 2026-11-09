@@ -154,6 +154,8 @@ export function ConversationsProvider({ children }: { children: ReactNode }) {
     }
     const lastMessage = {
       senderId: message.senderId,
+      kind: "text" as const,
+      event: null,
       body: [...(message.body ?? "")].slice(0, 120).join(""),
       deleted: message.deleted,
       createdAt: message.createdAt,

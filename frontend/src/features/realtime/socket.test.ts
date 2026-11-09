@@ -83,6 +83,13 @@ describe("parseEvent", () => {
   it.each([["not json"], ['{"type":"later.event","data":{}}'], ['{"type":"presence"}'], ["null"], [new ArrayBuffer(1)]])("ignores %s", (frame) => {
     expect(parseEvent(frame)).toBeNull();
   });
+
+  // Group events wait for the group screens of slice 14B.5.
+  it("ignores conversation.members and a group's access-lost update", () => {
+    expect(parseEvent('{"type":"conversation.members","data":{"conversationId":"g","change":"renamed","actorId":"u","userIds":[],"name":"Lab"}}')).toBeNull();
+    expect(parseEvent('{"type":"conversation.updated","data":{"conversationId":"g","state":"active","canMessage":false,"accessLost":true}}')).toBeNull();
+    expect(parseEvent('{"type":"conversation.updated","data":{"conversationId":"c","state":"declined","canMessage":false,"accessLost":false}}')).not.toBeNull();
+  });
 });
 
 describe("the connection", () => {

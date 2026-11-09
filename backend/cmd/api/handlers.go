@@ -177,6 +177,12 @@ var platformGuards = map[string]authz.Action{
 	"POST /api/v1/conversations/{conversationId}/accept":                 authz.ActAsMember,
 	"POST /api/v1/conversations/{conversationId}/decline":                authz.ActAsMember,
 	"POST /api/v1/conversations/{conversationId}/reports":                authz.ActAsMember,
+	// Groups (FR-16.6): writing, as for a message. Ownership is checked by the usecase.
+	"POST /api/v1/conversations/groups":                              authz.ActAsMember,
+	"PATCH /api/v1/conversations/{conversationId}":                   authz.ActAsMember,
+	"POST /api/v1/conversations/{conversationId}/members":            authz.ActAsMember,
+	"DELETE /api/v1/conversations/{conversationId}/members/{userId}": authz.ActAsMember,
+	"POST /api/v1/conversations/{conversationId}/leave":              authz.ActAsMember,
 
 	// Blocks (FR-16.9): SRS 2.3 has no row for them. Blocking is closest to "Edit own
 	// profile, connect, ...", and reading one's own list to "View ...".

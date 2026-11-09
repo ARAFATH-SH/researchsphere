@@ -323,7 +323,7 @@ Messaging lets researchers reach each other directly. Connected users chat at on
 | FR-16.3 | show the unread count per conversation and in total, and show the sender when a message has been seen | Must |
 | FR-16.4 | show when the other person is typing and whether they are online | Should |
 | FR-16.5 | let a user edit or delete their own message; an edited message is labeled as edited | Should |
-| FR-16.6 | let a user create a group conversation of up to 50 members, name it, and let its creator add and remove members | Should |
+| FR-16.6 | let a user create a group conversation of up to 50 members, name it, and let its owner (the creator, or the member who joined earliest after the owner leaves) rename it and add and remove members | Should |
 | FR-16.7 | let a user attach files (PDF, images and office documents) of up to 25 MB to a message; each file is checked by type and scanned for malware before others can download it | Should |
 | FR-16.8 | let a user search the text of their own conversations | Should |
 | FR-16.9 | let a user block another user, after which neither can message the other, and report a conversation or message to administrators | Must |
@@ -496,12 +496,13 @@ The database holds the 32 kinds of record below. The rules below are enforced by
 | Embedding | Owner (profile, project, post or venue), model, text hash, vector | One per owner; deleted with its owner |
 | Notification | Receiver, type, actor, item, read time | Deleted with its receiver; a system type has no actor, every other type has one |
 | Assistant request | User, project, kind, accepted or not | The suggestion text is not stored |
-| Conversation | Kind (direct or group), state (active, request or declined), who requested it, the pair of users, last message time | One direct conversation per pair of users; a request names who requested it |
-| Conversation member | Conversation, user, joined time, read marker and its time | One row per user per conversation; the read marker is a message of the same conversation |
-| Message | Conversation, sender, text, client ID, sent, edited and deleted times | 1 to 5,000 characters, trimmed; a client ID is used once per sender; a deleted message keeps its place with no text; edited and deleted after it was sent |
+| Conversation | Kind (direct or group), state (active, request or declined), who requested it, the pair of users, last message time; for a group its name, creator, the creator's client ID and closed time | One direct conversation per pair of users; a request names who requested it; a group has a name of 1 to 100 characters on one line, is always active, and is one per creator and client ID |
+| Conversation member | Conversation, user, role (owner or member), joined time, read marker and its time | One row per user per conversation; at most one owner per group; the read marker is a message of the same conversation; a member sees only messages from the time they joined |
+| Group membership | Group, user, joined time, left time | One per stay; at most one open stay per user and group; read only through an administrator's report (NFR-14); deleted with the user or the group |
+| Message | Conversation, sender, kind (text or system), text, system event and its details, client ID, sent, edited and deleted times | A text message has a sender, 1 to 5,000 characters, trimmed, and a client ID used once per sender; a system message records a group change, has no text or client ID, may have no sender, and is never edited or deleted; a deleted message keeps its place with no text; edited and deleted after it was sent |
 | Message version | Message, text, shown from, shown until, ended by (edit or deletion) | One per replaced text, at most one deletion per message; read only through an administrator's report (NFR-14); deleted with the message |
 | Block | Blocker, blocked user, time | One per direction; no self-block; deleted with either user |
-| Message report | Conversation, reporter, reported user, message, reason, details, time, resolution (time, administrator, outcome, note) | A reported message belongs to the conversation; deleted with the conversation |
+| Message report | Conversation, reporter, reported user, message, reason, details, time, resolution (time, administrator, outcome, note) | A reported message belongs to the conversation; a report of a whole group names no reported user; deleted with the conversation |
 | Report view | Report, administrator, time | One per administrator's read; holds no message text and outlives the report |
 | Account warning | User, reason, time, acknowledged time | Reason of 10 to 1,000 characters; deleted with the user |
 | Account restriction | User, kind, start, end, lifted time, who lifted it | Ends after it starts; deleted with the user |
@@ -510,7 +511,7 @@ The database holds the 32 kinds of record below. The rules below are enforced by
 **Retention**
 
 - Deleting an account removes the user's personal data at once (FR-2.8). Publications shared with a co-author stay for that co-author.
-- Deleting an account deletes the user's direct conversations with all their messages, also the other member's copy.
+- Deleting an account deletes the user's direct conversations with all their messages, also the other member's copy. In a group it deletes the user's membership and their messages, including the system messages they made; the group stays for the others, and if the user owned it, ownership passes to the member who joined earliest.
 - The compile log and PDF are kept for the latest compile of each project only.
 - Earlier versions of edited messages and the text of deleted ones are deleted 30 days after they
   were replaced. A version of a conversation that was reported while or after that text was shown

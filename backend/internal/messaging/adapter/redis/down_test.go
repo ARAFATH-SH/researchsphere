@@ -20,7 +20,7 @@ func TestLimiterReturnsErrorsWhenRedisIsDown(t *testing.T) {
 	if _, _, err := l.Used(t.Context(), "messages:minute", "u1"); err == nil {
 		t.Error("Used() error = nil")
 	}
-	if err := l.Record(t.Context(), "messages:minute", "u1", time.Minute); err == nil {
+	if err := l.Record(t.Context(), "messages:minute", "u1", 1, time.Minute); err == nil {
 		t.Error("Record() error = nil")
 	}
 	if d := time.Since(start); d > 2*time.Second {

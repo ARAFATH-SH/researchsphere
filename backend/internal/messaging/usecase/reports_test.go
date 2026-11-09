@@ -28,7 +28,7 @@ func TestReport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.ReportedID != "bob" || r.BlockedByMe || r.ID == "" {
+	if r.ReportedID == nil || *r.ReportedID != "bob" || r.BlockedByMe || r.ID == "" {
 		t.Errorf("receipt = %+v", r)
 	}
 	got := h.store.reports[0]

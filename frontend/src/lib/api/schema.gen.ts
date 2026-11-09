@@ -1787,6 +1787,37 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/conversations/groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a group conversation (FR-16.6, FR-16.10)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). The caller becomes the owner. Checks run in this order: the
+         *     name (`invalid_group_name`: 1 to 100 characters after trimming, one line), `memberIds`
+         *     (`bad_request` with `field`: 1 to 49 other users, not the caller; repeats count once),
+         *     `clientId` (a value the caller already used returns that group with 200 while the
+         *     caller is still in it, 404 `not_found` otherwise), the caller's standing
+         *     (`account_suspended`), the limits (`rate_limited`: 10 groups a day, and 100 added
+         *     members a day counted over creating and adding), then the members: each must be a
+         *     connection of the caller, verified, not suspended, with no block either way. Otherwise
+         *     400 `ineligible_members` lists them in `userIds`, without saying why for any of them.
+         *     A messaging restriction does not stop this (FR-15.6). The thread starts with a
+         *     `group_created` system message, and each member gets a `group_added` notification.
+         */
+        post: operations["createGroup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/conversations/{conversationId}": {
         parameters: {
             query?: never;
@@ -1795,16 +1826,105 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get one of the logged-in user's conversations (FR-16.1, NFR-14)
+         * Get one of the logged-in user's conversations (FR-16.1, FR-16.6, NFR-14)
          * @description Needs the access cookie and the platform action "View profiles, search, feed,
          *     events and recommendations" (SRS 2.3). Anyone who is not a member gets 404
          *     `not_found`, the same answer as for an unknown ID (NFR-14). This holds for
          *     administrators too: they read a conversation only through a report on it
-         *     (`getMessageReport`).
+         *     (`getMessageReport`). A former member of a group gets 404 as well. For a group,
+         *     `group.members` lists the current members.
          */
         get: operations["getConversation"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Rename a group (FR-16.6)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Only the owner. Checks run in this order: the name
+         *     (`invalid_group_name`), membership (404 `not_found` for a non-member and for a direct
+         *     conversation, NFR-14), the owner (403 `not_group_owner`), the caller's standing
+         *     (`account_suspended`). The same name after trimming answers 200 and changes nothing;
+         *     otherwise a `group_renamed` system message is written.
+         */
+        patch: operations["renameGroup"];
+        trace?: never;
+    };
+    "/conversations/{conversationId}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add members to a group (FR-16.6, FR-16.10)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Only the owner. Checks run in this order: `userIds`
+         *     (`bad_request` with `field`: 1 to 49 users, not the caller), membership (404
+         *     `not_found`), the owner (403 `not_group_owner`), the caller's standing, the limit of
+         *     100 added members a day (`rate_limited`), then each new member under the rules of
+         *     `createGroup` (400 `ineligible_members` with `userIds`), and the size: at most 50
+         *     members in all (409 `group_full`). People already in the group are left as they are;
+         *     when all of them are, nothing changes. A new member sees only messages from the
+         *     `member_added` system message on, and gets a `group_added` notification.
+         */
+        post: operations["addGroupMembers"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/conversations/{conversationId}/members/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a member from a group (FR-16.6, NFR-14)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Only the owner. Checks run in this order: membership of the
+         *     caller (404 `not_found`), the owner (403 `not_group_owner`), the owner removing
+         *     themselves (400 `cannot_remove_self`: use `leaveGroup`), the caller's standing, then
+         *     the user (404 `not_found` when not a member). The removed member loses all access at
+         *     once: the group answers them 404 and leaves their list. A `member_removed` system
+         *     message is written.
+         */
+        delete: operations["removeGroupMember"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/conversations/{conversationId}/leave": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Leave a group (FR-16.6, NFR-14)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Any member may, also while suspended or restricted. A
+         *     non-member and a direct conversation get 404 `not_found`. The caller loses all access
+         *     at once. A `member_left` system message is written. When the owner leaves, the member
+         *     who joined earliest becomes owner and an `owner_changed` system message follows; when
+         *     the last member leaves, the group is closed.
+         */
+        post: operations["leaveGroup"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1823,7 +1943,10 @@ export interface paths {
          * @description Needs the access cookie and the platform action "View profiles, search, feed,
          *     events and recommendations" (SRS 2.3). Anyone who is not a member gets 404
          *     `not_found` (NFR-14). `otherLastReadMessageId` is the other member's read marker,
-         *     so the client can show "Seen" under the caller's latest message at or before it.
+         *     so the client can show "Seen" under the caller's latest message at or before it. In a
+         *     group it is null and `readers` gives every other current member's marker, for "Seen by
+         *     N"; a member sees only the messages created from the moment they joined (FR-16.6).
+         *     System messages (`kind: system`) are part of the thread.
          */
         get: operations["listMessages"];
         put?: never;
@@ -1836,7 +1959,9 @@ export interface paths {
          *     other member (404 `not_found` when suspended or not verified), a block (FR-16.9: 403
          *     `cannot_message` for the blocked person, 409 `you_blocked_this_user` for the blocker),
          *     then the conversation's state (`request_pending`, `conversation_closed`), as for
-         *     `POST /messages/direct`.
+         *     `POST /messages/direct`. In a group there is no other member and no request: after the
+         *     limits, a former member gets 404 `not_found`, and a block between two members stops
+         *     nobody (FR-16.6).
          */
         post: operations["sendMessage"];
         delete?: never;
@@ -1878,8 +2003,9 @@ export interface paths {
          *     (200 with the message as it is: nothing changes, no quota is used and no event goes
          *     out), then the checks of `POST /conversations/{conversationId}/messages`: the caller's
          *     standing, the message limits (an edit counts as a message), the other member, a block
-         *     and the conversation's state. The earlier text is kept for moderation and shown only
-         *     through `GET /admin/message-reports/{reportId}`.
+         *     and the conversation's state. In a group the checks are those of sending in a group.
+         *     A system message cannot be edited (404). The earlier text is kept for moderation and
+         *     shown only through `GET /admin/message-reports/{reportId}`.
          */
         patch: operations["editMessage"];
         trace?: never;
@@ -1969,9 +2095,12 @@ export interface paths {
          *     like, comment" (SRS 2.3). Anyone who is not a member gets 404 `not_found` (NFR-14).
          *     Checks run in this order: membership, `reason`, `details` and `messageId`
          *     (`bad_request`, with `field`), the message (404 `not_found` when it is not in this
-         *     conversation, 400 `cannot_report_own_message` when the caller sent it), then the
-         *     limit of 10 reports per user per day (`rate_limited`); only stored reports count.
-         *     An administrator can read this conversation's messages up to the moment of the report.
+         *     conversation, from before the caller joined it, or a system message, 400
+         *     `cannot_report_own_message` when the caller sent it), then the limit of 10 reports per
+         *     user per day (`rate_limited`); only stored reports count. An administrator can read
+         *     this conversation's messages up to the moment of the report. In a group, a report of a
+         *     message names its sender, and a report of the whole group names nobody
+         *     (`reportedUserId` null).
          *
          *     Reporting does not block the other user: `blockedByMe` says whether the caller has
          *     blocked them, so the client can offer to block `reportedUserId` next.
@@ -2111,6 +2240,11 @@ export interface components {
              *     permanent. On `messaging_restricted`, when the restriction ends.
              */
             until?: string;
+            /**
+             * @description On `ineligible_members`, the users who cannot be added to the group. It never says
+             *     why for any of them (FR-16.6).
+             */
+            userIds?: string[];
         };
         Health: {
             /** @enum {string} */
@@ -2500,9 +2634,10 @@ export interface components {
         /** @description For administrators only. It is never shown or sent to the user. */
         ModerationNote: string;
         /**
-         * @description A report about this user to resolve as `action_taken`. Unknown gets 404, about someone
-         *     else 400 with `field`, already resolved 409 `report_already_resolved`; each undoes the
-         *     action.
+         * @description A report about this user to resolve as `action_taken`. For a group, this user may also be
+         *     anyone in the report's `membersAtReport`, which is how a report of a whole group, with no
+         *     reported user, is acted on (FR-16.6). Unknown gets 404, about someone else 400 with
+         *     `field`, already resolved 409 `report_already_resolved`; each undoes the action.
          */
         ModerationReportId: string;
         /** @enum {string} */
@@ -2585,10 +2720,11 @@ export interface components {
          * @description What happened (FR-9.1). `connection_request_received`: the actor sent the caller a
          *     connection request. `connection_request_accepted`: the actor accepted the caller's
          *     request. `account_warning`: an administrator warned the caller; a system notification,
-         *     with no actor. Later slices add the project, comment and like types.
+         *     with no actor. `group_added`: the actor, the group's owner, added the caller to a
+         *     group (FR-16.6). Later slices add the project, comment and like types.
          * @enum {string}
          */
-        NotificationType: "connection_request_received" | "connection_request_accepted" | "account_warning";
+        NotificationType: "connection_request_received" | "connection_request_accepted" | "account_warning" | "group_added";
         /**
          * @description The user who caused the notification. A system notification comes from ResearchSphere
          *     and has no actor: the field is left out, and a client treats null the same way.
@@ -2610,7 +2746,7 @@ export interface components {
             /**
              * @description The web client path of the item it is about (FR-9.5):
              *     `/network` for a received request, `/profile/{actorId}` for an accepted one,
-             *     `/warnings/{warningId}` for a warning.
+             *     `/warnings/{warningId}` for a warning, `/messaging/{conversationId}` for a group.
              */
             link: string;
             actor?: components["schemas"]["NotificationActor"];
@@ -2670,6 +2806,34 @@ export interface components {
          * @enum {string}
          */
         ConversationState: "active" | "request" | "declined";
+        /**
+         * @description `text`: a member's message. `system`: a change to a group (FR-16.6), described by
+         *     `event`; it has no body, cannot be edited, deleted or reported, and never counts as
+         *     unread.
+         * @enum {string}
+         */
+        MessageKind: "text" | "system";
+        /**
+         * @description What changed in a group. The client writes its own text for each; the API sends no
+         *     English copy. `group_created` (`newName`, `userIds` the first members),
+         *     `group_renamed` (`oldName`, `newName`), `member_added` (`userIds`), `member_removed`
+         *     (`userIds`, the one removed), `member_left` (the actor left), `owner_changed`
+         *     (`userIds`, the new owner; no actor, as it follows from someone leaving).
+         * @enum {string}
+         */
+        SystemEventType: "group_created" | "group_renamed" | "member_added" | "member_removed" | "member_left" | "owner_changed";
+        SystemEvent: {
+            type: components["schemas"]["SystemEventType"];
+            /**
+             * Format: uuid
+             * @description Who made the change; null for `owner_changed`, and when the actor's account is gone.
+             */
+            actorId: string | null;
+            /** @description The users the change is about; empty when none. */
+            userIds: string[];
+            oldName: string | null;
+            newName: string | null;
+        };
         Message: {
             /**
              * Format: uuid
@@ -2678,11 +2842,17 @@ export interface components {
             id: string;
             /** Format: uuid */
             conversationId: string;
-            /** Format: uuid */
-            senderId: string;
             /**
-             * @description The latest text. Null for a deleted message; only `deleted` says a message was
-             *     deleted, as a later message may have no text.
+             * Format: uuid
+             * @description The sender; for a system message the actor, or null when it has none.
+             */
+            senderId: string | null;
+            kind: components["schemas"]["MessageKind"];
+            /** @description The change a system message describes; null for a text message. */
+            event: components["schemas"]["SystemEvent"] | null;
+            /**
+             * @description The latest text. Null for a deleted message and for a system message; only
+             *     `deleted` says a message was deleted, as a later message may have no text.
              */
             body: string | null;
             /** Format: date-time */
@@ -2711,22 +2881,77 @@ export interface components {
             available: boolean;
         };
         MessagePreview: {
-            /** Format: uuid */
-            senderId: string;
-            /** @description The first 120 characters of the message's latest text; null when deleted. */
+            /**
+             * Format: uuid
+             * @description The sender; for a system message the actor, or null when it has none.
+             */
+            senderId: string | null;
+            kind: components["schemas"]["MessageKind"];
+            /** @description For a system message, what changed; the client writes its own text. */
+            event: components["schemas"]["SystemEventType"] | null;
+            /** @description The first 120 characters of the message's latest text; null when deleted and for a system message. */
             body: string | null;
             /** @description True when the latest message was deleted; the client says so. */
             deleted: boolean;
             /** Format: date-time */
             createdAt: string;
         };
+        /**
+         * @description `direct`: two people. `group`: a named group of up to 50 members (FR-16.6).
+         * @enum {string}
+         */
+        ConversationKind: "direct" | "group";
+        /**
+         * @description `owner` renames the group and adds and removes members; `member` does not.
+         * @enum {string}
+         */
+        GroupRole: "owner" | "member";
+        GroupAvatar: {
+            /** Format: uuid */
+            userId: string;
+            fullName: string;
+            /** @description The profile photo as `/api/v1/media/{fileId}`; null when not set. */
+            photoUrl: string | null;
+        };
+        GroupMember: {
+            /** Format: uuid */
+            userId: string;
+            fullName: string;
+            /** @description The profile photo as `/api/v1/media/{fileId}`; null when not set. */
+            photoUrl: string | null;
+            role: components["schemas"]["GroupRole"];
+            /** Format: date-time */
+            joinedAt: string;
+            /** @description False when the member is suspended or not verified. They stay in the group. */
+            available: boolean;
+        };
+        ConversationGroup: {
+            name: string;
+            /** @description Current members, the caller included. */
+            memberCount: number;
+            /** @description Up to 3 other members, those who joined earliest first. */
+            avatars: components["schemas"]["GroupAvatar"][];
+            myRole: components["schemas"]["GroupRole"];
+            /**
+             * @description Every current member, the owner first, then by joining time. Given by
+             *     `getConversation` and the group operations; null in the lists.
+             */
+            members: components["schemas"]["GroupMember"][] | null;
+        };
         Conversation: {
             /** Format: uuid */
             id: string;
+            kind: components["schemas"]["ConversationKind"];
             state: components["schemas"]["ConversationState"];
-            otherMember: components["schemas"]["ConversationMember"];
+            /** @description The other member of a direct conversation; null for a group. */
+            otherMember: components["schemas"]["ConversationMember"] | null;
+            /** @description The group's name and members; null for a direct conversation. */
+            group: components["schemas"]["ConversationGroup"] | null;
             lastMessage: components["schemas"]["MessagePreview"] | null;
-            /** @description Messages from the other member after the caller's read marker. */
+            /**
+             * @description Messages from other members after the caller's read marker, not deleted. System
+             *     messages never count.
+             */
             unreadCount: number;
             /**
              * Format: uuid
@@ -2738,10 +2963,13 @@ export interface components {
             /**
              * @description True when a message from the caller would be accepted now: the conversation is
              *     `active`, the other member is available and neither has blocked the other
-             *     (FR-16.9).
+             *     (FR-16.9). In a group, true while the caller is a member; blocks do not apply.
              */
             canMessage: boolean;
-            /** @description True when the caller has blocked the other member. A blocked person is never told. */
+            /**
+             * @description True when the caller has blocked the other member. A blocked person is never told.
+             *     Always false for a group.
+             */
             blockedByMe: boolean;
         };
         ConversationPage: {
@@ -2755,9 +2983,42 @@ export interface components {
             nextBefore: string | null;
             /**
              * Format: uuid
-             * @description The other member's read marker; null until they have read a message.
+             * @description The other member's read marker; null until they have read a message, and for a group.
              */
             otherLastReadMessageId: string | null;
+            /**
+             * @description For a group, every other current member's read marker (FR-16.3), so the client can
+             *     show "Seen by N" under a message; null for a direct conversation.
+             */
+            readers: components["schemas"]["MessageReader"][] | null;
+        };
+        MessageReader: {
+            /** Format: uuid */
+            userId: string;
+            /**
+             * Format: uuid
+             * @description Null until the member has read a message.
+             */
+            lastReadMessageId: string | null;
+        };
+        CreateGroupRequest: {
+            /** @description 1 to 100 characters after trimming, on one line. */
+            name: string;
+            /** @description 1 to 49 other users; the caller is the owner and is not listed. */
+            memberIds: string[];
+            /**
+             * Format: uuid
+             * @description Made by the client for this create; a retry with the same value creates nothing new.
+             */
+            clientId: string;
+        };
+        RenameGroupRequest: {
+            /** @description 1 to 100 characters after trimming, on one line. */
+            name: string;
+        };
+        AddGroupMembersRequest: {
+            /** @description 1 to 49 users, not the caller. */
+            userIds: string[];
         };
         BlockRequest: {
             /**
@@ -2802,10 +3063,11 @@ export interface components {
             createdAt: string;
             /**
              * Format: uuid
-             * @description The other member, whom the client can offer to block.
+             * @description The other member, or in a group the sender of the reported message, whom the client
+             *     can offer to block. Null for a report of a whole group.
              */
-            reportedUserId: string;
-            /** @description Whether the caller has blocked that user. Reporting never does it. */
+            reportedUserId: string | null;
+            /** @description Whether the caller has blocked that user. Reporting never does it. False when no one is reported. */
             blockedByMe: boolean;
         };
         MessageReportPerson: {
@@ -2822,6 +3084,9 @@ export interface components {
             id: string;
             /** Format: uuid */
             conversationId: string;
+            conversationKind: components["schemas"]["ConversationKind"];
+            /** @description The group's name now; null for a direct conversation. */
+            groupName: string | null;
             /** @enum {string} */
             status: "open" | "resolved";
             reason: components["schemas"]["ReportReason"];
@@ -2833,7 +3098,12 @@ export interface components {
              */
             messageId: string | null;
             reporter: components["schemas"]["MessageReportPerson"];
-            reportedUser: components["schemas"]["MessageReportPerson"];
+            /**
+             * @description The other member, or in a group the sender of the reported message. Null for a
+             *     report of a whole group: a moderation action may then name any member who was in
+             *     the group at the report's moment (`membersAtReport`).
+             */
+            reportedUser: components["schemas"]["MessageReportPerson"] | null;
             /**
              * Format: date-time
              * @description The moment of the report; an administrator sees messages only up to it.
@@ -2854,6 +3124,12 @@ export interface components {
         };
         MessageReportDetail: {
             report: components["schemas"]["MessageReport"];
+            /**
+             * @description For a group, everyone who was a member at the report's moment, also those who have
+             *     left since; a moderation action that names this report may name any of them. Null
+             *     for a direct conversation.
+             */
+            membersAtReport: components["schemas"]["MessageReportPerson"][] | null;
             /** @description Newest first, none later than the report. */
             messages: components["schemas"]["ReportedMessage"][];
             /** @description Pass as `before` to load earlier messages; null on the last page. */
@@ -2869,8 +3145,14 @@ export interface components {
             id: string;
             /** Format: uuid */
             conversationId: string;
-            /** Format: uuid */
-            senderId: string;
+            /**
+             * Format: uuid
+             * @description The sender; for a system message the actor, or null when it has none.
+             */
+            senderId: string | null;
+            kind: components["schemas"]["MessageKind"];
+            /** @description The change a system message describes; null for a text message. */
+            event: components["schemas"]["SystemEvent"] | null;
             /** Format: date-time */
             createdAt: string;
             /** @description The text shown at the report's moment; null when the message was deleted by then. */
@@ -2937,10 +3219,10 @@ export interface components {
          * @description The `type` of a server event. `docs/realtime.md` gives each one's `data`.
          * @enum {string}
          */
-        RealtimeEventType: "message.created" | "message.updated" | "message.deleted" | "conversation.read" | "conversation.updated" | "unread.changed" | "typing" | "presence" | "notification.created" | "notifications.unread";
+        RealtimeEventType: "message.created" | "message.updated" | "message.deleted" | "conversation.read" | "conversation.updated" | "conversation.members" | "unread.changed" | "typing" | "presence" | "notification.created" | "notifications.unread";
         /**
          * @description One server-to-client WebSocket frame, as JSON text. `data` is `RealtimeMessageCreated`,
-         *     `RealtimeMessageUpdated`, `RealtimeMessageDeleted`, `RealtimeConversationRead`, `RealtimeConversationUpdated`, `MessageUnreadCount`,
+         *     `RealtimeMessageUpdated`, `RealtimeMessageDeleted`, `RealtimeConversationRead`, `RealtimeConversationUpdated`, `RealtimeConversationMembers`, `MessageUnreadCount`,
          *     `RealtimeTyping`, `PresenceStatus`, `Notification` or `UnreadNotificationCount`,
          *     by `type`.
          */
@@ -2979,12 +3261,34 @@ export interface components {
         /**
          * @description The conversation's state or `canMessage` changed for the recipient, who gets their own
          *     view of it. It never says why, so a blocked person is not told about a block.
+         *     `accessLost` is true for someone who left or was removed from a group: the client
+         *     closes the thread and drops the conversation.
          */
         RealtimeConversationUpdated: {
             /** Format: uuid */
             conversationId: string;
             state: components["schemas"]["ConversationState"];
             canMessage: boolean;
+            accessLost: boolean;
+        };
+        /**
+         * @description A group's name, members or owner changed (FR-16.6). Sent to every current member after
+         *     the change, new members included. Refetch the conversation for the full member list.
+         */
+        RealtimeConversationMembers: {
+            /** Format: uuid */
+            conversationId: string;
+            /** @enum {string} */
+            change: "added" | "removed" | "left" | "owner_changed" | "renamed";
+            /**
+             * Format: uuid
+             * @description Who made the change; null for `owner_changed`.
+             */
+            actorId: string | null;
+            /** @description Who was added or removed, who left, or the new owner; empty for `renamed`. */
+            userIds: string[];
+            /** @description The group's name after the change. */
+            name: string;
         };
         RealtimeTyping: {
             /** Format: uuid */
@@ -3608,6 +3912,49 @@ export interface components {
          */
         MessageEditRefused: {
             headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /**
+         * @description `invalid_group_name`: the name is empty after trimming, over 100 characters, or not
+         *     on one line (with `field`). `bad_request` (with `field`) for a missing or malformed
+         *     `clientId`, or `memberIds` or `userIds` that is empty, over 49, or names the caller.
+         *     `ineligible_members` with `userIds`: users who are not the caller's connections, not
+         *     verified, suspended, or in a block with the caller; it never says which reason.
+         */
+        GroupInvalid: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /**
+         * @description `forbidden`: the user's role does not permit the action (FR-3.2).
+         *     `not_group_owner`: only the group's owner may do this.
+         *     `account_suspended`: the caller's account was suspended after this session began, with
+         *     `reason` and `until`.
+         */
+        GroupForbidden: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /**
+         * @description `rate_limited`: the caller has created 10 groups today, or added 100 members today
+         *     (FR-16.10).
+         */
+        GroupRateLimited: {
+            headers: {
+                /** @description Seconds until creating or adding is accepted again. */
+                "Retry-After": number;
                 [name: string]: unknown;
             };
             content: {
@@ -7051,6 +7398,45 @@ export interface operations {
             500: components["responses"]["InternalError"];
         };
     };
+    createGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateGroupRequest"];
+            };
+        };
+        responses: {
+            /** @description This `clientId` was already used; the group it created. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conversation"];
+                };
+            };
+            /** @description The group, with its members. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conversation"];
+                };
+            };
+            400: components["responses"]["GroupInvalid"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["AccountSuspendedOrForbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["GroupRateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
     getConversation: {
         parameters: {
             query?: never;
@@ -7075,6 +7461,161 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Conversation"];
                 };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    renameGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The conversation's ID, a UUID. It is declared as a plain string so that the login
+                 *     check runs before it is read (FR-3.1); a value that is not a UUID names no
+                 *     conversation and gets 404 `not_found`.
+                 */
+                conversationId: components["parameters"]["ConversationId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenameGroupRequest"];
+            };
+        };
+        responses: {
+            /** @description The group, with its members. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conversation"];
+                };
+            };
+            400: components["responses"]["GroupInvalid"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["GroupForbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    addGroupMembers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The conversation's ID, a UUID. It is declared as a plain string so that the login
+                 *     check runs before it is read (FR-3.1); a value that is not a UUID names no
+                 *     conversation and gets 404 `not_found`.
+                 */
+                conversationId: components["parameters"]["ConversationId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddGroupMembersRequest"];
+            };
+        };
+        responses: {
+            /** @description The group, with its members. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conversation"];
+                };
+            };
+            400: components["responses"]["GroupInvalid"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["GroupForbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description `group_full`: the group would have more than 50 members. Nothing changes. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            429: components["responses"]["GroupRateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    removeGroupMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The conversation's ID, a UUID. It is declared as a plain string so that the login
+                 *     check runs before it is read (FR-3.1); a value that is not a UUID names no
+                 *     conversation and gets 404 `not_found`.
+                 */
+                conversationId: components["parameters"]["ConversationId"];
+                /**
+                 * @description The member's ID, a UUID. It is declared as a plain string so that the login check
+                 *     runs before it is read (FR-3.1); a value that is not a UUID names no member and
+                 *     gets 404 `not_found`.
+                 */
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The member is removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `cannot_remove_self`: the owner leaves with `leaveGroup` instead. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["GroupForbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    leaveGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The conversation's ID, a UUID. It is declared as a plain string so that the login
+                 *     check runs before it is read (FR-3.1); a value that is not a UUID names no
+                 *     conversation and gets 404 `not_found`.
+                 */
+                conversationId: components["parameters"]["ConversationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller has left. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];

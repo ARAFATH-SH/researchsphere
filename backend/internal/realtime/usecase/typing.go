@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/realtime/domain"
@@ -11,17 +12,18 @@ import (
 type typingKey struct{ userID, conversationID string }
 
 // typingState is one user typing in one conversation. Nothing is stored beyond this. A state
-// lives until its timer fires, so a refused start is throttled too; other is empty until a
-// start has been relayed.
+// lives until its timer fires, so a refused start is throttled too; told is empty until a
+// start has been relayed, and then holds everyone who saw one.
 type typingState struct {
 	last  time.Time
-	other string
+	told  []string
 	timer *time.Timer
 }
 
-// typingStart relays a start to the other member, at most once per throttle window. The rule
-// is checked on every relayed start, so a block stops it at once. The window is per instance:
-// two tabs on two instances can each relay one.
+// typingStart relays a start to the other member, or in a group to every other member it may
+// reach, at most once per throttle window. The rule is checked on every relayed start, so a
+// block stops it at once. The window is per instance: two tabs on two instances can each relay
+// one.
 func (h *Hub) typingStart(ctx context.Context, userID, conversationID string) {
 	k := typingKey{userID, conversationID}
 	now := h.now()
@@ -41,14 +43,20 @@ func (h *Hub) typingStart(ctx context.Context, userID, conversationID string) {
 	s.timer = time.AfterFunc(h.cfg.TypingTimeout, func() { h.typingExpired(k, s) })
 	h.typingMu.Unlock()
 
-	other, ok := h.typingPeer(ctx, userID, conversationID)
-	if !ok {
+	peers := h.typingPeers(ctx, userID, conversationID)
+	if len(peers) == 0 {
 		return
 	}
 	h.typingMu.Lock()
-	s.other = other
+	for _, p := range peers {
+		if !slices.Contains(s.told, p) {
+			s.told = append(s.told, p)
+		}
+	}
 	h.typingMu.Unlock()
-	h.sendTyping(ctx, other, conversationID, userID, true)
+	for _, p := range peers {
+		h.sendTyping(ctx, p, conversationID, userID, true)
+	}
 }
 
 // typingStop relays a stop that follows a relayed start. When it is refused the state stays,
@@ -57,22 +65,25 @@ func (h *Hub) typingStop(ctx context.Context, userID, conversationID string) {
 	k := typingKey{userID, conversationID}
 	h.typingMu.Lock()
 	s := h.typing[k]
-	relayed := s != nil && s.other != ""
+	relayed := s != nil && len(s.told) > 0
 	h.typingMu.Unlock()
 	if !relayed {
 		return
 	}
-	other, ok := h.typingPeer(ctx, userID, conversationID)
-	if !ok {
+	if len(h.typingPeers(ctx, userID, conversationID)) == 0 {
 		return
 	}
 	h.typingMu.Lock()
+	var told []string
 	if h.typing[k] == s {
 		s.timer.Stop()
 		delete(h.typing, k)
+		told = s.told
 	}
 	h.typingMu.Unlock()
-	h.sendTyping(ctx, other, conversationID, userID, false)
+	for _, p := range told {
+		h.sendTyping(ctx, p, conversationID, userID, false)
+	}
 }
 
 // typingExpired is the auto-stop. It only ever clears an indicator already shown, so it needs
@@ -84,26 +95,28 @@ func (h *Hub) typingExpired(k typingKey, s *typingState) {
 		return
 	}
 	delete(h.typing, k)
-	other := s.other
+	told := s.told
 	h.typingMu.Unlock()
-	if other == "" {
+	if len(told) == 0 {
 		return
 	}
 	ctx, cancel := h.callContext()
 	defer cancel()
-	h.sendTyping(ctx, other, k.conversationID, k.userID, false)
+	for _, p := range told {
+		h.sendTyping(ctx, p, k.conversationID, k.userID, false)
+	}
 }
 
-func (h *Hub) typingPeer(ctx context.Context, userID, conversationID string) (string, bool) {
-	other, ok, err := h.access.TypingPeer(ctx, userID, conversationID)
+func (h *Hub) typingPeers(ctx context.Context, userID, conversationID string) []string {
+	peers, err := h.access.TypingPeers(ctx, userID, conversationID)
 	if err != nil {
 		h.logger.WarnContext(ctx, "realtime: check typing", slog.Any("error", err))
-		return "", false
+		return nil
 	}
-	if !ok {
+	if len(peers) == 0 {
 		h.logger.DebugContext(ctx, "realtime: typing refused", slog.String("user_id", userID))
 	}
-	return other, ok
+	return peers
 }
 
 func (h *Hub) sendTyping(ctx context.Context, to, conversationID, userID string, isTyping bool) {

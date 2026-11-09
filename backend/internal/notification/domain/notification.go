@@ -23,12 +23,16 @@ const (
 	// TypeAccountWarning: an administrator warned the recipient (FR-15.5). A system
 	// notification: it has no actor. The subject is the warning.
 	TypeAccountWarning Type = "account_warning"
+	// TypeGroupAdded: the actor, a group's owner, added the recipient to the group (FR-16.6).
+	// The subject is the conversation.
+	TypeGroupAdded Type = "group_added"
 )
 
 // Subject kinds: what a notification's SubjectID names.
 const (
 	SubjectConnectionRequest = "connection_request"
 	SubjectWarning           = "warning"
+	SubjectConversation      = "conversation"
 )
 
 // Spec describes one Type.
@@ -53,6 +57,10 @@ var Registry = map[Type]Spec{
 	TypeAccountWarning: {
 		SubjectKind: SubjectWarning,
 		Link:        func(n Notification) string { return "/warnings/" + n.SubjectID },
+	},
+	TypeGroupAdded: {
+		SubjectKind: SubjectConversation,
+		Link:        func(n Notification) string { return "/messaging/" + n.SubjectID },
 	},
 }
 
@@ -121,6 +129,9 @@ type Store interface {
 	// DeleteBySubject deletes the notifications of type t about subjectID and returns
 	// their recipients.
 	DeleteBySubject(ctx context.Context, t Type, subjectID string) ([]string, error)
+	// DeleteFor deletes recipientID's notifications of type t about subjectID and reports
+	// whether there were any.
+	DeleteFor(ctx context.Context, t Type, subjectID, recipientID string) (bool, error)
 	// Find returns one visible notification of recipientID, otherwise ErrNotFound.
 	Find(ctx context.Context, recipientID, id string) (Item, error)
 	// DeleteBetween deletes everything a and b were told about each other, of any type.

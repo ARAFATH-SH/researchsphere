@@ -64,7 +64,7 @@ func (h *Handler) ReportConversation(ctx context.Context, req gen.ReportConversa
 	if err != nil {
 		return nil, err
 	}
-	reported, err := uuid(r.ReportedID)
+	reported, err := optionalUUID(r.ReportedID)
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +123,17 @@ func (h *Handler) GetMessageReport(ctx context.Context, req gen.GetMessageReport
 			return nil, err
 		}
 	}
-	return gen.GetMessageReport200JSONResponse{Report: report, Messages: messages, NextBefore: d.NextBefore}, nil
+	var members *[]gen.MessageReportPerson
+	if d.MembersAtReport != nil {
+		list := make([]gen.MessageReportPerson, len(d.MembersAtReport))
+		for i, p := range d.MembersAtReport {
+			if list[i], err = reportPerson(p); err != nil {
+				return nil, err
+			}
+		}
+		members = &list
+	}
+	return gen.GetMessageReport200JSONResponse{Report: report, MembersAtReport: members, Messages: messages, NextBefore: d.NextBefore}, nil
 }
 
 // reportedMessageBody is a message as the administrator sees it: the text at the report's
@@ -137,7 +147,11 @@ func reportedMessageBody(m domain.ReportedMessage) (gen.ReportedMessage, error) 
 	if err != nil {
 		return gen.ReportedMessage{}, err
 	}
-	sender, err := uuid(m.SenderID)
+	sender, err := senderUUID(m.SenderID)
+	if err != nil {
+		return gen.ReportedMessage{}, err
+	}
+	event, err := eventBody(m.Event, sender)
 	if err != nil {
 		return gen.ReportedMessage{}, err
 	}
@@ -146,7 +160,8 @@ func reportedMessageBody(m domain.ReportedMessage) (gen.ReportedMessage, error) 
 		versions[i] = gen.MessageVersion{Body: v.Body, ShownFrom: v.ShownFrom, ShownUntil: v.ShownUntil, EndedBy: gen.MessageVersionEndedBy(v.EndedBy)}
 	}
 	return gen.ReportedMessage{
-		Id: id, ConversationId: conversation, SenderId: sender, CreatedAt: m.CreatedAt, Body: m.Body,
+		Id: id, ConversationId: conversation, SenderId: sender, Kind: messageKind(m.Kind), Event: event,
+		CreatedAt: m.CreatedAt, Body: m.Body,
 		EditedAt: m.EditedAt, DeletedAt: m.DeletedAt, ChangedAfterReport: m.ChangedAfterReport, Versions: versions,
 	}, nil
 }
@@ -196,12 +211,21 @@ func reportBody(r domain.Report) (gen.MessageReport, error) {
 	if err != nil {
 		return gen.MessageReport{}, err
 	}
-	reported, err := reportPerson(r.Reported)
-	if err != nil {
-		return gen.MessageReport{}, err
+	var reported *gen.MessageReportPerson
+	if r.Reported != nil {
+		p, err := reportPerson(*r.Reported)
+		if err != nil {
+			return gen.MessageReport{}, err
+		}
+		reported = &p
+	}
+	kind := gen.Direct
+	if r.ConversationKind == domain.KindGroup {
+		kind = gen.Group
 	}
 	b := gen.MessageReport{
-		Id: id, ConversationId: conversation, Status: gen.MessageReportStatus(domain.ReportOpen),
+		Id: id, ConversationId: conversation, ConversationKind: kind, GroupName: r.GroupName,
+		Status: gen.MessageReportStatus(domain.ReportOpen),
 		Reason: gen.ReportReason(r.Reason), Details: r.Details, MessageId: message,
 		Reporter: reporter, ReportedUser: reported, CreatedAt: r.CreatedAt, Note: r.Note, ResolvedAt: r.ResolvedAt,
 	}

@@ -264,6 +264,16 @@ func (s *fakeStore) BlockBetween(_ context.Context, me, other string) (domain.Bl
 	return domain.BlockState{ByMe: s.blocked(me, other), ByThem: s.blocked(other, me)}, s.err
 }
 
+func (s *fakeStore) BlockedAmong(_ context.Context, userID string, ids []string) ([]string, error) {
+	var out []string
+	for _, id := range ids {
+		if s.blocked(userID, id) || s.blocked(id, userID) {
+			out = append(out, id)
+		}
+	}
+	return out, s.err
+}
+
 func (s *fakeStore) AddBlock(_ context.Context, blockerID, blockedID string) (bool, error) {
 	if s.err != nil {
 		return false, s.err

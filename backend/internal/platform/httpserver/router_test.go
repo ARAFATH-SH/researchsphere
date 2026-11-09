@@ -402,6 +402,26 @@ func (fakeAPI) AcknowledgeWarning(context.Context, gen.AcknowledgeWarningRequest
 	return nil, nil
 }
 
+func (fakeAPI) CreateGroup(context.Context, gen.CreateGroupRequestObject) (gen.CreateGroupResponseObject, error) {
+	return gen.CreateGroup201JSONResponse{}, nil
+}
+
+func (fakeAPI) RenameGroup(context.Context, gen.RenameGroupRequestObject) (gen.RenameGroupResponseObject, error) {
+	return gen.RenameGroup200JSONResponse{}, nil
+}
+
+func (fakeAPI) AddGroupMembers(context.Context, gen.AddGroupMembersRequestObject) (gen.AddGroupMembersResponseObject, error) {
+	return gen.AddGroupMembers200JSONResponse{}, nil
+}
+
+func (fakeAPI) RemoveGroupMember(context.Context, gen.RemoveGroupMemberRequestObject) (gen.RemoveGroupMemberResponseObject, error) {
+	return gen.RemoveGroupMember204Response{}, nil
+}
+
+func (fakeAPI) LeaveGroup(context.Context, gen.LeaveGroupRequestObject) (gen.LeaveGroupResponseObject, error) {
+	return gen.LeaveGroup204Response{}, nil
+}
+
 var _ gen.StrictServerInterface = fakeAPI{}
 
 var testSigner = accesstoken.New([]byte("test-secret-that-is-at-least-32-bytes-long"), 15*time.Minute)
@@ -776,8 +796,8 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 
 func TestRoutes(t *testing.T) {
 	got := Routes()
-	if len(got) != 93 {
-		t.Errorf("Routes() returned %d routes, want the 93 operations in the contract: %v", len(got), got)
+	if len(got) != 98 {
+		t.Errorf("Routes() returned %d routes, want the 98 operations in the contract: %v", len(got), got)
 	}
 	seen := map[string]bool{}
 	for _, p := range got {

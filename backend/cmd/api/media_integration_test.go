@@ -188,7 +188,7 @@ func wireEnv(t *testing.T, pool *pgxpool.Pool, rdb *goredis.Client, files *stora
 	notifications := notificationusecase.New(notificationpg.NewStore(pool), notificationusecase.WithPublisher(realtime.events))
 	connected := &connectionChecker{}
 	messaging := messagingusecase.New(messagingpg.NewStore(pool), postgres.NewTransactor(pool), connected, connected, messagingActors{standings: standings}, messageLimiter,
-		realtime.events, limits, now, logger)
+		realtime.events, groupNotifier{notifications: notifications}, limits, now, logger)
 	realtime.bind(messaging, notifications)
 	var notifier socialdomain.Notifier = connectionNotifier{notifications: notifications, messaging: messaging, events: realtime.events}
 	if opt.wrapNotifier != nil {

@@ -906,7 +906,8 @@ SELECT pg_temp.expect_error('Conversation: a group names no pair',
     $s$INSERT INTO conversations (kind, state, user_low, user_high) VALUES ('group', 'active',
        '00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000003')$s$, '23514');
 SELECT pg_temp.expect_ok('Conversation: the schema allows a group (slice 14B)',
-    $s$INSERT INTO conversations (id, kind, state) VALUES ('00000000-0000-0000-0000-0000000000f4', 'group', 'active')$s$);
+    $s$INSERT INTO conversations (id, kind, state, name, client_id)
+       VALUES ('00000000-0000-0000-0000-0000000000f4', 'group', 'active', 'Lab', gen_random_uuid())$s$);
 SELECT pg_temp.expect_error('Conversation: unknown kind',
     $s$INSERT INTO conversations (kind, state) VALUES ('channel', 'active')$s$, '23514');
 SELECT pg_temp.expect_error('Conversation: unknown state',
@@ -1005,6 +1006,94 @@ SELECT pg_temp.expect_error('Message version: a message is deleted once',
 DELETE FROM messages WHERE id = '00000000-0000-7000-8000-0000000000f5';
 SELECT pg_temp.expect_true('Message version: goes with its message', $q$
     SELECT count(*) = 0 FROM message_versions WHERE message_id = '00000000-0000-7000-8000-0000000000f5'$q$);
+
+-- Groups (FR-16.6; migration 000021): group f6, created by user 1, with user 2.
+SELECT pg_temp.expect_error('Group: has a name',
+    $s$INSERT INTO conversations (kind, state, client_id) VALUES ('group', 'active', gen_random_uuid())$s$, '23514');
+SELECT pg_temp.expect_error('Group: a name of at most 100 characters',
+    $s$INSERT INTO conversations (kind, state, name, client_id) VALUES ('group', 'active', repeat('a', 101), gen_random_uuid())$s$, '23514');
+SELECT pg_temp.expect_error('Group: a name on one line',
+    $s$INSERT INTO conversations (kind, state, name, client_id) VALUES ('group', 'active', E'Lab\nTwo', gen_random_uuid())$s$, '23514');
+SELECT pg_temp.expect_error('Group: a trimmed name',
+    $s$INSERT INTO conversations (kind, state, name, client_id) VALUES ('group', 'active', ' Lab', gen_random_uuid())$s$, '23514');
+SELECT pg_temp.expect_error('Group: has the client ID of its create',
+    $s$INSERT INTO conversations (kind, state, name) VALUES ('group', 'active', 'Lab')$s$, '23514');
+SELECT pg_temp.expect_error('Group: always active, never a request',
+    $s$INSERT INTO conversations (kind, state, name, client_id, requested_by)
+       VALUES ('group', 'request', 'Lab', gen_random_uuid(), '00000000-0000-0000-0000-000000000001')$s$, '23514');
+SELECT pg_temp.expect_error('Conversation: a direct one has no name',
+    $s$UPDATE conversations SET name = 'Pair' WHERE id = '00000000-0000-0000-0000-0000000000f1'$s$, '23514');
+INSERT INTO conversations (id, kind, state, name, created_by, client_id) VALUES
+    ('00000000-0000-0000-0000-0000000000f6', 'group', 'active', 'Lab',
+     '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-0000000000f7');
+SELECT pg_temp.expect_error('Group: one per creator and client ID',
+    $s$INSERT INTO conversations (kind, state, name, created_by, client_id) VALUES ('group', 'active', 'Again',
+       '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-0000000000f7')$s$, '23505');
+INSERT INTO conversation_members (conversation_id, user_id, role, joined_at) VALUES
+    ('00000000-0000-0000-0000-0000000000f6', '00000000-0000-0000-0000-000000000001', 'owner', clock_timestamp()),
+    ('00000000-0000-0000-0000-0000000000f6', '00000000-0000-0000-0000-000000000002', 'member', clock_timestamp());
+SELECT pg_temp.expect_error('Member: one owner per group',
+    $s$UPDATE conversation_members SET role = 'owner'
+       WHERE conversation_id = '00000000-0000-0000-0000-0000000000f6' AND user_id = '00000000-0000-0000-0000-000000000002'$s$, '23505');
+SELECT pg_temp.expect_error('Member: a known role',
+    $s$UPDATE conversation_members SET role = 'admin'
+       WHERE conversation_id = '00000000-0000-0000-0000-0000000000f6' AND user_id = '00000000-0000-0000-0000-000000000002'$s$, '23514');
+SELECT pg_temp.expect_true('Membership: each new member of a group opens a stay', $q$
+    SELECT count(*) = 2 FROM conversation_memberships
+    WHERE conversation_id = '00000000-0000-0000-0000-0000000000f6' AND left_at IS NULL$q$);
+SELECT pg_temp.expect_true('Membership: a direct conversation keeps no stays', $q$
+    SELECT count(*) = 0 FROM conversation_memberships WHERE conversation_id = '00000000-0000-0000-0000-0000000000f1'$q$);
+SELECT pg_temp.expect_error('System message: has no body',
+    $s$INSERT INTO messages (conversation_id, sender_id, kind, event, event_data, body) VALUES ('00000000-0000-0000-0000-0000000000f6',
+       '00000000-0000-0000-0000-000000000001', 'system', 'group_created', '{}', 'Lab')$s$, '23514');
+SELECT pg_temp.expect_error('System message: has an event',
+    $s$INSERT INTO messages (conversation_id, sender_id, kind, event_data) VALUES ('00000000-0000-0000-0000-0000000000f6',
+       '00000000-0000-0000-0000-000000000001', 'system', '{}')$s$, '23514');
+SELECT pg_temp.expect_error('System message: a known event',
+    $s$INSERT INTO messages (conversation_id, sender_id, kind, event, event_data) VALUES ('00000000-0000-0000-0000-0000000000f6',
+       '00000000-0000-0000-0000-000000000001', 'system', 'member_kicked', '{}')$s$, '23514');
+SELECT pg_temp.expect_error('System message: its data is an object',
+    $s$INSERT INTO messages (conversation_id, sender_id, kind, event, event_data) VALUES ('00000000-0000-0000-0000-0000000000f6',
+       '00000000-0000-0000-0000-000000000001', 'system', 'group_created', '[]')$s$, '23514');
+SELECT pg_temp.expect_error('System message: has no client ID',
+    $s$INSERT INTO messages (conversation_id, sender_id, kind, event, event_data, client_id) VALUES ('00000000-0000-0000-0000-0000000000f6',
+       '00000000-0000-0000-0000-000000000001', 'system', 'group_created', '{}', gen_random_uuid())$s$, '23514');
+SELECT pg_temp.expect_error('Text message: has a sender',
+    $s$INSERT INTO messages (conversation_id, body, client_id) VALUES ('00000000-0000-0000-0000-0000000000f6', 'hi', gen_random_uuid())$s$, '23514');
+SELECT pg_temp.expect_error('Text message: has no event',
+    $s$INSERT INTO messages (conversation_id, sender_id, body, client_id, event, event_data) VALUES ('00000000-0000-0000-0000-0000000000f6',
+       '00000000-0000-0000-0000-000000000001', 'hi', gen_random_uuid(), 'group_created', '{}')$s$, '23514');
+SELECT pg_temp.expect_ok('System message: may have no actor',
+    $s$INSERT INTO messages (id, conversation_id, kind, event, event_data) VALUES ('00000000-0000-7000-8000-0000000000f8',
+       '00000000-0000-0000-0000-0000000000f6', 'system', 'owner_changed', '{"newOwnerId":"00000000-0000-0000-0000-000000000001"}')$s$);
+SELECT pg_temp.expect_error('System message: cannot be edited',
+    $s$UPDATE messages SET edited_at = clock_timestamp() WHERE id = '00000000-0000-7000-8000-0000000000f8'$s$, '23514');
+SELECT pg_temp.expect_error('System message: cannot be deleted',
+    $s$UPDATE messages SET deleted_at = clock_timestamp() WHERE id = '00000000-0000-7000-8000-0000000000f8'$s$, '23514');
+SELECT pg_temp.expect_ok('Report: a report of a whole group names no reported user',
+    $s$INSERT INTO message_reports (conversation_id, reporter_id, reason)
+       VALUES ('00000000-0000-0000-0000-0000000000f6', '00000000-0000-0000-0000-000000000002', 'other')$s$);
+DELETE FROM conversation_members
+WHERE conversation_id = '00000000-0000-0000-0000-0000000000f6' AND user_id = '00000000-0000-0000-0000-000000000001';
+SELECT pg_temp.expect_true('Owner leaves: the member who joined earliest becomes owner', $q$
+    SELECT role = 'owner' FROM conversation_members
+    WHERE conversation_id = '00000000-0000-0000-0000-0000000000f6' AND user_id = '00000000-0000-0000-0000-000000000002'$q$);
+SELECT pg_temp.expect_true('Owner leaves: an owner_changed message with no actor follows', $q$
+    SELECT m.sender_id IS NULL AND m.event_data ->> 'newOwnerId' = '00000000-0000-0000-0000-000000000002'
+           AND m.created_at = c.last_message_at
+    FROM messages m JOIN conversations c ON c.id = m.conversation_id
+    WHERE m.conversation_id = '00000000-0000-0000-0000-0000000000f6' AND m.event = 'owner_changed'
+    ORDER BY m.id DESC LIMIT 1$q$);
+SELECT pg_temp.expect_true('Owner leaves: the stay ends', $q$
+    SELECT left_at IS NOT NULL FROM conversation_memberships
+    WHERE conversation_id = '00000000-0000-0000-0000-0000000000f6' AND user_id = '00000000-0000-0000-0000-000000000001'$q$);
+DELETE FROM conversation_members WHERE conversation_id = '00000000-0000-0000-0000-0000000000f6';
+SELECT pg_temp.expect_true('Last member leaves: the group is closed, and no owner_changed is written', $q$
+    SELECT c.closed_at IS NOT NULL AND (SELECT count(*) FROM messages m
+                                        WHERE m.conversation_id = c.id AND m.event = 'owner_changed') = 2
+    FROM conversations c WHERE c.id = '00000000-0000-0000-0000-0000000000f6'$q$);
+SELECT pg_temp.expect_error('Group: closed after it was created',
+    $s$UPDATE conversations SET closed_at = created_at - interval '1 second' WHERE id = '00000000-0000-0000-0000-0000000000f6'$s$, '23514');
 
 -- ---------------------------------------------------------------------------
 -- Account deletion (FR-2.8, SRS 7 Retention): user 3 owns no project.

@@ -126,10 +126,12 @@ export function ReportDetail({ reportId }: { reportId: string }) {
   }
 
   const { report, messages } = state;
+  // A report of a whole group names nobody (FR-16.6). Picking the member an action applies to
+  // comes with the group screens of slice 14B.5; until then such a report can be dismissed.
   const target = report.reportedUser;
   // An administrator cannot be moderated, oneself included (FR-15.10). The report can still be
   // dismissed.
-  const canAct = !refused && target.role !== "admin" && target.userId !== me;
+  const canAct = !refused && target !== null && target.role !== "admin" && target.userId !== me;
   return (
     <div className="flex flex-col gap-4">
       {back}
@@ -165,7 +167,14 @@ export function ReportDetail({ reportId }: { reportId: string }) {
         </dl>
         <div className="flex flex-wrap gap-6 border-t border-rs-divider pt-3">
           <Person label="Reporter" person={report.reporter} />
-          <Person label="Reported user" person={target} />
+          {target ? (
+            <Person label="Reported user" person={target} />
+          ) : (
+            <div className="text-rs-body">
+              <p className="text-rs-caption text-rs-text-muted">Reported</p>
+              <p className="font-medium">Whole group</p>
+            </div>
+          )}
         </div>
       </SectionCard>
 
@@ -181,7 +190,9 @@ export function ReportDetail({ reportId }: { reportId: string }) {
               </>
             )}
           </div>
-          {!canAct && <p className="text-rs-caption text-rs-text-muted">Administrators can&apos;t be warned, restricted or suspended.</p>}
+          {!canAct && target && (
+            <p className="text-rs-caption text-rs-text-muted">Administrators can&apos;t be warned, restricted or suspended.</p>
+          )}
         </SectionCard>
       )}
 
@@ -214,7 +225,7 @@ export function ReportDetail({ reportId }: { reportId: string }) {
         </ol>
       </SectionCard>
 
-      {dialog && (
+      {dialog && target && (
         <ActionDialog
           kind={dialog}
           name={target.fullName}
@@ -259,6 +270,7 @@ function Person({ label, person }: { label: string; person: MessageReportPerson 
 }
 
 function Message({ message, report }: { message: ReportedMessage; report: MessageReport }) {
+  // In a group the sender may be neither of the two people; the group screens of 14B.5 name them.
   const sender = message.senderId === report.reporter.userId ? report.reporter : report.reportedUser;
   const reported = message.id === report.messageId;
   return (
@@ -269,7 +281,8 @@ function Message({ message, report }: { message: ReportedMessage; report: Messag
       }`}
     >
       <p className="text-rs-caption text-rs-text-muted">
-        <strong className="font-medium text-rs-text">{sender.fullName}</strong> · {dateAndTime(message.createdAt)}
+        <strong className="font-medium text-rs-text">{sender?.userId === message.senderId ? sender.fullName : "A member"}</strong> ·{" "}
+        {dateAndTime(message.createdAt)}
         {reported && " · Reported message"}
       </p>
       <MessageText body={message.body ?? ""} />

@@ -1,9 +1,21 @@
 import { call, type Result, unexpectedError } from "@/lib/api/call";
 import { api, type components } from "@/lib/api/client";
 
-export type Conversation = components["schemas"]["Conversation"];
 export type ConversationMember = components["schemas"]["ConversationMember"];
-export type ConversationPage = components["schemas"]["ConversationPage"];
+type AnyConversation = components["schemas"]["Conversation"];
+
+// Conversation is a direct conversation. Groups (FR-16.6) have no screens until slice 14B.5,
+// so the client drops them where conversations arrive: from the lists and from
+// getConversation, which answers a group as not found. A message event for a group then finds
+// no conversation and is ignored.
+export type Conversation = AnyConversation & { kind: "direct"; otherMember: ConversationMember; group: null };
+export type ConversationPage = Omit<components["schemas"]["ConversationPage"], "items"> & { items: Conversation[] };
+
+export function isDirect(c: AnyConversation): c is Conversation {
+  return c.kind === "direct" && c.otherMember !== null;
+}
+
+const groupNotShown = { code: "not_found", message: "This conversation does not exist." };
 export type ConversationState = components["schemas"]["ConversationState"];
 export type Message = components["schemas"]["Message"];
 export type MessagePage = components["schemas"]["MessagePage"];
@@ -21,14 +33,15 @@ export type Box = "inbox" | "requests";
 export async function listConversations(box: Box, cursor?: string): Promise<Result<ConversationPage>> {
   const res = await call(() => api.GET("/conversations", { params: { query: cursor ? { box, cursor } : { box } } }));
   if (!res.ok) return res;
-  return res.data ? { ok: true, data: res.data } : { ok: false, ...unexpectedError };
+  return res.data ? { ok: true, data: { ...res.data, items: res.data.items.filter(isDirect) } } : { ok: false, ...unexpectedError };
 }
 
 // getConversation returns one of the caller's conversations; any other ID is not_found.
 export async function getConversation(conversationId: string): Promise<Result<Conversation>> {
   const res = await call(() => api.GET("/conversations/{conversationId}", { params: { path: { conversationId } } }));
   if (!res.ok) return res;
-  return res.data ? { ok: true, data: res.data } : { ok: false, ...unexpectedError };
+  if (!res.data) return { ok: false, ...unexpectedError };
+  return isDirect(res.data) ? { ok: true, data: res.data } : { ok: false, ...groupNotShown };
 }
 
 // listMessages returns one page of a conversation, newest first. Leave before out for the
@@ -101,7 +114,8 @@ export async function acceptMessageRequest(conversationId: string): Promise<Resu
     api.POST("/conversations/{conversationId}/accept", { params: { path: { conversationId } } }),
   );
   if (!res.ok) return res;
-  return res.data ? { ok: true, data: res.data } : { ok: false, ...unexpectedError };
+  // Only a direct conversation can be a request.
+  return res.data && isDirect(res.data) ? { ok: true, data: res.data } : { ok: false, ...unexpectedError };
 }
 
 // declineMessageRequest closes a request for good and returns the conversation (FR-16.2).
@@ -110,7 +124,8 @@ export async function declineMessageRequest(conversationId: string): Promise<Res
     api.POST("/conversations/{conversationId}/decline", { params: { path: { conversationId } } }),
   );
   if (!res.ok) return res;
-  return res.data ? { ok: true, data: res.data } : { ok: false, ...unexpectedError };
+  // Only a direct conversation can be a request.
+  return res.data && isDirect(res.data) ? { ok: true, data: res.data } : { ok: false, ...unexpectedError };
 }
 
 // getMessageUnreadCount counts unread messages and pending requests (FR-16.3).

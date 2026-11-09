@@ -328,6 +328,29 @@ func (s *Store) BlockBetween(ctx context.Context, me, other string) (domain.Bloc
 	return domain.BlockState{ByMe: row.ByMe, ByThem: row.ByThem}, nil
 }
 
+// BlockedAmong leaves out IDs that are not UUIDs.
+func (s *Store) BlockedAmong(ctx context.Context, userID string, ids []string) ([]string, error) {
+	user, ok := parseUUID(userID)
+	if !ok {
+		return nil, nil
+	}
+	parsed := make([]pgtype.UUID, 0, len(ids))
+	for _, id := range ids {
+		if u, ok := parseUUID(id); ok {
+			parsed = append(parsed, u)
+		}
+	}
+	rows, err := s.q(ctx).BlockedAmong(ctx, sqlcgen.BlockedAmongParams{UserID: user, Ids: parsed})
+	if err != nil {
+		return nil, fmt.Errorf("read blocks: %w", err)
+	}
+	out := make([]string, len(rows))
+	for i, r := range rows {
+		out[i] = r.String()
+	}
+	return out, nil
+}
+
 // AddBlock relies on the primary key: a second block of the same user adds no row.
 func (s *Store) AddBlock(ctx context.Context, blockerID, blockedID string) (bool, error) {
 	from, ok1 := parseUUID(blockerID)

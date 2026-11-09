@@ -73,6 +73,17 @@ func (s *fakeStore) Find(_ context.Context, recipientID, id string) (domain.Item
 	return domain.Item{}, domain.ErrNotFound
 }
 
+func (s *fakeStore) DeleteFor(_ context.Context, t domain.Type, subjectID, recipientID string) (bool, error) {
+	if s.err != nil {
+		return false, s.err
+	}
+	before := len(s.rows)
+	s.rows = slices.DeleteFunc(s.rows, func(r *domain.Notification) bool {
+		return r.Type == t && r.SubjectID == subjectID && r.RecipientID == recipientID
+	})
+	return len(s.rows) < before, nil
+}
+
 func (s *fakeStore) DeleteBySubject(_ context.Context, t domain.Type, subjectID string) ([]string, error) {
 	if s.err != nil {
 		return nil, s.err
@@ -202,7 +213,7 @@ func count(t *testing.T, svc *Service, user string) int {
 
 // Every type has a registry entry with a subject kind and a link (FR-9.5).
 func TestRegistryCoversEveryType(t *testing.T) {
-	for _, typ := range []domain.Type{domain.TypeConnectionRequestReceived, domain.TypeConnectionRequestAccepted} {
+	for _, typ := range []domain.Type{domain.TypeConnectionRequestReceived, domain.TypeConnectionRequestAccepted, domain.TypeAccountWarning, domain.TypeGroupAdded} {
 		spec, ok := domain.Registry[typ]
 		if !ok || spec.SubjectKind == "" || spec.Link == nil {
 			t.Errorf("type %s has no complete registry entry", typ)
@@ -632,5 +643,37 @@ func TestGet(t *testing.T) {
 	}
 	if _, err := svc.Get(t.Context(), "cy", id); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("another user's: %v", err)
+	}
+}
+
+// Being added to a group notifies each new member, from the owner, linking to the group; leaving
+// or removal takes it back, for that member only (FR-16.6).
+func TestGroupAddedAndAccessLost(t *testing.T) {
+	const group = "00000000-0000-0000-0000-0000000000c1"
+	p := &fakePublisher{}
+	svc := New(newFakeStore(), WithPublisher(p))
+	if err := svc.GroupMembersAdded(ctx, group, ada, []string{bob, cy}); err != nil {
+		t.Fatal(err)
+	}
+	for _, u := range []string{bob, cy} {
+		items := list(t, svc, u)
+		if len(items) != 1 || items[0].Type != domain.TypeGroupAdded || items[0].ActorID != ada || items[0].SubjectID != group ||
+			items[0].Link != "/messaging/"+group || items[0].ReadAt != nil {
+			t.Errorf("%s: %+v", u, items)
+		}
+	}
+	p.events = nil
+	if err := svc.GroupAccessLost(ctx, group, bob); err != nil {
+		t.Fatal(err)
+	}
+	if len(list(t, svc, bob)) != 0 || len(list(t, svc, cy)) != 1 {
+		t.Error("the wrong notification was taken back")
+	}
+	if !slices.Equal(p.events, []string{"unread " + bob}) {
+		t.Errorf("events = %v", p.events)
+	}
+	p.events = nil
+	if err := svc.GroupAccessLost(ctx, group, bob); err != nil || len(p.events) != 0 {
+		t.Errorf("nothing to take back: %v %v", err, p.events)
 	}
 }

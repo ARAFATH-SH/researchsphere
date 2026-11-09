@@ -132,7 +132,7 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 	// new connections and blocks, so the checker gets social once that exists.
 	connected := &connectionChecker{}
 	messaging := messagingusecase.New(messagingpg.NewStore(pool), postgres.NewTransactor(pool), connected, connected, messagingActors{standings: standings}, messageLimiter,
-		realtime.events, messagingusecase.Limits{
+		realtime.events, groupNotifier{notifications: notifications}, messagingusecase.Limits{
 			MessagesPerMinute: cfg.MessagesPerMinute, MessagesPerDay: cfg.MessagesPerDay,
 			RequestsPerMinute: cfg.RequestsPerMinute, RequestsPerDay: cfg.RequestsPerDay,
 			EditWindow: cfg.MessageEditWindow,

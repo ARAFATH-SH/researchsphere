@@ -73,6 +73,24 @@ func (q *Queries) DeleteNotificationsBySubject(ctx context.Context, arg DeleteNo
 	return items, nil
 }
 
+const deleteNotificationsFor = `-- name: DeleteNotificationsFor :execrows
+DELETE FROM notifications WHERE type = $1 AND entity_id = $2 AND user_id = $3
+`
+
+type DeleteNotificationsForParams struct {
+	Type     NotificationType
+	EntityID pgtype.UUID
+	UserID   pgtype.UUID
+}
+
+func (q *Queries) DeleteNotificationsFor(ctx context.Context, arg DeleteNotificationsForParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteNotificationsFor, arg.Type, arg.EntityID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const findNotification = `-- name: FindNotification :one
 SELECT n.id, n.actor_id, n.type, n.entity_id, n.created_at, n.read_at,
        COALESCE(p.full_name, '')::text AS full_name, p.photo_file_id,

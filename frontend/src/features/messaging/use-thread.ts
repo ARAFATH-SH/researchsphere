@@ -22,7 +22,8 @@ function shown(message: Message, key = message.id): ThreadMessage {
   return {
     key,
     id: message.id,
-    senderId: message.senderId,
+    // Only a group's system messages have no sender; the client shows no group until 14B.5.
+    senderId: message.senderId ?? "",
     body: message.body ?? "",
     createdAt: message.createdAt,
     delivery: "sent",

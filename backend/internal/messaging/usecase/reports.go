@@ -24,9 +24,11 @@ const (
 
 // Report stores a member's report of a conversation or one of its messages (FR-16.9). Checks
 // run in this order: ErrNotFound when reporterID is not a member (NFR-14), *InvalidFieldError
-// for the reason or details, ErrNotFound for a message outside the conversation,
-// ErrOwnMessage, *SuspendedError, *RateLimitedError. Only stored reports count. It blocks
-// nobody. A restricted user may still report.
+// for the reason or details, ErrNotFound for a message outside the conversation, from before
+// the reporter joined, or a system message, ErrOwnMessage, *SuspendedError, *RateLimitedError.
+// Only stored reports count. It blocks nobody. A restricted user may still report. The report
+// names the other member of a direct conversation, the sender of a reported message in a group,
+// and nobody for a whole group.
 func (s *Service) Report(ctx context.Context, reporterID, conversationID string, in domain.ReportInput) (domain.ReportReceipt, error) {
 	c, err := s.store.FindConversation(ctx, conversationID, reporterID)
 	if err != nil {
@@ -41,8 +43,12 @@ func (s *Service) Report(ctx context.Context, reporterID, conversationID string,
 	if err != nil {
 		return domain.ReportReceipt{}, err
 	}
+	var reported *string
+	if !c.IsGroup() {
+		reported = &c.OtherID
+	}
 	if in.MessageID != nil {
-		sender, found, err := s.store.FindMessageSender(ctx, conversationID, *in.MessageID)
+		sender, found, err := s.store.FindMessageSender(ctx, conversationID, *in.MessageID, c.JoinedAt)
 		switch {
 		case err != nil:
 			return domain.ReportReceipt{}, err
@@ -51,11 +57,12 @@ func (s *Service) Report(ctx context.Context, reporterID, conversationID string,
 		case sender == reporterID:
 			return domain.ReportReceipt{}, domain.ErrOwnMessage
 		}
+		reported = &sender
 	}
 	if err := s.refuseSuspended(ctx, reporterID); err != nil {
 		return domain.ReportReceipt{}, err
 	}
-	if err := s.checkLimits(ctx, reporterID, s.reports); err != nil {
+	if err := s.checkLimits(ctx, reporterID, s.reports, 1); err != nil {
 		return domain.ReportReceipt{}, err
 	}
 	var (
@@ -68,7 +75,7 @@ func (s *Service) Report(ctx context.Context, reporterID, conversationID string,
 		}
 		var err error
 		id, at, err = s.store.InsertReport(ctx, domain.NewReport{
-			ConversationID: conversationID, ReporterID: reporterID, ReportedID: c.OtherID,
+			ConversationID: conversationID, ReporterID: reporterID, ReportedID: reported,
 			MessageID: in.MessageID, Reason: in.Reason, Details: details,
 		})
 		return err
@@ -76,12 +83,16 @@ func (s *Service) Report(ctx context.Context, reporterID, conversationID string,
 	if err != nil {
 		return domain.ReportReceipt{}, err
 	}
-	s.record(ctx, reporterID, s.reports)
-	state, err := s.blocks.Between(ctx, reporterID, c.OtherID)
-	if err != nil {
-		return domain.ReportReceipt{}, err
+	s.record(ctx, reporterID, s.reports, 1)
+	receipt := domain.ReportReceipt{ID: id, CreatedAt: at, ReportedID: reported}
+	if reported != nil {
+		state, err := s.blocks.Between(ctx, reporterID, *reported)
+		if err != nil {
+			return domain.ReportReceipt{}, err
+		}
+		receipt.BlockedByMe = state.ByMe
 	}
-	return domain.ReportReceipt{ID: id, CreatedAt: at, ReportedID: c.OtherID, BlockedByMe: state.ByMe}, nil
+	return receipt, nil
 }
 
 // ListReports returns one page of reports for an administrator, who has already passed the
@@ -109,7 +120,8 @@ func (s *Service) ListReports(ctx context.Context, status string, page int) (dom
 // ReportDetail returns a report and one page of its conversation up to the report's moment
 // (NFR-14). before is the previous page's NextBefore, or empty; anything but a UUID is
 // ErrInvalidCursor. The view is recorded in the transaction of the read, so nothing is read
-// without its audit row. ErrNotFound when there is no such report.
+// without its audit row. For a group it lists who was a member at the report's moment.
+// ErrNotFound when there is no such report.
 func (s *Service) ReportDetail(ctx context.Context, adminID, id, before string) (domain.ReportDetail, error) {
 	if before != "" && !isUUID(before) {
 		return domain.ReportDetail{}, domain.ErrInvalidCursor
@@ -128,6 +140,14 @@ func (s *Service) ReportDetail(ctx context.Context, adminID, id, before string) 
 			return err
 		}
 		d = domain.ReportDetail{Report: r, Messages: items}
+		if r.ConversationKind == domain.KindGroup {
+			if d.MembersAtReport, err = s.store.MembersAtReport(ctx, id); err != nil {
+				return err
+			}
+			if d.MembersAtReport == nil {
+				d.MembersAtReport = []domain.ReportPerson{}
+			}
+		}
 		if len(items) > ReportMessagePageSize {
 			d.Messages = items[:ReportMessagePageSize]
 			last := d.Messages[ReportMessagePageSize-1].ID
@@ -190,15 +210,26 @@ func (s *Service) ResolveReport(ctx context.Context, adminID, id string, outcome
 }
 
 // ResolveForAction resolves a report as action_taken because a moderation action on userID
-// names it (FR-15.8), in the transaction the context carries. ErrNotFound for no such report,
-// ErrReportAboutOther when it is about someone else, ErrAlreadyResolved when it is closed.
+// names it (FR-15.8), in the transaction the context carries. The action may name the reported
+// user, or, for a group, anyone who was a member at the report's moment; a report of a whole
+// group names no one, so the administrator picks the member. ErrNotFound for no such report,
+// ErrReportAboutOther for anyone else, ErrAlreadyResolved when it is closed.
 func (s *Service) ResolveForAction(ctx context.Context, adminID, id, userID string, note *string) error {
 	r, err := s.store.FindReport(ctx, id)
 	if err != nil {
 		return err
 	}
-	if r.Reported.UserID != userID {
-		return domain.ErrReportAboutOther
+	if r.Reported == nil || r.Reported.UserID != userID {
+		if r.ConversationKind != domain.KindGroup {
+			return domain.ErrReportAboutOther
+		}
+		member, err := s.store.MemberAtReport(ctx, id, userID)
+		if err != nil {
+			return err
+		}
+		if !member {
+			return domain.ErrReportAboutOther
+		}
 	}
 	resolved, err := s.store.ResolveReport(ctx, id, adminID, domain.OutcomeActionTaken, note)
 	if err != nil {

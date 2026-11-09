@@ -17,6 +17,7 @@ const (
 	EventMessageDeleted      = "message.deleted"
 	EventConversationRead    = "conversation.read"
 	EventConversationUpdated = "conversation.updated"
+	EventConversationMembers = "conversation.members"
 	EventUnreadChanged       = "unread.changed"
 	EventTyping              = "typing"
 	EventPresence            = "presence"
@@ -142,9 +143,10 @@ type Suspension struct {
 // Access answers who may see what. The messaging and moderation modules own the answers;
 // cmd/api implements it with their usecases.
 type Access interface {
-	// TypingPeer returns the other member of conversationID when userID may tell them about
-	// typing now: both are members, it is active, neither blocked the other.
-	TypingPeer(ctx context.Context, userID, conversationID string) (otherID string, ok bool, err error)
+	// TypingPeers returns who userID may tell about typing in conversationID now: in a direct
+	// conversation the other member, when both are members, it is active and neither blocked the
+	// other; in a group every other member with no block either way. None when refused.
+	TypingPeers(ctx context.Context, userID, conversationID string) ([]string, error)
 	// Peers returns the people who may see userID's presence: those who share an active
 	// conversation with the user, with no block either way.
 	Peers(ctx context.Context, userID string) ([]string, error)

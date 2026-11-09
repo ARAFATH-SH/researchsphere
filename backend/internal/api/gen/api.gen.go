@@ -75,6 +75,24 @@ func (e ConnectionStatus) Valid() bool {
 	}
 }
 
+// Defines values for ConversationKind.
+const (
+	Direct ConversationKind = "direct"
+	Group  ConversationKind = "group"
+)
+
+// Valid indicates whether the value is a known member of the ConversationKind enum.
+func (e ConversationKind) Valid() bool {
+	switch e {
+	case Direct:
+		return true
+	case Group:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ConversationState.
 const (
 	Active   ConversationState = "active"
@@ -132,6 +150,24 @@ func (e EmploymentType) Valid() bool {
 	case TeachingAssistant:
 		return true
 	case Volunteer:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for GroupRole.
+const (
+	Member GroupRole = "member"
+	Owner  GroupRole = "owner"
+)
+
+// Valid indicates whether the value is a known member of the GroupRole enum.
+func (e GroupRole) Valid() bool {
+	switch e {
+	case Member:
+		return true
+	case Owner:
 		return true
 	default:
 		return false
@@ -276,6 +312,24 @@ func (e LocationType) Valid() bool {
 	}
 }
 
+// Defines values for MessageKind.
+const (
+	System MessageKind = "system"
+	Text   MessageKind = "text"
+)
+
+// Valid indicates whether the value is a known member of the MessageKind enum.
+func (e MessageKind) Valid() bool {
+	switch e {
+	case System:
+		return true
+	case Text:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for MessageReportOutcome.
 const (
 	MessageReportOutcomeActionTaken MessageReportOutcome = "action_taken"
@@ -380,6 +434,7 @@ const (
 	NotificationTypeAccountWarning            NotificationType = "account_warning"
 	NotificationTypeConnectionRequestAccepted NotificationType = "connection_request_accepted"
 	NotificationTypeConnectionRequestReceived NotificationType = "connection_request_received"
+	NotificationTypeGroupAdded                NotificationType = "group_added"
 )
 
 // Valid indicates whether the value is a known member of the NotificationType enum.
@@ -390,6 +445,8 @@ func (e NotificationType) Valid() bool {
 	case NotificationTypeConnectionRequestAccepted:
 		return true
 	case NotificationTypeConnectionRequestReceived:
+		return true
+	case NotificationTypeGroupAdded:
 		return true
 	default:
 		return false
@@ -480,8 +537,36 @@ func (e RealtimeClientEventType) Valid() bool {
 	}
 }
 
+// Defines values for RealtimeConversationMembersChange.
+const (
+	RealtimeConversationMembersChangeAdded        RealtimeConversationMembersChange = "added"
+	RealtimeConversationMembersChangeLeft         RealtimeConversationMembersChange = "left"
+	RealtimeConversationMembersChangeOwnerChanged RealtimeConversationMembersChange = "owner_changed"
+	RealtimeConversationMembersChangeRemoved      RealtimeConversationMembersChange = "removed"
+	RealtimeConversationMembersChangeRenamed      RealtimeConversationMembersChange = "renamed"
+)
+
+// Valid indicates whether the value is a known member of the RealtimeConversationMembersChange enum.
+func (e RealtimeConversationMembersChange) Valid() bool {
+	switch e {
+	case RealtimeConversationMembersChangeAdded:
+		return true
+	case RealtimeConversationMembersChangeLeft:
+		return true
+	case RealtimeConversationMembersChangeOwnerChanged:
+		return true
+	case RealtimeConversationMembersChangeRemoved:
+		return true
+	case RealtimeConversationMembersChangeRenamed:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RealtimeEventType.
 const (
+	ConversationMembers RealtimeEventType = "conversation.members"
 	ConversationRead    RealtimeEventType = "conversation.read"
 	ConversationUpdated RealtimeEventType = "conversation.updated"
 	MessageCreated      RealtimeEventType = "message.created"
@@ -497,6 +582,8 @@ const (
 // Valid indicates whether the value is a known member of the RealtimeEventType enum.
 func (e RealtimeEventType) Valid() bool {
 	switch e {
+	case ConversationMembers:
+		return true
 	case ConversationRead:
 		return true
 	case ConversationUpdated:
@@ -597,6 +684,36 @@ func (e Role) Valid() bool {
 	}
 }
 
+// Defines values for SystemEventType.
+const (
+	SystemEventTypeGroupCreated  SystemEventType = "group_created"
+	SystemEventTypeGroupRenamed  SystemEventType = "group_renamed"
+	SystemEventTypeMemberAdded   SystemEventType = "member_added"
+	SystemEventTypeMemberLeft    SystemEventType = "member_left"
+	SystemEventTypeMemberRemoved SystemEventType = "member_removed"
+	SystemEventTypeOwnerChanged  SystemEventType = "owner_changed"
+)
+
+// Valid indicates whether the value is a known member of the SystemEventType enum.
+func (e SystemEventType) Valid() bool {
+	switch e {
+	case SystemEventTypeGroupCreated:
+		return true
+	case SystemEventTypeGroupRenamed:
+		return true
+	case SystemEventTypeMemberAdded:
+		return true
+	case SystemEventTypeMemberLeft:
+		return true
+	case SystemEventTypeMemberRemoved:
+		return true
+	case SystemEventTypeOwnerChanged:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for Visibility.
 const (
 	LoggedIn Visibility = "logged_in"
@@ -629,6 +746,12 @@ type AccountWarning struct {
 // AccountWarningList defines model for AccountWarningList.
 type AccountWarningList struct {
 	Items []AccountWarning `json:"items"`
+}
+
+// AddGroupMembersRequest defines model for AddGroupMembersRequest.
+type AddGroupMembersRequest struct {
+	// UserIds 1 to 49 users, not the caller.
+	UserIds []openapi_types.UUID `json:"userIds"`
 }
 
 // AddLinkRequest defines model for AddLinkRequest.
@@ -862,18 +985,25 @@ type ContactUpdate struct {
 // Conversation defines model for Conversation.
 type Conversation struct {
 	// BlockedByMe True when the caller has blocked the other member. A blocked person is never told.
+	// Always false for a group.
 	BlockedByMe bool `json:"blockedByMe"`
 
 	// CanMessage True when a message from the caller would be accepted now: the conversation is
 	// `active`, the other member is available and neither has blocked the other
-	// (FR-16.9).
-	CanMessage    bool               `json:"canMessage"`
-	Id            openapi_types.UUID `json:"id"`
-	LastMessage   *MessagePreview    `json:"lastMessage"`
-	LastMessageAt time.Time          `json:"lastMessageAt"`
+	// (FR-16.9). In a group, true while the caller is a member; blocks do not apply.
+	CanMessage bool `json:"canMessage"`
 
-	// OtherMember The other member of a direct conversation.
-	OtherMember ConversationMember `json:"otherMember"`
+	// Group The group's name and members; null for a direct conversation.
+	Group *ConversationGroup `json:"group"`
+	Id    openapi_types.UUID `json:"id"`
+
+	// Kind `direct`: two people. `group`: a named group of up to 50 members (FR-16.6).
+	Kind          ConversationKind `json:"kind"`
+	LastMessage   *MessagePreview  `json:"lastMessage"`
+	LastMessageAt time.Time        `json:"lastMessageAt"`
+
+	// OtherMember The other member of a direct conversation; null for a group.
+	OtherMember *ConversationMember `json:"otherMember"`
 
 	// RequestedBy Who sent the request; null when the conversation never was one.
 	RequestedBy *openapi_types.UUID `json:"requestedBy"`
@@ -882,9 +1012,30 @@ type Conversation struct {
 	// `declined`: closed for good.
 	State ConversationState `json:"state"`
 
-	// UnreadCount Messages from the other member after the caller's read marker.
+	// UnreadCount Messages from other members after the caller's read marker, not deleted. System
+	// messages never count.
 	UnreadCount int `json:"unreadCount"`
 }
+
+// ConversationGroup defines model for ConversationGroup.
+type ConversationGroup struct {
+	// Avatars Up to 3 other members, those who joined earliest first.
+	Avatars []GroupAvatar `json:"avatars"`
+
+	// MemberCount Current members, the caller included.
+	MemberCount int `json:"memberCount"`
+
+	// Members Every current member, the owner first, then by joining time. Given by
+	// `getConversation` and the group operations; null in the lists.
+	Members *[]GroupMember `json:"members"`
+
+	// MyRole `owner` renames the group and adds and removes members; `member` does not.
+	MyRole GroupRole `json:"myRole"`
+	Name   string    `json:"name"`
+}
+
+// ConversationKind `direct`: two people. `group`: a named group of up to 50 members (FR-16.6).
+type ConversationKind string
 
 // ConversationMember The other member of a direct conversation.
 type ConversationMember struct {
@@ -908,18 +1059,31 @@ type ConversationPage struct {
 
 // ConversationReportReceipt defines model for ConversationReportReceipt.
 type ConversationReportReceipt struct {
-	// BlockedByMe Whether the caller has blocked that user. Reporting never does it.
+	// BlockedByMe Whether the caller has blocked that user. Reporting never does it. False when no one is reported.
 	BlockedByMe bool               `json:"blockedByMe"`
 	CreatedAt   time.Time          `json:"createdAt"`
 	Id          openapi_types.UUID `json:"id"`
 
-	// ReportedUserId The other member, whom the client can offer to block.
-	ReportedUserId openapi_types.UUID `json:"reportedUserId"`
+	// ReportedUserId The other member, or in a group the sender of the reported message, whom the client
+	// can offer to block. Null for a report of a whole group.
+	ReportedUserId *openapi_types.UUID `json:"reportedUserId"`
 }
 
 // ConversationState `active`: both members can send. `request`: waiting for the receiver to accept.
 // `declined`: closed for good.
 type ConversationState string
+
+// CreateGroupRequest defines model for CreateGroupRequest.
+type CreateGroupRequest struct {
+	// ClientId Made by the client for this create; a retry with the same value creates nothing new.
+	ClientId openapi_types.UUID `json:"clientId"`
+
+	// MemberIds 1 to 49 other users; the caller is the owner and is not listed.
+	MemberIds []openapi_types.UUID `json:"memberIds"`
+
+	// Name 1 to 100 characters after trimming, on one line.
+	Name string `json:"name"`
+}
 
 // CurrentUser defines model for CurrentUser.
 type CurrentUser struct {
@@ -1036,6 +1200,10 @@ type Error struct {
 	// Until On `account_suspended`, when a temporary suspension ends; absent when it is
 	// permanent. On `messaging_restricted`, when the restriction ends.
 	Until *time.Time `json:"until,omitempty"`
+
+	// UserIds On `ineligible_members`, the users who cannot be added to the group. It never says
+	// why for any of them (FR-16.6).
+	UserIds *[]openapi_types.UUID `json:"userIds,omitempty"`
 }
 
 // Experience One work experience entry (FR-4.8). The optional fields are always present and null when not set.
@@ -1112,6 +1280,33 @@ type ExperienceUpdate struct {
 	StartDate nullable.Nullable[YearMonth] `json:"startDate,omitempty"`
 	Title     nullable.Nullable[string]    `json:"title,omitempty"`
 }
+
+// GroupAvatar defines model for GroupAvatar.
+type GroupAvatar struct {
+	FullName string `json:"fullName"`
+
+	// PhotoUrl The profile photo as `/api/v1/media/{fileId}`; null when not set.
+	PhotoUrl *string            `json:"photoUrl"`
+	UserId   openapi_types.UUID `json:"userId"`
+}
+
+// GroupMember defines model for GroupMember.
+type GroupMember struct {
+	// Available False when the member is suspended or not verified. They stay in the group.
+	Available bool      `json:"available"`
+	FullName  string    `json:"fullName"`
+	JoinedAt  time.Time `json:"joinedAt"`
+
+	// PhotoUrl The profile photo as `/api/v1/media/{fileId}`; null when not set.
+	PhotoUrl *string `json:"photoUrl"`
+
+	// Role `owner` renames the group and adds and removes members; `member` does not.
+	Role   GroupRole          `json:"role"`
+	UserId openapi_types.UUID `json:"userId"`
+}
+
+// GroupRole `owner` renames the group and adds and removes members; `member` does not.
+type GroupRole string
 
 // Health defines model for Health.
 type Health struct {
@@ -1199,8 +1394,8 @@ type Me struct {
 
 // Message defines model for Message.
 type Message struct {
-	// Body The latest text. Null for a deleted message; only `deleted` says a message was
-	// deleted, as a later message may have no text.
+	// Body The latest text. Null for a deleted message and for a system message; only
+	// `deleted` says a message was deleted, as a later message may have no text.
 	Body           *string            `json:"body"`
 	ConversationId openapi_types.UUID `json:"conversationId"`
 	CreatedAt      time.Time          `json:"createdAt"`
@@ -1211,10 +1406,25 @@ type Message struct {
 	// EditedAt When the text was last edited; null when never (FR-16.5).
 	EditedAt *time.Time `json:"editedAt"`
 
+	// Event The change a system message describes; null for a text message.
+	Event *SystemEvent `json:"event"`
+
 	// Id A UUIDv7; within a conversation, a later message has a greater ID.
-	Id       openapi_types.UUID `json:"id"`
-	SenderId openapi_types.UUID `json:"senderId"`
+	Id openapi_types.UUID `json:"id"`
+
+	// Kind `text`: a member's message. `system`: a change to a group (FR-16.6), described by
+	// `event`; it has no body, cannot be edited, deleted or reported, and never counts as
+	// unread.
+	Kind MessageKind `json:"kind"`
+
+	// SenderId The sender; for a system message the actor, or null when it has none.
+	SenderId *openapi_types.UUID `json:"senderId"`
 }
+
+// MessageKind `text`: a member's message. `system`: a change to a group (FR-16.6), described by
+// `event`; it has no body, cannot be edited, deleted or reported, and never counts as
+// unread.
+type MessageKind string
 
 // MessagePage defines model for MessagePage.
 type MessagePage struct {
@@ -1223,41 +1433,72 @@ type MessagePage struct {
 	// NextBefore Pass as `before` to get older messages; null on the last page.
 	NextBefore *string `json:"nextBefore"`
 
-	// OtherLastReadMessageId The other member's read marker; null until they have read a message.
+	// OtherLastReadMessageId The other member's read marker; null until they have read a message, and for a group.
 	OtherLastReadMessageId *openapi_types.UUID `json:"otherLastReadMessageId"`
+
+	// Readers For a group, every other current member's read marker (FR-16.3), so the client can
+	// show "Seen by N" under a message; null for a direct conversation.
+	Readers *[]MessageReader `json:"readers"`
 }
 
 // MessagePreview defines model for MessagePreview.
 type MessagePreview struct {
-	// Body The first 120 characters of the message's latest text; null when deleted.
+	// Body The first 120 characters of the message's latest text; null when deleted and for a system message.
 	Body      *string   `json:"body"`
 	CreatedAt time.Time `json:"createdAt"`
 
 	// Deleted True when the latest message was deleted; the client says so.
-	Deleted  bool               `json:"deleted"`
-	SenderId openapi_types.UUID `json:"senderId"`
+	Deleted bool `json:"deleted"`
+
+	// Event For a system message, what changed; the client writes its own text.
+	Event *SystemEventType `json:"event"`
+
+	// Kind `text`: a member's message. `system`: a change to a group (FR-16.6), described by
+	// `event`; it has no body, cannot be edited, deleted or reported, and never counts as
+	// unread.
+	Kind MessageKind `json:"kind"`
+
+	// SenderId The sender; for a system message the actor, or null when it has none.
+	SenderId *openapi_types.UUID `json:"senderId"`
+}
+
+// MessageReader defines model for MessageReader.
+type MessageReader struct {
+	// LastReadMessageId Null until the member has read a message.
+	LastReadMessageId *openapi_types.UUID `json:"lastReadMessageId"`
+	UserId            openapi_types.UUID  `json:"userId"`
 }
 
 // MessageReport defines model for MessageReport.
 type MessageReport struct {
 	ConversationId openapi_types.UUID `json:"conversationId"`
 
+	// ConversationKind `direct`: two people. `group`: a named group of up to 50 members (FR-16.6).
+	ConversationKind ConversationKind `json:"conversationKind"`
+
 	// CreatedAt The moment of the report; an administrator sees messages only up to it.
 	CreatedAt time.Time `json:"createdAt"`
 
 	// Details The reporter's own words.
-	Details *string            `json:"details"`
-	Id      openapi_types.UUID `json:"id"`
+	Details *string `json:"details"`
+
+	// GroupName The group's name now; null for a direct conversation.
+	GroupName *string            `json:"groupName"`
+	Id        openapi_types.UUID `json:"id"`
 
 	// MessageId The reported message; null when the whole conversation was reported.
-	MessageId    *openapi_types.UUID   `json:"messageId"`
-	Note         *string               `json:"note"`
-	Outcome      *MessageReportOutcome `json:"outcome"`
-	Reason       ReportReason          `json:"reason"`
-	ReportedUser MessageReportPerson   `json:"reportedUser"`
-	Reporter     MessageReportPerson   `json:"reporter"`
-	ResolvedAt   *time.Time            `json:"resolvedAt"`
-	Status       MessageReportStatus   `json:"status"`
+	MessageId *openapi_types.UUID   `json:"messageId"`
+	Note      *string               `json:"note"`
+	Outcome   *MessageReportOutcome `json:"outcome"`
+	Reason    ReportReason          `json:"reason"`
+
+	// ReportedUser The other member, or in a group the sender of the reported message. Null for a
+	// report of a whole group: a moderation action may then name any member who was in
+	// the group at the report's moment (`membersAtReport`).
+	ReportedUser *MessageReportPerson `json:"reportedUser"`
+	Reporter     MessageReportPerson  `json:"reporter"`
+	ResolvedAt   *time.Time           `json:"resolvedAt"`
+	Status       MessageReportStatus  `json:"status"`
 }
 
 // MessageReportOutcome defines model for MessageReport.Outcome.
@@ -1268,6 +1509,11 @@ type MessageReportStatus string
 
 // MessageReportDetail defines model for MessageReportDetail.
 type MessageReportDetail struct {
+	// MembersAtReport For a group, everyone who was a member at the report's moment, also those who have
+	// left since; a moderation action that names this report may name any of them. Null
+	// for a direct conversation.
+	MembersAtReport *[]MessageReportPerson `json:"membersAtReport"`
+
 	// Messages Newest first, none later than the report.
 	Messages []ReportedMessage `json:"messages"`
 
@@ -1381,9 +1627,10 @@ type ModerationNote = string
 // ModerationReason What the user is told, by email and in the app. 10 to 1000 characters, trimmed.
 type ModerationReason = string
 
-// ModerationReportId A report about this user to resolve as `action_taken`. Unknown gets 404, about someone
-// else 400 with `field`, already resolved 409 `report_already_resolved`; each undoes the
-// action.
+// ModerationReportId A report about this user to resolve as `action_taken`. For a group, this user may also be
+// anyone in the report's `membersAtReport`, which is how a report of a whole group, with no
+// reported user, is acted on (FR-16.6). Unknown gets 404, about someone else 400 with
+// `field`, already resolved 409 `report_already_resolved`; each undoes the action.
 type ModerationReportId = string
 
 // Notification defines model for Notification.
@@ -1396,7 +1643,7 @@ type Notification struct {
 
 	// Link The web client path of the item it is about (FR-9.5):
 	// `/network` for a received request, `/profile/{actorId}` for an accepted one,
-	// `/warnings/{warningId}` for a warning.
+	// `/warnings/{warningId}` for a warning, `/messaging/{conversationId}` for a group.
 	Link string `json:"link"`
 	Read bool   `json:"read"`
 
@@ -1410,7 +1657,8 @@ type Notification struct {
 	// Type What happened (FR-9.1). `connection_request_received`: the actor sent the caller a
 	// connection request. `connection_request_accepted`: the actor accepted the caller's
 	// request. `account_warning`: an administrator warned the caller; a system notification,
-	// with no actor. Later slices add the project, comment and like types.
+	// with no actor. `group_added`: the actor, the group's owner, added the caller to a
+	// group (FR-16.6). Later slices add the project, comment and like types.
 	Type NotificationType `json:"type"`
 }
 
@@ -1435,7 +1683,8 @@ type NotificationPage struct {
 // NotificationType What happened (FR-9.1). `connection_request_received`: the actor sent the caller a
 // connection request. `connection_request_accepted`: the actor accepted the caller's
 // request. `account_warning`: an administrator warned the caller; a system notification,
-// with no actor. Later slices add the project, comment and like types.
+// with no actor. `group_added`: the actor, the group's owner, added the caller to a
+// group (FR-16.6). Later slices add the project, comment and like types.
 type NotificationType string
 
 // NotificationsMarked defines model for NotificationsMarked.
@@ -1950,6 +2199,24 @@ type RealtimeClientEvent struct {
 // RealtimeClientEventType defines model for RealtimeClientEvent.Type.
 type RealtimeClientEventType string
 
+// RealtimeConversationMembers A group's name, members or owner changed (FR-16.6). Sent to every current member after
+// the change, new members included. Refetch the conversation for the full member list.
+type RealtimeConversationMembers struct {
+	// ActorId Who made the change; null for `owner_changed`.
+	ActorId        *openapi_types.UUID               `json:"actorId"`
+	Change         RealtimeConversationMembersChange `json:"change"`
+	ConversationId openapi_types.UUID                `json:"conversationId"`
+
+	// Name The group's name after the change.
+	Name string `json:"name"`
+
+	// UserIds Who was added or removed, who left, or the new owner; empty for `renamed`.
+	UserIds []openapi_types.UUID `json:"userIds"`
+}
+
+// RealtimeConversationMembersChange defines model for RealtimeConversationMembers.Change.
+type RealtimeConversationMembersChange string
+
 // RealtimeConversationRead The other member moved their read marker (FR-16.3).
 type RealtimeConversationRead struct {
 	ConversationId openapi_types.UUID `json:"conversationId"`
@@ -1958,7 +2225,10 @@ type RealtimeConversationRead struct {
 
 // RealtimeConversationUpdated The conversation's state or `canMessage` changed for the recipient, who gets their own
 // view of it. It never says why, so a blocked person is not told about a block.
+// `accessLost` is true for someone who left or was removed from a group: the client
+// closes the thread and drops the conversation.
 type RealtimeConversationUpdated struct {
+	AccessLost     bool               `json:"accessLost"`
 	CanMessage     bool               `json:"canMessage"`
 	ConversationId openapi_types.UUID `json:"conversationId"`
 
@@ -1968,7 +2238,7 @@ type RealtimeConversationUpdated struct {
 }
 
 // RealtimeEvent One server-to-client WebSocket frame, as JSON text. `data` is `RealtimeMessageCreated`,
-// `RealtimeMessageUpdated`, `RealtimeMessageDeleted`, `RealtimeConversationRead`, `RealtimeConversationUpdated`, `MessageUnreadCount`,
+// `RealtimeMessageUpdated`, `RealtimeMessageDeleted`, `RealtimeConversationRead`, `RealtimeConversationUpdated`, `RealtimeConversationMembers`, `MessageUnreadCount`,
 // `RealtimeTyping`, `PresenceStatus`, `Notification` or `UnreadNotificationCount`,
 // by `type`.
 type RealtimeEvent struct {
@@ -2031,6 +2301,12 @@ type RegisterResponse struct {
 	Email string `json:"email"`
 }
 
+// RenameGroupRequest defines model for RenameGroupRequest.
+type RenameGroupRequest struct {
+	// Name 1 to 100 characters after trimming, on one line.
+	Name string `json:"name"`
+}
+
 // ReportConversationRequest defines model for ReportConversationRequest.
 type ReportConversationRequest struct {
 	// Details At most 1,000 characters after trimming; empty means none.
@@ -2060,9 +2336,19 @@ type ReportedMessage struct {
 	DeletedAt *time.Time `json:"deletedAt"`
 
 	// EditedAt The latest edit, also one after the report; null when never edited.
-	EditedAt *time.Time         `json:"editedAt"`
-	Id       openapi_types.UUID `json:"id"`
-	SenderId openapi_types.UUID `json:"senderId"`
+	EditedAt *time.Time `json:"editedAt"`
+
+	// Event The change a system message describes; null for a text message.
+	Event *SystemEvent       `json:"event"`
+	Id    openapi_types.UUID `json:"id"`
+
+	// Kind `text`: a member's message. `system`: a change to a group (FR-16.6), described by
+	// `event`; it has no body, cannot be edited, deleted or reported, and never counts as
+	// unread.
+	Kind MessageKind `json:"kind"`
+
+	// SenderId The sender; for a system message the actor, or null when it has none.
+	SenderId *openapi_types.UUID `json:"senderId"`
 
 	// Versions Earlier texts that were shown at or before the report's moment, oldest first. Each
 	// ended with an edit or with the deletion. Empty when the text never changed by then.
@@ -2095,9 +2381,10 @@ type RestrictUserRequest struct {
 	// Reason What the user is told, by email and in the app. 10 to 1000 characters, trimmed.
 	Reason ModerationReason `json:"reason"`
 
-	// ReportId A report about this user to resolve as `action_taken`. Unknown gets 404, about someone
-	// else 400 with `field`, already resolved 409 `report_already_resolved`; each undoes the
-	// action.
+	// ReportId A report about this user to resolve as `action_taken`. For a group, this user may also be
+	// anyone in the report's `membersAtReport`, which is how a report of a whole group, with no
+	// reported user, is acted on (FR-16.6). Unknown gets 404, about someone else 400 with
+	// `field`, already resolved 409 `report_already_resolved`; each undoes the action.
 	ReportId *ModerationReportId `json:"reportId,omitempty"`
 }
 
@@ -2160,15 +2447,41 @@ type SuspendUserRequest struct {
 	// Reason What the user is told, by email and in the app. 10 to 1000 characters, trimmed.
 	Reason ModerationReason `json:"reason"`
 
-	// ReportId A report about this user to resolve as `action_taken`. Unknown gets 404, about someone
-	// else 400 with `field`, already resolved 409 `report_already_resolved`; each undoes the
-	// action.
+	// ReportId A report about this user to resolve as `action_taken`. For a group, this user may also be
+	// anyone in the report's `membersAtReport`, which is how a report of a whole group, with no
+	// reported user, is acted on (FR-16.6). Unknown gets 404, about someone else 400 with
+	// `field`, already resolved 409 `report_already_resolved`; each undoes the action.
 	ReportId *ModerationReportId `json:"reportId,omitempty"`
 
 	// Until When the suspension ends: 1 to 365 days from now, with 5 minutes of slack at each
 	// end for the time the request takes. Left out, the suspension is permanent.
 	Until *time.Time `json:"until,omitempty"`
 }
+
+// SystemEvent defines model for SystemEvent.
+type SystemEvent struct {
+	// ActorId Who made the change; null for `owner_changed`, and when the actor's account is gone.
+	ActorId *openapi_types.UUID `json:"actorId"`
+	NewName *string             `json:"newName"`
+	OldName *string             `json:"oldName"`
+
+	// Type What changed in a group. The client writes its own text for each; the API sends no
+	// English copy. `group_created` (`newName`, `userIds` the first members),
+	// `group_renamed` (`oldName`, `newName`), `member_added` (`userIds`), `member_removed`
+	// (`userIds`, the one removed), `member_left` (the actor left), `owner_changed`
+	// (`userIds`, the new owner; no actor, as it follows from someone leaving).
+	Type SystemEventType `json:"type"`
+
+	// UserIds The users the change is about; empty when none.
+	UserIds []openapi_types.UUID `json:"userIds"`
+}
+
+// SystemEventType What changed in a group. The client writes its own text for each; the API sends no
+// English copy. `group_created` (`newName`, `userIds` the first members),
+// `group_renamed` (`oldName`, `newName`), `member_added` (`userIds`), `member_removed`
+// (`userIds`, the one removed), `member_left` (the actor left), `owner_changed`
+// (`userIds`, the new owner; no actor, as it follows from someone leaving).
+type SystemEventType string
 
 // Tag A research interest or skill (FR-4.2). Tags are shared by all users; names that
 // differ only in letter case are the same tag, and the name keeps the spelling it was
@@ -2220,9 +2533,10 @@ type WarnUserRequest struct {
 	// Reason What the user is told, by email and in the app. 10 to 1000 characters, trimmed.
 	Reason ModerationReason `json:"reason"`
 
-	// ReportId A report about this user to resolve as `action_taken`. Unknown gets 404, about someone
-	// else 400 with `field`, already resolved 409 `report_already_resolved`; each undoes the
-	// action.
+	// ReportId A report about this user to resolve as `action_taken`. For a group, this user may also be
+	// anyone in the report's `membersAtReport`, which is how a report of a whole group, with no
+	// reported user, is acted on (FR-16.6). Unknown gets 404, about someone else 400 with
+	// `field`, already resolved 409 `report_already_resolved`; each undoes the action.
 	ReportId *ModerationReportId `json:"reportId,omitempty"`
 }
 
@@ -2308,6 +2622,15 @@ type FileTooLarge = Error
 
 // Forbidden The shape of every error response (SRS 5.3).
 type Forbidden = Error
+
+// GroupForbidden The shape of every error response (SRS 5.3).
+type GroupForbidden = Error
+
+// GroupInvalid The shape of every error response (SRS 5.3).
+type GroupInvalid = Error
+
+// GroupRateLimited The shape of every error response (SRS 5.3).
+type GroupRateLimited = Error
 
 // InternalError The shape of every error response (SRS 5.3).
 type InternalError = Error
@@ -2651,6 +2974,15 @@ type BlockUserJSONRequestBody = BlockRequest
 // SendConnectionRequestJSONRequestBody defines body for SendConnectionRequest for application/json ContentType.
 type SendConnectionRequestJSONRequestBody = ConnectionRequestCreate
 
+// CreateGroupJSONRequestBody defines body for CreateGroup for application/json ContentType.
+type CreateGroupJSONRequestBody = CreateGroupRequest
+
+// RenameGroupJSONRequestBody defines body for RenameGroup for application/json ContentType.
+type RenameGroupJSONRequestBody = RenameGroupRequest
+
+// AddGroupMembersJSONRequestBody defines body for AddGroupMembers for application/json ContentType.
+type AddGroupMembersJSONRequestBody = AddGroupMembersRequest
+
 // SendMessageJSONRequestBody defines body for SendMessage for application/json ContentType.
 type SendMessageJSONRequestBody = SendMessageRequest
 
@@ -2821,15 +3153,30 @@ type ServerInterface interface {
 	// ListConversations List the logged-in user's conversations, newest activity first (FR-16.1 to FR-16.3)
 	// (GET /conversations)
 	ListConversations(w http.ResponseWriter, r *http.Request, params ListConversationsParams)
-	// GetConversation Get one of the logged-in user's conversations (FR-16.1, NFR-14)
+	// CreateGroup Create a group conversation (FR-16.6, FR-16.10)
+	// (POST /conversations/groups)
+	CreateGroup(w http.ResponseWriter, r *http.Request)
+	// GetConversation Get one of the logged-in user's conversations (FR-16.1, FR-16.6, NFR-14)
 	// (GET /conversations/{conversationId})
 	GetConversation(w http.ResponseWriter, r *http.Request, conversationId ConversationId)
+	// RenameGroup Rename a group (FR-16.6)
+	// (PATCH /conversations/{conversationId})
+	RenameGroup(w http.ResponseWriter, r *http.Request, conversationId ConversationId)
 	// AcceptMessageRequest Accept a message request (FR-16.2)
 	// (POST /conversations/{conversationId}/accept)
 	AcceptMessageRequest(w http.ResponseWriter, r *http.Request, conversationId ConversationId)
 	// DeclineMessageRequest Decline a message request (FR-16.2)
 	// (POST /conversations/{conversationId}/decline)
 	DeclineMessageRequest(w http.ResponseWriter, r *http.Request, conversationId ConversationId)
+	// LeaveGroup Leave a group (FR-16.6, NFR-14)
+	// (POST /conversations/{conversationId}/leave)
+	LeaveGroup(w http.ResponseWriter, r *http.Request, conversationId ConversationId)
+	// AddGroupMembers Add members to a group (FR-16.6, FR-16.10)
+	// (POST /conversations/{conversationId}/members)
+	AddGroupMembers(w http.ResponseWriter, r *http.Request, conversationId ConversationId)
+	// RemoveGroupMember Remove a member from a group (FR-16.6, NFR-14)
+	// (DELETE /conversations/{conversationId}/members/{userId})
+	RemoveGroupMember(w http.ResponseWriter, r *http.Request, conversationId ConversationId, userId string)
 	// ListMessages List a conversation's messages, newest first (FR-16.1, FR-16.3, NFR-14)
 	// (GET /conversations/{conversationId}/messages)
 	ListMessages(w http.ResponseWriter, r *http.Request, conversationId ConversationId, params ListMessagesParams)
@@ -4060,6 +4407,26 @@ func (siw *ServerInterfaceWrapper) ListConversations(w http.ResponseWriter, r *h
 	handler.ServeHTTP(w, r)
 }
 
+// CreateGroup operation middleware
+func (siw *ServerInterfaceWrapper) CreateGroup(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateGroup(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetConversation operation middleware
 func (siw *ServerInterfaceWrapper) GetConversation(w http.ResponseWriter, r *http.Request) {
 
@@ -4083,6 +4450,38 @@ func (siw *ServerInterfaceWrapper) GetConversation(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetConversation(w, r, conversationId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RenameGroup operation middleware
+func (siw *ServerInterfaceWrapper) RenameGroup(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "conversationId" -------------
+	var conversationId ConversationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "conversationId", r.PathValue("conversationId"), &conversationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "conversationId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RenameGroup(w, r, conversationId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4147,6 +4546,111 @@ func (siw *ServerInterfaceWrapper) DeclineMessageRequest(w http.ResponseWriter, 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.DeclineMessageRequest(w, r, conversationId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// LeaveGroup operation middleware
+func (siw *ServerInterfaceWrapper) LeaveGroup(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "conversationId" -------------
+	var conversationId ConversationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "conversationId", r.PathValue("conversationId"), &conversationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "conversationId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.LeaveGroup(w, r, conversationId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AddGroupMembers operation middleware
+func (siw *ServerInterfaceWrapper) AddGroupMembers(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "conversationId" -------------
+	var conversationId ConversationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "conversationId", r.PathValue("conversationId"), &conversationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "conversationId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AddGroupMembers(w, r, conversationId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RemoveGroupMember operation middleware
+func (siw *ServerInterfaceWrapper) RemoveGroupMember(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "conversationId" -------------
+	var conversationId ConversationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "conversationId", r.PathValue("conversationId"), &conversationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "conversationId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "userId" -------------
+	var userId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", r.PathValue("userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "userId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RemoveGroupMember(w, r, conversationId, userId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6095,7 +6599,12 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/messages/direct", wrapper.SendDirectMessage)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/messages/unread-count", wrapper.GetMessageUnreadCount)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/conversations", wrapper.ListConversations)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/conversations/groups", wrapper.CreateGroup)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/conversations/{conversationId}", wrapper.GetConversation)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/conversations/{conversationId}", wrapper.RenameGroup)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/conversations/{conversationId}/members", wrapper.AddGroupMembers)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/conversations/{conversationId}/members/{userId}", wrapper.RemoveGroupMember)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/conversations/{conversationId}/leave", wrapper.LeaveGroup)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/conversations/{conversationId}/messages", wrapper.ListMessages)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/conversations/{conversationId}/messages", wrapper.SendMessage)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/conversations/{conversationId}/messages/{messageId}", wrapper.DeleteMessage)
@@ -6118,6 +6627,19 @@ type DOINotFoundJSONResponse Error
 type FileTooLargeJSONResponse Error
 
 type ForbiddenJSONResponse Error
+
+type GroupForbiddenJSONResponse Error
+
+type GroupInvalidJSONResponse Error
+
+type GroupRateLimitedResponseHeaders struct {
+	RetryAfter int
+}
+type GroupRateLimitedJSONResponse struct {
+	Body Error
+
+	Headers GroupRateLimitedResponseHeaders
+}
 
 type InternalErrorJSONResponse Error
 
@@ -8866,6 +9388,129 @@ func (response ListConversations500JSONResponse) VisitListConversationsResponse(
 	return err
 }
 
+type CreateGroupRequestObject struct {
+	Body *CreateGroupJSONRequestBody
+}
+
+type CreateGroupResponseObject interface {
+	VisitCreateGroupResponse(w http.ResponseWriter) error
+}
+
+type CreateGroup200JSONResponse Conversation
+
+func (response CreateGroup200JSONResponse) VisitCreateGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGroup201JSONResponse Conversation
+
+func (response CreateGroup201JSONResponse) VisitCreateGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGroup400JSONResponse struct{ GroupInvalidJSONResponse }
+
+func (response CreateGroup400JSONResponse) VisitCreateGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGroup401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateGroup401JSONResponse) VisitCreateGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGroup403JSONResponse struct {
+	AccountSuspendedOrForbiddenJSONResponse
+}
+
+func (response CreateGroup403JSONResponse) VisitCreateGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGroup404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateGroup404JSONResponse) VisitCreateGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGroup429JSONResponse struct{ GroupRateLimitedJSONResponse }
+
+func (response CreateGroup429JSONResponse) VisitCreateGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGroup500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response CreateGroup500JSONResponse) VisitCreateGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetConversationRequestObject struct {
 	ConversationId ConversationId `json:"conversationId"`
 }
@@ -8933,6 +9578,99 @@ func (response GetConversation404JSONResponse) VisitGetConversationResponse(w ht
 type GetConversation500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response GetConversation500JSONResponse) VisitGetConversationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RenameGroupRequestObject struct {
+	ConversationId ConversationId `json:"conversationId"`
+	Body           *RenameGroupJSONRequestBody
+}
+
+type RenameGroupResponseObject interface {
+	VisitRenameGroupResponse(w http.ResponseWriter) error
+}
+
+type RenameGroup200JSONResponse Conversation
+
+func (response RenameGroup200JSONResponse) VisitRenameGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RenameGroup400JSONResponse struct{ GroupInvalidJSONResponse }
+
+func (response RenameGroup400JSONResponse) VisitRenameGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RenameGroup401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RenameGroup401JSONResponse) VisitRenameGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RenameGroup403JSONResponse struct{ GroupForbiddenJSONResponse }
+
+func (response RenameGroup403JSONResponse) VisitRenameGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RenameGroup404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RenameGroup404JSONResponse) VisitRenameGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RenameGroup500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RenameGroup500JSONResponse) VisitRenameGroupResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -9093,6 +9831,287 @@ func (response DeclineMessageRequest404JSONResponse) VisitDeclineMessageRequestR
 type DeclineMessageRequest500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response DeclineMessageRequest500JSONResponse) VisitDeclineMessageRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LeaveGroupRequestObject struct {
+	ConversationId ConversationId `json:"conversationId"`
+}
+
+type LeaveGroupResponseObject interface {
+	VisitLeaveGroupResponse(w http.ResponseWriter) error
+}
+
+type LeaveGroup204Response struct {
+}
+
+func (response LeaveGroup204Response) VisitLeaveGroupResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type LeaveGroup401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response LeaveGroup401JSONResponse) VisitLeaveGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LeaveGroup403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response LeaveGroup403JSONResponse) VisitLeaveGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LeaveGroup404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response LeaveGroup404JSONResponse) VisitLeaveGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LeaveGroup500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response LeaveGroup500JSONResponse) VisitLeaveGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddGroupMembersRequestObject struct {
+	ConversationId ConversationId `json:"conversationId"`
+	Body           *AddGroupMembersJSONRequestBody
+}
+
+type AddGroupMembersResponseObject interface {
+	VisitAddGroupMembersResponse(w http.ResponseWriter) error
+}
+
+type AddGroupMembers200JSONResponse Conversation
+
+func (response AddGroupMembers200JSONResponse) VisitAddGroupMembersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddGroupMembers400JSONResponse struct{ GroupInvalidJSONResponse }
+
+func (response AddGroupMembers400JSONResponse) VisitAddGroupMembersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddGroupMembers401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response AddGroupMembers401JSONResponse) VisitAddGroupMembersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddGroupMembers403JSONResponse struct{ GroupForbiddenJSONResponse }
+
+func (response AddGroupMembers403JSONResponse) VisitAddGroupMembersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddGroupMembers404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response AddGroupMembers404JSONResponse) VisitAddGroupMembersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddGroupMembers409JSONResponse Error
+
+func (response AddGroupMembers409JSONResponse) VisitAddGroupMembersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddGroupMembers429JSONResponse struct{ GroupRateLimitedJSONResponse }
+
+func (response AddGroupMembers429JSONResponse) VisitAddGroupMembersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddGroupMembers500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response AddGroupMembers500JSONResponse) VisitAddGroupMembersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveGroupMemberRequestObject struct {
+	ConversationId ConversationId `json:"conversationId"`
+	UserId         string         `json:"userId"`
+}
+
+type RemoveGroupMemberResponseObject interface {
+	VisitRemoveGroupMemberResponse(w http.ResponseWriter) error
+}
+
+type RemoveGroupMember204Response struct {
+}
+
+func (response RemoveGroupMember204Response) VisitRemoveGroupMemberResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RemoveGroupMember400JSONResponse Error
+
+func (response RemoveGroupMember400JSONResponse) VisitRemoveGroupMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveGroupMember401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RemoveGroupMember401JSONResponse) VisitRemoveGroupMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveGroupMember403JSONResponse struct{ GroupForbiddenJSONResponse }
+
+func (response RemoveGroupMember403JSONResponse) VisitRemoveGroupMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveGroupMember404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RemoveGroupMember404JSONResponse) VisitRemoveGroupMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveGroupMember500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RemoveGroupMember500JSONResponse) VisitRemoveGroupMemberResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -14259,15 +15278,30 @@ type StrictServerInterface interface {
 	// ListConversations List the logged-in user's conversations, newest activity first (FR-16.1 to FR-16.3)
 	// (GET /conversations)
 	ListConversations(ctx context.Context, request ListConversationsRequestObject) (ListConversationsResponseObject, error)
-	// GetConversation Get one of the logged-in user's conversations (FR-16.1, NFR-14)
+	// CreateGroup Create a group conversation (FR-16.6, FR-16.10)
+	// (POST /conversations/groups)
+	CreateGroup(ctx context.Context, request CreateGroupRequestObject) (CreateGroupResponseObject, error)
+	// GetConversation Get one of the logged-in user's conversations (FR-16.1, FR-16.6, NFR-14)
 	// (GET /conversations/{conversationId})
 	GetConversation(ctx context.Context, request GetConversationRequestObject) (GetConversationResponseObject, error)
+	// RenameGroup Rename a group (FR-16.6)
+	// (PATCH /conversations/{conversationId})
+	RenameGroup(ctx context.Context, request RenameGroupRequestObject) (RenameGroupResponseObject, error)
 	// AcceptMessageRequest Accept a message request (FR-16.2)
 	// (POST /conversations/{conversationId}/accept)
 	AcceptMessageRequest(ctx context.Context, request AcceptMessageRequestRequestObject) (AcceptMessageRequestResponseObject, error)
 	// DeclineMessageRequest Decline a message request (FR-16.2)
 	// (POST /conversations/{conversationId}/decline)
 	DeclineMessageRequest(ctx context.Context, request DeclineMessageRequestRequestObject) (DeclineMessageRequestResponseObject, error)
+	// LeaveGroup Leave a group (FR-16.6, NFR-14)
+	// (POST /conversations/{conversationId}/leave)
+	LeaveGroup(ctx context.Context, request LeaveGroupRequestObject) (LeaveGroupResponseObject, error)
+	// AddGroupMembers Add members to a group (FR-16.6, FR-16.10)
+	// (POST /conversations/{conversationId}/members)
+	AddGroupMembers(ctx context.Context, request AddGroupMembersRequestObject) (AddGroupMembersResponseObject, error)
+	// RemoveGroupMember Remove a member from a group (FR-16.6, NFR-14)
+	// (DELETE /conversations/{conversationId}/members/{userId})
+	RemoveGroupMember(ctx context.Context, request RemoveGroupMemberRequestObject) (RemoveGroupMemberResponseObject, error)
 	// ListMessages List a conversation's messages, newest first (FR-16.1, FR-16.3, NFR-14)
 	// (GET /conversations/{conversationId}/messages)
 	ListMessages(ctx context.Context, request ListMessagesRequestObject) (ListMessagesResponseObject, error)
@@ -15432,6 +16466,37 @@ func (sh *strictHandler) ListConversations(w http.ResponseWriter, r *http.Reques
 	}
 }
 
+// CreateGroup operation middleware
+func (sh *strictHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
+	var request CreateGroupRequestObject
+
+	var body CreateGroupJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateGroup(ctx, request.(CreateGroupRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateGroup")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateGroupResponseObject); ok {
+		if err := validResponse.VisitCreateGroupResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetConversation operation middleware
 func (sh *strictHandler) GetConversation(w http.ResponseWriter, r *http.Request, conversationId ConversationId) {
 	var request GetConversationRequestObject
@@ -15451,6 +16516,39 @@ func (sh *strictHandler) GetConversation(w http.ResponseWriter, r *http.Request,
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetConversationResponseObject); ok {
 		if err := validResponse.VisitGetConversationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RenameGroup operation middleware
+func (sh *strictHandler) RenameGroup(w http.ResponseWriter, r *http.Request, conversationId ConversationId) {
+	var request RenameGroupRequestObject
+
+	request.ConversationId = conversationId
+
+	var body RenameGroupJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RenameGroup(ctx, request.(RenameGroupRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RenameGroup")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RenameGroupResponseObject); ok {
+		if err := validResponse.VisitRenameGroupResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -15503,6 +16601,92 @@ func (sh *strictHandler) DeclineMessageRequest(w http.ResponseWriter, r *http.Re
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(DeclineMessageRequestResponseObject); ok {
 		if err := validResponse.VisitDeclineMessageRequestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// LeaveGroup operation middleware
+func (sh *strictHandler) LeaveGroup(w http.ResponseWriter, r *http.Request, conversationId ConversationId) {
+	var request LeaveGroupRequestObject
+
+	request.ConversationId = conversationId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.LeaveGroup(ctx, request.(LeaveGroupRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "LeaveGroup")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(LeaveGroupResponseObject); ok {
+		if err := validResponse.VisitLeaveGroupResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AddGroupMembers operation middleware
+func (sh *strictHandler) AddGroupMembers(w http.ResponseWriter, r *http.Request, conversationId ConversationId) {
+	var request AddGroupMembersRequestObject
+
+	request.ConversationId = conversationId
+
+	var body AddGroupMembersJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AddGroupMembers(ctx, request.(AddGroupMembersRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AddGroupMembers")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AddGroupMembersResponseObject); ok {
+		if err := validResponse.VisitAddGroupMembersResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RemoveGroupMember operation middleware
+func (sh *strictHandler) RemoveGroupMember(w http.ResponseWriter, r *http.Request, conversationId ConversationId, userId string) {
+	var request RemoveGroupMemberRequestObject
+
+	request.ConversationId = conversationId
+	request.UserId = userId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RemoveGroupMember(ctx, request.(RemoveGroupMemberRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RemoveGroupMember")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RemoveGroupMemberResponseObject); ok {
+		if err := validResponse.VisitRemoveGroupMemberResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

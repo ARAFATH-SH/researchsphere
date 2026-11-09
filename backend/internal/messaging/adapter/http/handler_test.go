@@ -48,6 +48,38 @@ type fakeService struct {
 	next *string
 	// edited is what Edit answers.
 	edited domain.Message
+	// group is what the group operations answer; replayed is CreateGroup's flag.
+	group    domain.Item
+	replayed bool
+	// page, detail and receipt replace the default answers when set.
+	page    *domain.MessagePage
+	detail  *domain.ReportDetail
+	receipt *domain.ReportReceipt
+}
+
+func (f *fakeService) CreateGroup(_ context.Context, creatorID string, in domain.GroupInput) (domain.Item, bool, error) {
+	f.args = []any{creatorID, in}
+	return f.group, f.replayed, f.err
+}
+
+func (f *fakeService) RenameGroup(_ context.Context, ownerID, id, name string) (domain.Item, error) {
+	f.args = []any{ownerID, id, name}
+	return f.group, f.err
+}
+
+func (f *fakeService) AddMembers(_ context.Context, ownerID, id string, userIDs []string) (domain.Item, error) {
+	f.args = []any{ownerID, id, userIDs}
+	return f.group, f.err
+}
+
+func (f *fakeService) RemoveMember(_ context.Context, ownerID, id, userID string) error {
+	f.args = []any{ownerID, id, userID}
+	return f.err
+}
+
+func (f *fakeService) Leave(_ context.Context, userID, id string) error {
+	f.args = []any{userID, id}
+	return f.err
 }
 
 func (f *fakeService) SendDirect(_ context.Context, senderID, recipientID, body, cid string) (domain.Sent, error) {
@@ -72,6 +104,9 @@ func (f *fakeService) Get(_ context.Context, userID, id string) (domain.Item, er
 
 func (f *fakeService) Messages(_ context.Context, userID, id, before string, limit *int) (domain.MessagePage, error) {
 	f.args = []any{userID, id, before, limit}
+	if f.page != nil {
+		return *f.page, f.err
+	}
 	return domain.MessagePage{Items: []domain.Message{message}, NextBefore: f.next, OtherReadID: f.read}, f.err
 }
 
@@ -92,7 +127,10 @@ func (f *fakeService) Decline(_ context.Context, userID, id string) (domain.Item
 
 func (f *fakeService) Report(_ context.Context, userID, id string, in domain.ReportInput) (domain.ReportReceipt, error) {
 	f.args = []any{userID, id, in}
-	return domain.ReportReceipt{ID: reportID, CreatedAt: at, ReportedID: otherID}, f.err
+	if f.receipt != nil {
+		return *f.receipt, f.err
+	}
+	return domain.ReportReceipt{ID: reportID, CreatedAt: at, ReportedID: ptr(otherID)}, f.err
 }
 
 func (f *fakeService) ListReports(_ context.Context, status string, page int) (domain.ReportPage, error) {
@@ -102,6 +140,9 @@ func (f *fakeService) ListReports(_ context.Context, status string, page int) (d
 
 func (f *fakeService) ReportDetail(_ context.Context, adminID, id, before string) (domain.ReportDetail, error) {
 	f.args = []any{adminID, id, before}
+	if f.detail != nil {
+		return *f.detail, f.err
+	}
 	return domain.ReportDetail{Report: report, Messages: []domain.ReportedMessage{reported}, NextBefore: f.next}, f.err
 }
 
@@ -434,7 +475,7 @@ const reportID = "7f3a1c2e-7777-4e8b-b7c1-2d3e4f5a6b7c"
 var report = domain.Report{
 	ID: reportID, ConversationID: convID, Reason: domain.ReasonSpam, CreatedAt: at,
 	Reporter: domain.ReportPerson{UserID: caller, FullName: "Ada", Role: "researcher"},
-	Reported: domain.ReportPerson{UserID: otherID, FullName: "Bob", Role: "admin"},
+	Reported: &domain.ReportPerson{UserID: otherID, FullName: "Bob", Role: "admin"},
 }
 
 // FR-16.9: the two refusals of a block, and the flags a conversation carries.

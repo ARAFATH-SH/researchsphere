@@ -67,8 +67,30 @@ func (okMessaging) Decline(context.Context, string, string) (messagingdomain.Ite
 }
 
 func (okMessaging) Report(context.Context, string, string, messagingdomain.ReportInput) (messagingdomain.ReportReceipt, error) {
-	return messagingdomain.ReportReceipt{ID: okUserID, ReportedID: okUserID}, nil
+	reported := okUserID
+	return messagingdomain.ReportReceipt{ID: okUserID, ReportedID: &reported}, nil
 }
+
+var okGroup = messagingdomain.Item{
+	Conversation: messagingdomain.Conversation{ID: okConversationID, Kind: messagingdomain.KindGroup, State: messagingdomain.StateActive},
+	Group:        &messagingdomain.GroupInfo{Name: "Lab", MemberCount: 2, MyRole: messagingdomain.RoleOwner},
+}
+
+func (okMessaging) CreateGroup(context.Context, string, messagingdomain.GroupInput) (messagingdomain.Item, bool, error) {
+	return okGroup, false, nil
+}
+
+func (okMessaging) RenameGroup(context.Context, string, string, string) (messagingdomain.Item, error) {
+	return okGroup, nil
+}
+
+func (okMessaging) AddMembers(context.Context, string, string, []string) (messagingdomain.Item, error) {
+	return okGroup, nil
+}
+
+func (okMessaging) RemoveMember(context.Context, string, string, string) error { return nil }
+
+func (okMessaging) Leave(context.Context, string, string) error { return nil }
 
 func (okMessaging) ListReports(context.Context, string, int) (messagingdomain.ReportPage, error) {
 	return messagingdomain.ReportPage{}, nil
@@ -84,7 +106,7 @@ func (okMessaging) ResolveReport(context.Context, string, string, messagingdomai
 
 var okReport = messagingdomain.Report{
 	ID: okUserID, ConversationID: okUserID,
-	Reporter: messagingdomain.ReportPerson{UserID: okUserID}, Reported: messagingdomain.ReportPerson{UserID: okUserID},
+	Reporter: messagingdomain.ReportPerson{UserID: okUserID}, Reported: &messagingdomain.ReportPerson{UserID: okUserID},
 }
 
 func (okMessaging) UnreadCounts(context.Context, string) (messagingdomain.UnreadCounts, error) {
@@ -112,6 +134,11 @@ func TestMessagingRoutesThroughRouter(t *testing.T) {
 		{http.MethodPost, base + "/decline", "", http.StatusOK},
 		{http.MethodPatch, base + "/messages/" + okMessageID, `{"body":"edited"}`, http.StatusOK},
 		{http.MethodDelete, base + "/messages/" + okMessageID, "", http.StatusNoContent},
+		{http.MethodPost, "/api/v1/conversations/groups", `{"name":"Lab","memberIds":["` + okUserID + `"],"clientId":"` + okConversationID + `"}`, http.StatusCreated},
+		{http.MethodPatch, base, `{"name":"Lab 2"}`, http.StatusOK},
+		{http.MethodPost, base + "/members", `{"userIds":["` + okUserID + `"]}`, http.StatusOK},
+		{http.MethodDelete, base + "/members/" + okUserID, "", http.StatusNoContent},
+		{http.MethodPost, base + "/leave", "", http.StatusNoContent},
 	}
 	for _, r := range routes {
 		call := func(t *testing.T, role string) *httptest.ResponseRecorder {
@@ -156,6 +183,11 @@ func TestMessagingRoutesAreGuarded(t *testing.T) {
 		"POST /api/v1/conversations/{conversationId}/decline":                authz.ActAsMember,
 		"PATCH /api/v1/conversations/{conversationId}/messages/{messageId}":  authz.ActAsMember,
 		"DELETE /api/v1/conversations/{conversationId}/messages/{messageId}": authz.ActAsMember,
+		"POST /api/v1/conversations/groups":                                  authz.ActAsMember,
+		"PATCH /api/v1/conversations/{conversationId}":                       authz.ActAsMember,
+		"POST /api/v1/conversations/{conversationId}/members":                authz.ActAsMember,
+		"DELETE /api/v1/conversations/{conversationId}/members/{userId}":     authz.ActAsMember,
+		"POST /api/v1/conversations/{conversationId}/leave":                  authz.ActAsMember,
 	}
 	registered := map[string]bool{}
 	for _, r := range httpserver.Routes() {

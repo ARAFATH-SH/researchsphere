@@ -15,15 +15,16 @@ import (
 )
 
 type harness struct {
-	svc     *Service
-	store   *fakeStore
-	conns   fakeConnections
-	blocks  *fakeBlocks
-	limiter *fakeLimiter
-	pub     *fakePublisher
-	actors  fakeActors
-	client  int
-	now     time.Time // the clock the service reads
+	svc      *Service
+	store    *fakeStore
+	conns    fakeConnections
+	blocks   *fakeBlocks
+	limiter  *fakeLimiter
+	pub      *fakePublisher
+	actors   fakeActors
+	notifier *fakeNotifier
+	client   int
+	now      time.Time // the clock the service reads
 }
 
 var testLimits = Limits{MessagesPerMinute: 30, MessagesPerDay: 1000, RequestsPerMinute: 5, RequestsPerDay: 20, EditWindow: 15 * time.Minute}
@@ -32,14 +33,14 @@ func (h *harness) clock() time.Time { return h.now }
 
 func newHarness() *harness {
 	h := &harness{store: newFakeStore(), conns: fakeConnections{}, blocks: newFakeBlocks(), limiter: newFakeLimiter(), pub: &fakePublisher{}, actors: fakeActors{},
-		now: time.Date(2026, 11, 4, 10, 5, 0, 0, time.UTC)}
-	h.svc = New(h.store, fakeTx{h.store}, h.conns, h.blocks, h.actors, h.limiter, h.pub, testLimits, h.clock, slog.New(slog.DiscardHandler))
+		notifier: &fakeNotifier{}, now: time.Date(2026, 11, 4, 10, 5, 0, 0, time.UTC)}
+	h.svc = New(h.store, fakeTx{h.store}, h.conns, h.blocks, h.actors, h.limiter, h.pub, h.notifier, testLimits, h.clock, slog.New(slog.DiscardHandler))
 	return h
 }
 
 // noLimits replaces the limits with ones a test that sends many messages cannot reach.
 func (h *harness) noLimits() {
-	h.svc = New(h.store, fakeTx{h.store}, h.conns, h.blocks, h.actors, h.limiter, h.pub,
+	h.svc = New(h.store, fakeTx{h.store}, h.conns, h.blocks, h.actors, h.limiter, h.pub, h.notifier,
 		Limits{MessagesPerMinute: 1 << 20, MessagesPerDay: 1 << 20, RequestsPerMinute: 1 << 20, RequestsPerDay: 1 << 20, EditWindow: 15 * time.Minute},
 		h.clock, slog.New(slog.DiscardHandler))
 }
@@ -451,7 +452,7 @@ func TestIdempotentClientID(t *testing.T) {
 		found := h.store.messages
 		h.store.messages = nil
 		lookups := &racingFind{fakeStore: h.store, hidden: true, saved: found}
-		svc := New(lookups, fakeTx{h.store}, h.conns, h.blocks, h.actors, h.limiter, h.pub, testLimits, h.clock, slog.New(slog.DiscardHandler))
+		svc := New(lookups, fakeTx{h.store}, h.conns, h.blocks, h.actors, h.limiter, h.pub, h.notifier, testLimits, h.clock, slog.New(slog.DiscardHandler))
 		h.store.duplicateAdd = true
 		got, err := svc.SendDirect(ctx, "ada", "bob", "second", "c1")
 		if err != nil || !got.Replayed || got.Message.ID != winner.Message.ID {
@@ -471,7 +472,7 @@ func TestIdempotentClientID(t *testing.T) {
 		// The retry got past the lookup before the first send committed, then found the
 		// request it had started itself.
 		lookups := &racingFind{fakeStore: h.store, hidden: true, saved: h.store.messages}
-		svc := New(lookups, fakeTx{h.store}, h.conns, h.blocks, h.actors, h.limiter, h.pub, testLimits, h.clock, slog.New(slog.DiscardHandler))
+		svc := New(lookups, fakeTx{h.store}, h.conns, h.blocks, h.actors, h.limiter, h.pub, h.notifier, testLimits, h.clock, slog.New(slog.DiscardHandler))
 		got, err := svc.SendDirect(ctx, "ada", "bob", "may I?", "c1")
 		if err != nil || !got.Replayed || got.Message.ID != winner.Message.ID {
 			t.Fatalf("got %+v, %v", got, err)
@@ -612,7 +613,7 @@ func TestRateLimits(t *testing.T) {
 	t.Run("the numbers come from the configuration", func(t *testing.T) {
 		h := newHarness()
 		h.connect("ada", "bob")
-		h.svc = New(h.store, fakeTx{h.store}, h.conns, h.blocks, h.actors, h.limiter, h.pub,
+		h.svc = New(h.store, fakeTx{h.store}, h.conns, h.blocks, h.actors, h.limiter, h.pub, h.notifier,
 			Limits{MessagesPerMinute: 1, MessagesPerDay: 1000, RequestsPerMinute: 5, RequestsPerDay: 20}, h.clock, slog.New(slog.DiscardHandler))
 		h.direct(t, "ada", "bob", "one")
 		var limited *domain.RateLimitedError
@@ -1087,7 +1088,7 @@ func TestStandingIsCheckedAgainInTheTransaction(t *testing.T) {
 	h.connect("ada", "bob")
 	sent := h.direct(t, "ada", "bob", "hello")
 	flip := &flippingActors{after: 1, then: domain.Standing{RestrictedUntil: &until}}
-	h.svc = New(h.store, fakeTx{h.store}, h.conns, h.blocks, flip, h.limiter, h.pub, testLimits, h.clock, slog.New(slog.DiscardHandler))
+	h.svc = New(h.store, fakeTx{h.store}, h.conns, h.blocks, flip, h.limiter, h.pub, h.notifier, testLimits, h.clock, slog.New(slog.DiscardHandler))
 
 	before := len(h.store.messages)
 	var refused *domain.RestrictedError
@@ -1118,7 +1119,7 @@ func TestStandingFailureStopsTheWrite(t *testing.T) {
 	h.connect("ada", "bob")
 	sent := h.direct(t, "ada", "bob", "hello")
 	boom := errors.New("database down")
-	h.svc = New(h.store, fakeTx{h.store}, h.conns, h.blocks, failingActors{boom}, h.limiter, h.pub, testLimits, h.clock, slog.New(slog.DiscardHandler))
+	h.svc = New(h.store, fakeTx{h.store}, h.conns, h.blocks, failingActors{boom}, h.limiter, h.pub, h.notifier, testLimits, h.clock, slog.New(slog.DiscardHandler))
 	if _, err := h.svc.Send(t.Context(), "ada", sent.Message.ConversationID, "x", h.clientID()); !errors.Is(err, boom) {
 		t.Errorf("error = %v, want %v", err, boom)
 	}
@@ -1147,23 +1148,23 @@ func TestPublisherHearsOfChangesInOtherModules(t *testing.T) {
 }
 
 // Typing follows canMessage (FR-16.4): a member, active, available, no block either way.
-func TestTypingPeer(t *testing.T) {
+func TestTypingPeers(t *testing.T) {
 	h := newHarness()
 	h.connect("ada", "bob")
 	ctx := t.Context()
 	id := h.direct(t, "ada", "bob", "hello").Message.ConversationID
 
-	if other, ok, err := h.svc.TypingPeer(ctx, "ada", id); err != nil || !ok || other != "bob" {
-		t.Errorf("member: %q %v %v", other, ok, err)
+	if peers, err := h.svc.TypingPeers(ctx, "ada", id); err != nil || !slices.Equal(peers, []string{"bob"}) {
+		t.Errorf("member: %v %v", peers, err)
 	}
-	if _, ok, err := h.svc.TypingPeer(ctx, "eve", id); err != nil || ok {
-		t.Errorf("not a member: %v %v", ok, err)
+	if peers, err := h.svc.TypingPeers(ctx, "eve", id); err != nil || len(peers) != 0 {
+		t.Errorf("not a member: %v %v", peers, err)
 	}
-	if _, ok, err := h.svc.TypingPeer(ctx, "ada", "unknown"); err != nil || ok {
-		t.Errorf("unknown conversation: %v %v", ok, err)
+	if peers, err := h.svc.TypingPeers(ctx, "ada", "unknown"); err != nil || len(peers) != 0 {
+		t.Errorf("unknown conversation: %v %v", peers, err)
 	}
 	h.store.hidden["bob"] = true
-	if _, ok, err := h.svc.TypingPeer(ctx, "ada", id); err != nil || ok {
-		t.Errorf("other member suspended: %v %v", ok, err)
+	if peers, err := h.svc.TypingPeers(ctx, "ada", id); err != nil || len(peers) != 0 {
+		t.Errorf("other member suspended: %v %v", peers, err)
 	}
 }

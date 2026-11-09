@@ -15,13 +15,13 @@ import (
 )
 
 // FindMessageSender finds nothing for a value that is not a UUID.
-func (s *Store) FindMessageSender(ctx context.Context, conversationID, messageID string) (string, bool, error) {
+func (s *Store) FindMessageSender(ctx context.Context, conversationID, messageID string, since time.Time) (string, bool, error) {
 	cid, ok1 := parseUUID(conversationID)
 	mid, ok2 := parseUUID(messageID)
 	if !ok1 || !ok2 {
 		return "", false, nil
 	}
-	sender, err := s.q(ctx).FindMessageSender(ctx, sqlcgen.FindMessageSenderParams{ConversationID: cid, ID: mid})
+	sender, err := s.q(ctx).FindMessageSender(ctx, sqlcgen.FindMessageSenderParams{ConversationID: cid, ID: mid, Since: timestamptz(since)})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", false, nil
 	}
@@ -35,11 +35,17 @@ func (s *Store) FindMessageSender(ctx context.Context, conversationID, messageID
 func (s *Store) InsertReport(ctx context.Context, r domain.NewReport) (string, time.Time, error) {
 	cid, ok1 := parseUUID(r.ConversationID)
 	reporter, ok2 := parseUUID(r.ReporterID)
-	reported, ok3 := parseUUID(r.ReportedID)
-	if !ok1 || !ok2 || !ok3 {
+	if !ok1 || !ok2 {
 		return "", time.Time{}, fmt.Errorf("insert report: %w", domain.ErrNotFound)
 	}
-	arg := sqlcgen.InsertReportParams{ConversationID: cid, ReporterID: reporter, ReportedID: reported, Reason: string(r.Reason)}
+	arg := sqlcgen.InsertReportParams{ConversationID: cid, ReporterID: reporter, Reason: string(r.Reason)}
+	if r.ReportedID != nil {
+		reported, ok := parseUUID(*r.ReportedID)
+		if !ok {
+			return "", time.Time{}, fmt.Errorf("insert report: %w", domain.ErrNotFound)
+		}
+		arg.ReportedID = reported
+	}
 	if r.MessageID != nil {
 		mid, ok := parseUUID(*r.MessageID)
 		if !ok {
@@ -117,6 +123,7 @@ func (s *Store) ListReportedMessages(ctx context.Context, reportID, before strin
 	for i, r := range rows {
 		items[i] = domain.ReportedMessage{
 			ID: r.ID.String(), ConversationID: r.ConversationID.String(), SenderID: r.SenderID.String(), CreatedAt: r.CreatedAt.Time,
+			Kind: domain.MessageKind(r.Kind), Event: systemEvent(r.Event, r.EventData),
 			EditedAt: timePtr(r.EditedAt), DeletedAt: timePtr(r.DeletedAt), ChangedAfterReport: r.ChangedAfterReport,
 		}
 		if r.HasBodyAtReport {
@@ -153,6 +160,38 @@ func (s *Store) ListReportedVersions(ctx context.Context, reportID string, messa
 	return out, nil
 }
 
+// MembersAtReport finds nobody for a report that is not a UUID.
+func (s *Store) MembersAtReport(ctx context.Context, reportID string) ([]domain.ReportPerson, error) {
+	rid, ok := parseUUID(reportID)
+	if !ok {
+		return nil, nil
+	}
+	rows, err := s.q(ctx).MembersAtReport(ctx, rid)
+	if err != nil {
+		return nil, fmt.Errorf("list members at report: %w", err)
+	}
+	out := make([]domain.ReportPerson, len(rows))
+	for i, r := range rows {
+		out[i] = domain.ReportPerson{UserID: r.UserID.String(), FullName: r.FullName, Headline: textPtr(r.Headline),
+			PhotoFileID: uuidPtr(r.PhotoFileID), Role: r.Role}
+	}
+	return out, nil
+}
+
+// MemberAtReport is false for IDs that are not UUIDs.
+func (s *Store) MemberAtReport(ctx context.Context, reportID, userID string) (bool, error) {
+	rid, ok1 := parseUUID(reportID)
+	user, ok2 := parseUUID(userID)
+	if !ok1 || !ok2 {
+		return false, nil
+	}
+	v, err := s.q(ctx).MemberAtReport(ctx, sqlcgen.MemberAtReportParams{ReportID: rid, UserID: user})
+	if err != nil {
+		return false, fmt.Errorf("check member at report: %w", err)
+	}
+	return v, nil
+}
+
 // AddReportView records the view. The caller found the report first.
 func (s *Store) AddReportView(ctx context.Context, reportID, adminID string) error {
 	rid, ok1 := parseUUID(reportID)
@@ -187,11 +226,14 @@ func (s *Store) ResolveReport(ctx context.Context, id, adminID string, outcome d
 func report(r sqlcgen.FindReportRow) domain.Report {
 	out := domain.Report{
 		ID: r.ID.String(), ConversationID: r.ConversationID.String(), Reason: domain.ReportReason(r.Reason),
+		ConversationKind: domain.Kind(r.ConversationKind), GroupName: textPtr(r.GroupName),
 		Details: textPtr(r.Details), MessageID: uuidPtr(r.MessageID), CreatedAt: r.CreatedAt.Time, Note: textPtr(r.ResolutionNote),
 		Reporter: domain.ReportPerson{UserID: r.ReporterID.String(), FullName: r.ReporterName,
 			Headline: textPtr(r.ReporterHeadline), PhotoFileID: uuidPtr(r.ReporterPhoto), Role: r.ReporterRole},
-		Reported: domain.ReportPerson{UserID: r.ReportedID.String(), FullName: r.ReportedName,
-			Headline: textPtr(r.ReportedHeadline), PhotoFileID: uuidPtr(r.ReportedPhoto), Role: r.ReportedRole},
+	}
+	if r.ReportedID.Valid {
+		out.Reported = &domain.ReportPerson{UserID: r.ReportedID.String(), FullName: r.ReportedName,
+			Headline: textPtr(r.ReportedHeadline), PhotoFileID: uuidPtr(r.ReportedPhoto), Role: r.ReportedRole}
 	}
 	if r.Outcome.Valid {
 		o := domain.ReportOutcome(r.Outcome.String)

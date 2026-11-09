@@ -34,7 +34,11 @@ const (
 type Message struct {
 	ID             string
 	ConversationID string
-	SenderID       string
+	// SenderID is the sender; for a system message the actor, empty when it has none (an
+	// ownership hand-over, or an actor whose account is gone).
+	SenderID string
+	Kind     MessageKind
+	Event    *SystemEvent // nil for a text message
 	// Body is the latest text. It is nil for a deleted message; only DeletedAt says a message
 	// was deleted, as a later message may have no text (attachments, slice 14B.3).
 	Body      *string
@@ -47,6 +51,9 @@ type Message struct {
 // Deleted reports whether the sender deleted the message.
 func (m Message) Deleted() bool { return m.DeletedAt != nil }
 
+// System reports whether the message is a system event of a group.
+func (m Message) System() bool { return m.Kind == KindSystem }
+
 // Sent is the result of sending: the message and its conversation's state. Replayed is
 // true when the client ID had been used before and Message is the original.
 type Sent struct {
@@ -58,12 +65,20 @@ type Sent struct {
 // Conversation is a conversation as seen by one member.
 type Conversation struct {
 	ID            string
+	Kind          Kind
 	State         State
 	RequestedBy   *string // who sent the request, nil when it never was one
 	LastMessageAt time.Time
-	OtherID       string  // the other member
+	OtherID       string  // the other member of a direct conversation, empty for a group
 	OtherReadID   *string // the other member's read marker
+	Name          string  // a group's name, empty for a direct conversation
+	MyRole        Role    // the caller's role in a group, empty for a direct conversation
+	// JoinedAt is when the caller joined: they see only messages created from then on.
+	JoinedAt time.Time
 }
+
+// IsGroup reports whether the conversation is a group.
+func (c Conversation) IsGroup() bool { return c.Kind == KindGroup }
 
 // Person is the other member of a conversation, with the public fields a list shows.
 type Person struct {
@@ -76,8 +91,10 @@ type Person struct {
 
 // Preview is the start of a conversation's latest message.
 type Preview struct {
-	SenderID  string
-	Body      *string // the first 120 characters of the latest text, nil when deleted
+	SenderID  string // empty for a system message with no actor
+	Kind      MessageKind
+	Event     *EventType // set for a system message
+	Body      *string    // the first 120 characters of the latest text, nil when deleted or a system message
 	Deleted   bool
 	CreatedAt time.Time
 }
@@ -85,15 +102,21 @@ type Preview struct {
 // Item is one conversation of a list, as its member sees it.
 type Item struct {
 	Conversation
-	Other       Person
+	Other       Person     // the other member of a direct conversation
+	Group       *GroupInfo // nil for a direct conversation
 	LastMessage *Preview
 	UnreadCount int
 	BlockedByMe bool // the caller has blocked the other member
 	BlockedMe   bool // the other member has blocked the caller; never shown to the caller
 }
 
-// CanMessage reports whether a message from the caller would be accepted now.
+// CanMessage reports whether a message from the caller would be accepted now. In a group,
+// where blocks do not apply, it holds while the caller is a member, which reading the item
+// already shows.
 func (i Item) CanMessage() bool {
+	if i.IsGroup() {
+		return i.State == StateActive
+	}
 	return i.State == StateActive && i.Other.Available && !i.BlockedByMe && !i.BlockedMe
 }
 
@@ -110,11 +133,13 @@ type Page struct {
 }
 
 // MessagePage is one page of a conversation's messages, newest first. NextBefore is nil
-// on the last page; OtherReadID is the other member's read marker (FR-16.3).
+// on the last page; OtherReadID is the other member's read marker (FR-16.3). Readers is set
+// for a group only: every other current member's marker.
 type MessagePage struct {
 	Items       []Message
 	NextBefore  *string
 	OtherReadID *string
+	Readers     []Reader
 }
 
 // UnreadCounts is what the messaging badge shows (FR-16.3).
@@ -135,6 +160,9 @@ type Partner struct {
 type Store interface {
 	// UserVisible reports whether the user exists, is verified and is not suspended.
 	UserVisible(ctx context.Context, userID string) (bool, error)
+	// UsersVisible returns which of ids exist, are verified and are not suspended. IDs that are
+	// not UUIDs are not.
+	UsersVisible(ctx context.Context, ids []string) ([]string, error)
 	// FindSent returns the message senderID sent with clientID, with its conversation's
 	// state; found is false when there is none.
 	FindSent(ctx context.Context, senderID, clientID string) (sent Sent, found bool, err error)
@@ -164,11 +192,11 @@ type Store interface {
 	// ListItems returns memberID's conversations in box, newest activity first, then by
 	// ID, after the cursor when it is not nil.
 	ListItems(ctx context.Context, memberID string, box Box, after *Cursor, limit int) ([]Item, error)
-	// ListMessages returns a conversation's messages newest first, before the message ID
-	// before when it is not empty. The caller has checked membership.
-	ListMessages(ctx context.Context, conversationID, before string, limit int) ([]Message, error)
-	// FindOwnMessage returns the message when senderID sent it in the conversation, deleted or
-	// not, otherwise ErrNotFound (NFR-14).
+	// ListMessages returns a conversation's messages created at or after since, newest first,
+	// before the message ID before when it is not empty. The caller has checked membership.
+	ListMessages(ctx context.Context, conversationID string, since time.Time, before string, limit int) ([]Message, error)
+	// FindOwnMessage returns the text message when senderID sent it in the conversation, deleted
+	// or not, otherwise ErrNotFound (NFR-14). A system message is never anyone's own.
 	FindOwnMessage(ctx context.Context, conversationID, messageID, senderID string) (Message, error)
 	// LockOwnMessage is FindOwnMessage holding the message's row until the transaction ends.
 	LockOwnMessage(ctx context.Context, conversationID, messageID, senderID string) (Message, error)
@@ -178,8 +206,9 @@ type Store interface {
 	// DeleteMessage leaves a message in place with no body, keeps its last text as a version
 	// and sets deleted_at. ErrNotFound when it is already deleted or unknown.
 	DeleteMessage(ctx context.Context, messageID string) (Message, error)
-	// MessageIn reports whether the message belongs to the conversation.
-	MessageIn(ctx context.Context, conversationID, messageID string) (bool, error)
+	// MessageIn reports whether the message belongs to the conversation and was created at or
+	// after since.
+	MessageIn(ctx context.Context, conversationID, messageID string, since time.Time) (bool, error)
 	// MoveReadMarker moves the member's marker to messageID when that is later than the
 	// marker, and reports whether it moved.
 	MoveReadMarker(ctx context.Context, conversationID, memberID, messageID string) (bool, error)
@@ -192,15 +221,17 @@ type Store interface {
 	// changes nothing in any other state.
 	DeclineRequests(ctx context.Context, a, b string) error
 	// ActivePeers returns who may see the user's presence: the other member of each active
-	// conversation, with no block either way (FR-16.4).
+	// direct conversation, with no block either way (FR-16.4). Groups do not count.
 	ActivePeers(ctx context.Context, userID string) ([]string, error)
 	// VisiblePeers returns which of ids are among viewerID's ActivePeers. IDs that are not
 	// UUIDs are not.
 	VisiblePeers(ctx context.Context, viewerID string, ids []string) ([]string, error)
-	// Partners returns every conversation of the user, in any state, with its other member.
+	// Partners returns every direct conversation of the user, in any state, with its other
+	// member.
 	Partners(ctx context.Context, userID string) ([]Partner, error)
 	// DirectID returns a and b's conversation; found is false when there is none.
 	DirectID(ctx context.Context, a, b string) (id string, found bool, err error)
+	GroupStore
 	ReportStore
 }
 
@@ -208,6 +239,8 @@ type Store interface {
 // cmd/api implements this with its usecase.
 type Connections interface {
 	Connected(ctx context.Context, a, b string) (bool, error)
+	// ConnectedAmong returns which of ids are connected with userID.
+	ConnectedAmong(ctx context.Context, userID string, ids []string) ([]string, error)
 }
 
 // BlockState says who has blocked whom between a user and another (FR-16.9).
@@ -223,6 +256,8 @@ type Blocks interface {
 	Lock(ctx context.Context, a, b string) error
 	// Between reads who has blocked whom between me and other.
 	Between(ctx context.Context, me, other string) (BlockState, error)
+	// BlockedAmong returns which of ids are in a block with userID, either way.
+	BlockedAmong(ctx context.Context, userID string, ids []string) ([]string, error)
 }
 
 // Standing is what a user may do now (FR-15.6, FR-15.7).
@@ -245,8 +280,8 @@ type Limiter interface {
 	// Used returns the sends counted in the user's current window and the time left in
 	// it; 0 and 0 when no window is open.
 	Used(ctx context.Context, name, userID string) (int, time.Duration, error)
-	// Record counts one send. The first of a window opens it for length.
-	Record(ctx context.Context, name, userID string, length time.Duration) error
+	// Record counts n sends. The first of a window opens it for length.
+	Record(ctx context.Context, name, userID string, n int, length time.Duration) error
 }
 
 // Publisher hears about changes other members should see. It cannot fail the change, and
@@ -254,6 +289,8 @@ type Limiter interface {
 // another module's transaction, where the implementation waits for the commit. The to lists
 // name the members to tell. cmd/api implements it with the realtime module.
 type Publisher interface {
+	// MessageSent tells the to list, and for a text message the sender's own tabs. A system
+	// message goes only to the to list.
 	MessageSent(ctx context.Context, sent Sent, to []string)
 	// MessageEdited and MessageDeleted tell the to list and the sender's own tabs.
 	MessageEdited(ctx context.Context, m Message, to []string)
@@ -264,6 +301,10 @@ type Publisher interface {
 	// PairChanged says what a and b's conversation allows may have changed: they connected,
 	// or one blocked or unblocked the other. It does nothing when they have no conversation.
 	PairChanged(ctx context.Context, a, b string)
+	// MembersChanged tells the to list, the group's current members, what changed (FR-16.6).
+	MembersChanged(ctx context.Context, conversationID string, change MemberChange, to []string)
+	// AccessLost tells each user, who left or was removed, that the group is gone for them.
+	AccessLost(ctx context.Context, conversationID string, userIDs []string)
 }
 
 // Transactor runs fn in one database transaction; it commits when fn returns nil and
