@@ -476,7 +476,7 @@ NFR-1 to NFR-7 come from the proposal. NFR-8 to NFR-14 are added here.
 | NFR-4 | Security | Each compile shall run in its own container with no network access, shell escape disabled, access to that project's files only, and limits of 60 seconds, 1 CPU and 1 GB of memory | Must |
 | NFR-5 | Security | Passwords shall be stored as salted hashes, tokens shall be stored as hashes, and all traffic shall use HTTPS | Must |
 | NFR-6 | AI quality | The system's recall at 10 for collaborator matching and top-5 accuracy for venue ranking shall be measured on a held-out test set and reported | Must |
-| NFR-7 | Testing and compatibility | Automated tests shall run on every push, and the client shall work on current Chrome and Firefox | Must |
+| NFR-7 | Testing and compatibility | Automated tests shall run on every pull request to main and every push to main, and no change shall be merged into main unless they pass; and the client shall work on current Chrome and Firefox | Must |
 | NFR-8.1 | Security | Every input shall be validated on the server, and every database query shall use parameters | Must |
 | NFR-8.2 | Security | Text entered by users shall be displayed as text and never run as code in another user's browser | Must |
 | NFR-8.3 | Security | Registration, login and password reset shall each accept at most 10 requests per minute from one address | Should |

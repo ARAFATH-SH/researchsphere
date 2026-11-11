@@ -35,7 +35,7 @@ Run these from the repository root. `make help` prints the current list.
 
 | Command | What it does |
 | --- | --- |
-| `make up` / `make down` | Start or stop PostgreSQL, Redis, Mailpit (local email inbox at http://localhost:8025), MinIO and ClamAV; `make up` also creates the private bucket, and starts ClamAV last without waiting for it (clamd takes 30 to 90 seconds and 1.5 to 3 GB of memory to load its signatures; attachments stay pending until it answers) |
+| `make up` / `make down` | Start or stop PostgreSQL, Redis, Mailpit (local email inbox at http://localhost:8025), MinIO and ClamAV; `make up` also creates the private bucket, and starts ClamAV last without waiting for it (clamd takes 30 to 90 seconds and 1.5 to 3 GB of memory to load its signatures; attachments stay pending until it answers). `make up CLAMAV=0` leaves ClamAV out, as the CI stack job does |
 | `make check` | Confirm that PostgreSQL, pgvector, Redis and storage respond, and that the bucket refuses anonymous access; show whether ClamAV answers yet (not a failure) |
 | `make psql` | Open a psql prompt in the database |
 | `make migrate` / `make migrate-down` | Apply all migrations, or undo the latest one |
@@ -64,13 +64,21 @@ The frontend targets need its packages: run `cd frontend && npm ci` once, and ag
 `package-lock.json` changes. When a slice adds a command to the Makefile, add it to this
 table in the same change.
 
-CI (`.github/workflows/ci.yml`) runs on every push and pull request: it starts the stack (MinIO included) and runs
-`make check`, applies all migrations, undoes them, checks that nothing is left, applies them
-again, then prepares the test database (`make test-prepare`) and runs `make test-db` and the Go repository tests (`make test-integration`) on it, then lints and tests each of `backend/`, `frontend/` and `ai/`
-once that folder has its manifest (`go.mod`, `package.json`, `pyproject.toml`). The backend job
-also fails when the code generated from `docs/openapi.yaml` is not up to date. The frontend
-job runs `npm ci`, checks that the generated API types are up to date, then runs lint, type
-check, tests and a production build.
+CI (`.github/workflows/ci.yml`) runs on every pull request to `main` and every push to `main`
+(NFR-7), not on pushes to other branches. A `detect` job runs first; when a change touches only
+`docs/**`, `design/**` or Markdown files (never `docs/openapi.yaml`), every other job shows as
+skipped. Next, in parallel, the fast checks lint and test each of `backend/`, `frontend/` and
+`ai/` once that folder has its manifest (`go.mod`, `package.json`, `pyproject.toml`). The
+backend job also fails when the code generated from `docs/openapi.yaml` is not up to date; the
+frontend job runs `npm ci`, checks that the generated API types are up to date, then runs lint,
+type check, tests and a production build. Only when they pass does the stack job start
+PostgreSQL, Redis, Mailpit and MinIO (`make up CLAMAV=0`), run `make check`, apply all
+migrations, undo them, check that nothing is left, apply them again, prepare the test database
+(`make test-prepare`) and run `make test-db` and the Go repository tests (`make test-integration`).
+The `clamav` job scans the EICAR string with a real clamd only on push to `main`, nightly and
+by hand. The job names (`Detect`, `Backend (Go)`, `Frontend (Node.js)`, `AI (Python, uv)`,
+`Stack (integration)`, `ClamAV (EICAR)`) are the status check names branch protection uses:
+do not rename them.
 
 ## Rules
 
