@@ -25,10 +25,12 @@ MIGRATIONS_DIR := backend/db/migrations
 help: ## List the available commands
 	@grep -hE '^[a-zA-Z_-]+:.*## ' $(firstword $(MAKEFILE_LIST)) | awk 'BEGIN {FS = ":.*## "} {printf "  make %-16s %s\n", $$1, $$2}'
 
-up: ## Start PostgreSQL, Redis, Mailpit and MinIO, wait until healthy, create the bucket; start ClamAV without waiting
+up: ## Start PostgreSQL, Redis, Mailpit and MinIO, wait until healthy, create the bucket; start ClamAV without waiting (CLAMAV=0 leaves it out)
 	docker compose up -d --wait postgres redis mailpit minio
 	docker compose run --rm minio-init
+ifneq ($(CLAMAV),0)
 	docker compose up -d clamav
+endif
 
 down: ## Stop the containers (data, including stored files, is kept)
 	docker compose down
