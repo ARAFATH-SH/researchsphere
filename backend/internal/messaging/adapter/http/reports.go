@@ -64,7 +64,7 @@ func (h *Handler) ReportConversation(ctx context.Context, req gen.ReportConversa
 	if err != nil {
 		return nil, err
 	}
-	reported, err := uuid(r.ReportedID)
+	reported, err := optionalUUID(r.ReportedID)
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +98,7 @@ func (h *Handler) ListMessageReports(ctx context.Context, req gen.ListMessageRep
 	return gen.ListMessageReports200JSONResponse{Items: items, Page: res.Page, PageSize: res.PageSize, Total: res.Total}, nil
 }
 
-// GetMessageReport returns a report and its conversation up to the report (NFR-14).
+// GetMessageReport returns a report and its conversation up to the report (NFR-13).
 func (h *Handler) GetMessageReport(ctx context.Context, req gen.GetMessageReportRequestObject) (gen.GetMessageReportResponseObject, error) {
 	admin, ok := httpx.UserID(ctx)
 	if !ok {
@@ -117,13 +117,58 @@ func (h *Handler) GetMessageReport(ctx context.Context, req gen.GetMessageReport
 	if err != nil {
 		return nil, err
 	}
-	messages := make([]gen.Message, len(d.Messages))
+	messages := make([]gen.ReportedMessage, len(d.Messages))
 	for i, m := range d.Messages {
-		if messages[i], err = MessageBody(m); err != nil {
+		if messages[i], err = reportedMessageBody(m); err != nil {
 			return nil, err
 		}
 	}
-	return gen.GetMessageReport200JSONResponse{Report: report, Messages: messages, NextBefore: d.NextBefore}, nil
+	var members *[]gen.MessageReportPerson
+	if d.MembersAtReport != nil {
+		list := make([]gen.MessageReportPerson, len(d.MembersAtReport))
+		for i, p := range d.MembersAtReport {
+			if list[i], err = reportPerson(p); err != nil {
+				return nil, err
+			}
+		}
+		members = &list
+	}
+	return gen.GetMessageReport200JSONResponse{Report: report, MembersAtReport: members, Messages: messages, NextBefore: d.NextBefore}, nil
+}
+
+// reportedMessageBody is a message as the administrator sees it: the text at the report's
+// moment and the versions shown up to it (NFR-13).
+func reportedMessageBody(m domain.ReportedMessage) (gen.ReportedMessage, error) {
+	id, err := uuid(m.ID)
+	if err != nil {
+		return gen.ReportedMessage{}, err
+	}
+	conversation, err := uuid(m.ConversationID)
+	if err != nil {
+		return gen.ReportedMessage{}, err
+	}
+	sender, err := senderUUID(m.SenderID)
+	if err != nil {
+		return gen.ReportedMessage{}, err
+	}
+	event, err := eventBody(m.Event, sender)
+	if err != nil {
+		return gen.ReportedMessage{}, err
+	}
+	versions := make([]gen.MessageVersion, len(m.Versions))
+	for i, v := range m.Versions {
+		versions[i] = gen.MessageVersion{Body: v.Body, ShownFrom: v.ShownFrom, ShownUntil: v.ShownUntil, EndedBy: gen.MessageVersionEndedBy(v.EndedBy)}
+	}
+	files, err := attachmentsBody(m.Attachments)
+	if err != nil {
+		return gen.ReportedMessage{}, err
+	}
+	return gen.ReportedMessage{
+		Id: id, ConversationId: conversation, SenderId: sender, Kind: messageKind(m.Kind), Event: event,
+		CreatedAt: m.CreatedAt, Body: m.Body,
+		EditedAt: m.EditedAt, DeletedAt: m.DeletedAt, ChangedAfterReport: m.ChangedAfterReport, Versions: versions,
+		Attachments: files,
+	}, nil
 }
 
 // ResolveMessageReport closes a report with an outcome (FR-16.9).
@@ -171,12 +216,21 @@ func reportBody(r domain.Report) (gen.MessageReport, error) {
 	if err != nil {
 		return gen.MessageReport{}, err
 	}
-	reported, err := reportPerson(r.Reported)
-	if err != nil {
-		return gen.MessageReport{}, err
+	var reported *gen.MessageReportPerson
+	if r.Reported != nil {
+		p, err := reportPerson(*r.Reported)
+		if err != nil {
+			return gen.MessageReport{}, err
+		}
+		reported = &p
+	}
+	kind := gen.Direct
+	if r.ConversationKind == domain.KindGroup {
+		kind = gen.Group
 	}
 	b := gen.MessageReport{
-		Id: id, ConversationId: conversation, Status: gen.MessageReportStatus(domain.ReportOpen),
+		Id: id, ConversationId: conversation, ConversationKind: kind, GroupName: r.GroupName,
+		Status: gen.MessageReportStatus(domain.ReportOpen),
 		Reason: gen.ReportReason(r.Reason), Details: r.Details, MessageId: message,
 		Reporter: reporter, ReportedUser: reported, CreatedAt: r.CreatedAt, Note: r.Note, ResolvedAt: r.ResolvedAt,
 	}

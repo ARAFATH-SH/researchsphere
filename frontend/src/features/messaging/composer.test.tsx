@@ -11,7 +11,7 @@ describe("Composer", () => {
     render(<Composer onSend={onSend} />);
     type("  hello \n");
     fireEvent.keyDown(box(), { key: "Enter" });
-    expect(onSend).toHaveBeenCalledWith("hello");
+    expect(onSend).toHaveBeenCalledWith("hello", []);
     expect(box().value).toBe("");
   });
 
@@ -43,7 +43,7 @@ describe("Composer", () => {
     expect(onSend).not.toHaveBeenCalled();
     type("hi");
     fireEvent.click(send);
-    expect(onSend).toHaveBeenCalledWith("hi");
+    expect(onSend).toHaveBeenCalledWith("hi", []);
   });
 
   it("shows the count from 4,500 and refuses more than 5,000 characters", () => {

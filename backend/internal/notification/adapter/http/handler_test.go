@@ -226,3 +226,29 @@ func TestListSystemNotification(t *testing.T) {
 		t.Errorf("actor = %v, want none", actor)
 	}
 }
+
+// FR-9.5: group_added carries its group's current name; one without a subject has none.
+func TestListSubject(t *testing.T) {
+	svc := &fakeService{page: domain.Page{Items: []domain.Item{
+		{
+			Notification: domain.Notification{ID: notifID, Type: domain.TypeGroupAdded, ActorID: actorID, SubjectID: reqID, CreatedAt: at},
+			Actor:        &domain.Actor{UserID: actorID, FullName: "Ada"},
+			Link:         "/messaging/" + reqID,
+			Subject:      &domain.Subject{Kind: domain.SubjectConversation, ID: reqID, Title: "Lab"},
+		},
+		{
+			Notification: domain.Notification{ID: notif2ID, Type: domain.TypeGroupAdded, ActorID: actorID, SubjectID: reqID, CreatedAt: at},
+			Actor:        &domain.Actor{UserID: actorID, FullName: "Ada"},
+			Link:         "/messaging/" + reqID,
+		},
+	}}}
+	rec := send(t, svc, http.MethodGet, "/api/v1/notifications", callerID)
+	items := decode(t, rec)["items"].([]any)
+	subject := items[0].(map[string]any)["subject"].(map[string]any)
+	if subject["type"] != "conversation" || subject["id"] != reqID || subject["title"] != "Lab" {
+		t.Errorf("subject = %v", subject)
+	}
+	if s, ok := items[1].(map[string]any)["subject"]; ok && s != nil {
+		t.Errorf("no subject = %v", s)
+	}
+}

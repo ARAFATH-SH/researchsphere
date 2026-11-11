@@ -26,19 +26,21 @@ type ReportDialogProps = {
   name: string;
   // canBlock offers to block them once the report is sent, because reporting does not.
   canBlock: boolean;
+  // title names what is reported when it is not a conversation with one person ("Report group").
+  title?: string;
   onClose: () => void;
   onBlock: () => void;
 };
 
 // ReportDialog reports a conversation or a message to the administrators (FR-16.9).
-export function ReportDialog({ conversationId, messageId, name, canBlock, onClose, onBlock }: ReportDialogProps) {
+export function ReportDialog({ conversationId, messageId, name, canBlock, title: titleOverride, onClose, onBlock }: ReportDialogProps) {
   const [reason, setReason] = useState<ReportReason | "">("");
   const [details, setDetails] = useState("");
   const [reasonError, setReasonError] = useState<string>();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState<{ offerBlock: boolean } | null>(null);
-  const title = messageId ? "Report message" : "Report conversation";
+  const title = messageId ? "Report message" : (titleOverride ?? "Report conversation");
   const length = bodyLength(details);
 
   async function submit(event: FormEvent<HTMLFormElement>) {

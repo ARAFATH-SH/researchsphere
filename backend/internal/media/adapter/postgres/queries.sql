@@ -44,3 +44,50 @@ SELECT f.id, f.owner_user_id, f.purpose, f.object_key, f.scan_status,
 FROM stored_files f
 JOIN users u ON u.id = f.owner_user_id
 WHERE f.id = @id;
+
+-- The malware scan of stored files (FR-16.7, NFR-13; slice 14B, chunk 14B.3). A worker leases
+-- due files in one statement: SKIP LOCKED keeps two workers off the same rows while the claim
+-- runs, and the lease keeps them off afterwards, without a transaction open during the scan.
+-- name: ClaimScans :many
+UPDATE stored_files f
+SET scan_lease_until = now() + make_interval(secs => @lease_seconds::double precision),
+    scan_lease_token = gen_random_uuid()
+WHERE f.id IN (
+    SELECT d.id FROM stored_files d
+    WHERE d.scan_status = 'pending' AND d.scan_next_at <= now()
+      AND (d.scan_lease_until IS NULL OR d.scan_lease_until < now())
+    ORDER BY d.scan_next_at
+    LIMIT @max_rows
+    FOR UPDATE SKIP LOCKED
+)
+RETURNING f.id, f.owner_user_id, f.object_key, f.scan_attempts, f.scan_lease_token::uuid AS lease_token;
+
+-- name: MarkScanClean :execrows
+UPDATE stored_files
+SET scan_status = 'clean', scanned_at = now(), scan_error = NULL, scan_lease_until = NULL, scan_lease_token = NULL
+WHERE id = @id AND scan_lease_token = @lease_token AND scan_status = 'pending';
+
+-- The row stays as the record; its object is queued for deletion now (the trigger of 000007
+-- only fires when a row goes).
+-- name: MarkScanInfected :execrows
+WITH marked AS (
+    UPDATE stored_files f
+    SET scan_status = 'infected', scanned_at = now(), scan_error = NULL, scan_lease_until = NULL, scan_lease_token = NULL
+    WHERE f.id = @id AND f.scan_lease_token = @lease_token AND f.scan_status = 'pending'
+    RETURNING f.object_key
+)
+INSERT INTO storage_deletions (object_key) SELECT object_key FROM marked;
+
+-- name: MarkScanFailed :execrows
+UPDATE stored_files
+SET scan_status = 'failed', scanned_at = now(), scan_error = @scan_error,
+    scan_attempts = LEAST(scan_attempts + 1, 5), scan_lease_until = NULL, scan_lease_token = NULL
+WHERE id = @id AND scan_lease_token = @lease_token AND scan_status = 'pending';
+
+-- name: RetryScanLater :execrows
+UPDATE stored_files
+SET scan_next_at = now() + make_interval(secs => @delay_seconds::double precision),
+    scan_attempts = scan_attempts + @add_attempts::integer,
+    scan_error = COALESCE(sqlc.narg(scan_error), scan_error),
+    scan_lease_until = NULL, scan_lease_token = NULL
+WHERE id = @id AND scan_lease_token = @lease_token AND scan_status = 'pending';

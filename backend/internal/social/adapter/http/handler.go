@@ -34,6 +34,7 @@ type Service interface {
 	Cancel(ctx context.Context, requesterID, requestID string) error
 	Remove(ctx context.Context, userID, otherID string) error
 	ListConnections(ctx context.Context, userID string, page int) (domain.ConnectionPage, error)
+	SearchConnections(ctx context.Context, userID, q string, page int) (domain.ConnectionPage, error)
 	ListUserConnections(ctx context.Context, viewerID, userID string, page int) (domain.ConnectionPage, error)
 	ListReceived(ctx context.Context, userID string, page int) (domain.RequestPage, error)
 	ListSent(ctx context.Context, userID string, page int) (domain.RequestPage, error)
@@ -185,9 +186,22 @@ func (h *Handler) ListMyConnections(ctx context.Context, req gen.ListMyConnectio
 	if !ok {
 		return gen.ListMyConnections401JSONResponse{UnauthorizedJSONResponse: unauthenticated}, nil
 	}
-	res, err := h.svc.ListConnections(ctx, id, pageParam(req.Params.Page))
-	if errors.Is(err, domain.ErrInvalidPage) {
-		return gen.ListMyConnections400JSONResponse{InvalidConnectionPageJSONResponse: badPage}, nil
+	var (
+		res domain.ConnectionPage
+		err error
+	)
+	if req.Params.Q != nil {
+		res, err = h.svc.SearchConnections(ctx, id, *req.Params.Q, pageParam(req.Params.Page))
+	} else {
+		res, err = h.svc.ListConnections(ctx, id, pageParam(req.Params.Page))
+	}
+	switch {
+	case errors.Is(err, domain.ErrInvalidPage):
+		field := "page"
+		return gen.ListMyConnections400JSONResponse{Code: badPage.Code, Message: badPage.Message, Field: &field}, nil
+	case errors.Is(err, domain.ErrInvalidQuery):
+		field := "q"
+		return gen.ListMyConnections400JSONResponse{Code: httpx.CodeBadRequest, Message: "The search text must have 2 to 100 characters.", Field: &field}, nil
 	}
 	if err != nil {
 		return nil, err

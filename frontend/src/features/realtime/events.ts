@@ -5,8 +5,12 @@ type Schemas = components["schemas"];
 // RealtimeEvent is one server frame (docs/realtime.md).
 export type RealtimeEvent =
   | { type: "message.created"; data: Schemas["RealtimeMessageCreated"] }
+  | { type: "message.updated"; data: Schemas["RealtimeMessageUpdated"] }
+  | { type: "message.deleted"; data: Schemas["RealtimeMessageDeleted"] }
+  | { type: "attachment.updated"; data: Schemas["RealtimeAttachmentUpdated"] }
   | { type: "conversation.read"; data: Schemas["RealtimeConversationRead"] }
   | { type: "conversation.updated"; data: Schemas["RealtimeConversationUpdated"] }
+  | { type: "conversation.members"; data: Schemas["RealtimeConversationMembers"] }
   | { type: "unread.changed"; data: Schemas["MessageUnreadCount"] }
   | { type: "typing"; data: Schemas["RealtimeTyping"] }
   | { type: "presence"; data: Schemas["PresenceStatus"] }
@@ -15,8 +19,12 @@ export type RealtimeEvent =
 
 const types: ReadonlySet<string> = new Set<RealtimeEvent["type"]>([
   "message.created",
+  "message.updated",
+  "message.deleted",
+  "attachment.updated",
   "conversation.read",
   "conversation.updated",
+  "conversation.members",
   "unread.changed",
   "typing",
   "presence",

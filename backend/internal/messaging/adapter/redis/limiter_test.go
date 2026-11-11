@@ -27,7 +27,7 @@ func TestLimiterCountsInAFixedWindow(t *testing.T) {
 		t.Fatalf("Used() before any send = %d, %s, %v; want 0, 0, nil", n, left, err)
 	}
 	for range 3 {
-		if err := l.Record(ctx, "messages:day", "u1", time.Hour); err != nil {
+		if err := l.Record(ctx, "messages:day", "u1", 1, time.Hour); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -36,7 +36,7 @@ func TestLimiterCountsInAFixedWindow(t *testing.T) {
 		t.Fatalf("Used() = %d, %s, %v; want 3 and about an hour", n, left, err)
 	}
 	// A later send with another length does not move the end of the window.
-	if err := l.Record(ctx, "messages:day", "u1", 10*time.Hour); err != nil {
+	if err := l.Record(ctx, "messages:day", "u1", 1, 10*time.Hour); err != nil {
 		t.Fatal(err)
 	}
 	if _, left, _ = l.Used(ctx, "messages:day", "u1"); left > time.Hour {
@@ -47,7 +47,7 @@ func TestLimiterCountsInAFixedWindow(t *testing.T) {
 func TestLimiterKeepsWindowsAndUsersApart(t *testing.T) {
 	l := newTestLimiter(t)
 	ctx := t.Context()
-	if err := l.Record(ctx, "messages:minute", "u1", time.Minute); err != nil {
+	if err := l.Record(ctx, "messages:minute", "u1", 1, time.Minute); err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range []struct{ name, user string }{{"messages:day", "u1"}, {"requests:minute", "u1"}, {"messages:minute", "u2"}} {
@@ -60,11 +60,26 @@ func TestLimiterKeepsWindowsAndUsersApart(t *testing.T) {
 func TestLimiterWindowExpires(t *testing.T) {
 	l := newTestLimiter(t)
 	ctx := t.Context()
-	if err := l.Record(ctx, "messages:minute", "u1", 30*time.Millisecond); err != nil {
+	if err := l.Record(ctx, "messages:minute", "u1", 1, 30*time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(60 * time.Millisecond)
 	if n, _, err := l.Used(ctx, "messages:minute", "u1"); err != nil || n != 0 {
 		t.Errorf("after the window: %d, %v", n, err)
+	}
+}
+
+// Added group members count several at once (FR-16.10).
+func TestLimiterRecordsSeveral(t *testing.T) {
+	l := newTestLimiter(t)
+	ctx := t.Context()
+	if err := l.Record(ctx, "group-members:day", "u1", 49, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.Record(ctx, "group-members:day", "u1", 3, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if n, left, err := l.Used(ctx, "group-members:day", "u1"); err != nil || n != 52 || left <= 59*time.Minute {
+		t.Errorf("Used() = %d, %s, %v; want 52 and about an hour", n, left, err)
 	}
 }

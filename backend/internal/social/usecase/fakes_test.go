@@ -35,6 +35,8 @@ type fakeStore struct {
 	// blocks holds blocker|blocked; locks counts LockPair calls.
 	blocks map[string]time.Time
 	locks  int
+	// searched holds the texts SearchConnections was asked for.
+	searched []string
 }
 
 var _ domain.Store = (*fakeStore)(nil)
@@ -220,6 +222,20 @@ func (s *fakeStore) ListConnections(_ context.Context, viewerID, userID string, 
 	return page(all, limit, offset), len(all), nil
 }
 
+// SearchConnections keeps the connections whose name contains q, ignoring case; the matching
+// rules themselves have their store tests. It records q.
+func (s *fakeStore) SearchConnections(ctx context.Context, userID, q string, limit, offset int) ([]domain.Connection, int, error) {
+	s.searched = append(s.searched, q)
+	all, _, err := s.ListConnections(ctx, userID, userID, 1<<20, 0)
+	if err != nil {
+		return nil, 0, err
+	}
+	all = slices.DeleteFunc(all, func(c domain.Connection) bool {
+		return !strings.Contains(strings.ToLower(c.Other.FullName), strings.ToLower(q))
+	})
+	return page(all, limit, offset), len(all), nil
+}
+
 func (s *fakeStore) listPending(userID string, received bool, limit, offset int) ([]domain.PendingRequest, int, error) {
 	if s.err != nil {
 		return nil, 0, s.err
@@ -262,6 +278,16 @@ func (s *fakeStore) LockPair(context.Context, string, string) error {
 
 func (s *fakeStore) BlockBetween(_ context.Context, me, other string) (domain.BlockState, error) {
 	return domain.BlockState{ByMe: s.blocked(me, other), ByThem: s.blocked(other, me)}, s.err
+}
+
+func (s *fakeStore) BlockedAmong(_ context.Context, userID string, ids []string) ([]string, error) {
+	var out []string
+	for _, id := range ids {
+		if s.blocked(userID, id) || s.blocked(id, userID) {
+			out = append(out, id)
+		}
+	}
+	return out, s.err
 }
 
 func (s *fakeStore) AddBlock(_ context.Context, blockerID, blockedID string) (bool, error) {

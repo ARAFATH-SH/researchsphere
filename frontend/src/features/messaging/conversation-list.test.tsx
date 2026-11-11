@@ -1,14 +1,19 @@
+import "@/test/dialog-polyfill";
+
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 
-import { listConversations, type MessageUnreadCount } from "./api";
+import { listMyConnections } from "@/features/social/api";
+
+import { listConversations, type MessageUnreadCount, searchMessages } from "./api";
 import { ConversationList } from "./conversation-list";
-import { adaID, bobID, conversation, conversationID } from "./test-data";
+import { adaID, bobID, conversation, conversationID, group, groupID } from "./test-data";
 import { ConversationsProvider } from "./use-conversations";
 
 const mockCounts = jest.fn<MessageUnreadCount, []>();
 jest.mock("./api");
+jest.mock("@/features/social/api");
 jest.mock("./unread-count", () => ({ useUnreadMessages: () => mockCounts() }));
-jest.mock("next/navigation", () => ({ usePathname: () => `/messaging/${conversationID}` }));
+jest.mock("next/navigation", () => ({ usePathname: () => `/messaging/${conversationID}`, useRouter: () => ({ push: jest.fn() }) }));
 jest.mock("@/features/auth/session", () => ({
   useSession: () => ({ status: "signedIn", user: { id: "0b8f4c1e-0000-4000-8000-000000000001" } }),
 }));
@@ -54,7 +59,7 @@ describe("ConversationList", () => {
   });
 
   it("shows a read row plainly, with You: before my own message", async () => {
-    const lastMessage = { senderId: adaID, body: "Hello", createdAt: "2026-11-05T09:00:00Z" };
+    const lastMessage = { senderId: adaID, senderName: "Ada Lovelace", kind: "text" as const, event: null, body: "Hello", deleted: false, attachmentCount: 0, createdAt: "2026-11-05T09:00:00Z" };
     mockList.mockResolvedValue(page([conversation({ lastMessage })]));
     renderList();
     const preview = await screen.findByText("You: Hello");
@@ -96,7 +101,7 @@ describe("ConversationList", () => {
 
   it("pages by cursor when the end of the list scrolls into view", async () => {
     mockList.mockResolvedValueOnce(page([conversation()], "next"));
-    mockList.mockResolvedValueOnce(page([conversation({ id: "second", otherMember: { ...conversation().otherMember, fullName: "Cy Young" } })]));
+    mockList.mockResolvedValueOnce(page([conversation({ id: "second", otherMember: { ...conversation().otherMember!, fullName: "Cy Young" } })]));
     renderList();
     await screen.findByRole("link", { name: /Bob Babbage/ });
     await act(async () => intersect?.([{ isIntersecting: true }]));
@@ -125,5 +130,44 @@ describe("ConversationList", () => {
     const again = await screen.findByRole("button", { name: "Try again" });
     await act(async () => fireEvent.click(again));
     expect(await screen.findByRole("link", { name: /Bob Babbage/ })).toBeTruthy();
+  });
+});
+
+describe("groups and search in the list (FR-16.6, FR-16.8)", () => {
+  it("shows a group row with its name, first members and a named preview", async () => {
+    mockList.mockResolvedValue(page([group()]));
+    renderList();
+    const row = await screen.findByRole("link", { name: /CVS paper team/ });
+    expect(row.getAttribute("href")).toBe(`/messaging/${groupID}`);
+    expect(within(row).getByText("Nafisa: I'll check the references")).toBeTruthy();
+    expect(within(row).getByText("NH")).toBeTruthy();
+    expect(within(row).getByText("RU")).toBeTruthy();
+  });
+
+  it("opens the New group dialog from the heading", async () => {
+    mockList.mockResolvedValue(page([conversation()]));
+    jest.mocked(listMyConnections).mockResolvedValue({ ok: true, data: { items: [], page: 1, pageSize: 20, total: 0 } });
+    renderList();
+    await screen.findByRole("link", { name: /Bob Babbage/ });
+    fireEvent.click(screen.getByRole("button", { name: "New group" }));
+    expect(await screen.findByRole("dialog", { name: "New group" })).toBeTruthy();
+  });
+
+  it("puts the search results in the list's place from 2 characters, and brings the list back on Escape", async () => {
+    jest.useFakeTimers();
+    mockList.mockResolvedValue(page([conversation()]));
+    jest.mocked(searchMessages).mockResolvedValue({ ok: true, data: { items: [], nextCursor: null, people: {} } });
+    renderList();
+    await screen.findByRole("link", { name: /Bob Babbage/ });
+    const box = screen.getByRole("searchbox", { name: "Search messages" });
+    fireEvent.change(box, { target: { value: "x" } });
+    expect(screen.getByRole("tablist")).toBeTruthy();
+    fireEvent.change(box, { target: { value: "xy" } });
+    expect(screen.queryByRole("tablist")).toBeNull();
+    await act(async () => jest.advanceTimersByTime(300));
+    expect(screen.getByText("No messages match “xy”.")).toBeTruthy();
+    fireEvent.keyDown(box, { key: "Escape" });
+    expect(screen.getByRole("link", { name: /Bob Babbage/ })).toBeTruthy();
+    jest.useRealTimers();
   });
 });

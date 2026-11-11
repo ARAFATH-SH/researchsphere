@@ -147,6 +147,11 @@ type Store interface {
 	ListConnections(ctx context.Context, viewerID, userID string, limit, offset int) ([]Connection, int, error)
 	ListReceived(ctx context.Context, userID string, limit, offset int) ([]PendingRequest, int, error)
 	ListSent(ctx context.Context, userID string, limit, offset int) ([]PendingRequest, int, error)
+	// SearchConnections is ListConnections of userID's own connections, with userID as the
+	// viewer, keeping those whose name, headline or institution match q (FR-16.6): a name
+	// containing q, or when none does a similar name, then an institution, then a headline
+	// containing it. Best match first, then newest. The total counts the matches.
+	SearchConnections(ctx context.Context, userID, q string, limit, offset int) ([]Connection, int, error)
 	// CountConnections is the total of ListConnections.
 	CountConnections(ctx context.Context, viewerID, userID string) (int, error)
 	// LockPair holds a lock on the pair a, b until the transaction ends, so blocks,
@@ -154,6 +159,9 @@ type Store interface {
 	LockPair(ctx context.Context, a, b string) error
 	// BlockBetween reads who has blocked whom between me and other.
 	BlockBetween(ctx context.Context, me, other string) (BlockState, error)
+	// BlockedAmong returns which of ids are in a block with userID, either way. IDs that are
+	// not UUIDs are not.
+	BlockedAmong(ctx context.Context, userID string, ids []string) ([]string, error)
 	// AddBlock stores that blockerID blocks blockedID. added is false when it already did.
 	AddBlock(ctx context.Context, blockerID, blockedID string) (added bool, err error)
 	// RemoveBlock deletes that block, if there is one. An ID that is not a UUID is none.
@@ -223,8 +231,11 @@ var (
 	ErrAlreadyPending   = errors.New("social: a request is already pending")
 	ErrAlreadyConnected = errors.New("social: already connected")
 	ErrInvalidPage      = errors.New("social: page is not a whole number of at least 1")
-	ErrBlockSelf        = errors.New("social: cannot block oneself")
-	ErrYouBlocked       = errors.New("social: the caller has blocked this user")
+	// ErrInvalidQuery refuses a search text that does not have 2 to 100 characters after
+	// trimming.
+	ErrInvalidQuery = errors.New("social: the search text must have 2 to 100 characters")
+	ErrBlockSelf    = errors.New("social: cannot block oneself")
+	ErrYouBlocked   = errors.New("social: the caller has blocked this user")
 )
 
 // PendingFromThemError says the other user has already sent the caller a request that is

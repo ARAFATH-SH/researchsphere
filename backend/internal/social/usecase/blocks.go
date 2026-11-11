@@ -68,6 +68,11 @@ func (s *Service) BlockBetween(ctx context.Context, me, other string) (domain.Bl
 	return s.store.BlockBetween(ctx, me, other)
 }
 
+// BlockedAmong returns which of ids are in a block with userID, either way.
+func (s *Service) BlockedAmong(ctx context.Context, userID string, ids []string) ([]string, error) {
+	return s.store.BlockedAmong(ctx, userID, ids)
+}
+
 // LockPair serializes a block and any write that a block must refuse, between a and b. It
 // joins the transaction the context carries.
 func (s *Service) LockPair(ctx context.Context, a, b string) error {

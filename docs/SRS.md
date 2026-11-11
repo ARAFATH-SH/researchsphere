@@ -1,6 +1,6 @@
 # ResearchSphere: Software Requirements Specification
 
-Oct 7, 2026 · All Arafath Shojib · Version 1.0 (draft)
+Oct 7, 2026 · All Arafath Shojib · ID 232-35-146 · Version 1.0 (draft)
 
 ## 1. Introduction
 
@@ -85,6 +85,7 @@ The server enforces both tables (FR-3.2). An administrator has no extra rights i
 | Remove any post or comment | No | No | Yes |
 | Suspend a user account | No | No | Yes |
 | Warn or restrict a user, and read their moderation history | No | No | Yes |
+| Send messages and message requests | No | Yes | Yes |
 | Review reported conversations | No | No | Yes |
 
 **Project level**
@@ -109,9 +110,9 @@ The server enforces both tables (FR-3.2). An administrator has no extra rights i
 
 ### 2.5 Constraints
 
-- The project lasts 12 weeks and has one developer.
+- The platform is built for production use with no fixed deadline; one developer builds it.
 - AI models are pretrained. Nothing is trained or fine-tuned.
-- External services are used within their free allowances.
+- External services are chosen for production use; free allowances are preferred while usage is low.
 - A file supports at most 6 simultaneous editors.
 - The user interface is in English.
 
@@ -124,7 +125,7 @@ The server enforces both tables (FR-3.2). An administrator has no extra rights i
 
 ## 3. Functional Requirements
 
-The 15 functional requirements of the proposal are grouped by module below. In every statement "the system shall" is the subject.
+The 15 functional requirements of the proposal, plus FR-16 Messaging (added 18 October 2026) and FR-17 Email trust and outside sign-in (added 8 November 2026, planned), are grouped by module below. In every statement "the system shall" is the subject.
 
 ### 3.1 Accounts and access control
 
@@ -161,21 +162,39 @@ The 15 functional requirements of the proposal are grouped by module below. In e
 | FR-3.3 | answer a request for an action the user may not perform with an error that reveals none of the protected content | Must |
 | FR-3.4 | refuse login to a suspended account, saying why and, when the suspension is temporary, until when, only after the right password | Should |
 
+**FR-17 Email trust and outside sign-in (planned)**
+
+Added on 8 November 2026. These requirements are planned, not scheduled: they are built in the first slice that next touches email delivery or ORCID, before that slice's own work. Until then, development keeps using Mailpit, which catches every email locally and sends nothing out.
+
+| ID | The system shall | Priority |
+| --- | --- | --- |
+| FR-17.1 | send email through a real delivery service in production (free tier first, such as Brevo or Resend, paid later), switched by configuration only, with SPF, DKIM and DMARC set on the domain | Must |
+| FR-17.2 | refuse sign-up with a disposable email address or a domain that cannot receive email (no MX record) | Should |
+| FR-17.3 | let an unverified user only verify, resend the link, edit their own profile and sign out; messaging, connection requests, posts and projects need a verified email | Must |
+| FR-17.4 | delete accounts still unverified 7 days after sign-up | Should |
+| FR-17.5 | let a user sign up and sign in with a Google account, taking the verified email, name and photo from Google | Should |
+| FR-17.6 | let a user sign up and sign in with an ORCID account, which marks their ORCID iD as verified on the profile; ask for and verify an email when ORCID does not share one | Should |
+| FR-17.7 | offer to import name, biography, employment, education and works from ORCID, and add only what the user confirms | Should |
+| FR-17.8 | never join an outside sign-in to an existing account by email alone; the user signs in with the password first and connects Google or ORCID in Settings, where they can also disconnect it, but never their last way to sign in | Must |
+| FR-17.9 | keep the development and test accounts (test1 to test4, the administrator and the Compare accounts) working under these rules outside production, through an allowlist of test email domains and a seed command that recreates them | Must |
+
+Security notes for FR-17.5 and FR-17.6: the authorization code flow with PKCE and state, Google ID tokens checked, and no provider access tokens stored. ORCID sign-in replaces the current rule that anyone can type an ORCID iD on their profile, which cannot prove ownership.
+
 ### 3.2 Profile, publications and search
 
 **FR-4 Research profile**
 
 | ID | The system shall | Priority |
 | --- | --- | --- |
-| FR-4.1 | let a user create and edit a profile with full name, headline, bio, institution, department, job title, country and city | Must |
+| FR-4.1 | let a user create and edit a profile with full name, headline, bio, institution, department, job title, city and country | Must |
 | FR-4.2 | let a user add and remove research interests and skills as tags, treating tags that differ only in letter case as the same tag | Must |
 | FR-4.3 | suggest existing tags while the user types a tag | Should |
-| FR-4.4 | let a user add, edit and remove education entries with institution, degree, field, years, grade and description | Must |
+| FR-4.4 | let a user add, edit and remove education entries with institution, degree (optional), field, years, grade and description | Must |
 | FR-4.5 | show any user's profile to a logged-in user, with interests, skills, education, confirmed publications and the connection status between the two | Must |
-| FR-4.6 | let a user upload a profile photo of up to 5 MB (JPEG, PNG or WebP), stored as a 400x400 JPEG, and a cover image of up to 8 MB, stored as a 1584x396 JPEG | Must |
-| FR-4.7 | let a user add contact info (phone, birthday as day and month without year, and up to 5 website links) and choose for each item, and for the account email, who can see it: only me or all logged-in users | Should |
-| FR-4.8 | let a user add, edit and remove work experience entries with title, organization, employment type, location, location type, start and end month, current role, and description | Must |
-| FR-4.9 | let a user list the languages they know, each with a proficiency level | Should |
+| FR-4.6 | let a user upload a profile photo (JPG, PNG or WebP, up to 5 MB), stored as a 400x400 JPEG, and a cover image (up to 8 MB), stored as a 1584x396 JPEG, both in object storage | Must |
+| FR-4.7 | let a user add contact info (phone number, birthday as day and month without the year, and up to 5 website links such as Google Scholar or GitHub) and choose, for each item and for the account email, who can see it: only the user or every logged-in user | Should |
+| FR-4.8 | let a user add, edit and remove experience entries with role (title), organization, employment type, location and location type, start and end month (or present), description and the skills used | Must |
+| FR-4.9 | let a user list the languages they speak, each with a proficiency level | Should |
 
 **FR-5 Publications**
 
@@ -323,7 +342,7 @@ Messaging lets researchers reach each other directly. Connected users chat at on
 | FR-16.3 | show the unread count per conversation and in total, and show the sender when a message has been seen | Must |
 | FR-16.4 | show when the other person is typing and whether they are online | Should |
 | FR-16.5 | let a user edit or delete their own message; an edited message is labeled as edited | Should |
-| FR-16.6 | let a user create a group conversation of up to 50 members, name it, and let its creator add and remove members | Should |
+| FR-16.6 | let a user create a group conversation of up to 50 members, name it, and let its owner (the creator at first; ownership passes to the earliest-joined member when the owner leaves) rename it and add and remove members | Should |
 | FR-16.7 | let a user attach files (PDF, images and office documents) of up to 25 MB to a message; each file is checked by type and scanned for malware before others can download it | Should |
 | FR-16.8 | let a user search the text of their own conversations | Should |
 | FR-16.9 | let a user block another user, after which neither can message the other, and report a conversation or message to administrators | Must |
@@ -423,6 +442,7 @@ The system has one user interface (the web client), four outside services and tw
 | Workspace | Edits files, compiles, reads the PDF, uses the assistant | FR-12, FR-13, AI-7, AI-8 |
 | Events | Browses and filters venues | FR-14 |
 | Admin | Maintains venues, removes content, manages users | FR-15 |
+| Messaging | Reads and sends messages, handles message requests, blocks and reports | FR-16 |
 
 Every page except the workspace shall be usable at a width of 768 pixels.
 
@@ -467,23 +487,21 @@ NFR-1 to NFR-7 come from the proposal. NFR-8 to NFR-14 are added here.
 | NFR-11.1 | Maintainability | Database changes shall be made only through numbered migrations that can be applied and undone | Must |
 | NFR-11.2 | Maintainability | The API server's business logic shall have automated tests covering at least 70% of its lines | Should |
 | NFR-12 | Capacity | The deployment shall support 10 files being edited at once, each by 6 editors | Should |
-| NFR-13 | Security | Uploaded files shall be kept in private object storage, served only through short-lived presigned URLs after a permission check, and encrypted at rest | Must |
-| NFR-14 | Security | Every read and write of a conversation or message shall check on the server that the user is a member; anyone else, an administrator included, shall get the same "not found" answer as for a conversation that does not exist. The one exception: an administrator may read a conversation only through a report on it, only the messages up to the moment of that report, and every such read shall be recorded with the administrator, the report and the time | Must |
+| NFR-13 | Security | Messages and attachments shall be readable only by the conversation's members, and by administrators only for conversations reported to them; all traffic is encrypted in transit and stored files are encrypted at rest. Every read and write of a conversation or message shall check on the server that the user is a member; anyone else, an administrator included, shall get the same "not found" answer as for a conversation that does not exist. An administrator may read a conversation only through a report on it, only the messages up to the moment of that report, and every such read shall be recorded with the administrator, the report and the time. Uploaded files shall be kept in private object storage and served only through short-lived presigned URLs after a permission check | Must |
+| NFR-14 | Reliability | The database shall be backed up every day, and a backup shall be restored as a test at least once a month | Must |
 
 ## 7. Data Requirements
 
-The database holds the 32 kinds of record below. The rules below are enforced by the database itself, so that a fault in the application cannot break them.
+The database holds the 18 core kinds of record below, plus 19 added for profile details, file storage, messaging and moderation (from Contact info down). The rules below are enforced by the database itself, so that a fault in the application cannot break them.
 
 | Entity | Main attributes | Rules |
 | --- | --- | --- |
 | User | Email, password hash, role, verified time, suspended time, suspension end and reason, AI consent time | Email is unique, ignoring letter case; a suspension end or reason only on a suspended account; a suspension ends after it starts |
-| Session | User, refresh token hash, expiry, revoked time, hashes of earlier (retired) refresh tokens, kept to detect reuse | One per logged-in device; the token hash and every retired hash are unique |
-| One-time token | User, purpose (verification or reset), token hash, expiry, used time | The token hash is unique; works once |
-| Profile | Name, headline, bio, institution, department, job title, country, ORCID iD | One per user; ORCID iD is unique and well formed |
+| Session | User, refresh token hash, expiry time, revoked time, hashes of earlier (retired) refresh tokens, kept to detect reuse | One per logged-in device; only the token's hash is stored, and the token hash and every retired hash are unique; logout or a password change revokes it (FR-2.2, FR-2.5) |
+| One-time token | User, purpose (email verification or password reset), token hash, expiry time, used time | Only the token's hash is stored, and it is unique; it works once and expires (FR-1.3, FR-2.3) |
+| Profile | Name, headline, bio, institution, department, job title, city, country, ORCID iD, photo, cover image | One per user; ORCID iD is unique and well formed |
 | Interest, Skill | Name | Name is unique, ignoring letter case; shared by all users and projects |
-| Education | Institution, degree, field, start and end year | End year is not before start year |
-| Contact info | Phone, birth month and day, who can see the email, phone and birthday | One per user; phone in E.164 format; month and day both set or both empty and a real date (29 February allowed); each visibility is only me or all logged-in users |
-| Profile link | Kind (website, Google Scholar, ResearchGate, LinkedIn, GitHub, other), URL | At most 5 per user; URL uses https and has at most 300 characters |
+| Education | Institution, degree, field, start and end year, grade, description | End year is not before start year |
 | Publication | DOI, title, abstract, venue name, year, link, source | DOI is unique; linked to each author with a confirmed time |
 | Connection | Requester, receiver, status, times | No self-connection; one pending or accepted connection per pair, in either direction |
 | Post, Like, Comment | Author, text, linked publication or project, removal time and reason | One like per user per post |
@@ -496,12 +514,22 @@ The database holds the 32 kinds of record below. The rules below are enforced by
 | Embedding | Owner (profile, project, post or venue), model, text hash, vector | One per owner; deleted with its owner |
 | Notification | Receiver, type, actor, item, read time | Deleted with its receiver; a system type has no actor, every other type has one |
 | Assistant request | User, project, kind, accepted or not | The suggestion text is not stored |
-| Conversation | Kind (direct or group), state (active, request or declined), who requested it, the pair of users, last message time | One direct conversation per pair of users; a request names who requested it |
-| Conversation member | Conversation, user, joined time, read marker and its time | One row per user per conversation; the read marker is a message of the same conversation |
-| Message | Conversation, sender, text, client ID, times | 1 to 5,000 characters, trimmed; a client ID is used once per sender |
-| Block | Blocker, blocked user, time | One per direction; no self-block; deleted with either user |
-| Message report | Conversation, reporter, reported user, message, reason, details, time, resolution (time, administrator, outcome, note) | A reported message belongs to the conversation; deleted with the conversation |
+| Contact info | User, phone, birth month and day, who may see the email, phone and birthday | One per user; phone in international (E.164) format; birthday has no year: month and day both set or both empty and a real date (29 February allowed); each visibility is only the user or every logged-in user |
+| Profile link | User, kind (website, Google Scholar, ResearchGate, LinkedIn, GitHub, other), URL | At most 5 per user; HTTPS only, at most 300 characters |
+| Experience | User, role, organization, employment type, location, start and end month, description | End is not before start; at most 30 per user |
+| Language | User, language, proficiency | One entry per language per user |
+| Stored file | Owner, purpose (photo, cover, figure, PDF, attachment), object key, content type, size, scan status | The file itself lives in object storage; deleted with its owner |
+| Conversation | Kind (direct or group), state (active, request or declined), who requested it, the pair of users, last message time; for a group its name, creator, the creator's client ID and closed time | One direct conversation per pair of users; a request names who requested it; a group has a name of 1 to 100 characters on one line, is always active, and is one per creator and client ID |
+| Conversation member | Conversation, user, role (owner or member), joined time, read marker and its time | One row per user per conversation; at most one owner per group; the read marker is a message of the same conversation; a member sees only messages from the time they joined; a group has at most 50 members |
+| Group membership | Group, user, joined time, left time | One per stay; at most one open stay per user and group; read only through an administrator's report (NFR-13) and to name a former member on a page of messages a member may already read; deleted with the user or the group |
+| Message | Conversation, sender, kind (text or system), text, whether it has attachments, system event and its details, client ID, sent, edited and deleted times | A text message has a sender, a client ID used once per sender, and text of 1 to 5,000 characters, trimmed, unless it has attachments; a system message records a group change, has no text, attachments or client ID, may have no sender, and is never edited or deleted; a deleted message keeps its place with no text; edited and deleted after it was sent; only members of the conversation can read it; deleted with its sender's account |
+| Message attachment | Stored file (owner, object key, content type, size, scan status, scan tries and last error), uploader, conversation, message, position, display name, upload and expiry times | The file belongs to the uploader; scan status is pending, clean, infected or failed; at most 25 MB; at most 5 per message, in order; sent with at most one message, never moved; a display name of 1 to 200 characters with no folder or control characters; deleting the row deletes the stored file and queues its object |
+| Message version | Message, text, shown from, shown until, ended by (edit or deletion) | One per replaced text, at most one deletion per message; read only through an administrator's report (NFR-13); deleted with the message |
+| Message request | Held in the conversation: state `request` and who requested it (see Conversation) | One pending request per pair of users, as there is one direct conversation per pair |
+| Block | Blocker, blocked user, time | One per direction; no self-block; a block stops messages in both directions; deleted with either user |
+| Message report | Conversation, reporter, reported user, message, reason, details, time, status and resolution (time, administrator, outcome, note) | A reported message belongs to the conversation; a report of a whole group names no reported user; deleted with the conversation |
 | Report view | Report, administrator, time | One per administrator's read; holds no message text and outlives the report |
+| Report attachment download | Report, file, administrator, time | One per administrator's download of an attachment through a report; outlives the report and the file |
 | Account warning | User, reason, time, acknowledged time | Reason of 10 to 1,000 characters; deleted with the user |
 | Account restriction | User, kind, start, end, lifted time, who lifted it | Ends after it starts; deleted with the user |
 | Moderation action | User, administrator, action, reason, internal note, report, warning or restriction, end, time | One per action, never changed; deleted with the user, keeps its row without the name when the administrator's account is deleted, and outlives its report |
@@ -509,17 +537,24 @@ The database holds the 32 kinds of record below. The rules below are enforced by
 **Retention**
 
 - Deleting an account removes the user's personal data at once (FR-2.8). Publications shared with a co-author stay for that co-author.
-- Deleting an account deletes the user's direct conversations with all their messages, also the other member's copy.
+- Deleting an account deletes the user's direct conversations with all their messages, also the other member's copy. In a group it deletes the user's membership and their messages, including the system messages they made; the group stays for the others, and if the user owned it, ownership passes to the member who joined earliest.
 - The compile log and PDF are kept for the latest compile of each project only.
+- Earlier versions of edited messages and the text of deleted ones are deleted 30 days after they
+  were replaced. A version of a conversation that was reported while or after that text was shown
+  is kept until 30 days after the report is resolved (purge job: slice 29A).
+- A deleted message's attachments are hidden from members at once and kept with its text under
+  the rule above; the purge of slice 29A deletes them with it. An attachment not sent within 24
+  hours of its upload is deleted. A file the malware scan finds infected is deleted from storage
+  at once; its row stays, as a record, with the conversation.
 
 ## 8. Out of Scope and Open Questions
 
 ### 8.1 Out of scope for version 1.0
 
 - Research groups and communities.
-- Dataset hosting and file sharing outside a project's figures.
+- Dataset hosting and file sharing outside project figures and message attachments.
 - Sharing or reposting another user's post.
-- Email notifications other than verification, password reset and moderation actions (FR-15.8).
+- Email notifications other than verification, password reset, the unread-message digest (FR-16.11) and moderation actions (FR-15.8).
 - Login through Google or ORCID.
 - Comments, version history and templates in the editor.
 - Hosting full-text papers, peer review, submission to venues and plagiarism detection.
@@ -533,6 +568,6 @@ Each question blocks the requirement named beside it and needs an answer before 
 - [ ] Which language model API will the assistant use, and what does it cost at 30 requests per user per day? (AI-7, AI-8)
 - [ ] Which email service will send verification and reset links? (FR-1.3, FR-2.3)
 - [ ] Which call-for-papers listing will venues come from, and do its terms allow automated import? (FR-14.5)
-- [x] Where will figures and PDFs be stored: on the server's disk or in object storage? (FR-12.2, FR-13.1) Answer: S3-compatible object storage, MinIO locally (docs/decisions.md, 2026-10-18 and 2026-10-20).
+- [x] Decided 18 October 2026: photos, figures, PDFs and message attachments are stored in S3-compatible object storage (MinIO for local development; docs/decisions.md, 2026-10-18 and 2026-10-20). (FR-4.6, FR-12.2, FR-13.1, FR-16.7)
 - [ ] What server will host the deployment, and does it have enough memory to run the embedding model and TeX Live together? (NFR-1, NFR-3)
 - [ ] Which public data will the AI evaluation use as its test set? (NFR-6)

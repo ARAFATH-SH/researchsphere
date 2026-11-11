@@ -11,6 +11,7 @@ import (
 	goredis "github.com/redis/go-redis/v9"
 
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/messaging/domain"
+	platformredis "github.com/ARAFATH-SH/researchsphere/backend/internal/platform/redis"
 )
 
 // keyPrefix is followed by the window name and the user ID. User IDs are UUIDs, not
@@ -39,6 +40,7 @@ func New(shared *goredis.Client) *Limiter {
 	opts.DialTimeout = callTimeout
 	opts.ReadTimeout = callTimeout
 	opts.WriteTimeout = callTimeout
+	platformredis.ApplyDefaults(&opts)
 	return &Limiter{client: goredis.NewClient(&opts)}
 }
 
@@ -75,14 +77,14 @@ func (l *Limiter) Used(ctx context.Context, name, userID string) (int, time.Dura
 	return n, left, nil
 }
 
-// Record increments the counter. The first send of a window sets it to expire after
+// Record adds n to the counter. The first send of a window sets it to expire after
 // length; later ones leave the expiry alone (PEXPIRE NX), so the window is fixed.
-func (l *Limiter) Record(ctx context.Context, name, userID string, length time.Duration) error {
+func (l *Limiter) Record(ctx context.Context, name, userID string, n int, length time.Duration) error {
 	ctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
 	k := key(name, userID)
 	_, err := l.client.TxPipelined(ctx, func(p goredis.Pipeliner) error {
-		p.Incr(ctx, k)
+		p.IncrBy(ctx, k, int64(n))
 		p.Do(ctx, "pexpire", k, length.Milliseconds(), "nx")
 		return nil
 	})

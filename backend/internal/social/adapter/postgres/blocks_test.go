@@ -2,7 +2,10 @@
 
 package postgres
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestBlocks(t *testing.T) {
 	s, pool := newTestStore(t)
@@ -132,5 +135,31 @@ func TestLockPairKeyIsOrderless(t *testing.T) {
 	var got bool
 	if err := second.QueryRow(ctx, "SELECT pg_try_advisory_xact_lock($1)", key).Scan(&got); err != nil || got {
 		t.Errorf("the second lock was granted: %v, %v", got, err)
+	}
+}
+
+// BlockedAmong finds blocks either way between the user and the listed IDs, and nothing else
+// (FR-16.6: a blocked pair cannot be put in a new group).
+func TestBlockedAmong(t *testing.T) {
+	s, pool := newTestStore(t)
+	ctx := t.Context()
+	ada, bob, cy, dee, eli := newUser(t, pool, "Ada"), newUser(t, pool, "Bob"), newUser(t, pool, "Cy"), newUser(t, pool, "Dee"), newUser(t, pool, "Eli")
+	for _, b := range [][2]string{{ada, bob}, {cy, ada}, {dee, eli}} {
+		if _, err := s.AddBlock(ctx, b[0], b[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := s.BlockedAmong(ctx, ada, []string{bob, cy, dee, eli, "not-a-uuid"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(got)
+	want := []string{bob, cy}
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Errorf("BlockedAmong = %v, want %v", got, want)
+	}
+	if got, err := s.BlockedAmong(ctx, ada, nil); err != nil || len(got) != 0 {
+		t.Errorf("no IDs: %v, %v", got, err)
 	}
 }

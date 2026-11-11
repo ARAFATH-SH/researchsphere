@@ -7,6 +7,9 @@ import { useSession } from "@/features/auth/session";
 
 import type { Box } from "./api";
 import { ConversationRow } from "./conversation-row";
+import { NewGroupDialog } from "./new-group-dialog";
+import { MessageSearchView, SearchBox } from "./search/message-search";
+import { searchable } from "./search/use-message-search";
 import { useUnreadMessages } from "./unread-count";
 import { type BoxState, useConversations } from "./use-conversations";
 
@@ -16,8 +19,10 @@ const emptyText: Record<Box, string> = {
   requests: "No message requests.",
 };
 
-// ConversationList is the left column of design/screens/Messaging.html: the Inbox and
-// Requests tabs and their rows, paged by cursor as the list scrolls.
+// ConversationList is the left column of design/screens/Messaging.html: the heading with New
+// group (FR-16.6), the message search box (FR-16.8), and the Inbox and Requests tabs and their
+// rows, paged by cursor as the list scrolls. From 2 characters in the box the search results
+// take the list's place; clearing it, or Escape, brings the list back.
 export function ConversationList() {
   const session = useSession();
   const me = session.status === "signedIn" ? session.user.id : "";
@@ -27,6 +32,9 @@ export function ConversationList() {
   const pathname = usePathname() ?? "";
   const [box, setBox] = useState<Box>("inbox");
   const tabRefs = useRef<Partial<Record<Box, HTMLButtonElement | null>>>({});
+  const [creating, setCreating] = useState(false);
+  const [query, setQuery] = useState("");
+  const searching = searchable(query);
 
   useEffect(() => open(box), [open, box]);
 
@@ -47,7 +55,20 @@ export function ConversationList() {
   return (
     <>
       <div className="flex flex-col gap-2 border-b border-rs-divider p-3">
-        <h1 className="text-rs-h3 leading-rs-tight font-bold text-rs-text">Messaging</h1>
+        <div className="flex items-center justify-between gap-2">
+          <h1 className="text-rs-h3 leading-rs-tight font-bold text-rs-text">Messaging</h1>
+          <button
+            id="new-group"
+            type="button"
+            aria-label="New group"
+            onClick={() => setCreating(true)}
+            className="flex h-8 flex-none items-center gap-1 rounded-rs-pill border border-rs-accent-strong bg-rs-surface px-3 text-rs-caption font-medium text-rs-accent-strong hover:bg-rs-accent-soft focus-visible:shadow-focus focus-visible:outline-none"
+          >
+            <span aria-hidden="true">+</span> New group
+          </button>
+        </div>
+        <SearchBox value={query} onChange={setQuery} label="Search messages" />
+        {!searching && (
         <div role="tablist" aria-label="Conversations" onKeyDown={onTabKey} className="flex flex-wrap items-center gap-1.5">
           {boxes.map((b) => (
             <button
@@ -70,18 +91,24 @@ export function ConversationList() {
             </button>
           ))}
         </div>
+        )}
       </div>
-      <div id={`box-${box}`} role="tabpanel" aria-labelledby={`box-${box}-tab`} className="min-h-0 flex-1 overflow-y-auto">
-        <BoxContent
-          key={box}
-          state={list.boxes[box]}
-          empty={emptyText[box]}
-          me={me}
-          pathname={pathname}
-          onRetry={() => list.retry(box)}
-          onMore={() => list.loadMore(box)}
-        />
-      </div>
+      {searching ? (
+        <MessageSearchView text={query} me={me} />
+      ) : (
+        <div id={`box-${box}`} role="tabpanel" aria-labelledby={`box-${box}-tab`} className="min-h-0 flex-1 overflow-y-auto">
+          <BoxContent
+            key={box}
+            state={list.boxes[box]}
+            empty={emptyText[box]}
+            me={me}
+            pathname={pathname}
+            onRetry={() => list.retry(box)}
+            onMore={() => list.loadMore(box)}
+          />
+        </div>
+      )}
+      {creating && <NewGroupDialog onClose={() => setCreating(false)} />}
     </>
   );
 }

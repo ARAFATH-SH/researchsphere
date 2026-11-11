@@ -537,7 +537,7 @@ paths:
   /admin/message-reports:
     get:
       operationId: listMessageReports
-      summary: List reports of conversations for an administrator (FR-16.9, NFR-14)
+      summary: List reports of conversations for an administrator (FR-16.9, NFR-13)
       description: |
         Needs the access cookie and the platform action "Review reported conversations"
         (SRS 2.3). 20 per page, newest first. A report's `details` are the reporter's own
@@ -574,11 +574,11 @@ paths:
   /admin/message-reports/{reportId}:
     get:
       operationId: getMessageReport
-      summary: Read a report and its conversation up to the report (FR-16.9, NFR-14)
+      summary: Read a report and its conversation up to the report (FR-16.9, NFR-13)
       description: |
         Needs the access cookie and the platform action "Review reported conversations"
         (SRS 2.3). This is the only way an administrator can read a conversation, and only a
-        reported one (NFR-14): messages sent after the report are never returned. 100
+        reported one (NFR-13): messages sent after the report are never returned. 100
         messages per page, newest first; `before` loads earlier ones. Every request writes
         one audit row (administrator, report, time) in the same transaction as the read.
       tags: [admin]
@@ -611,6 +611,37 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /admin/message-reports/{reportId}/attachments/{attachmentId}:
+    get:
+      operationId: getReportedAttachment
+      summary: Download an attachment of a reported conversation (FR-16.7, FR-16.9, NFR-13)
+      description: |
+        Needs the access cookie and the platform action "Review reported conversations"
+        (SRS 2.3). Only an attachment of a message of the reported conversation sent at or
+        before the report's moment, as `getMessageReport` lists it, also when the message was
+        deleted later. Every download writes one audit row (administrator, report, file, time)
+        in the same transaction as the permission check. The scan answers and the redirect are
+        those of `getAttachment`.
+      tags: [admin]
+      parameters:
+        - $ref: "#/components/parameters/ReportId"
+        - $ref: "#/components/parameters/AttachmentId"
+      responses:
+        "302":
+          $ref: "#/components/responses/AttachmentRedirect"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/AttachmentNotReady"
+        "410":
+          $ref: "#/components/responses/AttachmentRemoved"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -2373,9 +2404,24 @@ paths:
         events and recommendations" (SRS 2.3). 20 per page, most recently connected
         first. Suspended and unverified accounts are left out, and so is their count in
         `total`.
+
+        With `q`, only the connections whose full name, headline or institution match it
+        (the group member picker, FR-16.6), by the rule of the researcher search (FR-6.2):
+        a name containing `q` (exact, then starting with it, then containing it), and only
+        when no connection's name contains it, a name similar to it (pg_trgm word similarity,
+        for typos); then an institution, then a headline containing it. Within a rank the
+        most similar, then the most recently connected come first; `total` counts the matches.
       tags: [connections]
       parameters:
         - $ref: "#/components/parameters/ConnectionListPage"
+        - name: q
+          in: query
+          required: false
+          description: |
+            The text to look for, 2 to 100 characters after trimming; otherwise 400
+            `bad_request` with `field: q`. Leave it out for every connection.
+          schema:
+            type: string
       responses:
         "200":
           description: One page of the caller's connections.
@@ -2384,7 +2430,13 @@ paths:
               schema:
                 $ref: "#/components/schemas/ConnectionPage"
         "400":
-          $ref: "#/components/responses/InvalidConnectionPage"
+          description: |
+            `page` is not a whole number of at least 1, or `q` does not have 2 to 100
+            characters (`bad_request`, with `field`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -2940,6 +2992,113 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /messages/search:
+    get:
+      operationId: searchMessages
+      summary: Search the text of the caller's own conversations (FR-16.8, NFR-13)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed,
+        events and recommendations" (SRS 2.3). Only what the caller could read in the
+        thread is searched, by the same rule (NFR-13): conversations they are a member of
+        now, in any state (a request only by its two members, and declined or blocked
+        conversations stay searchable), and in a group only messages from the moment they
+        joined. Deleted messages, the earlier text of edited messages and system messages
+        are never searched.
+
+        The text of a message and the names of its attachments are searched. Text in
+        Bangla, English or both is split into words without any language's stemming. A
+        word match (every word of `q` appears as a word, ignoring letter case) ranks above
+        a similar match (trigram word similarity of at least 0.55, which finds partial
+        words and most one-letter typos); within each, newer messages come first. Each
+        message appears once: when both its text and an attachment name match, the better
+        match decides, and the text wins a tie.
+
+        Each user may search 30 times a minute (429 `rate_limited`).
+      tags: [messaging]
+      parameters:
+        - name: q
+          in: query
+          required: false
+          description: |
+            The search text, 2 to 100 characters after trimming, else 400 `bad_request` with
+            `field` `q`. It is required: it is declared optional only so that the session is
+            checked first (the generated code checks a required parameter before the session,
+            as for `searchPeople`).
+          schema:
+            type: string
+          example: গবেষণা
+        - name: conversationId
+          in: query
+          required: false
+          description: |
+            Search only this conversation. One the caller is not a member of gets 404
+            `not_found`, the same answer as for one that does not exist.
+          schema:
+            type: string
+            format: uuid
+        - name: from
+          in: query
+          required: false
+          description: Only messages sent by this user.
+          schema:
+            type: string
+            format: uuid
+        - name: after
+          in: query
+          required: false
+          description: Only messages sent at or after this moment (RFC 3339, inclusive).
+          schema:
+            type: string
+            format: date-time
+        - name: before
+          in: query
+          required: false
+          description: Only messages sent before this moment (RFC 3339, exclusive).
+          schema:
+            type: string
+            format: date-time
+        - name: cursor
+          in: query
+          required: false
+          description: "`nextCursor` from the previous page. A value the server did not issue gets 400 `bad_request`."
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: |
+            Items to return, from 1. Defaults to 20. A larger value than 50 is reduced to
+            50; a value below 1 gets 400 `bad_request`.
+          schema:
+            type: integer
+            minimum: 1
+            default: 20
+      responses:
+        "200":
+          description: One page of matching messages, best match first, then newest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageSearchPage"
+        "400":
+          description: |
+            `q`, `conversationId`, `from`, `after`, `before`, `cursor` or `limit` is not
+            valid (`bad_request`, with `field` naming the parameter).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/MessageSearchRateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /conversations:
     get:
       operationId: listConversations
@@ -2998,16 +3157,67 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /conversations/groups:
+    post:
+      operationId: createGroup
+      summary: Create a group conversation (FR-16.6, FR-16.10)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). The caller becomes the owner. Checks run in this order: the
+        name (`invalid_group_name`: 1 to 100 characters after trimming, one line), `memberIds`
+        (`bad_request` with `field`: 1 to 49 other users, not the caller; repeats count once),
+        `clientId` (a value the caller already used returns that group with 200 while the
+        caller is still in it, 404 `not_found` otherwise), the caller's standing
+        (`account_suspended`), the limits (`rate_limited`: 10 groups a day, and 100 added
+        members a day counted over creating and adding), then the members: each must be a
+        connection of the caller, verified, not suspended, with no block either way. Otherwise
+        400 `ineligible_members` lists them in `userIds`, without saying why for any of them.
+        A messaging restriction does not stop this (FR-15.6). The thread starts with a
+        `group_created` system message, and each member gets a `group_added` notification.
+      tags: [messaging]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateGroupRequest"
+      responses:
+        "200":
+          description: This `clientId` was already used; the group it created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+        "201":
+          description: The group, with its members.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+        "400":
+          $ref: "#/components/responses/GroupInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/AccountSuspendedOrForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/GroupRateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /conversations/{conversationId}:
     get:
       operationId: getConversation
-      summary: Get one of the logged-in user's conversations (FR-16.1, NFR-14)
+      summary: Get one of the logged-in user's conversations (FR-16.1, FR-16.6, NFR-13)
       description: |
         Needs the access cookie and the platform action "View profiles, search, feed,
         events and recommendations" (SRS 2.3). Anyone who is not a member gets 404
-        `not_found`, the same answer as for an unknown ID (NFR-14). This holds for
+        `not_found`, the same answer as for an unknown ID (NFR-13). This holds for
         administrators too: they read a conversation only through a report on it
-        (`getMessageReport`).
+        (`getMessageReport`). A former member of a group gets 404 as well. For a group,
+        `group.members` lists the current members.
       tags: [messaging]
       parameters:
         - $ref: "#/components/parameters/ConversationId"
@@ -3026,16 +3236,183 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalError"
+    patch:
+      operationId: renameGroup
+      summary: Rename a group (FR-16.6)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Only the owner. Checks run in this order: the name
+        (`invalid_group_name`), membership (404 `not_found` for a non-member and for a direct
+        conversation, NFR-13), the owner (403 `not_group_owner`), the caller's standing
+        (`account_suspended`). The same name after trimming answers 200 and changes nothing;
+        otherwise a `group_renamed` system message is written.
+      tags: [messaging]
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RenameGroupRequest"
+      responses:
+        "200":
+          description: The group, with its members.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+        "400":
+          $ref: "#/components/responses/GroupInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/GroupForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /conversations/{conversationId}/members:
+    post:
+      operationId: addGroupMembers
+      summary: Add members to a group (FR-16.6, FR-16.10)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Only the owner. Checks run in this order: `userIds`
+        (`bad_request` with `field`: 1 to 49 users, not the caller), membership (404
+        `not_found`), the owner (403 `not_group_owner`), the caller's standing, the limit of
+        100 added members a day (`rate_limited`), then each new member under the rules of
+        `createGroup` (400 `ineligible_members` with `userIds`), and the size: at most 50
+        members in all (409 `group_full`). People already in the group are left as they are;
+        when all of them are, nothing changes. A new member sees only messages from the
+        `member_added` system message on, and gets a `group_added` notification.
+      tags: [messaging]
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddGroupMembersRequest"
+      responses:
+        "200":
+          description: The group, with its members.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+        "400":
+          $ref: "#/components/responses/GroupInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/GroupForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: "`group_full`: the group would have more than 50 members. Nothing changes."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/GroupRateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /conversations/{conversationId}/members/{userId}:
+    delete:
+      operationId: removeGroupMember
+      summary: Remove a member from a group (FR-16.6, NFR-13)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Only the owner. Checks run in this order: membership of the
+        caller (404 `not_found`), the owner (403 `not_group_owner`), the owner removing
+        themselves (400 `cannot_remove_self`: use `leaveGroup`), the caller's standing, then
+        the user (404 `not_found` when not a member). The removed member loses all access at
+        once: the group answers them 404 and leaves their list. A `member_removed` system
+        message is written.
+      tags: [messaging]
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+        - name: userId
+          in: path
+          required: true
+          description: |
+            The member's ID, a UUID. It is declared as a plain string so that the login check
+            runs before it is read (FR-3.1); a value that is not a UUID names no member and
+            gets 404 `not_found`.
+          schema:
+            type: string
+      responses:
+        "204":
+          description: The member is removed.
+        "400":
+          description: "`cannot_remove_self`: the owner leaves with `leaveGroup` instead."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/GroupForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /conversations/{conversationId}/leave:
+    post:
+      operationId: leaveGroup
+      summary: Leave a group (FR-16.6, NFR-13)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Any member may, also while suspended or restricted. A
+        non-member and a direct conversation get 404 `not_found`. The caller loses all access
+        at once. A `member_left` system message is written. When the owner leaves, the member
+        who joined earliest becomes owner and an `owner_changed` system message follows; when
+        the last member leaves, the group is closed.
+      tags: [messaging]
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+      responses:
+        "204":
+          description: The caller has left.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
 
   /conversations/{conversationId}/messages:
     get:
       operationId: listMessages
-      summary: List a conversation's messages, newest first (FR-16.1, FR-16.3, NFR-14)
+      summary: List a conversation's messages, newest first (FR-16.1, FR-16.3, NFR-13)
       description: |
         Needs the access cookie and the platform action "View profiles, search, feed,
         events and recommendations" (SRS 2.3). Anyone who is not a member gets 404
-        `not_found` (NFR-14). `otherLastReadMessageId` is the other member's read marker,
-        so the client can show "Seen" under the caller's latest message at or before it.
+        `not_found` (NFR-13). `otherLastReadMessageId` is the other member's read marker,
+        so the client can show "Seen" under the caller's latest message at or before it. In a
+        group it is null and `readers` gives every other current member's marker, for "Seen by
+        N"; a member sees only the messages created from the moment they joined (FR-16.6).
+        System messages (`kind: system`) are part of the thread.
+
+        Paging (items are always newest first): no cursor gives the newest messages;
+        `before` the ones older than a message; `after` the ones newer than a message;
+        `around` a page centred on one message, so a search result can be shown in its
+        place: the message itself, up to (limit - 1) / 2 (rounded down) older ones and the
+        rest newer, a short side's room going to the other. `nextBefore` and `nextAfter` are
+        set when there is more in that direction. At most one of `before`, `after` and
+        `around` is allowed (400 `bad_request` with `field`). An `around` message the caller
+        cannot see (another conversation, sent before they joined, or none) gets 404
+        `not_found`, as the thread hides it. `people` names every sender and every user a
+        system message names on the page, former members included (FR-16.6).
       tags: [messaging]
       parameters:
         - $ref: "#/components/parameters/ConversationId"
@@ -3045,6 +3422,22 @@ paths:
           description: |
             `nextBefore` from the previous page; leave it out for the newest messages. A
             value that is not a UUID gets 400 `bad_request`.
+          schema:
+            type: string
+        - name: after
+          in: query
+          required: false
+          description: |
+            `nextAfter` from the previous page, for newer messages. A value that is not a
+            UUID gets 400 `bad_request`.
+          schema:
+            type: string
+        - name: around
+          in: query
+          required: false
+          description: |
+            A message ID: the page is centred on it. A value that is not a UUID gets 400
+            `bad_request`; a message the caller cannot see gets 404.
           schema:
             type: string
         - name: limit
@@ -3065,7 +3458,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/MessagePage"
         "400":
-          description: "`before` or `limit` is not valid (`bad_request`)."
+          description: "`before`, `after`, `around` or `limit` is not valid, or more than one cursor is given (`bad_request`)."
           content:
             application/json:
               schema:
@@ -3080,16 +3473,24 @@ paths:
           $ref: "#/components/responses/InternalError"
     post:
       operationId: sendMessage
-      summary: Send a message in a conversation (FR-16.1, FR-16.2, FR-16.10, NFR-14)
+      summary: Send a message in a conversation (FR-16.1, FR-16.2, FR-16.10, NFR-13)
       description: |
         Needs the access cookie and the platform action "Edit own profile, connect, post,
         like, comment" (SRS 2.3). Checks run in this order: the body (`invalid_body`),
-        membership (404 `not_found`, NFR-14), `clientId` (a value already used by the sender
+        membership (404 `not_found`, NFR-13), `clientId` (a value already used by the sender
         returns the original message with 200), the message limits (`rate_limited`), the
         other member (404 `not_found` when suspended or not verified), a block (FR-16.9: 403
         `cannot_message` for the blocked person, 409 `you_blocked_this_user` for the blocker),
         then the conversation's state (`request_pending`, `conversation_closed`), as for
-        `POST /messages/direct`.
+        `POST /messages/direct`. In a group there is no other member and no request: after the
+        limits, a former member gets 404 `not_found`, and a block between two members stops
+        nobody (FR-16.6).
+
+        `attachmentIds` (FR-16.7) sends up to 5 files from `uploadAttachment`, in that order;
+        `body` may then be left out. Each must have been uploaded by the caller to this
+        conversation, not be sent yet, not have expired and not have failed or been blocked by
+        its scan, else 400 `invalid_attachment` (`field: attachmentIds`) and nothing is sent. A
+        file still being scanned may be sent; the others see it once it is clean.
       tags: [messaging]
       parameters:
         - $ref: "#/components/parameters/ConversationId"
@@ -3127,10 +3528,179 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /conversations/{conversationId}/attachments:
+    post:
+      operationId: uploadAttachment
+      summary: Upload a file to send with a message later (FR-16.7, NFR-13)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Only a member who can send in the conversation now may upload,
+        with the checks of `sendMessage` in the same order and codes, except that the message
+        limits do not apply: membership (404 `not_found`), standing (`account_suspended`,
+        `messaging_restricted`), the other member (404), a block (`cannot_message`,
+        `you_blocked_this_user`) and the state (`request_pending`, `conversation_closed`).
+
+        The file may be at most 25 MB. Its type is read from its content, never from its name
+        or the part's header: PDF, PNG, JPEG, WebP (not animated), DOCX, XLSX or PPTX. An Office
+        file must be an Office Open XML package whose main part is a document, workbook or
+        presentation; macro-enabled files (docm, xlsm, pptm), templates, slide shows and the
+        legacy formats (doc, xls, ppt) are refused with `unsupported_type`. An image is decoded
+        and encoded again at its own size, so EXIF, GPS and any other data in the file are
+        dropped: a JPEG stays a JPEG, a PNG a PNG, and a WebP becomes a PNG when it has
+        transparency and a JPEG otherwise. Documents are stored as uploaded.
+
+        The name the client gave the file is kept for display only, cleaned up: no folders,
+        control characters or quotes, at most 200 characters, and ending with the extension of
+        the type that was found. The file is scanned for malware after the upload; nobody,
+        the uploader included, can download it before the scan says `clean`.
+
+        The answer's `id` goes into `attachmentIds` of `sendMessage` in this conversation. An
+        attachment that is not sent by `expiresAt` (24 hours) is deleted. A user may upload at
+        most 20 files per hour and 200 MB per day; refused files do not count.
+      tags: [messaging]
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+      requestBody:
+        $ref: "#/components/requestBodies/AttachmentUpload"
+      responses:
+        "201":
+          description: The file is stored and waits for its scan.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttachmentUpload"
+        "400":
+          $ref: "#/components/responses/InvalidImage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/MessageForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/MessageRefused"
+        "413":
+          $ref: "#/components/responses/FileTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedAttachmentType"
+        "429":
+          $ref: "#/components/responses/AttachmentRateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /attachments/{attachmentId}:
+    get:
+      operationId: getAttachment
+      summary: Download an attachment after a permission check (FR-16.7, NFR-13)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed,
+        events and recommendations" (SRS 2.3). Only a current member who can see the message
+        may download: in a group, a member sees only the messages from the moment they joined.
+        The uploader may also download an attachment not sent yet. An attachment of a deleted
+        message, one the caller may not see and an unknown ID all get the same 404 `not_found`.
+
+        Then the scan decides: `scan_pending` (409) while it runs, `scan_failed` (409) when the
+        scanner could not read the file, `file_removed` (410) when malware was found and the
+        file was deleted. A clean file redirects to a presigned URL valid for 5 minutes, whose
+        answer carries `Content-Disposition: attachment` with the file's name and the stored
+        content type, so a browser saves the file and never shows it inline.
+      tags: [messaging]
+      parameters:
+        - $ref: "#/components/parameters/AttachmentId"
+      responses:
+        "302":
+          $ref: "#/components/responses/AttachmentRedirect"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/AttachmentNotReady"
+        "410":
+          $ref: "#/components/responses/AttachmentRemoved"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /conversations/{conversationId}/messages/{messageId}:
+    patch:
+      operationId: editMessage
+      summary: Edit one's own message (FR-16.5, FR-16.10, NFR-13)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Only the sender may edit, within `MESSAGE_EDIT_WINDOW`
+        (15 minutes by default) of sending, and only while they could send in the
+        conversation. Checks run in this order: the body (`invalid_body`), the message (404
+        `not_found` unless it is the caller's, in this conversation and not deleted: anyone
+        else learns nothing, NFR-13), the window (409 `edit_window_closed`), an unchanged body
+        (200 with the message as it is: nothing changes, no quota is used and no event goes
+        out), then the checks of `POST /conversations/{conversationId}/messages`: the caller's
+        standing, the message limits (an edit counts as a message), the other member, a block
+        and the conversation's state. In a group the checks are those of sending in a group.
+        A system message cannot be edited (404). The earlier text is kept for moderation and
+        shown only through `GET /admin/message-reports/{reportId}`.
+      tags: [messaging]
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+        - $ref: "#/components/parameters/MessageId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditMessageRequest"
+      responses:
+        "200":
+          description: The message, with the new text and `editedAt`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "400":
+          $ref: "#/components/responses/InvalidMessage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/MessageForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/MessageEditRefused"
+        "429":
+          $ref: "#/components/responses/MessageRateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: deleteMessage
+      summary: Delete one's own message (FR-16.5, NFR-13)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Only the sender may delete, at any time, also in a closed
+        conversation or after a block. The message stays in its place with `deleted: true`
+        and a null `body`. Deleting it again changes nothing. Anyone else, and an unknown
+        message, gets 404 `not_found` (NFR-13). The text is kept for moderation and shown only
+        through `GET /admin/message-reports/{reportId}`.
+      tags: [messaging]
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+        - $ref: "#/components/parameters/MessageId"
+      responses:
+        "204":
+          description: The message is deleted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /conversations/{conversationId}/read:
     post:
       operationId: markConversationRead
-      summary: Move the logged-in user's read marker forward (FR-16.3, NFR-14)
+      summary: Move the logged-in user's read marker forward (FR-16.3, NFR-13)
       description: |
         Needs the access cookie and the platform action "Edit own profile, connect, post,
         like, comment" (SRS 2.3). The marker only moves forward: a message at or before it
@@ -3223,15 +3793,18 @@ paths:
   /conversations/{conversationId}/reports:
     post:
       operationId: reportConversation
-      summary: Report a conversation or one of its messages (FR-16.9, NFR-14)
+      summary: Report a conversation or one of its messages (FR-16.9, NFR-13)
       description: |
         Needs the access cookie and the platform action "Edit own profile, connect, post,
-        like, comment" (SRS 2.3). Anyone who is not a member gets 404 `not_found` (NFR-14).
+        like, comment" (SRS 2.3). Anyone who is not a member gets 404 `not_found` (NFR-13).
         Checks run in this order: membership, `reason`, `details` and `messageId`
         (`bad_request`, with `field`), the message (404 `not_found` when it is not in this
-        conversation, 400 `cannot_report_own_message` when the caller sent it), then the
-        limit of 10 reports per user per day (`rate_limited`); only stored reports count.
-        An administrator can read this conversation's messages up to the moment of the report.
+        conversation, from before the caller joined it, or a system message, 400
+        `cannot_report_own_message` when the caller sent it), then the limit of 10 reports per
+        user per day (`rate_limited`); only stored reports count. An administrator can read
+        this conversation's messages up to the moment of the report. In a group, a report of a
+        message names its sender, and a report of the whole group names nobody
+        (`reportedUserId` null).
 
         Reporting does not block the other user: `blockedByMe` says whether the caller has
         blocked them, so the client can offer to block `reportedUserId` next.
@@ -3507,6 +4080,16 @@ components:
         checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
       schema:
         type: string
+    MessageId:
+      name: messageId
+      in: path
+      required: true
+      description: |
+        The message's ID, a UUID. It is declared as a plain string so that the login check
+        runs before it is read (FR-3.1); a value that is not a UUID names no message and gets
+        404 `not_found`.
+      schema:
+        type: string
     ConversationId:
       name: conversationId
       in: path
@@ -3515,6 +4098,16 @@ components:
         The conversation's ID, a UUID. It is declared as a plain string so that the login
         check runs before it is read (FR-3.1); a value that is not a UUID names no
         conversation and gets 404 `not_found`.
+      schema:
+        type: string
+    AttachmentId:
+      name: attachmentId
+      in: path
+      required: true
+      description: |
+        The attachment's ID, a UUID. It is declared as a plain string so that the login check
+        runs before it is read (FR-3.1); a value that is not a UUID names no attachment and
+        gets 404 `not_found`.
       schema:
         type: string
     ConnectionListPage:
@@ -3653,6 +4246,20 @@ components:
         type: string
 
   requestBodies:
+    AttachmentUpload:
+      required: true
+      description: |
+        The file in the part named `file`. Its content type is ignored; its file name is kept
+        for display only, cleaned up.
+      content:
+        multipart/form-data:
+          schema:
+            type: object
+            required: [file]
+            properties:
+              file:
+                type: string
+                format: binary
     ImageUpload:
       required: true
       description: The image in the part named `file`. Its file name and content type are ignored.
@@ -3698,6 +4305,14 @@ components:
           description: |
             On `account_suspended`, when a temporary suspension ends; absent when it is
             permanent. On `messaging_restricted`, when the restriction ends.
+        userIds:
+          type: array
+          description: |
+            On `ineligible_members`, the users who cannot be added to the group. It never says
+            why for any of them (FR-16.6).
+          items:
+            type: string
+            format: uuid
 
     Health:
       type: object
@@ -4350,9 +4965,10 @@ components:
     ModerationReportId:
       type: string
       description: |
-        A report about this user to resolve as `action_taken`. Unknown gets 404, about someone
-        else 400 with `field`, already resolved 409 `report_already_resolved`; each undoes the
-        action.
+        A report about this user to resolve as `action_taken`. For a group, this user may also be
+        anyone in the report's `membersAtReport`, which is how a report of a whole group, with no
+        reported user, is acted on (FR-16.6). Unknown gets 404, about someone else 400 with
+        `field`, already resolved 409 `report_already_resolved`; each undoes the action.
 
     ModerationActionKind:
       type: string
@@ -4488,8 +5104,11 @@ components:
         What happened (FR-9.1). `connection_request_received`: the actor sent the caller a
         connection request. `connection_request_accepted`: the actor accepted the caller's
         request. `account_warning`: an administrator warned the caller; a system notification,
-        with no actor. Later slices add the project, comment and like types.
-      enum: [connection_request_received, connection_request_accepted, account_warning]
+        with no actor. `group_added`: the actor, the group's owner, added the caller to a
+        group (FR-16.6). `attachment_blocked`: the malware scan found something in a file the
+        caller attached, and it was deleted (FR-16.7); a system notification, with no actor.
+        Later slices add the project, comment and like types.
+      enum: [connection_request_received, connection_request_accepted, account_warning, group_added, attachment_blocked]
 
     NotificationActor:
       type: object
@@ -4528,9 +5147,12 @@ components:
           description: |
             The web client path of the item it is about (FR-9.5):
             `/network` for a received request, `/profile/{actorId}` for an accepted one,
-            `/warnings/{warningId}` for a warning.
+            `/warnings/{warningId}` for a warning, `/messaging/{conversationId}` for a group
+            and for a blocked attachment.
         actor:
           $ref: "#/components/schemas/NotificationActor"
+        subject:
+          $ref: "#/components/schemas/NotificationSubject"
         requestId:
           type: string
           format: uuid
@@ -4540,6 +5162,25 @@ components:
           description: |
             Only for `connection_request_received`: true while the request is still
             pending, so the client can offer Accept and Ignore.
+
+    NotificationSubject:
+      type: object
+      required: [type, id, title]
+      description: |
+        The item a notification is about, as it is now, for types whose sentence names it
+        (`group_added`: the group, with its current name). Read when the notification is
+        listed or sent, so a rename shows. Left out for the other types, and when the item no
+        longer exists or the recipient cannot see it (they left the group); the client then
+        uses a sentence without the title ("added you to a group").
+      properties:
+        type:
+          type: string
+          enum: [conversation]
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
 
     NotificationPage:
       type: object
@@ -4572,15 +5213,32 @@ components:
 
     SendMessageRequest:
       type: object
-      required: [body, clientId]
+      required: [clientId]
       properties:
         body:
           type: string
-          description: 1 to 5,000 characters after trimming; line breaks are kept.
+          description: |
+            1 to 5,000 characters after trimming; line breaks are kept. May be left out when
+            `attachmentIds` is not empty.
         clientId:
           type: string
           format: uuid
           description: Made by the client for each new message and sent again on a retry, so a retry stores nothing new.
+        attachmentIds:
+          type: array
+          maxItems: 5
+          description: Files from `uploadAttachment` to send with the message, in order (FR-16.7).
+          items:
+            type: string
+            format: uuid
+
+    EditMessageRequest:
+      type: object
+      required: [body]
+      properties:
+        body:
+          type: string
+          description: 1 to 5,000 characters after trimming; line breaks are kept.
 
     MarkConversationReadRequest:
       type: object
@@ -4598,9 +5256,101 @@ components:
         `declined`: closed for good.
       enum: [active, request, declined]
 
+    MessageKind:
+      type: string
+      description: |
+        `text`: a member's message. `system`: a change to a group (FR-16.6), described by
+        `event`; it has no body, cannot be edited, deleted or reported, and never counts as
+        unread.
+      enum: [text, system]
+
+    SystemEventType:
+      type: string
+      description: |
+        What changed in a group. The client writes its own text for each; the API sends no
+        English copy. `group_created` (`newName`, `userIds` the first members),
+        `group_renamed` (`oldName`, `newName`), `member_added` (`userIds`), `member_removed`
+        (`userIds`, the one removed), `member_left` (the actor left), `owner_changed`
+        (`userIds`, the new owner; no actor, as it follows from someone leaving).
+      enum: [group_created, group_renamed, member_added, member_removed, member_left, owner_changed]
+
+    SystemEvent:
+      type: object
+      required: [type, actorId, userIds, oldName, newName]
+      properties:
+        type:
+          $ref: "#/components/schemas/SystemEventType"
+        actorId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Who made the change; null for `owner_changed`, and when the actor's account is gone.
+        userIds:
+          type: array
+          description: The users the change is about; empty when none.
+          items:
+            type: string
+            format: uuid
+        oldName:
+          type: string
+          nullable: true
+        newName:
+          type: string
+          nullable: true
+
+    AttachmentStatus:
+      type: string
+      description: |
+        The malware scan (FR-16.7). `pending`: not scanned yet; nobody can download it.
+        `clean`: it can be downloaded. `infected`: malware was found and the file deleted.
+        `failed`: the scanner could not read the file; it will not be served.
+      enum: [pending, clean, infected, failed]
+
+    Attachment:
+      type: object
+      required: [id, name, size, contentType, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Download it with `GET /attachments/{id}`.
+        name:
+          type: string
+          description: The file's name for display, cleaned up; at most 200 characters.
+        size:
+          type: integer
+          format: int64
+          description: Bytes as stored (an image after it was encoded again).
+        contentType:
+          type: string
+          description: The type found from the content, one of the allowed types.
+        status:
+          $ref: "#/components/schemas/AttachmentStatus"
+
+    AttachmentUpload:
+      type: object
+      required: [id, name, size, contentType, status, expiresAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        size:
+          type: integer
+          format: int64
+        contentType:
+          type: string
+        status:
+          $ref: "#/components/schemas/AttachmentStatus"
+        expiresAt:
+          type: string
+          format: date-time
+          description: The attachment is deleted when it has not been sent by then.
+
     Message:
       type: object
-      required: [id, conversationId, senderId, body, createdAt]
+      required: [id, conversationId, senderId, kind, event, body, createdAt, editedAt, deleted, attachments]
       properties:
         id:
           type: string
@@ -4612,11 +5362,37 @@ components:
         senderId:
           type: string
           format: uuid
+          nullable: true
+          description: The sender; for a system message the actor, or null when it has none.
+        kind:
+          $ref: "#/components/schemas/MessageKind"
+        event:
+          nullable: true
+          description: The change a system message describes; null for a text message.
+          allOf:
+            - $ref: "#/components/schemas/SystemEvent"
         body:
           type: string
+          nullable: true
+          description: |
+            The latest text. Null for a deleted message and for a system message; only
+            `deleted` says a message was deleted, as a later message may have no text.
         createdAt:
           type: string
           format: date-time
+        editedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the text was last edited; null when never (FR-16.5).
+        deleted:
+          type: boolean
+          description: True when the sender deleted the message. It stays in its place, with no body.
+        attachments:
+          type: array
+          description: The message's files in order (FR-16.7); empty when none and for a deleted message.
+          items:
+            $ref: "#/components/schemas/Attachment"
 
     SentMessage:
       type: object
@@ -4650,36 +5426,142 @@ components:
 
     MessagePreview:
       type: object
-      required: [senderId, body, createdAt]
+      required: [senderId, senderName, kind, event, body, createdAt, deleted, attachmentCount]
       properties:
         senderId:
           type: string
           format: uuid
+          nullable: true
+          description: The sender; for a system message the actor, or null when it has none.
+        senderName:
+          type: string
+          nullable: true
+          description: |
+            The sender's (or actor's) full name, so a group's row can say "Nafisa: …" (FR-16.6).
+            Always given, as with `MessagePage.people`, whatever the sender's standing; null when
+            there is no sender.
+        kind:
+          $ref: "#/components/schemas/MessageKind"
+        event:
+          nullable: true
+          description: For a system message, what changed; the client writes its own text.
+          allOf:
+            - $ref: "#/components/schemas/SystemEventType"
         body:
           type: string
-          description: The first 120 characters of the message.
+          nullable: true
+          description: The first 120 characters of the message's latest text; null when deleted and for a system message.
+        deleted:
+          type: boolean
+          description: True when the latest message was deleted; the client says so.
+        attachmentCount:
+          type: integer
+          description: How many files the latest message carries; 0 when deleted. A message may have files and no text.
         createdAt:
           type: string
           format: date-time
 
+    ConversationKind:
+      type: string
+      description: "`direct`: two people. `group`: a named group of up to 50 members (FR-16.6)."
+      enum: [direct, group]
+
+    GroupRole:
+      type: string
+      description: "`owner` renames the group and adds and removes members; `member` does not."
+      enum: [owner, member]
+
+    GroupAvatar:
+      type: object
+      required: [userId, fullName, photoUrl]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        fullName:
+          type: string
+        photoUrl:
+          type: string
+          nullable: true
+          description: The profile photo as `/api/v1/media/{fileId}`; null when not set.
+
+    GroupMember:
+      type: object
+      required: [userId, fullName, photoUrl, role, joinedAt, available]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        fullName:
+          type: string
+        photoUrl:
+          type: string
+          nullable: true
+          description: The profile photo as `/api/v1/media/{fileId}`; null when not set.
+        role:
+          $ref: "#/components/schemas/GroupRole"
+        joinedAt:
+          type: string
+          format: date-time
+        available:
+          type: boolean
+          description: False when the member is suspended or not verified. They stay in the group.
+
+    ConversationGroup:
+      type: object
+      required: [name, memberCount, avatars, myRole, members]
+      properties:
+        name:
+          type: string
+        memberCount:
+          type: integer
+          description: Current members, the caller included.
+        avatars:
+          type: array
+          description: Up to 3 other members, those who joined earliest first.
+          items:
+            $ref: "#/components/schemas/GroupAvatar"
+        myRole:
+          $ref: "#/components/schemas/GroupRole"
+        members:
+          type: array
+          nullable: true
+          description: |
+            Every current member, the owner first, then by joining time. Given by
+            `getConversation` and the group operations; null in the lists.
+          items:
+            $ref: "#/components/schemas/GroupMember"
+
     Conversation:
       type: object
-      required: [id, state, otherMember, lastMessage, unreadCount, requestedBy, lastMessageAt, canMessage, blockedByMe]
+      required: [id, kind, state, otherMember, group, lastMessage, unreadCount, requestedBy, lastMessageAt, canMessage, blockedByMe]
       properties:
         id:
           type: string
           format: uuid
+        kind:
+          $ref: "#/components/schemas/ConversationKind"
         state:
           $ref: "#/components/schemas/ConversationState"
         otherMember:
-          $ref: "#/components/schemas/ConversationMember"
+          nullable: true
+          description: The other member of a direct conversation; null for a group.
+          allOf:
+            - $ref: "#/components/schemas/ConversationMember"
+        group:
+          nullable: true
+          description: The group's name and members; null for a direct conversation.
+          allOf:
+            - $ref: "#/components/schemas/ConversationGroup"
         lastMessage:
           nullable: true
           allOf:
             - $ref: "#/components/schemas/MessagePreview"
         unreadCount:
           type: integer
-          description: Messages from the other member after the caller's read marker.
+          description: |
+            Messages from other members after the caller's read marker, not deleted. System
+            messages never count.
         requestedBy:
           type: string
           format: uuid
@@ -4693,10 +5575,12 @@ components:
           description: |
             True when a message from the caller would be accepted now: the conversation is
             `active`, the other member is available and neither has blocked the other
-            (FR-16.9).
+            (FR-16.9). In a group, true while the caller is a member; blocks do not apply.
         blockedByMe:
           type: boolean
-          description: True when the caller has blocked the other member. A blocked person is never told.
+          description: |
+            True when the caller has blocked the other member. A blocked person is never told.
+            Always false for a group.
 
     ConversationPage:
       type: object
@@ -4713,7 +5597,7 @@ components:
 
     MessagePage:
       type: object
-      required: [items, nextBefore, otherLastReadMessageId]
+      required: [items, nextBefore, nextAfter, otherLastReadMessageId, readers, people]
       properties:
         items:
           type: array
@@ -4723,11 +5607,105 @@ components:
           type: string
           nullable: true
           description: Pass as `before` to get older messages; null on the last page.
+        nextAfter:
+          type: string
+          nullable: true
+          description: |
+            Pass as `after` to get newer messages; null when the page reaches the newest
+            message, and always null for a page asked without `after` or `around`.
+        people:
+          $ref: "#/components/schemas/MessagePeople"
         otherLastReadMessageId:
           type: string
           format: uuid
           nullable: true
-          description: The other member's read marker; null until they have read a message.
+          description: The other member's read marker; null until they have read a message, and for a group.
+        readers:
+          type: array
+          nullable: true
+          description: |
+            For a group, every other current member's read marker (FR-16.3), so the client can
+            show "Seen by N" under a message; null for a direct conversation.
+          items:
+            $ref: "#/components/schemas/MessageReader"
+
+    MessagePeople:
+      type: object
+      description: |
+        The people a page names, by user ID: every sender and every user (and actor) a system
+        message names, also those who have left the group (FR-16.6). Only people who were ever
+        in the conversation appear. A user whose account was deleted is absent; the client
+        shows "Deleted account".
+      additionalProperties:
+        $ref: "#/components/schemas/MessagePerson"
+
+    MessagePerson:
+      type: object
+      required: [fullName, photoUrl, available]
+      properties:
+        fullName:
+          type: string
+          description: Always given, as the members already saw it in the conversation.
+        photoUrl:
+          type: string
+          nullable: true
+          description: |
+            Null without a photo, and when `available` is false.
+        available:
+          type: boolean
+          description: |
+            False when the profile cannot be viewed: the person is suspended or not verified,
+            or has blocked the caller. The client then shows initials and no profile link.
+
+    MessageReader:
+      type: object
+      required: [userId, lastReadMessageId]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        lastReadMessageId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Null until the member has read a message.
+
+    CreateGroupRequest:
+      type: object
+      required: [name, memberIds, clientId]
+      properties:
+        name:
+          type: string
+          description: 1 to 100 characters after trimming, on one line.
+        memberIds:
+          type: array
+          description: 1 to 49 other users; the caller is the owner and is not listed.
+          items:
+            type: string
+            format: uuid
+        clientId:
+          type: string
+          format: uuid
+          description: Made by the client for this create; a retry with the same value creates nothing new.
+
+    RenameGroupRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          description: 1 to 100 characters after trimming, on one line.
+
+    AddGroupMembersRequest:
+      type: object
+      required: [userIds]
+      properties:
+        userIds:
+          type: array
+          description: 1 to 49 users, not the caller.
+          items:
+            type: string
+            format: uuid
 
     BlockRequest:
       type: object
@@ -4806,10 +5784,13 @@ components:
         reportedUserId:
           type: string
           format: uuid
-          description: The other member, whom the client can offer to block.
+          nullable: true
+          description: |
+            The other member, or in a group the sender of the reported message, whom the client
+            can offer to block. Null for a report of a whole group.
         blockedByMe:
           type: boolean
-          description: Whether the caller has blocked that user. Reporting never does it.
+          description: Whether the caller has blocked that user. Reporting never does it. False when no one is reported.
 
     MessageReportPerson:
       type: object
@@ -4832,7 +5813,7 @@ components:
 
     MessageReport:
       type: object
-      required: [id, conversationId, status, reason, details, messageId, reporter, reportedUser, createdAt, outcome, note, resolvedAt]
+      required: [id, conversationId, conversationKind, groupName, status, reason, details, messageId, reporter, reportedUser, createdAt, outcome, note, resolvedAt]
       properties:
         id:
           type: string
@@ -4840,6 +5821,12 @@ components:
         conversationId:
           type: string
           format: uuid
+        conversationKind:
+          $ref: "#/components/schemas/ConversationKind"
+        groupName:
+          type: string
+          nullable: true
+          description: The group's name now; null for a direct conversation.
         status:
           type: string
           enum: [open, resolved]
@@ -4857,7 +5844,13 @@ components:
         reporter:
           $ref: "#/components/schemas/MessageReportPerson"
         reportedUser:
-          $ref: "#/components/schemas/MessageReportPerson"
+          nullable: true
+          description: |
+            The other member, or in a group the sender of the reported message. Null for a
+            report of a whole group: a moderation action may then name any member who was in
+            the group at the report's moment (`membersAtReport`).
+          allOf:
+            - $ref: "#/components/schemas/MessageReportPerson"
         createdAt:
           type: string
           format: date-time
@@ -4892,19 +5885,106 @@ components:
 
     MessageReportDetail:
       type: object
-      required: [report, messages, nextBefore]
+      required: [report, membersAtReport, messages, nextBefore]
       properties:
         report:
           $ref: "#/components/schemas/MessageReport"
+        membersAtReport:
+          type: array
+          nullable: true
+          description: |
+            For a group, everyone who was a member at the report's moment, also those who have
+            left since; a moderation action that names this report may name any of them. Null
+            for a direct conversation.
+          items:
+            $ref: "#/components/schemas/MessageReportPerson"
         messages:
           type: array
           description: Newest first, none later than the report.
           items:
-            $ref: "#/components/schemas/Message"
+            $ref: "#/components/schemas/ReportedMessage"
         nextBefore:
           type: string
           nullable: true
           description: Pass as `before` to load earlier messages; null on the last page.
+
+    ReportedMessage:
+      type: object
+      description: |
+        A message of a reported conversation as the administrator sees it (NFR-13): the text
+        at the report's moment and the texts shown before it. Text written after the report is
+        never shown; `changedAfterReport` only says there was some.
+      required: [id, conversationId, senderId, kind, event, createdAt, body, editedAt, deletedAt, changedAfterReport, versions, attachments]
+      properties:
+        id:
+          type: string
+          format: uuid
+        conversationId:
+          type: string
+          format: uuid
+        senderId:
+          type: string
+          format: uuid
+          nullable: true
+          description: The sender; for a system message the actor, or null when it has none.
+        kind:
+          $ref: "#/components/schemas/MessageKind"
+        event:
+          nullable: true
+          description: The change a system message describes; null for a text message.
+          allOf:
+            - $ref: "#/components/schemas/SystemEvent"
+        createdAt:
+          type: string
+          format: date-time
+        body:
+          type: string
+          nullable: true
+          description: The text shown at the report's moment; null when the message was deleted by then.
+        editedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: The latest edit, also one after the report; null when never edited.
+        deletedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the sender deleted the message, also after the report; null when not deleted.
+        changedAfterReport:
+          type: boolean
+          description: The message was edited or deleted after the report. The later text is not shown.
+        versions:
+          type: array
+          description: |
+            Earlier texts that were shown at or before the report's moment, oldest first. Each
+            ended with an edit or with the deletion. Empty when the text never changed by then.
+          items:
+            $ref: "#/components/schemas/MessageVersion"
+        attachments:
+          type: array
+          description: |
+            The message's files with their scan status, also for a message deleted later. A clean
+            one can be downloaded with `getReportedAttachment`.
+          items:
+            $ref: "#/components/schemas/Attachment"
+
+    MessageVersion:
+      type: object
+      required: [body, shownFrom, shownUntil, endedBy]
+      properties:
+        body:
+          type: string
+        shownFrom:
+          type: string
+          format: date-time
+        shownUntil:
+          type: string
+          format: date-time
+        endedBy:
+          type: string
+          enum: [edited, deleted]
+          description: "`edited`: a new text replaced it. `deleted`: the sender deleted the message."
 
     ResolveMessageReportRequest:
       type: object
@@ -4928,6 +6008,103 @@ components:
         requests:
           type: integer
           description: Pending message requests to the caller.
+
+    MessageSearchMatch:
+      type: string
+      description: "`text`: the message's text matched. `attachment`: the name of one of its attachments matched."
+      enum: [text, attachment]
+
+    TextRange:
+      type: object
+      required: [start, length]
+      description: |
+        A stretch of `snippet` to highlight. `start` and `length` count Unicode code points,
+        not bytes or UTF-16 units: the client indexes `Array.from(snippet)`, never the string
+        itself, so a range never splits a character. Ranges are sorted and never overlap.
+      properties:
+        start:
+          type: integer
+          minimum: 0
+        length:
+          type: integer
+          minimum: 1
+
+    MessageSearchConversation:
+      type: object
+      required: [kind, name, otherMember, avatars]
+      properties:
+        kind:
+          $ref: "#/components/schemas/ConversationKind"
+        name:
+          type: string
+          nullable: true
+          description: The group's name; null for a direct conversation.
+        otherMember:
+          nullable: true
+          description: The other member of a direct conversation; null for a group.
+          allOf:
+            - $ref: "#/components/schemas/GroupAvatar"
+        avatars:
+          type: array
+          description: For a group, up to 3 other members, those who joined earliest first; empty for a direct conversation.
+          items:
+            $ref: "#/components/schemas/GroupAvatar"
+
+    MessageSearchSender:
+      type: object
+      required: [userId, fullName]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        fullName:
+          type: string
+
+    MessageSearchResult:
+      type: object
+      required: [messageId, conversationId, conversation, sender, createdAt, snippet, highlights, matchedOn]
+      properties:
+        messageId:
+          type: string
+          format: uuid
+        conversationId:
+          type: string
+          format: uuid
+        conversation:
+          $ref: "#/components/schemas/MessageSearchConversation"
+        sender:
+          $ref: "#/components/schemas/MessageSearchSender"
+        createdAt:
+          type: string
+          format: date-time
+        snippet:
+          type: string
+          description: |
+            Plain text, never HTML: about 160 characters of the message around its first
+            highlighted word, or the matching attachment's name. Runs of spaces and line
+            breaks are one space, and a cut is marked with "…". When a similar match has no
+            word close enough to mark, it is the start of the message with no highlights.
+        highlights:
+          type: array
+          items:
+            $ref: "#/components/schemas/TextRange"
+        matchedOn:
+          $ref: "#/components/schemas/MessageSearchMatch"
+
+    MessageSearchPage:
+      type: object
+      required: [items, nextCursor, people]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/MessageSearchResult"
+        nextCursor:
+          type: string
+          nullable: true
+          description: Pass as `cursor` to get the next page; null on the last page.
+        people:
+          $ref: "#/components/schemas/MessagePeople"
 
     UnreadNotificationCount:
       type: object
@@ -4969,8 +6146,12 @@ components:
       description: The `type` of a server event. `docs/realtime.md` gives each one's `data`.
       enum:
         - message.created
+        - message.updated
+        - message.deleted
+        - attachment.updated
         - conversation.read
         - conversation.updated
+        - conversation.members
         - unread.changed
         - typing
         - presence
@@ -4981,7 +6162,7 @@ components:
       type: object
       description: |
         One server-to-client WebSocket frame, as JSON text. `data` is `RealtimeMessageCreated`,
-        `RealtimeConversationRead`, `RealtimeConversationUpdated`, `MessageUnreadCount`,
+        `RealtimeMessageUpdated`, `RealtimeMessageDeleted`, `RealtimeAttachmentUpdated`, `RealtimeConversationRead`, `RealtimeConversationUpdated`, `RealtimeConversationMembers`, `MessageUnreadCount`,
         `RealtimeTyping`, `PresenceStatus`, `Notification` or `UnreadNotificationCount`,
         by `type`.
       required: [type, data]
@@ -5006,6 +6187,47 @@ components:
             The sender's `clientId`, only in the copy sent to the sender's own sockets, so the
             sending tab can match it. The other member never gets it.
 
+    RealtimeMessageUpdated:
+      type: object
+      description: The sender edited a message (FR-16.5). `message` is the REST `Message` with the new text.
+      required: [message]
+      properties:
+        message:
+          $ref: "#/components/schemas/Message"
+
+    RealtimeMessageDeleted:
+      type: object
+      description: The sender deleted a message (FR-16.5). It stays in its place with no text.
+      required: [conversationId, messageId]
+      properties:
+        conversationId:
+          type: string
+          format: uuid
+        messageId:
+          type: string
+          format: uuid
+
+    RealtimeAttachmentUpdated:
+      type: object
+      description: |
+        An attachment's malware scan finished (FR-16.7). Sent to the members who can see its
+        message and to the uploader; before it is sent, only to the uploader, with a null
+        `messageId`.
+      required: [conversationId, messageId, attachmentId, status]
+      properties:
+        conversationId:
+          type: string
+          format: uuid
+        messageId:
+          type: string
+          format: uuid
+          nullable: true
+        attachmentId:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/AttachmentStatus"
+
     RealtimeConversationRead:
       type: object
       description: The other member moved their read marker (FR-16.3).
@@ -5023,7 +6245,9 @@ components:
       description: |
         The conversation's state or `canMessage` changed for the recipient, who gets their own
         view of it. It never says why, so a blocked person is not told about a block.
-      required: [conversationId, state, canMessage]
+        `accessLost` is true for someone who left or was removed from a group: the client
+        closes the thread and drops the conversation.
+      required: [conversationId, state, canMessage, accessLost]
       properties:
         conversationId:
           type: string
@@ -5032,6 +6256,36 @@ components:
           $ref: "#/components/schemas/ConversationState"
         canMessage:
           type: boolean
+        accessLost:
+          type: boolean
+
+    RealtimeConversationMembers:
+      type: object
+      description: |
+        A group's name, members or owner changed (FR-16.6). Sent to every current member after
+        the change, new members included. Refetch the conversation for the full member list.
+      required: [conversationId, change, actorId, userIds, name]
+      properties:
+        conversationId:
+          type: string
+          format: uuid
+        change:
+          type: string
+          enum: [added, removed, left, owner_changed, renamed]
+        actorId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Who made the change; null for `owner_changed`.
+        userIds:
+          type: array
+          description: Who was added or removed, who left, or the new owner; empty for `renamed`.
+          items:
+            type: string
+            format: uuid
+        name:
+          type: string
+          description: The group's name after the change.
 
     RealtimeTyping:
       type: object
@@ -6048,8 +7302,10 @@ components:
     InvalidMessage:
       description: |
         `cannot_message_self`, `invalid_body` (empty after trimming, over 5,000 characters,
-        or holding a NUL character), or `bad_request` for a body that is not JSON or a
-        missing or malformed `userId` or `clientId`.
+        or holding a NUL character; or no body and no attachments), `invalid_attachment`
+        (`field: attachmentIds`: more than 5, a repeated ID, or one that cannot be sent), or
+        `bad_request` for a body that is not JSON or a missing or malformed `userId` or
+        `clientId`.
       content:
         application/json:
           schema:
@@ -6107,14 +7363,71 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+    MessageEditRefused:
+      description: |
+        `edit_window_closed`: the message is older than the edit window (FR-16.5).
+        `request_pending`: the receiver has not accepted the request yet.
+        `conversation_closed`: the request was declined.
+        `you_blocked_this_user`: the caller has blocked the other user (FR-16.9).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    GroupInvalid:
+      description: |
+        `invalid_group_name`: the name is empty after trimming, over 100 characters, or not
+        on one line (with `field`). `bad_request` (with `field`) for a missing or malformed
+        `clientId`, or `memberIds` or `userIds` that is empty, over 49, or names the caller.
+        `ineligible_members` with `userIds`: users who are not the caller's connections, not
+        verified, suspended, or in a block with the caller; it never says which reason.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    GroupForbidden:
+      description: |
+        `forbidden`: the user's role does not permit the action (FR-3.2).
+        `not_group_owner`: only the group's owner may do this.
+        `account_suspended`: the caller's account was suspended after this session began, with
+        `reason` and `until`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    GroupRateLimited:
+      description: |
+        `rate_limited`: the caller has created 10 groups today, or added 100 members today
+        (FR-16.10).
+      headers:
+        Retry-After:
+          description: Seconds until creating or adding is accepted again.
+          required: true
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
     MessageRateLimited:
       description: |
         The user has sent too many messages or message requests (`rate_limited`). The
         defaults are 30 messages a minute and 1,000 a day, and 5 new requests a minute and
-        20 a day (FR-16.10).
+        20 a day (FR-16.10). An edit counts as a message.
       headers:
         Retry-After:
           description: Seconds until sending is accepted again.
+          required: true
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    MessageSearchRateLimited:
+      description: The user has searched messages more than 30 times in a minute (`rate_limited`, FR-16.8).
+      headers:
+        Retry-After:
+          description: Seconds until searching is accepted again.
           required: true
           schema:
             type: integer
@@ -6224,6 +7537,62 @@ components:
             $ref: "#/components/schemas/Error"
     UnsupportedImageType:
       description: The file is not a JPEG, PNG or still WebP image (`unsupported_type`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    UnsupportedAttachmentType:
+      description: |
+        The file is not a PDF, PNG, JPEG, still WebP, DOCX, XLSX or PPTX file by its content
+        (`unsupported_type`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    AttachmentRateLimited:
+      description: |
+        The user has uploaded 20 files in the current hour or 200 MB in the current day
+        (`rate_limited`).
+      headers:
+        Retry-After:
+          description: Seconds until the window ends and uploads are accepted again.
+          required: true
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    AttachmentRedirect:
+      description: The scan said clean; the file is at the URL in `Location`.
+      headers:
+        Location:
+          description: |
+            A presigned URL to the object, valid for 5 minutes. Its answer has
+            `Content-Disposition: attachment` with the file's name and the stored content type.
+          required: true
+          schema:
+            type: string
+        Cache-Control:
+          description: Always `no-store`.
+          required: true
+          schema:
+            type: string
+        X-Content-Type-Options:
+          description: Always `nosniff`.
+          required: true
+          schema:
+            type: string
+    AttachmentNotReady:
+      description: |
+        `scan_pending`: the malware scan has not finished. `scan_failed`: the scanner could not
+        read the file; it will not be served.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    AttachmentRemoved:
+      description: "`file_removed`: the scan found malware and the file was deleted."
       content:
         application/json:
           schema:

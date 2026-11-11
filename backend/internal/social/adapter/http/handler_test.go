@@ -78,6 +78,12 @@ func (f *fakeService) ListBlocks(_ context.Context, _ string, page int) (domain.
 	return domain.BlockedPage{Items: f.blockedPeople, Page: page, PageSize: 20, Total: len(f.blockedPeople)}, f.err
 }
 
+func (f *fakeService) SearchConnections(_ context.Context, userID, q string, page int) (domain.ConnectionPage, error) {
+	f.args = []any{userID, q, page}
+	return domain.ConnectionPage{Items: []domain.Connection{{ConnectedAt: at, Other: other,
+		Viewer: domain.Relation{Status: domain.StatusConnected}}}, Page: page, PageSize: 20, Total: 1}, f.err
+}
+
 func (f *fakeService) ListConnections(_ context.Context, userID string, page int) (domain.ConnectionPage, error) {
 	f.args = []any{userID, page}
 	return domain.ConnectionPage{Items: []domain.Connection{{ConnectedAt: at, Other: other,
@@ -317,5 +323,25 @@ func TestLists(t *testing.T) {
 	rec := send(t, &fakeService{err: domain.ErrNotFound}, http.MethodGet, "/api/v1/profiles/"+otherID+"/connections", "", callerID)
 	if got := decode(t, rec); rec.Code != http.StatusNotFound || got["code"] != "not_found" {
 		t.Errorf("hidden profile: %d %v", rec.Code, got)
+	}
+}
+
+// FR-16.6: q picks the search, with the page; a refused text names the field.
+func TestSearchMyConnections(t *testing.T) {
+	svc := &fakeService{}
+	rec := send(t, svc, http.MethodGet, "/api/v1/connections?q=%E0%A6%A8%E0%A6%BE&page=2", "", callerID)
+	if rec.Code != http.StatusOK || !reflect.DeepEqual(svc.args, []any{callerID, "না", 2}) {
+		t.Errorf("got %d, args %v", rec.Code, svc.args)
+	}
+	if got := decode(t, rec); got["total"] != 1.0 || len(got["items"].([]any)) != 1 {
+		t.Errorf("body %v", got)
+	}
+	rec = send(t, &fakeService{err: domain.ErrInvalidQuery}, http.MethodGet, "/api/v1/connections?q=a", "", callerID)
+	if got := decode(t, rec); rec.Code != http.StatusBadRequest || got["code"] != "bad_request" || got["field"] != "q" {
+		t.Errorf("short q: %d %v", rec.Code, got)
+	}
+	rec = send(t, &fakeService{err: domain.ErrInvalidPage}, http.MethodGet, "/api/v1/connections?q=ab&page=0", "", callerID)
+	if got := decode(t, rec); rec.Code != http.StatusBadRequest || got["field"] != "page" {
+		t.Errorf("page 0: %d %v", rec.Code, got)
 	}
 }

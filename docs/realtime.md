@@ -44,6 +44,13 @@ to connect should refresh and try again with backoff, and go on polling meanwhil
   `message.created`, which it matches by `clientId`.
 - Clear a typing indicator on `conversation.updated`, and by itself if no `isTyping: false`
   arrives within 6 s of the last start.
+- On `conversation.members`, refetch the group (`GET /conversations/{id}`) for its members and
+  roles. On `conversation.updated` with `accessLost: true`, close the thread and drop the
+  conversation from the lists: the user left the group or was removed, and every read of it now
+  answers 404.
+- A thread opened at a search result (`GET …/messages?around=`) does not show the newest
+  messages yet: it keeps `message.created` out until the reader reaches them (`after` pages, or
+  the newest page), and a reconnect reads only the conversation again, not the newest page.
 
 ## Close codes
 
@@ -81,13 +88,17 @@ Each frame is JSON text with `type` and `data`.
 
 | `type` | Sent to | `data` |
 | --- | --- | --- |
-| `message.created` | The other member, and the sender's own tabs | `RealtimeMessageCreated`: `{message, conversationState, clientId?}` |
-| `conversation.read` | The other member, when a read marker moves | `{conversationId, messageId}` |
-| `conversation.updated` | Both members | `{conversationId, state, canMessage}`, each their own view |
+| `message.created` | The other member (in a group, every other current member), and the sender's own tabs | `RealtimeMessageCreated`: `{message, conversationState, clientId?}` |
+| `message.updated` | The other member (in a group, every other current member), and the sender's own tabs | `RealtimeMessageUpdated`: `{message}`, the REST `Message` with the new `body` and `editedAt` |
+| `message.deleted` | The other member (in a group, every other current member), and the sender's own tabs | `RealtimeMessageDeleted`: `{conversationId, messageId}` |
+| `attachment.updated` | The uploader's tabs; once the file is sent, every current member who joined by the message | `RealtimeAttachmentUpdated`: `{conversationId, messageId, attachmentId, status}` |
+| `conversation.read` | The other member (in a group, every other current member), when a read marker moves | `{conversationId, messageId}`; in a group, refetch `readers` for "Seen by" |
+| `conversation.updated` | Both members; in a group, a member who left or was removed | `{conversationId, state, canMessage, accessLost}`, each their own view |
+| `conversation.members` | Every current member of a group, after a change | `RealtimeConversationMembers`: `{conversationId, change, actorId, userIds, name}` |
 | `unread.changed` | The user whose counts may have changed | `{total, requests}` |
-| `typing` | The other member | `{conversationId, userId, isTyping}` |
+| `typing` | The other member; in a group, every other member with no block either way | `{conversationId, userId, isTyping}` |
 | `presence` | Allowed viewers | `{userId, online}` |
-| `notification.created` | The recipient | `Notification`, as the list shows it |
+| `notification.created` | The recipient | `Notification`, as the list shows it, with its `subject` (the group's current name for `group_added`) |
 | `notifications.unread` | The recipient | `{count}` |
 
 `clientId` appears only in the copy sent to the sender. `message` is the REST `Message`.
@@ -100,11 +111,71 @@ Each frame is JSON text with `type` and `data`.
 }}
 ```
 
+`message.updated` follows an edit (FR-16.5) and `message.deleted` a deletion. Both go out after
+the commit, to every tab of both members, the editing tab included. An unchanged edit and a
+second deletion send nothing. Replace or mark the message in place, keeping its position; ignore
+one that is not loaded. A deleted message keeps its place with `deleted: true` and a null
+`body`; the event carries no text, so a client that missed it learns of the deletion on its next
+fetch.
+
+```json
+{"type": "message.updated", "data": {
+  "message": {"id": "...", "conversationId": "...", "senderId": "...", "body": "Hello again",
+              "createdAt": "2026-11-05T12:00:00Z", "editedAt": "2026-11-05T12:03:00Z", "deleted": false}
+}}
+{"type": "message.deleted", "data": {"conversationId": "...", "messageId": "..."}}
+```
+
+`attachment.updated` says an attachment's malware scan finished (FR-16.7): `status` is `clean`,
+`infected` or `failed`, never `pending`. It goes out after the commit. Before the file is sent,
+`messageId` is null and only the uploader's tabs get it, so the composer can show the result.
+After it is sent, every current member who can see the message gets it, as in the thread (a
+member who joined later does not); for a deleted message only the uploader. Update the file's
+status in place and fetch nothing. `infected` and `failed` are final: show the file as removed
+or unavailable. A client that missed the event sees the status in the message on its next fetch;
+a download before `clean` answers 409 or 410 (`docs/openapi.yaml`).
+
+```json
+{"type": "attachment.updated", "data": {
+  "conversationId": "...", "messageId": "...", "attachmentId": "...", "status": "clean"
+}}
+```
+
+`message.created`, `message.updated` and the REST `Message` carry `attachments`, each
+`{id, name, size, contentType, status}`; a message may have files and no `body`.
+
 `conversation.updated` follows a request being accepted or declined, a connection activating a
 request, a block or unblock, and the suspension or restoration of either member. It does not
-say why, so a blocked person is not told about a block.
+say why, so a blocked person is not told about a block. `accessLost` is false except in one
+case: a member who leaves a group or is removed from it gets `{state: "active", canMessage:
+false, accessLost: true}` on every tab, followed by `unread.changed`.
 
-`unread.changed` follows a message, a read marker, an answered request, a block that declines a
+### Groups (FR-16.6)
+
+Every change to a group writes a system message (`Message.kind: "system"`, with `event`) and
+sends it as `message.created` to the members after the change, without `clientId` and with no
+`unread.changed`, as system messages never count as unread. Then `conversation.members` goes to
+the same people:
+
+| `change` | After | `actorId` | `userIds` |
+| --- | --- | --- | --- |
+| `added` | A create, or the owner adding members; the new members get it too | The owner | The members added |
+| `removed` | The owner removing a member | The owner | The one removed |
+| `left` | A member leaving | Who left | Who left |
+| `owner_changed` | The owner's membership ending (leaving or account deleted) | null | The new owner |
+| `renamed` | The owner renaming the group | The owner | Empty |
+
+`name` is the group's name after the change. When the owner leaves, `left` comes first, then
+`owner_changed`, matching the order of the two system messages. The user who is gone gets
+neither: they get `conversation.updated` with `accessLost: true`. An ownership hand-over that
+follows an account deletion writes its system message but sends no event; open pages see it on
+their next fetch.
+
+A message in a group goes to every member, also between two members who have blocked each
+other: a block removes nobody from a group. Delivery costs one unread count per recipient, up to
+49 per message (`docs/decisions.md`, 2026-11-09).
+
+`unread.changed` follows a message, a deleted message (it no longer counts as unread), a read marker, an answered request, a block that declines a
 request, and the suspension or restoration of a conversation partner.
 
 ### Client to server
@@ -120,6 +191,8 @@ Anything else is ignored and logged at debug level, without its content. No erro
 
 - Relayed only to the other member, only if both are members, the conversation is active, the
   other member is available and neither blocked the other. A refused event gets no answer.
+- In a group, relayed to every other current member, except those in a block with the typer
+  either way. `userId` says who is typing. A former member's typing goes nowhere.
 - At most one `typing.start` per 3 s per conversation; the rest are dropped.
 - 6 s after the last relayed start the server sends `isTyping: false` by itself.
 - Nothing is stored.
@@ -129,8 +202,9 @@ Anything else is ignored and logged at debug level, without its content. No erro
 Online means at least one open socket. An entry lives in Redis for 60 s, refreshed by the
 heartbeat, so a crashed instance does not leave people online.
 
-A person's presence is shown only to someone who shares an active conversation with them, with
-no block either way. `GET /api/v1/presence?userIds=a,b` (at most 50) answers every ID; anyone the
+A person's presence is shown only to someone who shares an active direct conversation with them,
+with no block either way. Sharing a group does not count: group members are connections of the
+creator, not necessarily of each other. `GET /api/v1/presence?userIds=a,b` (at most 50) answers every ID; anyone the
 caller may not see reads `online: false`, so the answer says nothing about who may be seen.
 
 `online: false` follows 5 s after a user's last socket closes, so the reconnect the token forces

@@ -106,8 +106,14 @@ function ReportRow({ report }: { report: MessageReport }) {
     <li className="flex flex-wrap items-center gap-3 border-b border-rs-divider px-4 py-3 last:border-b-0">
       <span className="min-w-[240px] flex-1 text-rs-body text-rs-text">
         <strong className="font-bold">{report.reporter.fullName}</strong> reported{" "}
-        {report.messageId ? "a message from" : "a conversation with"}{" "}
-        <strong className="font-bold">{report.reportedUser.fullName}</strong>
+        {report.reportedUser ? (
+          <>
+            {report.messageId ? "a message from" : "a conversation with"}{" "}
+            <strong className="font-bold">{report.reportedUser.fullName}</strong>
+          </>
+        ) : (
+          "a whole group"
+        )}
         <br />
         <span className="text-rs-caption text-rs-text-muted">
           Reason: {reasonLabels[report.reason]} · <time dateTime={report.createdAt}>{relativeTime(report.createdAt)}</time>

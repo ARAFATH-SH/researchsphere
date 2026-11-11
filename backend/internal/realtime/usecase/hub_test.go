@@ -252,6 +252,45 @@ func TestTypingRefused(t *testing.T) {
 	}
 }
 
+// In a group a start goes to every other member, with userId, except someone in a block with
+// the typer either way; a stop and the auto-stop go to the same people (FR-16.6).
+func TestTypingInAGroup(t *testing.T) {
+	e := newEnv(t, func(c *Config) { c.TypingTimeout = time.Hour })
+	e.access.groups["g1"] = []string{"gil", "hal", "ivy", "jo"}
+	e.access.blocked["jo|gil"] = true
+	_, hal := e.connect(t, "hal")
+	_, ivy := e.connect(t, "ivy")
+	_, jo := e.connect(t, "jo")
+	_, outsider := e.connect(t, "eve")
+	gil, gilSocket := e.connect(t, "gil")
+
+	gil.Receive(t.Context(), []byte(`{"type":"typing.start","data":{"conversationId":"g1"}}`))
+	for _, c := range []*fakeSocket{hal, ivy} {
+		if ev := c.next(t); ev.Type != domain.EventTyping || ev.Data != `{"conversationId":"g1","userId":"gil","isTyping":true}` {
+			t.Errorf("got %+v", ev)
+		}
+	}
+	gil.Receive(t.Context(), []byte(`{"type":"typing.stop","data":{"conversationId":"g1"}}`))
+	for _, c := range []*fakeSocket{hal, ivy} {
+		if ev := c.next(t); ev.Type != domain.EventTyping || ev.Data != `{"conversationId":"g1","userId":"gil","isTyping":false}` {
+			t.Errorf("got %+v", ev)
+		}
+	}
+	jo.silent(t, 10*time.Millisecond)
+	outsider.silent(t, 10*time.Millisecond)
+	gilSocket.silent(t, 10*time.Millisecond)
+}
+
+// A former member of a group relays nothing.
+func TestTypingInAGroupRefusedForANonMember(t *testing.T) {
+	e := newEnv(t)
+	e.access.groups["g1"] = []string{"hal", "ivy"}
+	_, hal := e.connect(t, "hal")
+	gil, _ := e.connect(t, "gil")
+	gil.Receive(t.Context(), []byte(`{"type":"typing.start","data":{"conversationId":"g1"}}`))
+	hal.silent(t, 30*time.Millisecond)
+}
+
 // At most one start per throttle window per conversation, and a refused start costs one
 // database read in that window too.
 func TestTypingThrottle(t *testing.T) {

@@ -15,29 +15,34 @@ import (
 )
 
 type harness struct {
-	svc     *Service
-	store   *fakeStore
-	conns   fakeConnections
-	blocks  *fakeBlocks
-	limiter *fakeLimiter
-	pub     *fakePublisher
-	actors  fakeActors
-	client  int
+	svc      *Service
+	store    *fakeStore
+	conns    fakeConnections
+	blocks   *fakeBlocks
+	limiter  *fakeLimiter
+	pub      *fakePublisher
+	actors   fakeActors
+	notifier *fakeNotifier
+	client   int
+	now      time.Time // the clock the service reads
 }
 
-var testLimits = Limits{MessagesPerMinute: 30, MessagesPerDay: 1000, RequestsPerMinute: 5, RequestsPerDay: 20}
+var testLimits = Limits{MessagesPerMinute: 30, MessagesPerDay: 1000, RequestsPerMinute: 5, RequestsPerDay: 20, EditWindow: 15 * time.Minute}
+
+func (h *harness) clock() time.Time { return h.now }
 
 func newHarness() *harness {
-	h := &harness{store: newFakeStore(), conns: fakeConnections{}, blocks: newFakeBlocks(), limiter: newFakeLimiter(), pub: &fakePublisher{}, actors: fakeActors{}}
-	h.svc = New(h.store, fakeTx{h.store}, h.conns, h.blocks, h.actors, h.limiter, h.pub, testLimits, slog.New(slog.DiscardHandler))
+	h := &harness{store: newFakeStore(), conns: fakeConnections{}, blocks: newFakeBlocks(), limiter: newFakeLimiter(), pub: &fakePublisher{}, actors: fakeActors{},
+		notifier: &fakeNotifier{}, now: time.Date(2026, 11, 4, 10, 5, 0, 0, time.UTC)}
+	h.svc = New(h.store, fakeTx{h.store}, h.conns, h.blocks, h.actors, h.limiter, h.pub, h.notifier, testLimits, h.clock, slog.New(slog.DiscardHandler))
 	return h
 }
 
 // noLimits replaces the limits with ones a test that sends many messages cannot reach.
 func (h *harness) noLimits() {
-	h.svc = New(h.store, fakeTx{h.store}, h.conns, h.blocks, h.actors, h.limiter, h.pub,
-		Limits{MessagesPerMinute: 1 << 20, MessagesPerDay: 1 << 20, RequestsPerMinute: 1 << 20, RequestsPerDay: 1 << 20},
-		slog.New(slog.DiscardHandler))
+	h.svc = New(h.store, fakeTx{h.store}, h.conns, h.blocks, h.actors, h.limiter, h.pub, h.notifier,
+		Limits{MessagesPerMinute: 1 << 20, MessagesPerDay: 1 << 20, RequestsPerMinute: 1 << 20, RequestsPerDay: 1 << 20, EditWindow: 15 * time.Minute},
+		h.clock, slog.New(slog.DiscardHandler))
 }
 
 func (h *harness) connect(a, b string) { h.conns[a+"|"+b] = true }
@@ -61,7 +66,7 @@ func TestSendDirectToConnectionIsActive(t *testing.T) {
 	h := newHarness()
 	h.connect("ada", "bob")
 	s := h.direct(t, "ada", "bob", "  hello\nthere \n")
-	if s.State != domain.StateActive || s.Replayed || s.Message.Body != "hello\nthere" {
+	if s.State != domain.StateActive || s.Replayed || text(s.Message) != "hello\nthere" {
 		t.Fatalf("got %+v", s)
 	}
 	if c := h.store.pair("ada", "bob"); c.requestedBy != nil {
@@ -315,7 +320,7 @@ func TestSendRefusals(t *testing.T) {
 	})
 }
 
-// NFR-14: every read and write checks membership; a stranger cannot tell a conversation
+// NFR-13: every read and write checks membership; a stranger cannot tell a conversation
 // exists. Administrators are not a special case here: the usecase knows no roles.
 func TestNonMemberGetsNotFound(t *testing.T) {
 	ctx := context.Background()
@@ -326,7 +331,7 @@ func TestNonMemberGetsNotFound(t *testing.T) {
 	calls := map[string]func() error{
 		"Send":     func() error { _, err := h.svc.Send(ctx, "eve", id, "hi", "c9"); return err },
 		"Get":      func() error { _, err := h.svc.Get(ctx, "eve", id); return err },
-		"Messages": func() error { _, err := h.svc.Messages(ctx, "eve", id, "", nil); return err },
+		"Messages": func() error { _, err := h.svc.Messages(ctx, "eve", id, domain.MessageQuery{}); return err },
 		"MarkRead": func() error { return h.svc.MarkRead(ctx, "eve", id, s.Message.ID) },
 		"Accept":   func() error { _, err := h.svc.Accept(ctx, "eve", id); return err },
 		"Decline":  func() error { _, err := h.svc.Decline(ctx, "eve", id); return err },
@@ -372,7 +377,7 @@ func TestSuspendedMemberIsReadOnly(t *testing.T) {
 	if err != nil || len(p.Items) != 1 {
 		t.Errorf("List: %+v, %v", p, err)
 	}
-	if m, err := h.svc.Messages(ctx, "ada", id, "", nil); err != nil || len(m.Items) != 1 {
+	if m, err := h.svc.Messages(ctx, "ada", id, domain.MessageQuery{}); err != nil || len(m.Items) != 1 {
 		t.Errorf("Messages: %+v, %v", m, err)
 	}
 	if err := h.svc.MarkRead(ctx, "ada", id, s.Message.ID); err != nil {
@@ -391,7 +396,7 @@ func TestIdempotentClientID(t *testing.T) {
 			t.Fatal(err)
 		}
 		again, err := h.svc.SendDirect(ctx, "ada", "bob", "different text", "c1")
-		if err != nil || !again.Replayed || again.Message.ID != first.Message.ID || again.Message.Body != "hi" {
+		if err != nil || !again.Replayed || again.Message.ID != first.Message.ID || text(again.Message) != "hi" {
 			t.Fatalf("got %+v, %v", again, err)
 		}
 		byID, err := h.svc.Send(ctx, "ada", first.Message.ConversationID, "hi", "c1")
@@ -447,7 +452,7 @@ func TestIdempotentClientID(t *testing.T) {
 		found := h.store.messages
 		h.store.messages = nil
 		lookups := &racingFind{fakeStore: h.store, hidden: true, saved: found}
-		svc := New(lookups, fakeTx{h.store}, h.conns, h.blocks, h.actors, h.limiter, h.pub, testLimits, slog.New(slog.DiscardHandler))
+		svc := New(lookups, fakeTx{h.store}, h.conns, h.blocks, h.actors, h.limiter, h.pub, h.notifier, testLimits, h.clock, slog.New(slog.DiscardHandler))
 		h.store.duplicateAdd = true
 		got, err := svc.SendDirect(ctx, "ada", "bob", "second", "c1")
 		if err != nil || !got.Replayed || got.Message.ID != winner.Message.ID {
@@ -467,7 +472,7 @@ func TestIdempotentClientID(t *testing.T) {
 		// The retry got past the lookup before the first send committed, then found the
 		// request it had started itself.
 		lookups := &racingFind{fakeStore: h.store, hidden: true, saved: h.store.messages}
-		svc := New(lookups, fakeTx{h.store}, h.conns, h.blocks, h.actors, h.limiter, h.pub, testLimits, slog.New(slog.DiscardHandler))
+		svc := New(lookups, fakeTx{h.store}, h.conns, h.blocks, h.actors, h.limiter, h.pub, h.notifier, testLimits, h.clock, slog.New(slog.DiscardHandler))
 		got, err := svc.SendDirect(ctx, "ada", "bob", "may I?", "c1")
 		if err != nil || !got.Replayed || got.Message.ID != winner.Message.ID {
 			t.Fatalf("got %+v, %v", got, err)
@@ -608,8 +613,8 @@ func TestRateLimits(t *testing.T) {
 	t.Run("the numbers come from the configuration", func(t *testing.T) {
 		h := newHarness()
 		h.connect("ada", "bob")
-		h.svc = New(h.store, fakeTx{h.store}, h.conns, h.blocks, h.actors, h.limiter, h.pub,
-			Limits{MessagesPerMinute: 1, MessagesPerDay: 1000, RequestsPerMinute: 5, RequestsPerDay: 20}, slog.New(slog.DiscardHandler))
+		h.svc = New(h.store, fakeTx{h.store}, h.conns, h.blocks, h.actors, h.limiter, h.pub, h.notifier,
+			Limits{MessagesPerMinute: 1, MessagesPerDay: 1000, RequestsPerMinute: 5, RequestsPerDay: 20}, h.clock, slog.New(slog.DiscardHandler))
 		h.direct(t, "ada", "bob", "one")
 		var limited *domain.RateLimitedError
 		if _, err := h.svc.SendDirect(ctx, "ada", "bob", "two", "c2"); !errors.As(err, &limited) {
@@ -670,7 +675,7 @@ func TestReadMarkers(t *testing.T) {
 
 func (h *harness) mustMessages(t *testing.T, user, id string) domain.MessagePage {
 	t.Helper()
-	p, err := h.svc.Messages(t.Context(), user, id, "", nil)
+	p, err := h.svc.Messages(t.Context(), user, id, domain.MessageQuery{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -788,15 +793,15 @@ func TestMessagesPaging(t *testing.T) {
 		id = h.direct(t, "ada", "bob", fmt.Sprintf("m%d", i)).Message.ConversationID
 	}
 
-	p, err := h.svc.Messages(ctx, "ada", id, "", nil)
+	p, err := h.svc.Messages(ctx, "ada", id, domain.MessageQuery{})
 	if err != nil || len(p.Items) != DefaultMessageLimit || p.NextBefore == nil {
 		t.Fatalf("first page: %d items, next %v, %v", len(p.Items), p.NextBefore, err)
 	}
-	if p.Items[0].Body != "m34" || p.Items[29].Body != "m5" {
-		t.Errorf("not newest first: %s .. %s", p.Items[0].Body, p.Items[29].Body)
+	if text(p.Items[0]) != "m34" || text(p.Items[29]) != "m5" {
+		t.Errorf("not newest first: %s .. %s", text(p.Items[0]), text(p.Items[29]))
 	}
-	last, err := h.svc.Messages(ctx, "ada", id, *p.NextBefore, nil)
-	if err != nil || len(last.Items) != 5 || last.NextBefore != nil || last.Items[0].Body != "m4" {
+	last, err := h.svc.Messages(ctx, "ada", id, domain.MessageQuery{Before: *p.NextBefore})
+	if err != nil || len(last.Items) != 5 || last.NextBefore != nil || text(last.Items[0]) != "m4" {
 		t.Fatalf("second page: %d items, next %v, %v", len(last.Items), last.NextBefore, err)
 	}
 }
@@ -811,16 +816,145 @@ func TestMessagesLimit(t *testing.T) {
 		id = h.direct(t, "ada", "bob", "x").Message.ConversationID
 	}
 	big := 500
-	p, err := h.svc.Messages(ctx, "ada", id, "", &big)
+	p, err := h.svc.Messages(ctx, "ada", id, domain.MessageQuery{Limit: &big})
 	if err != nil || len(p.Items) != MaxMessageLimit {
 		t.Errorf("%d items, %v; want the cap %d", len(p.Items), err, MaxMessageLimit)
 	}
 	zero := 0
-	if _, err := h.svc.Messages(ctx, "ada", id, "", &zero); !errors.Is(err, domain.ErrInvalidLimit) {
+	if _, err := h.svc.Messages(ctx, "ada", id, domain.MessageQuery{Limit: &zero}); !errors.Is(err, domain.ErrInvalidLimit) {
 		t.Errorf("limit 0: %v", err)
 	}
-	if _, err := h.svc.Messages(ctx, "ada", id, "not-a-uuid", nil); !errors.Is(err, domain.ErrInvalidCursor) {
-		t.Errorf("bad before: %v", err)
+	uuid := p.Items[0].ID
+	for _, c := range []struct {
+		q     domain.MessageQuery
+		field string
+	}{
+		{domain.MessageQuery{Before: "not-a-uuid"}, "before"},
+		{domain.MessageQuery{After: "not-a-uuid"}, "after"},
+		{domain.MessageQuery{Around: "not-a-uuid"}, "around"},
+		{domain.MessageQuery{Before: uuid, After: uuid}, "after"},
+		{domain.MessageQuery{Before: uuid, Around: uuid}, "around"},
+		{domain.MessageQuery{After: uuid, Around: uuid}, "around"},
+	} {
+		var field *domain.InvalidFieldError
+		if _, err := h.svc.Messages(ctx, "ada", id, c.q); !errors.As(err, &field) || field.Field != c.field {
+			t.Errorf("%+v: %v, want field %s", c.q, err, c.field)
+		}
+	}
+}
+
+// A page centred on a message (a search result): the message, (limit-1)/2 older and the rest
+// newer, a short side's room going to the other, with cursors both ways; walking them from
+// the anchor gives the whole thread once.
+func TestMessagesAround(t *testing.T) {
+	ctx := context.Background()
+	h := newHarness()
+	h.noLimits()
+	h.connect("ada", "bob")
+	var id string
+	var ids []string // oldest first
+	for i := range 40 {
+		m := h.direct(t, "ada", "bob", fmt.Sprintf("m%d", i)).Message
+		id = m.ConversationID
+		ids = append(ids, m.ID)
+	}
+	six := 6
+	for _, c := range []struct {
+		name          string
+		anchor        int
+		first, last   string // newest and oldest text on the page
+		before, after bool
+	}{
+		{"middle", 20, "m23", "m18", true, true},
+		{"near the oldest", 1, "m5", "m0", false, true},
+		{"the oldest", 0, "m5", "m0", false, true},
+		{"near the newest", 38, "m39", "m34", true, false},
+		{"the newest", 39, "m39", "m34", true, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			p, err := h.svc.Messages(ctx, "ada", id, domain.MessageQuery{Around: ids[c.anchor], Limit: &six})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(p.Items) != 6 || text(p.Items[0]) != c.first || text(p.Items[5]) != c.last {
+				t.Fatalf("page %s .. %s (%d items)", text(p.Items[0]), text(p.Items[len(p.Items)-1]), len(p.Items))
+			}
+			if !slices.ContainsFunc(p.Items, func(m domain.Message) bool { return m.ID == ids[c.anchor] }) {
+				t.Error("the anchor is missing")
+			}
+			if (p.NextBefore != nil) != c.before || (p.NextAfter != nil) != c.after {
+				t.Errorf("next before %v, after %v", p.NextBefore, p.NextAfter)
+			}
+		})
+	}
+
+	// Walk both ways from the middle with the default limit.
+	p, err := h.svc.Messages(ctx, "ada", id, domain.MessageQuery{Around: ids[20]})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]int{}
+	add := func(items []domain.Message) {
+		for _, m := range items {
+			seen[m.ID]++
+		}
+	}
+	add(p.Items)
+	for b := p.NextBefore; b != nil; {
+		older, err := h.svc.Messages(ctx, "ada", id, domain.MessageQuery{Before: *b})
+		if err != nil {
+			t.Fatal(err)
+		}
+		add(older.Items)
+		b = older.NextBefore
+	}
+	for a := p.NextAfter; a != nil; {
+		newer, err := h.svc.Messages(ctx, "ada", id, domain.MessageQuery{After: *a, Limit: &six})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if newer.NextBefore != nil {
+			t.Error("an after page sets nextBefore")
+		}
+		if len(newer.Items) > 1 && newer.Items[0].ID < newer.Items[1].ID {
+			t.Error("an after page is not newest first")
+		}
+		add(newer.Items)
+		a = newer.NextAfter
+	}
+	for _, m := range ids {
+		if seen[m] != 1 {
+			t.Errorf("message %s seen %d times", m, seen[m])
+		}
+	}
+
+	// A message from another conversation, or one that does not exist, is not found.
+	other := h.direct(t, "carol", "bob", "elsewhere").Message
+	for _, missing := range []string{other.ID, "00000000-0000-7000-8000-000000000000"} {
+		if _, err := h.svc.Messages(ctx, "ada", id, domain.MessageQuery{Around: missing}); !errors.Is(err, domain.ErrMessageNotFound) {
+			t.Errorf("around %s: %v", missing, err)
+		}
+	}
+	if _, err := h.svc.Messages(ctx, "eve", id, domain.MessageQuery{Around: ids[3]}); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("non-member: %v", err)
+	}
+}
+
+func TestAroundSplit(t *testing.T) {
+	for _, c := range []struct{ limit, older, newer, keepOld, keepNew int }{
+		{30, 100, 100, 14, 15},
+		{31, 100, 100, 15, 15},
+		{30, 2, 100, 2, 27},
+		{30, 100, 3, 26, 3},
+		{30, 2, 3, 2, 3},
+		{1, 5, 5, 0, 0},
+		{2, 5, 5, 0, 1},
+		{2, 5, 0, 1, 0},
+	} {
+		o, n := aroundSplit(c.limit, c.older, c.newer)
+		if o != c.keepOld || n != c.keepNew {
+			t.Errorf("aroundSplit(%d, %d, %d) = %d, %d; want %d, %d", c.limit, c.older, c.newer, o, n, c.keepOld, c.keepNew)
+		}
 	}
 }
 
@@ -1043,7 +1177,7 @@ func TestRestrictedSenderMayDoEverythingElse(t *testing.T) {
 	if _, err := h.svc.Report(t.Context(), "ada", sent.Message.ConversationID, domain.ReportInput{Reason: domain.ReasonSpam}); err != nil {
 		t.Errorf("report: %v", err)
 	}
-	if _, err := h.svc.Messages(t.Context(), "ada", sent.Message.ConversationID, "", nil); err != nil {
+	if _, err := h.svc.Messages(t.Context(), "ada", sent.Message.ConversationID, domain.MessageQuery{}); err != nil {
 		t.Errorf("read: %v", err)
 	}
 
@@ -1083,7 +1217,7 @@ func TestStandingIsCheckedAgainInTheTransaction(t *testing.T) {
 	h.connect("ada", "bob")
 	sent := h.direct(t, "ada", "bob", "hello")
 	flip := &flippingActors{after: 1, then: domain.Standing{RestrictedUntil: &until}}
-	h.svc = New(h.store, fakeTx{h.store}, h.conns, h.blocks, flip, h.limiter, h.pub, testLimits, slog.New(slog.DiscardHandler))
+	h.svc = New(h.store, fakeTx{h.store}, h.conns, h.blocks, flip, h.limiter, h.pub, h.notifier, testLimits, h.clock, slog.New(slog.DiscardHandler))
 
 	before := len(h.store.messages)
 	var refused *domain.RestrictedError
@@ -1114,7 +1248,7 @@ func TestStandingFailureStopsTheWrite(t *testing.T) {
 	h.connect("ada", "bob")
 	sent := h.direct(t, "ada", "bob", "hello")
 	boom := errors.New("database down")
-	h.svc = New(h.store, fakeTx{h.store}, h.conns, h.blocks, failingActors{boom}, h.limiter, h.pub, testLimits, slog.New(slog.DiscardHandler))
+	h.svc = New(h.store, fakeTx{h.store}, h.conns, h.blocks, failingActors{boom}, h.limiter, h.pub, h.notifier, testLimits, h.clock, slog.New(slog.DiscardHandler))
 	if _, err := h.svc.Send(t.Context(), "ada", sent.Message.ConversationID, "x", h.clientID()); !errors.Is(err, boom) {
 		t.Errorf("error = %v, want %v", err, boom)
 	}
@@ -1143,23 +1277,23 @@ func TestPublisherHearsOfChangesInOtherModules(t *testing.T) {
 }
 
 // Typing follows canMessage (FR-16.4): a member, active, available, no block either way.
-func TestTypingPeer(t *testing.T) {
+func TestTypingPeers(t *testing.T) {
 	h := newHarness()
 	h.connect("ada", "bob")
 	ctx := t.Context()
 	id := h.direct(t, "ada", "bob", "hello").Message.ConversationID
 
-	if other, ok, err := h.svc.TypingPeer(ctx, "ada", id); err != nil || !ok || other != "bob" {
-		t.Errorf("member: %q %v %v", other, ok, err)
+	if peers, err := h.svc.TypingPeers(ctx, "ada", id); err != nil || !slices.Equal(peers, []string{"bob"}) {
+		t.Errorf("member: %v %v", peers, err)
 	}
-	if _, ok, err := h.svc.TypingPeer(ctx, "eve", id); err != nil || ok {
-		t.Errorf("not a member: %v %v", ok, err)
+	if peers, err := h.svc.TypingPeers(ctx, "eve", id); err != nil || len(peers) != 0 {
+		t.Errorf("not a member: %v %v", peers, err)
 	}
-	if _, ok, err := h.svc.TypingPeer(ctx, "ada", "unknown"); err != nil || ok {
-		t.Errorf("unknown conversation: %v %v", ok, err)
+	if peers, err := h.svc.TypingPeers(ctx, "ada", "unknown"); err != nil || len(peers) != 0 {
+		t.Errorf("unknown conversation: %v %v", peers, err)
 	}
 	h.store.hidden["bob"] = true
-	if _, ok, err := h.svc.TypingPeer(ctx, "ada", id); err != nil || ok {
-		t.Errorf("other member suspended: %v %v", ok, err)
+	if peers, err := h.svc.TypingPeers(ctx, "ada", id); err != nil || len(peers) != 0 {
+		t.Errorf("other member suspended: %v %v", peers, err)
 	}
 }

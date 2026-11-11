@@ -76,6 +76,22 @@ func (s *Store) DeleteBySubject(ctx context.Context, t domain.Type, subjectID st
 	return recipients, nil
 }
 
+// DeleteFor deletes nothing for IDs that are not UUIDs.
+func (s *Store) DeleteFor(ctx context.Context, t domain.Type, subjectID, recipientID string) (bool, error) {
+	subject, ok1 := parseUUID(subjectID)
+	recipient, ok2 := parseUUID(recipientID)
+	if !ok1 || !ok2 {
+		return false, nil
+	}
+	n, err := s.q(ctx).DeleteNotificationsFor(ctx, sqlcgen.DeleteNotificationsForParams{
+		Type: sqlcgen.NotificationType(t), EntityID: subject, UserID: recipient,
+	})
+	if err != nil {
+		return false, fmt.Errorf("delete notifications: %w", err)
+	}
+	return n > 0, nil
+}
+
 // Find answers ErrNotFound for an ID that is not a UUID.
 func (s *Store) Find(ctx context.Context, recipientID, id string) (domain.Item, error) {
 	user, ok1 := parseUUID(recipientID)

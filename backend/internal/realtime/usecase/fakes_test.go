@@ -120,11 +120,14 @@ func (p *fakePresence) Online(_ context.Context, userIDs []string, _ time.Time) 
 }
 
 // fakeAccess: conversations maps a conversation to its pair; a pair listed in blocked is
-// refused. Peers come from conversations.
+// refused. Peers come from conversations. groups maps a group to its members, and blocked
+// names pairs ("a|b") that hear no typing from each other in a group.
 type fakeAccess struct {
 	mu            sync.Mutex
 	conversations map[string][2]string
 	refused       map[string]bool // conversations that are not active, or have a block
+	groups        map[string][]string
+	blocked       map[string]bool
 	suspended     map[string]*domain.Suspension
 	checks        int
 }
@@ -133,24 +136,37 @@ func newFakeAccess() *fakeAccess {
 	return &fakeAccess{
 		conversations: map[string][2]string{"c1": {"ada", "bob"}},
 		refused:       map[string]bool{}, suspended: map[string]*domain.Suspension{},
+		groups: map[string][]string{}, blocked: map[string]bool{},
 	}
 }
 
-func (a *fakeAccess) TypingPeer(_ context.Context, userID, id string) (string, bool, error) {
+func (a *fakeAccess) TypingPeers(_ context.Context, userID, id string) ([]string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.checks++
+	if members, ok := a.groups[id]; ok {
+		if !slices.Contains(members, userID) {
+			return nil, nil
+		}
+		var out []string
+		for _, m := range members {
+			if m != userID && !a.blocked[userID+"|"+m] && !a.blocked[m+"|"+userID] {
+				out = append(out, m)
+			}
+		}
+		return out, nil
+	}
 	pair, ok := a.conversations[id]
 	if !ok || a.refused[id] {
-		return "", false, nil
+		return nil, nil
 	}
 	switch userID {
 	case pair[0]:
-		return pair[1], true, nil
+		return []string{pair[1]}, nil
 	case pair[1]:
-		return pair[0], true, nil
+		return []string{pair[0]}, nil
 	}
-	return "", false, nil
+	return nil, nil
 }
 
 func (a *fakeAccess) Peers(_ context.Context, userID string) ([]string, error) {

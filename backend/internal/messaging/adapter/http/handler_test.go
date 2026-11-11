@@ -28,11 +28,11 @@ const (
 
 var (
 	at      = time.Date(2026, 11, 4, 10, 0, 0, 0, time.UTC)
-	message = domain.Message{ID: msgID, ConversationID: convID, SenderID: caller, Body: "hi", ClientID: clientID, CreatedAt: at}
+	message = domain.Message{ID: msgID, ConversationID: convID, SenderID: caller, Body: ptr("hi"), ClientID: clientID, CreatedAt: at}
 	item    = domain.Item{
 		Conversation: domain.Conversation{ID: convID, State: domain.StateRequest, RequestedBy: ptr(otherID), LastMessageAt: at},
 		Other:        domain.Person{UserID: otherID, FullName: "Bob", Headline: ptr("Chemist"), PhotoFileID: ptr(fileID), Available: true},
-		LastMessage:  &domain.Preview{SenderID: otherID, Body: "may I?", CreatedAt: at},
+		LastMessage:  &domain.Preview{SenderID: otherID, SenderName: ptr("Bob"), Body: ptr("may I?"), CreatedAt: at},
 		UnreadCount:  2,
 	}
 )
@@ -42,10 +42,48 @@ func ptr(s string) *string { return &s }
 // fakeService records the arguments of the last call and answers with err.
 type fakeService struct {
 	args []any
-	err  error
-	sent domain.Sent
-	read *string
-	next *string
+	// search is what Search answers.
+	search domain.SearchPage
+	err    error
+	sent   domain.Sent
+	read   *string
+	next   *string
+	// edited is what Edit answers.
+	edited domain.Message
+	// group is what the group operations answer; replayed is CreateGroup's flag.
+	group    domain.Item
+	replayed bool
+	// page, detail and receipt replace the default answers when set.
+	page    *domain.MessagePage
+	detail  *domain.ReportDetail
+	receipt *domain.ReportReceipt
+	// upload is what UploadAttachment answers.
+	upload domain.Upload
+}
+
+func (f *fakeService) CreateGroup(_ context.Context, creatorID string, in domain.GroupInput) (domain.Item, bool, error) {
+	f.args = []any{creatorID, in}
+	return f.group, f.replayed, f.err
+}
+
+func (f *fakeService) RenameGroup(_ context.Context, ownerID, id, name string) (domain.Item, error) {
+	f.args = []any{ownerID, id, name}
+	return f.group, f.err
+}
+
+func (f *fakeService) AddMembers(_ context.Context, ownerID, id string, userIDs []string) (domain.Item, error) {
+	f.args = []any{ownerID, id, userIDs}
+	return f.group, f.err
+}
+
+func (f *fakeService) RemoveMember(_ context.Context, ownerID, id, userID string) error {
+	f.args = []any{ownerID, id, userID}
+	return f.err
+}
+
+func (f *fakeService) Leave(_ context.Context, userID, id string) error {
+	f.args = []any{userID, id}
+	return f.err
 }
 
 func (f *fakeService) SendDirect(_ context.Context, senderID, recipientID, body, cid string) (domain.Sent, error) {
@@ -68,8 +106,11 @@ func (f *fakeService) Get(_ context.Context, userID, id string) (domain.Item, er
 	return item, f.err
 }
 
-func (f *fakeService) Messages(_ context.Context, userID, id, before string, limit *int) (domain.MessagePage, error) {
-	f.args = []any{userID, id, before, limit}
+func (f *fakeService) Messages(_ context.Context, userID, id string, q domain.MessageQuery) (domain.MessagePage, error) {
+	f.args = []any{userID, id, q}
+	if f.page != nil {
+		return *f.page, f.err
+	}
 	return domain.MessagePage{Items: []domain.Message{message}, NextBefore: f.next, OtherReadID: f.read}, f.err
 }
 
@@ -90,7 +131,10 @@ func (f *fakeService) Decline(_ context.Context, userID, id string) (domain.Item
 
 func (f *fakeService) Report(_ context.Context, userID, id string, in domain.ReportInput) (domain.ReportReceipt, error) {
 	f.args = []any{userID, id, in}
-	return domain.ReportReceipt{ID: reportID, CreatedAt: at, ReportedID: otherID}, f.err
+	if f.receipt != nil {
+		return *f.receipt, f.err
+	}
+	return domain.ReportReceipt{ID: reportID, CreatedAt: at, ReportedID: ptr(otherID)}, f.err
 }
 
 func (f *fakeService) ListReports(_ context.Context, status string, page int) (domain.ReportPage, error) {
@@ -100,7 +144,20 @@ func (f *fakeService) ListReports(_ context.Context, status string, page int) (d
 
 func (f *fakeService) ReportDetail(_ context.Context, adminID, id, before string) (domain.ReportDetail, error) {
 	f.args = []any{adminID, id, before}
-	return domain.ReportDetail{Report: report, Messages: []domain.Message{message}, NextBefore: f.next}, f.err
+	if f.detail != nil {
+		return *f.detail, f.err
+	}
+	return domain.ReportDetail{Report: report, Messages: []domain.ReportedMessage{reported}, NextBefore: f.next}, f.err
+}
+
+func (f *fakeService) Edit(_ context.Context, editorID, id, messageID, body string) (domain.Message, error) {
+	f.args = []any{editorID, id, messageID, body}
+	return f.edited, f.err
+}
+
+func (f *fakeService) Delete(_ context.Context, deleterID, id, messageID string) error {
+	f.args = []any{deleterID, id, messageID}
+	return f.err
 }
 
 func (f *fakeService) ResolveReport(_ context.Context, adminID, id string, outcome domain.ReportOutcome, note *string) (domain.Report, error) {
@@ -280,7 +337,7 @@ func TestConversationBody(t *testing.T) {
 			other["photoUrl"] != "/api/v1/media/"+fileID || other["available"] != true {
 			t.Errorf("otherMember = %v", other)
 		}
-		if last := c["lastMessage"].(map[string]any); last["senderId"] != otherID || last["body"] != "may I?" {
+		if last := c["lastMessage"].(map[string]any); last["senderId"] != otherID || last["senderName"] != "Bob" || last["body"] != "may I?" {
 			t.Errorf("lastMessage = %v", last)
 		}
 	}
@@ -325,7 +382,7 @@ func TestListRefusals(t *testing.T) {
 		{"box", "/api/v1/conversations", domain.ErrInvalidBox},
 		{"cursor", "/api/v1/conversations", domain.ErrInvalidCursor},
 		{"limit", "/api/v1/conversations", domain.ErrInvalidLimit},
-		{"before", "/api/v1/conversations/" + convID + "/messages", domain.ErrInvalidCursor},
+		{"before", "/api/v1/conversations/" + convID + "/messages", &domain.InvalidFieldError{Field: "before"}},
 		{"message limit", "/api/v1/conversations/" + convID + "/messages", domain.ErrInvalidLimit},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -337,7 +394,7 @@ func TestListRefusals(t *testing.T) {
 	}
 }
 
-// NFR-14: a non-member gets the same 404 from every operation on a conversation.
+// NFR-13: a non-member gets the same 404 from every operation on a conversation.
 func TestNotFoundOnEveryConversationRoute(t *testing.T) {
 	base := "/api/v1/conversations/" + convID
 	for _, r := range []struct{ method, path, body string }{
@@ -368,12 +425,59 @@ func TestListMessagesBody(t *testing.T) {
 	if body["otherLastReadMessageId"] != msgID || body["nextBefore"] != msgID || len(body["items"].([]any)) != 1 {
 		t.Errorf("body = %v", body)
 	}
-	if svc.args[2] != msgID || *svc.args[3].(*int) != 2 {
+	if q := svc.args[2].(domain.MessageQuery); q.Before != msgID || q.After != "" || q.Around != "" || *q.Limit != 2 {
 		t.Errorf("args = %v", svc.args)
+	}
+	if body["nextAfter"] != nil || len(body["people"].(map[string]any)) != 0 {
+		t.Errorf("nextAfter and people = %v", body)
 	}
 	rec = send(t, &fakeService{}, http.MethodGet, "/api/v1/conversations/"+convID+"/messages", "", caller)
 	if body := decode(t, rec); body["otherLastReadMessageId"] != nil || body["nextBefore"] != nil {
 		t.Errorf("no marker and no next page: %v", body)
+	}
+}
+
+// A page centred on a message (FR-16.8): the cursors reach the usecase, nextAfter and the
+// people come back, a hidden person has no photo, and each refusal names its field.
+func TestListMessagesAround(t *testing.T) {
+	photo := "0199a1b2-c3d4-7e8f-9a0b-1c2d3e4f5a6b"
+	svc := &fakeService{page: &domain.MessagePage{
+		Items: []domain.Message{message}, NextBefore: ptr(msgID), NextAfter: ptr(msgID),
+		People: map[string]domain.PagePerson{
+			caller: {UserID: caller, FullName: "Ada", PhotoFileID: &photo, Available: true},
+			convID: {UserID: convID, FullName: "Gone", PhotoFileID: &photo, Available: false},
+		},
+	}}
+	rec := send(t, svc, http.MethodGet, "/api/v1/conversations/"+convID+"/messages?around="+msgID, "", caller)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d %s", rec.Code, rec.Body)
+	}
+	if q := svc.args[2].(domain.MessageQuery); q.Around != msgID || q.Before != "" || q.After != "" {
+		t.Errorf("query = %+v", q)
+	}
+	body := decode(t, rec)
+	people := body["people"].(map[string]any)
+	ada, gone := people[caller].(map[string]any), people[convID].(map[string]any)
+	if body["nextAfter"] != msgID || body["nextBefore"] != msgID || ada["fullName"] != "Ada" || ada["photoUrl"] == nil || ada["available"] != true {
+		t.Errorf("body = %v", body)
+	}
+	if gone["fullName"] != "Gone" || gone["photoUrl"] != nil || gone["available"] != false {
+		t.Errorf("hidden person = %v", gone)
+	}
+	send(t, svc, http.MethodGet, "/api/v1/conversations/"+convID+"/messages?after="+msgID, "", caller)
+	if q := svc.args[2].(domain.MessageQuery); q.After != msgID {
+		t.Errorf("after query = %+v", q)
+	}
+
+	for _, field := range []string{"before", "after", "around"} {
+		rec := send(t, &fakeService{err: &domain.InvalidFieldError{Field: field}}, http.MethodGet, "/api/v1/conversations/"+convID+"/messages", "", caller)
+		if body := decode(t, rec); rec.Code != http.StatusBadRequest || body["code"] != "bad_request" || body["field"] != field {
+			t.Errorf("%s: %d %v", field, rec.Code, body)
+		}
+	}
+	rec = send(t, &fakeService{err: domain.ErrMessageNotFound}, http.MethodGet, "/api/v1/conversations/"+convID+"/messages?around="+msgID, "", caller)
+	if body := decode(t, rec); rec.Code != http.StatusNotFound || body["code"] != "not_found" || body["message"] != "This message does not exist." {
+		t.Errorf("hidden anchor: %d %v", rec.Code, body)
 	}
 }
 
@@ -408,6 +512,8 @@ func TestEveryOperationNeedsALogin(t *testing.T) {
 		{http.MethodPost, base + "/accept", ""},
 		{http.MethodPost, base + "/decline", ""},
 		{http.MethodGet, "/api/v1/messages/unread-count", ""},
+		{http.MethodPatch, base + "/messages/" + msgID, `{"body":"hi"}`},
+		{http.MethodDelete, base + "/messages/" + msgID, ""},
 	} {
 		if rec := send(t, &fakeService{}, r.method, r.path, r.body, ""); rec.Code != http.StatusUnauthorized {
 			t.Errorf("%s %s: %d", r.method, r.path, rec.Code)
@@ -420,7 +526,7 @@ const reportID = "7f3a1c2e-7777-4e8b-b7c1-2d3e4f5a6b7c"
 var report = domain.Report{
 	ID: reportID, ConversationID: convID, Reason: domain.ReasonSpam, CreatedAt: at,
 	Reporter: domain.ReportPerson{UserID: caller, FullName: "Ada", Role: "researcher"},
-	Reported: domain.ReportPerson{UserID: otherID, FullName: "Bob", Role: "admin"},
+	Reported: &domain.ReportPerson{UserID: otherID, FullName: "Bob", Role: "admin"},
 }
 
 // FR-16.9: the two refusals of a block, and the flags a conversation carries.

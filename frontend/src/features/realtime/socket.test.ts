@@ -83,6 +83,26 @@ describe("parseEvent", () => {
   it.each([["not json"], ['{"type":"later.event","data":{}}'], ['{"type":"presence"}'], ["null"], [new ArrayBuffer(1)]])("ignores %s", (frame) => {
     expect(parseEvent(frame)).toBeNull();
   });
+
+  // FR-16.6: the group events.
+  it("reads conversation.members and a group's access-lost update", () => {
+    expect(parseEvent('{"type":"conversation.members","data":{"conversationId":"g","change":"renamed","actorId":"u","userIds":[],"name":"Lab"}}')?.type).toBe(
+      "conversation.members",
+    );
+    expect(parseEvent('{"type":"conversation.updated","data":{"conversationId":"g","state":"active","canMessage":false,"accessLost":true}}')).toEqual({
+      type: "conversation.updated",
+      data: { conversationId: "g", state: "active", canMessage: false, accessLost: true },
+    });
+  });
+
+  it("reads message.updated, message.deleted and attachment.updated (FR-16.5, FR-16.7)", () => {
+    expect(parseEvent('{"type":"attachment.updated","data":{"conversationId":"c","messageId":null,"attachmentId":"a","status":"clean"}}')?.type).toBe(
+      "attachment.updated",
+    );
+    expect(parseEvent('{"type":"message.deleted","data":{"conversationId":"c","messageId":"m"}}')?.type).toBe("message.deleted");
+    expect(parseEvent('{"type":"message.updated","data":{"message":{"id":"m"}}}')?.type).toBe("message.updated");
+  });
+
 });
 
 describe("the connection", () => {

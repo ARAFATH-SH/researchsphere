@@ -39,7 +39,7 @@ function load(c: Conversation, items: Message[] = []) {
   mockGet.mockResolvedValue({ ok: true, data: c });
   jest.mocked(listMessages).mockResolvedValue({
     ok: true,
-    data: { items: [...items].reverse(), nextBefore: null, otherLastReadMessageId: null },
+    data: { items: [...items].reverse(), nextBefore: null, otherLastReadMessageId: null, readers: null, nextAfter: null, people: {} },
   });
 }
 
@@ -87,7 +87,7 @@ describe("Thread header pills", () => {
 
   it("leaves Block out when the person is not available", async () => {
     const c = conversation({ canMessage: false });
-    load({ ...c, otherMember: { ...c.otherMember, available: false } });
+    load({ ...c, otherMember: { ...c.otherMember!, available: false } });
     await renderThread();
     expect(screen.queryByRole("button", { name: "Block Bob Babbage" })).toBeNull();
     expect(screen.getByRole("button", { name: "Report Bob Babbage" })).toBeTruthy();
@@ -129,8 +129,12 @@ describe("Report message", () => {
   it("is offered on their messages and not on mine", async () => {
     load(conversation(), [message(1, adaID, "mine"), message(2, bobID, "theirs")]);
     await renderThread();
-    expect(dots()).toHaveLength(1);
-    expect(within(screen.getByText("mine").closest("div")!).queryByRole("button", { name: /More actions/ })).toBeNull();
+    const [mine, theirs] = dots();
+    fireEvent.click(theirs);
+    expect(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Report message" })).toBeTruthy();
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+    fireEvent.click(mine);
+    expect(within(screen.getByRole("menu")).queryByRole("menuitem", { name: "Report message" })).toBeNull();
   });
 
   it("reports that message", async () => {

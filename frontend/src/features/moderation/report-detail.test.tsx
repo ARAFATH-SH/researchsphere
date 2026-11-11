@@ -16,11 +16,24 @@ afterEach(() => jest.resetAllMocks());
 const reason = "Repeated spam in messages";
 
 function msg(n: number, senderId: string, body: string): ReportedMessage {
-  return { id: `m${n}`, conversationId: "c", senderId, body, createdAt: "2026-11-05T08:00:00Z" };
+  return {
+    id: `m${n}`,
+    conversationId: "c",
+    senderId,
+    kind: "text",
+    event: null,
+    body,
+    createdAt: "2026-11-05T08:00:00Z",
+    editedAt: null,
+    deletedAt: null,
+    changedAfterReport: false,
+    versions: [],
+    attachments: [],
+  };
 }
 
 function load(r: MessageReport, messages: ReportedMessage[] = [msg(2, bobID, "second"), msg(1, cyd.userId, "first")], nextBefore: string | null = null) {
-  mockGet.mockResolvedValue({ ok: true, data: { report: r, messages, nextBefore } });
+  mockGet.mockResolvedValue({ ok: true, data: { report: r, membersAtReport: null, messages, nextBefore } });
 }
 
 async function open() {
@@ -75,7 +88,7 @@ describe("ReportDetail", () => {
   it("loads earlier messages above the others", async () => {
     load(report(), [msg(2, bobID, "second")], "m2");
     await open();
-    mockGet.mockResolvedValueOnce({ ok: true, data: { report: report(), messages: [msg(1, cyd.userId, "first")], nextBefore: null } });
+    mockGet.mockResolvedValueOnce({ ok: true, data: { report: report(), membersAtReport: null, messages: [msg(1, cyd.userId, "first")], nextBefore: null } });
     await act(async () => fireEvent.click(button("Load earlier")));
     expect(mockGet).toHaveBeenLastCalledWith(reportID, "m2");
     const items = within(screen.getByRole("list", { name: "Messages up to the report" })).getAllByRole("listitem");
@@ -92,6 +105,62 @@ describe("ReportDetail", () => {
       "Restrict messaging",
       "Suspend",
     ]);
+  });
+
+  // A report of a whole group names nobody (FR-16.6).
+  describe("a whole-group report", () => {
+    const admin = { ...cyd, userId: "0b8f4c1e-0000-4000-8000-000000000009", fullName: "Ann Admin", role: "admin" as const };
+    const me = { ...cyd, userId: adaID, fullName: "Ada Lovelace" };
+    const groupReport = () => report({ reportedUser: null, conversationKind: "group", groupName: "Lab" });
+    function loadGroup(members = [bob, cyd, admin, me]) {
+      mockGet.mockResolvedValue({
+        ok: true,
+        data: { report: groupReport(), membersAtReport: members, messages: [msg(2, bobID, "second"), msg(1, cyd.userId, "first")], nextBefore: null },
+      });
+    }
+
+    it("shows Whole group, names each sender from the members at the report, and offers every action", async () => {
+      loadGroup();
+      await open();
+      expect(screen.getByText("Whole group")).toBeTruthy();
+      expect(screen.getByText("second").closest("li")!.textContent).toContain("Bob Babbage");
+      expect(within(actions()!).getAllByRole("button").map((b) => b.textContent)).toEqual(["Dismiss report", "Warn", "Restrict messaging", "Suspend"]);
+    });
+
+    it.each<[string, () => void]>([
+      ["Warn", () => expect(warnUser).toHaveBeenCalledWith(bobID, expect.objectContaining({ reportId: reportID, reason }))],
+      ["Restrict messaging", () => expect(restrictUser).toHaveBeenCalledWith(bobID, 7, expect.objectContaining({ reportId: reportID, reason }))],
+      ["Suspend", () => expect(suspendUser).toHaveBeenCalledWith(bobID, expect.any(String), expect.objectContaining({ reportId: reportID, reason }))],
+    ])("%s first asks who it is for, then acts on that member", async (name, check) => {
+      loadGroup();
+      for (const fn of [warnUser, restrictUser, suspendUser]) jest.mocked(fn).mockResolvedValue({ ok: true, data: {} as never });
+      await open();
+      fireEvent.click(button(name));
+      const dialog = screen.getByRole("dialog");
+      expect(within(dialog).getByRole("group", { name: "Who is this action for?" })).toBeTruthy();
+      // Administrators and oneself cannot be chosen (FR-15.10).
+      expect((within(dialog).getByRole("radio", { name: /Ann Admin/ }) as HTMLInputElement).disabled).toBe(true);
+      expect((within(dialog).getByRole("radio", { name: /Ada Lovelace/ }) as HTMLInputElement).disabled).toBe(true);
+      expect((inDialog("Continue") as HTMLButtonElement).disabled).toBe(true);
+      fireEvent.click(within(dialog).getByRole("radio", { name: /Bob Babbage/ }));
+      fireEvent.click(inDialog("Continue"));
+      expect(screen.getByRole("dialog").textContent).toContain("Bob Babbage");
+      fireEvent.change(screen.getByRole("textbox", { name: "Reason shown to the user" }), { target: { value: reason } });
+      await act(async () => fireEvent.click(inDialog(name)));
+      check();
+      expect(screen.getByText("Action taken")).toBeTruthy();
+    });
+
+    it("dismisses with no member", async () => {
+      loadGroup();
+      jest.mocked(dismissMessageReport).mockResolvedValue({ ok: true, data: report({ status: "resolved", outcome: "dismissed" }) });
+      await open();
+      fireEvent.click(button("Dismiss report"));
+      expect(within(screen.getByRole("dialog")).queryByRole("group", { name: "Who is this action for?" })).toBeNull();
+      await act(async () => fireEvent.click(inDialog("Dismiss report")));
+      expect(dismissMessageReport).toHaveBeenCalledWith(reportID, undefined);
+      expect(screen.getByText("Dismissed")).toBeTruthy();
+    });
   });
 
   it("offers no actions on a resolved report", async () => {

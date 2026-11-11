@@ -1,4 +1,4 @@
-# ResearchSphere: local development services (PostgreSQL, Redis, Mailpit, MinIO).
+# ResearchSphere: local development services (PostgreSQL, Redis, Mailpit, MinIO, ClamAV).
 # Start with `make up`, stop with `make down`. Values come from .env (see .env.example).
 name: researchsphere
 
@@ -81,6 +81,26 @@ services:
       - mc mb --ignore-existing "local/$$S3_BUCKET" && mc anonymous set private "local/$$S3_BUCKET"
     restart: "no"
 
+  # Malware scanner for message attachments (FR-16.7, NFR-13). The API streams each file to
+  # clamd over TCP (INSTREAM). The image under this tag carries signatures that are rebuilt
+  # daily; the volume keeps the ones freshclam updates, so they are not downloaded again on
+  # every start. clamd needs about 1.5 to 3 GB of memory and 30 to 90 seconds to load its
+  # signatures: `make up` starts it without waiting, and the scan worker waits for it
+  # (docs/decisions.md, 2026-11-09).
+  clamav:
+    image: clamav/clamav:1.4.6
+    ports:
+      - "127.0.0.1:${CLAMAV_PORT:-3310}:3310"
+    volumes:
+      - clamavdb:/var/lib/clamav
+    healthcheck:
+      test: ["CMD", "clamdcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
+
 volumes:
   pgdata:
   miniodata:
+  clamavdb:

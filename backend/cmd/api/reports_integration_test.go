@@ -1,6 +1,6 @@
 //go:build integration
 
-// End-to-end tests of reports and their review by an administrator (FR-16.9, NFR-14),
+// End-to-end tests of reports and their review by an administrator (FR-16.9, NFR-13),
 // through the real router, the PostgreSQL adapters and Redis, on the test database. They
 // reuse the environment of media_integration_test.go.
 package main
@@ -127,7 +127,7 @@ func TestReportDailyLimit(t *testing.T) {
 	e.report(t, ada, id, `{"reason":"spam"}`)
 }
 
-// NFR-14: an administrator sees the messages up to the report, never later ones, and every
+// NFR-13: an administrator sees the messages up to the report, never later ones, and every
 // view leaves an audit row.
 func TestAdminReadsUpToTheReport(t *testing.T) {
 	e := newMediaEnv(t)
@@ -201,7 +201,7 @@ func TestEachReportHasItsOwnMoment(t *testing.T) {
 	}
 }
 
-// NFR-14: only a report opens a conversation, and the member routes stay closed to an
+// NFR-13: only a report opens a conversation, and the member routes stay closed to an
 // administrator, also for a reported conversation.
 func TestAdminReachesOnlyReportedConversations(t *testing.T) {
 	e := newMediaEnv(t)

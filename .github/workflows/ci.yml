@@ -17,9 +17,9 @@ concurrency:
 
 jobs:
   stack:
-    name: Stack (PostgreSQL, Redis, MinIO, migrations, database and repository tests)
+    name: Stack (PostgreSQL, Redis, MinIO, ClamAV, migrations, database and repository tests)
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
 
@@ -85,6 +85,21 @@ jobs:
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
+
+      # FR-16.7: make up started clamd without waiting. The EICAR integration test runs only
+      # when TEST_CLAMAV_ADDR is set, so this step sets it once clamd is healthy and leaves it
+      # unset (the test skips) when clamd does not come up in 5 minutes, for example when the
+      # signature download is rate-limited (docs/decisions.md, 2026-11-09).
+      - name: Wait for ClamAV
+        continue-on-error: true
+        run: |
+          id=$(docker compose ps -q clamav)
+          if timeout 300 bash -c "until [ \"\$(docker inspect -f '{{.State.Health.Status}}' $id)\" = healthy ]; do sleep 5; done"; then
+            echo "TEST_CLAMAV_ADDR=127.0.0.1:3310" >> "$GITHUB_ENV"
+            echo "clamd is ready; the EICAR test will run."
+          else
+            echo "::warning::clamd did not become healthy; the EICAR test will be skipped."
+          fi
 
       - name: Repository tests (Go)
         run: make test-integration

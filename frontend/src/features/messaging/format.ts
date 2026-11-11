@@ -1,11 +1,21 @@
 import { shortDate } from "@/features/social/format";
 
-import type { Conversation } from "./api";
+import type { Attachment, Conversation, MessageReader, SystemEvent } from "./api";
+import { eventPreview, firstName } from "./system-events";
 
 // maxBody is the longest message, in characters after trimming; counterFrom is where the
 // composer starts showing the count.
 export const maxBody = 5000;
 export const counterFrom = 4500;
+
+// editWindow is how long after sending a message can be edited: the server's default
+// MESSAGE_EDIT_WINDOW (FR-16.5). The server decides; a 409 covers a different setting or clock.
+export const editWindow = 15 * 60_000;
+
+// editableUntil is when a message sent at createdAt stops being editable, in milliseconds.
+export function editableUntil(createdAt: string): number {
+  return Date.parse(createdAt) + editWindow;
+}
 
 const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -62,7 +72,20 @@ export function rowPreview(conversation: Conversation, me: string): string {
   }
   const last = conversation.lastMessage;
   if (!last) return "";
-  return last.senderId === me ? `You: ${last.body}` : last.body;
+  // Only deleted marks a deletion: a message with files may have no text (FR-16.5, FR-16.7).
+  if (last.deleted) return "Message deleted";
+  if (last.kind === "system" && last.event) return eventPreview(last.event, last.senderId, last.senderName, me);
+  const mine = last.senderId === me;
+  // In a group a row names who wrote (FR-16.6): "Nafisa: …".
+  const who = conversation.kind === "group" && !mine && last.senderName ? firstName(last.senderName) : null;
+  const text = last.body ?? "";
+  if (!text && last.attachmentCount > 0) {
+    const files = last.attachmentCount === 1 ? "a file" : `${last.attachmentCount} files`;
+    if (mine) return `You sent ${files}`;
+    return who ? `${who} sent ${files}` : `Sent ${files}`;
+  }
+  if (mine) return `You: ${text}`;
+  return who ? `${who}: ${text}` : text;
 }
 
 // ThreadStatus is what the caller may do in a conversation; open is the only one that sends.
@@ -82,17 +105,26 @@ export function threadStatus(conversation: Conversation, me: string): ThreadStat
 export type ThreadMessage = {
   key: string;
   id: string | null;
+  // senderId is empty for a system message with no actor (an ownership hand-over).
   senderId: string;
+  // event is set for a group's system message, which is shown as a line of its own.
+  event: SystemEvent | null;
   body: string;
   createdAt: string;
+  editedAt: string | null;
+  // deleted comes from the message's flag, never from an empty body.
+  deleted: boolean;
+  attachments: Attachment[];
   delivery: "sent" | "sending" | "failed";
 };
 
-export type MessageGroup = { key: string; senderId: string; messages: ThreadMessage[] };
+// MessageGroup is a run of messages by one sender, or one system message (system).
+export type MessageGroup = { key: string; senderId: string; system: boolean; messages: ThreadMessage[] };
 export type MessageDay = { key: string; label: string; groups: MessageGroup[] };
 
 // groupMessages arranges messages, oldest first, by day and, within a day, into runs by the
-// same sender.
+// same sender. A system message stands alone and ends a run, so the sender is named again after
+// it.
 export function groupMessages(messages: ThreadMessage[], now = new Date()): MessageDay[] {
   const days: MessageDay[] = [];
   for (const message of messages) {
@@ -103,10 +135,29 @@ export function groupMessages(messages: ThreadMessage[], now = new Date()): Mess
       days.push(day);
     }
     const group = day.groups.at(-1);
-    if (group && group.senderId === message.senderId) group.messages.push(message);
-    else day.groups.push({ key: message.key, senderId: message.senderId, messages: [message] });
+    const system = message.event !== null;
+    if (group && !group.system && !system && group.senderId === message.senderId) group.messages.push(message);
+    else day.groups.push({ key: message.key, senderId: message.senderId, system, messages: [message] });
   }
   return days;
+}
+
+// SeenBy is "Seen by N" under the caller's latest message others have read in a group
+// (FR-16.3): the message and who read it.
+export type SeenBy = { messageId: string; userIds: string[] };
+
+// seenBy finds the caller's newest stored message that at least one other member has read,
+// with every member whose marker is at or after it. Message IDs are UUIDv7, so a later message
+// has a greater ID.
+export function seenBy(messages: ThreadMessage[], me: string, readers: MessageReader[] | null): SeenBy | null {
+  if (!readers || readers.length === 0) return null;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const { id, senderId, event } = messages[i];
+    if (!id || senderId !== me || event) continue;
+    const userIds = readers.filter((r) => r.lastReadMessageId !== null && r.lastReadMessageId >= id).map((r) => r.userId);
+    if (userIds.length > 0) return { messageId: id, userIds };
+  }
+  return null;
 }
 
 // seenMessageId is the caller's latest stored message the other member has read: message

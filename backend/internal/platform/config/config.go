@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/storage"
 )
@@ -34,6 +35,12 @@ const (
 	DefaultMessagesPerDay    = 1000
 	DefaultRequestsPerMinute = 5
 	DefaultRequestsPerDay    = 20
+	// Message searches per user per minute (FR-16.8).
+	DefaultSearchesPerMinute = 30
+	// How long after sending a message its sender may edit it (FR-16.5).
+	DefaultMessageEditWindow = 15 * time.Minute
+	// clamd, the malware scanner of attachments (FR-16.7), as docker-compose.yml publishes it.
+	DefaultClamAVAddr = "127.0.0.1:3310"
 )
 
 // MinJWTSecretLen is the shortest JWT_SECRET accepted, in bytes: HS256 needs a key at
@@ -73,6 +80,12 @@ type Config struct {
 	MessagesPerDay    int
 	RequestsPerMinute int
 	RequestsPerDay    int
+	// SearchesPerMinute limits message searches per user (FR-16.8).
+	SearchesPerMinute int
+	// MessageEditWindow is how long after sending a message its sender may edit it (FR-16.5).
+	MessageEditWindow time.Duration
+	// ClamAVAddr is clamd's TCP address (host:port) for the malware scan (FR-16.7).
+	ClamAVAddr string
 }
 
 // Load reads the settings through getenv (os.Getenv in main). Errors name the
@@ -183,10 +196,20 @@ func Load(getenv func(string) string) (Config, error) {
 		{"MESSAGE_LIMIT_PER_DAY", DefaultMessagesPerDay, &cfg.MessagesPerDay},
 		{"MESSAGE_REQUEST_LIMIT_PER_MINUTE", DefaultRequestsPerMinute, &cfg.RequestsPerMinute},
 		{"MESSAGE_REQUEST_LIMIT_PER_DAY", DefaultRequestsPerDay, &cfg.RequestsPerDay},
+		{"MESSAGE_SEARCH_LIMIT_PER_MINUTE", DefaultSearchesPerMinute, &cfg.SearchesPerMinute},
 	} {
 		if *l.dst, err = parsePositive(l.name, getenv(l.name), l.def); err != nil {
 			errs = append(errs, err)
 		}
+	}
+
+	if cfg.MessageEditWindow, err = parseDuration("MESSAGE_EDIT_WINDOW", getenv("MESSAGE_EDIT_WINDOW"), DefaultMessageEditWindow); err != nil {
+		errs = append(errs, err)
+	}
+
+	cfg.ClamAVAddr = orDefault(getenv("CLAMAV_ADDR"), DefaultClamAVAddr)
+	if err := checkHostPort("CLAMAV_ADDR", cfg.ClamAVAddr); err != nil {
+		errs = append(errs, err)
 	}
 
 	if len(errs) > 0 {
@@ -214,6 +237,7 @@ func (c Config) LogValue() slog.Value {
 		slog.Bool("s3_use_ssl", c.Storage.UseSSL),
 		slog.String("openalex_base_url", c.OpenAlexBaseURL),
 		slog.String("orcid_base_url", c.ORCIDBaseURL),
+		slog.String("clamav_addr", c.ClamAVAddr),
 	)
 }
 
@@ -254,6 +278,19 @@ func parsePositive(name, raw string, def int) (int, error) {
 		return 0, fmt.Errorf("%s must be a whole number of at least 1, got %q", name, raw)
 	}
 	return n, nil
+}
+
+// parseDuration reads a Go duration such as 15m that is more than zero; empty means def.
+func parseDuration(name, raw string, def time.Duration) (time.Duration, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return def, nil
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		return 0, fmt.Errorf("%s must be a duration of more than zero, such as 15m, got %q", name, raw)
+	}
+	return d, nil
 }
 
 // checkBaseURL accepts an absolute http or https URL with a host and no query or fragment.

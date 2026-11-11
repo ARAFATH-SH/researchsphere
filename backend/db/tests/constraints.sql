@@ -548,9 +548,13 @@ SELECT pg_temp.expect_ok('Stored file: every purpose is accepted, a 5 MB pdf too
 SELECT pg_temp.expect_error('Stored file: unknown purpose',
     $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes)
        VALUES ('00000000-0000-0000-0000-000000000001', 'avatar', pg_temp.t('x/1'), 'image/png', 10)$s$, '23514');
+-- 'rejected' was the old name; 000024 replaced it with infected and failed (FR-16.7).
 SELECT pg_temp.expect_error('Stored file: unknown scan status',
     $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes, scan_status)
-       VALUES ('00000000-0000-0000-0000-000000000001', 'photo', pg_temp.t('x/2'), 'image/png', 10, 'infected')$s$, '23514');
+       VALUES ('00000000-0000-0000-0000-000000000001', 'photo', pg_temp.t('x/2'), 'image/png', 10, 'rejected')$s$, '23514');
+SELECT pg_temp.expect_error('Stored file: an attachment is at most 25 MB',
+    $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'attachment', pg_temp.t('x/2b'), 'application/pdf', 26214401)$s$, '23514');
 SELECT pg_temp.expect_error('Stored file: size must be more than 0',
     $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes)
        VALUES ('00000000-0000-0000-0000-000000000001', 'pdf', pg_temp.t('x/3'), 'application/pdf', 0)$s$, '23514');
@@ -878,7 +882,7 @@ SELECT pg_temp.expect_error('Embedding: vector must have 768 dimensions',
        VALUES ('00000000-0000-0000-0000-000000000201', 'test-model', 'h1', '[1,2,3]')$s$, '22000');
 
 -- ---------------------------------------------------------------------------
--- Messaging (FR-16.1, FR-16.2, NFR-14). Users 1 and 2 have one conversation.
+-- Messaging (FR-16.1, FR-16.2, NFR-13). Users 1 and 2 have one conversation.
 -- ---------------------------------------------------------------------------
 
 INSERT INTO conversations (id, state, user_low, user_high) VALUES
@@ -906,7 +910,8 @@ SELECT pg_temp.expect_error('Conversation: a group names no pair',
     $s$INSERT INTO conversations (kind, state, user_low, user_high) VALUES ('group', 'active',
        '00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000003')$s$, '23514');
 SELECT pg_temp.expect_ok('Conversation: the schema allows a group (slice 14B)',
-    $s$INSERT INTO conversations (id, kind, state) VALUES ('00000000-0000-0000-0000-0000000000f4', 'group', 'active')$s$);
+    $s$INSERT INTO conversations (id, kind, state, name, client_id)
+       VALUES ('00000000-0000-0000-0000-0000000000f4', 'group', 'active', 'Lab', gen_random_uuid())$s$);
 SELECT pg_temp.expect_error('Conversation: unknown kind',
     $s$INSERT INTO conversations (kind, state) VALUES ('channel', 'active')$s$, '23514');
 SELECT pg_temp.expect_error('Conversation: unknown state',
@@ -956,7 +961,7 @@ SELECT pg_temp.expect_true('Paged lists: creation times use the clock, not the s
       AND d.adrelid IN ('users'::regclass, 'connections'::regclass, 'blocks'::regclass, 'notifications'::regclass)$q$);
 INSERT INTO conversation_members (conversation_id, user_id) VALUES
     ('00000000-0000-0000-0000-0000000000f4', '00000000-0000-0000-0000-000000000002');
-SELECT pg_temp.expect_error('Read marker: must be a message of its own conversation (NFR-14)',
+SELECT pg_temp.expect_error('Read marker: must be a message of its own conversation (NFR-13)',
     $s$UPDATE conversation_members SET last_read_message_id = '00000000-0000-7000-8000-0000000000f2'
        WHERE conversation_id = '00000000-0000-0000-0000-0000000000f4'$s$, '23503');
 SELECT pg_temp.expect_ok('Read marker: can point at a message of its conversation',
@@ -966,6 +971,133 @@ DELETE FROM messages WHERE id = '00000000-0000-7000-8000-0000000000f2';
 SELECT pg_temp.expect_true('Read marker: deleting its message clears it, not the member', $q$
     SELECT count(*) = 2 AND count(last_read_message_id) = 0 FROM conversation_members
     WHERE conversation_id = '00000000-0000-0000-0000-0000000000f1'$q$);
+
+-- Editing and deleting (FR-16.5, NFR-13): message f5 by user 1 in conversation f1.
+INSERT INTO messages (id, conversation_id, sender_id, body, client_id) VALUES
+    ('00000000-0000-7000-8000-0000000000f5', '00000000-0000-0000-0000-0000000000f1',
+     '00000000-0000-0000-0000-000000000001', 'first text', gen_random_uuid());
+SELECT pg_temp.expect_error('Message: a live message has a body',
+    $s$UPDATE messages SET body = NULL WHERE id = '00000000-0000-7000-8000-0000000000f5'$s$, '23514');
+SELECT pg_temp.expect_error('Message: a deleted message keeps no body',
+    $s$UPDATE messages SET deleted_at = clock_timestamp() WHERE id = '00000000-0000-7000-8000-0000000000f5'$s$, '23514');
+SELECT pg_temp.expect_error('Message: edited after it was sent',
+    $s$UPDATE messages SET edited_at = created_at - interval '1 second' WHERE id = '00000000-0000-7000-8000-0000000000f5'$s$, '23514');
+SELECT pg_temp.expect_error('Message: deleted after it was sent',
+    $s$UPDATE messages SET body = NULL, deleted_at = created_at - interval '1 second' WHERE id = '00000000-0000-7000-8000-0000000000f5'$s$, '23514');
+SELECT pg_temp.expect_error('Message version: belongs to a message of its conversation',
+    $s$INSERT INTO message_versions (conversation_id, message_id, body, shown_from, ended_by)
+       VALUES ('00000000-0000-0000-0000-0000000000f4', '00000000-0000-7000-8000-0000000000f5', 'first text', now(), 'edited')$s$, '23503');
+SELECT pg_temp.expect_error('Message version: a known ending',
+    $s$INSERT INTO message_versions (conversation_id, message_id, body, shown_from, ended_by)
+       VALUES ('00000000-0000-0000-0000-0000000000f1', '00000000-0000-7000-8000-0000000000f5', 'first text', now(), 'hidden')$s$, '23514');
+SELECT pg_temp.expect_error('Message version: shown before it was replaced',
+    $s$INSERT INTO message_versions (conversation_id, message_id, body, shown_from, shown_until, ended_by)
+       VALUES ('00000000-0000-0000-0000-0000000000f1', '00000000-0000-7000-8000-0000000000f5', 'first text', now(), now() - interval '1 second', 'edited')$s$, '23514');
+SELECT pg_temp.expect_error('Message version: 1 to 5,000 characters',
+    $s$INSERT INTO message_versions (conversation_id, message_id, body, shown_from, ended_by)
+       VALUES ('00000000-0000-0000-0000-0000000000f1', '00000000-0000-7000-8000-0000000000f5', '', now(), 'edited')$s$, '23514');
+SELECT pg_temp.expect_ok('Message: an edit keeps the earlier text',
+    $s$WITH v AS (INSERT INTO message_versions (conversation_id, message_id, body, shown_from, ended_by)
+                  SELECT conversation_id, id, body, created_at, 'edited' FROM messages WHERE id = '00000000-0000-7000-8000-0000000000f5')
+       UPDATE messages SET body = 'second text', edited_at = clock_timestamp() WHERE id = '00000000-0000-7000-8000-0000000000f5'$s$);
+SELECT pg_temp.expect_ok('Message: a deletion keeps the last text and leaves a tombstone',
+    $s$WITH v AS (INSERT INTO message_versions (conversation_id, message_id, body, shown_from, ended_by)
+                  SELECT conversation_id, id, body, edited_at, 'deleted' FROM messages WHERE id = '00000000-0000-7000-8000-0000000000f5')
+       UPDATE messages SET body = NULL, deleted_at = clock_timestamp() WHERE id = '00000000-0000-7000-8000-0000000000f5'$s$);
+SELECT pg_temp.expect_error('Message version: a message is deleted once',
+    $s$INSERT INTO message_versions (conversation_id, message_id, body, shown_from, ended_by)
+       VALUES ('00000000-0000-0000-0000-0000000000f1', '00000000-0000-7000-8000-0000000000f5', 'second text', now(), 'deleted')$s$, '23505');
+DELETE FROM messages WHERE id = '00000000-0000-7000-8000-0000000000f5';
+SELECT pg_temp.expect_true('Message version: goes with its message', $q$
+    SELECT count(*) = 0 FROM message_versions WHERE message_id = '00000000-0000-7000-8000-0000000000f5'$q$);
+
+-- Groups (FR-16.6; migration 000021): group f6, created by user 1, with user 2.
+SELECT pg_temp.expect_error('Group: has a name',
+    $s$INSERT INTO conversations (kind, state, client_id) VALUES ('group', 'active', gen_random_uuid())$s$, '23514');
+SELECT pg_temp.expect_error('Group: a name of at most 100 characters',
+    $s$INSERT INTO conversations (kind, state, name, client_id) VALUES ('group', 'active', repeat('a', 101), gen_random_uuid())$s$, '23514');
+SELECT pg_temp.expect_error('Group: a name on one line',
+    $s$INSERT INTO conversations (kind, state, name, client_id) VALUES ('group', 'active', E'Lab\nTwo', gen_random_uuid())$s$, '23514');
+SELECT pg_temp.expect_error('Group: a trimmed name',
+    $s$INSERT INTO conversations (kind, state, name, client_id) VALUES ('group', 'active', ' Lab', gen_random_uuid())$s$, '23514');
+SELECT pg_temp.expect_error('Group: has the client ID of its create',
+    $s$INSERT INTO conversations (kind, state, name) VALUES ('group', 'active', 'Lab')$s$, '23514');
+SELECT pg_temp.expect_error('Group: always active, never a request',
+    $s$INSERT INTO conversations (kind, state, name, client_id, requested_by)
+       VALUES ('group', 'request', 'Lab', gen_random_uuid(), '00000000-0000-0000-0000-000000000001')$s$, '23514');
+SELECT pg_temp.expect_error('Conversation: a direct one has no name',
+    $s$UPDATE conversations SET name = 'Pair' WHERE id = '00000000-0000-0000-0000-0000000000f1'$s$, '23514');
+INSERT INTO conversations (id, kind, state, name, created_by, client_id) VALUES
+    ('00000000-0000-0000-0000-0000000000f6', 'group', 'active', 'Lab',
+     '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-0000000000f7');
+SELECT pg_temp.expect_error('Group: one per creator and client ID',
+    $s$INSERT INTO conversations (kind, state, name, created_by, client_id) VALUES ('group', 'active', 'Again',
+       '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-0000000000f7')$s$, '23505');
+INSERT INTO conversation_members (conversation_id, user_id, role, joined_at) VALUES
+    ('00000000-0000-0000-0000-0000000000f6', '00000000-0000-0000-0000-000000000001', 'owner', clock_timestamp()),
+    ('00000000-0000-0000-0000-0000000000f6', '00000000-0000-0000-0000-000000000002', 'member', clock_timestamp());
+SELECT pg_temp.expect_error('Member: one owner per group',
+    $s$UPDATE conversation_members SET role = 'owner'
+       WHERE conversation_id = '00000000-0000-0000-0000-0000000000f6' AND user_id = '00000000-0000-0000-0000-000000000002'$s$, '23505');
+SELECT pg_temp.expect_error('Member: a known role',
+    $s$UPDATE conversation_members SET role = 'admin'
+       WHERE conversation_id = '00000000-0000-0000-0000-0000000000f6' AND user_id = '00000000-0000-0000-0000-000000000002'$s$, '23514');
+SELECT pg_temp.expect_true('Membership: each new member of a group opens a stay', $q$
+    SELECT count(*) = 2 FROM conversation_memberships
+    WHERE conversation_id = '00000000-0000-0000-0000-0000000000f6' AND left_at IS NULL$q$);
+SELECT pg_temp.expect_true('Membership: a direct conversation keeps no stays', $q$
+    SELECT count(*) = 0 FROM conversation_memberships WHERE conversation_id = '00000000-0000-0000-0000-0000000000f1'$q$);
+SELECT pg_temp.expect_error('System message: has no body',
+    $s$INSERT INTO messages (conversation_id, sender_id, kind, event, event_data, body) VALUES ('00000000-0000-0000-0000-0000000000f6',
+       '00000000-0000-0000-0000-000000000001', 'system', 'group_created', '{}', 'Lab')$s$, '23514');
+SELECT pg_temp.expect_error('System message: has an event',
+    $s$INSERT INTO messages (conversation_id, sender_id, kind, event_data) VALUES ('00000000-0000-0000-0000-0000000000f6',
+       '00000000-0000-0000-0000-000000000001', 'system', '{}')$s$, '23514');
+SELECT pg_temp.expect_error('System message: a known event',
+    $s$INSERT INTO messages (conversation_id, sender_id, kind, event, event_data) VALUES ('00000000-0000-0000-0000-0000000000f6',
+       '00000000-0000-0000-0000-000000000001', 'system', 'member_kicked', '{}')$s$, '23514');
+SELECT pg_temp.expect_error('System message: its data is an object',
+    $s$INSERT INTO messages (conversation_id, sender_id, kind, event, event_data) VALUES ('00000000-0000-0000-0000-0000000000f6',
+       '00000000-0000-0000-0000-000000000001', 'system', 'group_created', '[]')$s$, '23514');
+SELECT pg_temp.expect_error('System message: has no client ID',
+    $s$INSERT INTO messages (conversation_id, sender_id, kind, event, event_data, client_id) VALUES ('00000000-0000-0000-0000-0000000000f6',
+       '00000000-0000-0000-0000-000000000001', 'system', 'group_created', '{}', gen_random_uuid())$s$, '23514');
+SELECT pg_temp.expect_error('Text message: has a sender',
+    $s$INSERT INTO messages (conversation_id, body, client_id) VALUES ('00000000-0000-0000-0000-0000000000f6', 'hi', gen_random_uuid())$s$, '23514');
+SELECT pg_temp.expect_error('Text message: has no event',
+    $s$INSERT INTO messages (conversation_id, sender_id, body, client_id, event, event_data) VALUES ('00000000-0000-0000-0000-0000000000f6',
+       '00000000-0000-0000-0000-000000000001', 'hi', gen_random_uuid(), 'group_created', '{}')$s$, '23514');
+SELECT pg_temp.expect_ok('System message: may have no actor',
+    $s$INSERT INTO messages (id, conversation_id, kind, event, event_data) VALUES ('00000000-0000-7000-8000-0000000000f8',
+       '00000000-0000-0000-0000-0000000000f6', 'system', 'owner_changed', '{"newOwnerId":"00000000-0000-0000-0000-000000000001"}')$s$);
+SELECT pg_temp.expect_error('System message: cannot be edited',
+    $s$UPDATE messages SET edited_at = clock_timestamp() WHERE id = '00000000-0000-7000-8000-0000000000f8'$s$, '23514');
+SELECT pg_temp.expect_error('System message: cannot be deleted',
+    $s$UPDATE messages SET deleted_at = clock_timestamp() WHERE id = '00000000-0000-7000-8000-0000000000f8'$s$, '23514');
+SELECT pg_temp.expect_ok('Report: a report of a whole group names no reported user',
+    $s$INSERT INTO message_reports (conversation_id, reporter_id, reason)
+       VALUES ('00000000-0000-0000-0000-0000000000f6', '00000000-0000-0000-0000-000000000002', 'other')$s$);
+DELETE FROM conversation_members
+WHERE conversation_id = '00000000-0000-0000-0000-0000000000f6' AND user_id = '00000000-0000-0000-0000-000000000001';
+SELECT pg_temp.expect_true('Owner leaves: the member who joined earliest becomes owner', $q$
+    SELECT role = 'owner' FROM conversation_members
+    WHERE conversation_id = '00000000-0000-0000-0000-0000000000f6' AND user_id = '00000000-0000-0000-0000-000000000002'$q$);
+SELECT pg_temp.expect_true('Owner leaves: an owner_changed message with no actor follows', $q$
+    SELECT m.sender_id IS NULL AND m.event_data ->> 'newOwnerId' = '00000000-0000-0000-0000-000000000002'
+           AND m.created_at = c.last_message_at
+    FROM messages m JOIN conversations c ON c.id = m.conversation_id
+    WHERE m.conversation_id = '00000000-0000-0000-0000-0000000000f6' AND m.event = 'owner_changed'
+    ORDER BY m.id DESC LIMIT 1$q$);
+SELECT pg_temp.expect_true('Owner leaves: the stay ends', $q$
+    SELECT left_at IS NOT NULL FROM conversation_memberships
+    WHERE conversation_id = '00000000-0000-0000-0000-0000000000f6' AND user_id = '00000000-0000-0000-0000-000000000001'$q$);
+DELETE FROM conversation_members WHERE conversation_id = '00000000-0000-0000-0000-0000000000f6';
+SELECT pg_temp.expect_true('Last member leaves: the group is closed, and no owner_changed is written', $q$
+    SELECT c.closed_at IS NOT NULL AND (SELECT count(*) FROM messages m
+                                        WHERE m.conversation_id = c.id AND m.event = 'owner_changed') = 2
+    FROM conversations c WHERE c.id = '00000000-0000-0000-0000-0000000000f6'$q$);
+SELECT pg_temp.expect_error('Group: closed after it was created',
+    $s$UPDATE conversations SET closed_at = created_at - interval '1 second' WHERE id = '00000000-0000-0000-0000-0000000000f6'$s$, '23514');
 
 -- ---------------------------------------------------------------------------
 -- Account deletion (FR-2.8, SRS 7 Retention): user 3 owns no project.
@@ -1086,7 +1218,7 @@ SELECT pg_temp.expect_true('Project deletion: files, members, requests, compile 
 SELECT pg_temp.expect_true('Project deletion: a post that linked to it stays, without the link', $q$
     SELECT project_id IS NULL FROM posts WHERE id = '00000000-0000-0000-0000-0000000000e4'$q$);
 
--- Blocks and reports (FR-16.9, NFR-14). Users 1 and 2 have the conversation above.
+-- Blocks and reports (FR-16.9, NFR-13). Users 1 and 2 have the conversation above.
 INSERT INTO blocks (blocker_id, blocked_id) VALUES
     ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002');
 SELECT pg_temp.expect_ok('Block: each side may block the other',

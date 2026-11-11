@@ -31,7 +31,7 @@ func (q *Queries) ActivateRequest(ctx context.Context, arg ActivateRequestParams
 const activePeers = `-- name: ActivePeers :many
 SELECT o.user_id
 FROM conversation_members me
-JOIN conversations c ON c.id = me.conversation_id AND c.state = 'active'
+JOIN conversations c ON c.id = me.conversation_id AND c.state = 'active' AND c.kind = 'direct'
 JOIN conversation_members o ON o.conversation_id = c.id AND o.user_id <> me.user_id
 WHERE me.user_id = $1
   AND NOT EXISTS (
@@ -40,8 +40,8 @@ WHERE me.user_id = $1
          OR (b.blocker_id = o.user_id AND b.blocked_id = me.user_id))
 `
 
-// Who may see the user's presence (FR-16.4): the other member of each active conversation,
-// with no block either way.
+// Who may see the user's presence (FR-16.4): the other member of each active direct
+// conversation, with no block either way. Group members do not see each other's presence.
 func (q *Queries) ActivePeers(ctx context.Context, userID pgtype.UUID) ([]pgtype.UUID, error) {
 	rows, err := q.db.Query(ctx, activePeers, userID)
 	if err != nil {
@@ -60,6 +60,29 @@ func (q *Queries) ActivePeers(ctx context.Context, userID pgtype.UUID) ([]pgtype
 		return nil, err
 	}
 	return items, nil
+}
+
+const addGroupMember = `-- name: AddGroupMember :exec
+INSERT INTO conversation_members (conversation_id, user_id, role, joined_at)
+VALUES ($1, $2, $3, $4)
+`
+
+type AddGroupMemberParams struct {
+	ConversationID pgtype.UUID
+	UserID         pgtype.UUID
+	Role           string
+	JoinedAt       pgtype.Timestamptz
+}
+
+// conversation_members_joined (migration 000021) opens the stay in conversation_memberships.
+func (q *Queries) AddGroupMember(ctx context.Context, arg AddGroupMemberParams) error {
+	_, err := q.db.Exec(ctx, addGroupMember,
+		arg.ConversationID,
+		arg.UserID,
+		arg.Role,
+		arg.JoinedAt,
+	)
+	return err
 }
 
 const addMember = `-- name: AddMember :exec
@@ -99,6 +122,52 @@ func (q *Queries) AnswerRequest(ctx context.Context, arg AnswerRequestParams) (p
 	return requested_by, err
 }
 
+const claimAttachments = `-- name: ClaimAttachments :many
+UPDATE message_attachments a
+SET message_id = $1, position = (ids.ord - 1)::smallint
+FROM unnest($4::uuid[]) WITH ORDINALITY AS ids(id, ord), stored_files f
+WHERE a.file_id = ids.id AND f.id = a.file_id
+  AND a.uploader_id = $2 AND a.conversation_id = $3
+  AND a.message_id IS NULL AND a.expires_at > now()
+  AND f.scan_status IN ('pending', 'clean')
+RETURNING a.file_id
+`
+
+type ClaimAttachmentsParams struct {
+	MessageID      pgtype.UUID
+	UploaderID     pgtype.UUID
+	ConversationID pgtype.UUID
+	Ids            []pgtype.UUID
+}
+
+// Ties the sender's unused attachments of this conversation to the message, in the order given.
+// An expired one, or one the scan blocked or could not read, is not taken: the usecase compares
+// the count and rolls back.
+func (q *Queries) ClaimAttachments(ctx context.Context, arg ClaimAttachmentsParams) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, claimAttachments,
+		arg.MessageID,
+		arg.UploaderID,
+		arg.ConversationID,
+		arg.Ids,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var file_id pgtype.UUID
+		if err := rows.Scan(&file_id); err != nil {
+			return nil, err
+		}
+		items = append(items, file_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const countPendingRequests = `-- name: CountPendingRequests :one
 SELECT count(*)
 FROM conversation_members me
@@ -130,11 +199,13 @@ const countUnreadMessages = `-- name: CountUnreadMessages :one
 SELECT count(*)
 FROM conversation_members me
 JOIN conversations c ON c.id = me.conversation_id AND c.state = 'active'
-JOIN messages m ON m.conversation_id = c.id AND m.sender_id <> me.user_id
+JOIN messages m ON m.conversation_id = c.id AND m.kind = 'text' AND m.sender_id <> me.user_id AND m.deleted_at IS NULL
+    AND m.created_at >= me.joined_at
     AND (me.last_read_message_id IS NULL OR m.id > me.last_read_message_id)
 WHERE me.user_id = $1
 `
 
+// Groups included; system messages and messages from before the member joined never count.
 func (q *Queries) CountUnreadMessages(ctx context.Context, userID pgtype.UUID) (int64, error) {
 	row := q.db.QueryRow(ctx, countUnreadMessages, userID)
 	var count int64
@@ -199,6 +270,66 @@ func (q *Queries) DeclineRequestBetween(ctx context.Context, arg DeclineRequestB
 	return err
 }
 
+const deleteExpiredAttachments = `-- name: DeleteExpiredAttachments :execrows
+DELETE FROM message_attachments
+WHERE file_id IN (
+    SELECT file_id FROM message_attachments
+    WHERE message_id IS NULL AND expires_at <= now()
+    ORDER BY expires_at
+    LIMIT $1
+    FOR UPDATE SKIP LOCKED
+)
+`
+
+// Unused attachments past their expiry. The trigger of 000024 deletes the stored file, whose
+// trigger queues the object.
+func (q *Queries) DeleteExpiredAttachments(ctx context.Context, maxRows int32) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteExpiredAttachments, maxRows)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteMessage = `-- name: DeleteMessage :one
+WITH old AS (
+    SELECT m.id, m.conversation_id, m.body, COALESCE(m.edited_at, m.created_at) AS shown_from,
+           GREATEST(clock_timestamp(), m.created_at, m.edited_at) AS instant
+    FROM messages m
+    WHERE m.id = $1 AND m.deleted_at IS NULL AND m.kind = 'text'
+), kept AS (
+    INSERT INTO message_versions (conversation_id, message_id, body, shown_from, shown_until, ended_by)
+    SELECT old.conversation_id, old.id, old.body, old.shown_from, old.instant, 'deleted' FROM old
+    WHERE old.body IS NOT NULL -- a message with only attachments had no text to keep
+)
+UPDATE messages m
+SET body = NULL, deleted_at = old.instant
+FROM old
+WHERE m.id = old.id
+RETURNING m.id, m.conversation_id, m.sender_id, m.body, m.client_id, m.created_at, m.edited_at, m.deleted_at, m.kind, m.event, m.event_data, m.has_attachments
+`
+
+// Leaves a tombstone and keeps the last text in message_versions, as EditMessage does.
+func (q *Queries) DeleteMessage(ctx context.Context, id pgtype.UUID) (Message, error) {
+	row := q.db.QueryRow(ctx, deleteMessage, id)
+	var i Message
+	err := row.Scan(
+		&i.ID,
+		&i.ConversationID,
+		&i.SenderID,
+		&i.Body,
+		&i.ClientID,
+		&i.CreatedAt,
+		&i.EditedAt,
+		&i.DeletedAt,
+		&i.Kind,
+		&i.Event,
+		&i.EventData,
+		&i.HasAttachments,
+	)
+	return i, err
+}
+
 const directExists = `-- name: DirectExists :one
 SELECT EXISTS (
     SELECT 1 FROM conversations c
@@ -235,12 +366,144 @@ func (q *Queries) DirectID(ctx context.Context, arg DirectIDParams) (pgtype.UUID
 	return id, err
 }
 
+const editMessage = `-- name: EditMessage :one
+WITH old AS (
+    SELECT m.id, m.conversation_id, m.body, COALESCE(m.edited_at, m.created_at) AS shown_from,
+           GREATEST(clock_timestamp(), m.created_at, m.edited_at) AS instant
+    FROM messages m
+    WHERE m.id = $2 AND m.deleted_at IS NULL AND m.kind = 'text'
+), kept AS (
+    INSERT INTO message_versions (conversation_id, message_id, body, shown_from, shown_until, ended_by)
+    SELECT old.conversation_id, old.id, old.body, old.shown_from, old.instant, 'edited' FROM old
+    WHERE old.body IS NOT NULL -- a message with only attachments had no text to keep
+)
+UPDATE messages m
+SET body = $1::text, edited_at = old.instant
+FROM old
+WHERE m.id = old.id
+RETURNING m.id, m.conversation_id, m.sender_id, m.body, m.client_id, m.created_at, m.edited_at, m.deleted_at, m.kind, m.event, m.event_data, m.has_attachments
+`
+
+type EditMessageParams struct {
+	Body string
+	ID   pgtype.UUID
+}
+
+// Keeps the text it replaces in message_versions, shown from the previous edit (or the send)
+// until this one, at one instant. GREATEST keeps edited_at after created_at, which a send may
+// have set a microsecond ahead of the clock (InsertMessage).
+func (q *Queries) EditMessage(ctx context.Context, arg EditMessageParams) (Message, error) {
+	row := q.db.QueryRow(ctx, editMessage, arg.Body, arg.ID)
+	var i Message
+	err := row.Scan(
+		&i.ID,
+		&i.ConversationID,
+		&i.SenderID,
+		&i.Body,
+		&i.ClientID,
+		&i.CreatedAt,
+		&i.EditedAt,
+		&i.DeletedAt,
+		&i.Kind,
+		&i.Event,
+		&i.EventData,
+		&i.HasAttachments,
+	)
+	return i, err
+}
+
+const findAttachment = `-- name: FindAttachment :one
+SELECT a.file_id, a.uploader_id, a.conversation_id, a.message_id, a.name,
+       f.object_key, f.content_type, f.size_bytes, f.scan_status,
+       m.created_at AS message_created_at, (m.deleted_at IS NOT NULL)::boolean AS message_deleted,
+       me.joined_at AS my_joined_at
+FROM message_attachments a
+JOIN stored_files f ON f.id = a.file_id
+LEFT JOIN messages m ON m.conversation_id = a.conversation_id AND m.id = a.message_id
+LEFT JOIN conversation_members me ON me.conversation_id = a.conversation_id AND me.user_id = $1
+WHERE a.file_id = $2
+`
+
+type FindAttachmentParams struct {
+	UserID pgtype.UUID
+	ID     pgtype.UUID
+}
+
+type FindAttachmentRow struct {
+	FileID           pgtype.UUID
+	UploaderID       pgtype.UUID
+	ConversationID   pgtype.UUID
+	MessageID        pgtype.UUID
+	Name             string
+	ObjectKey        string
+	ContentType      string
+	SizeBytes        int64
+	ScanStatus       string
+	MessageCreatedAt pgtype.Timestamptz
+	MessageDeleted   bool
+	MyJoinedAt       pgtype.Timestamptz
+}
+
+// An attachment with what decides who may download it: its message (if sent), and the caller's
+// membership. my_joined_at is null when the caller is not a member now.
+func (q *Queries) FindAttachment(ctx context.Context, arg FindAttachmentParams) (FindAttachmentRow, error) {
+	row := q.db.QueryRow(ctx, findAttachment, arg.UserID, arg.ID)
+	var i FindAttachmentRow
+	err := row.Scan(
+		&i.FileID,
+		&i.UploaderID,
+		&i.ConversationID,
+		&i.MessageID,
+		&i.Name,
+		&i.ObjectKey,
+		&i.ContentType,
+		&i.SizeBytes,
+		&i.ScanStatus,
+		&i.MessageCreatedAt,
+		&i.MessageDeleted,
+		&i.MyJoinedAt,
+	)
+	return i, err
+}
+
+const findAttachmentAudience = `-- name: FindAttachmentAudience :one
+SELECT a.conversation_id, a.message_id, a.uploader_id, m.created_at AS message_created_at,
+       (m.deleted_at IS NOT NULL)::boolean AS message_deleted
+FROM message_attachments a
+LEFT JOIN messages m ON m.conversation_id = a.conversation_id AND m.id = a.message_id
+WHERE a.file_id = $1
+`
+
+type FindAttachmentAudienceRow struct {
+	ConversationID   pgtype.UUID
+	MessageID        pgtype.UUID
+	UploaderID       pgtype.UUID
+	MessageCreatedAt pgtype.Timestamptz
+	MessageDeleted   bool
+}
+
+// Who hears that an attachment's scan finished: its conversation and message, and the time from
+// which a member must have joined to see it.
+func (q *Queries) FindAttachmentAudience(ctx context.Context, fileID pgtype.UUID) (FindAttachmentAudienceRow, error) {
+	row := q.db.QueryRow(ctx, findAttachmentAudience, fileID)
+	var i FindAttachmentAudienceRow
+	err := row.Scan(
+		&i.ConversationID,
+		&i.MessageID,
+		&i.UploaderID,
+		&i.MessageCreatedAt,
+		&i.MessageDeleted,
+	)
+	return i, err
+}
+
 const findConversation = `-- name: FindConversation :one
-SELECT c.id, c.state, c.requested_by, c.last_message_at,
+SELECT c.id, c.kind, c.state, c.requested_by, c.last_message_at, COALESCE(c.name, '')::text AS name,
+       me.role AS my_role, me.joined_at AS my_joined_at,
        o.user_id AS other_id, o.last_read_message_id AS other_read_id
 FROM conversation_members me
 JOIN conversations c ON c.id = me.conversation_id
-JOIN conversation_members o ON o.conversation_id = c.id AND o.user_id <> me.user_id
+LEFT JOIN conversation_members o ON c.kind = 'direct' AND o.conversation_id = c.id AND o.user_id <> me.user_id
 WHERE me.conversation_id = $1 AND me.user_id = $2
 `
 
@@ -251,50 +514,91 @@ type FindConversationParams struct {
 
 type FindConversationRow struct {
 	ID            pgtype.UUID
+	Kind          string
 	State         string
 	RequestedBy   pgtype.UUID
 	LastMessageAt pgtype.Timestamptz
+	Name          string
+	MyRole        string
+	MyJoinedAt    pgtype.Timestamptz
 	OtherID       pgtype.UUID
 	OtherReadID   pgtype.UUID
 }
 
+// For a group there is no other member, so the join to it is a left join that only a direct
+// conversation fills.
 func (q *Queries) FindConversation(ctx context.Context, arg FindConversationParams) (FindConversationRow, error) {
 	row := q.db.QueryRow(ctx, findConversation, arg.ID, arg.UserID)
 	var i FindConversationRow
 	err := row.Scan(
 		&i.ID,
+		&i.Kind,
 		&i.State,
 		&i.RequestedBy,
 		&i.LastMessageAt,
+		&i.Name,
+		&i.MyRole,
+		&i.MyJoinedAt,
 		&i.OtherID,
 		&i.OtherReadID,
 	)
 	return i, err
 }
 
+const findGroupByClient = `-- name: FindGroupByClient :one
+
+SELECT id FROM conversations WHERE kind = 'group' AND created_by = $1 AND client_id = $2
+`
+
+type FindGroupByClientParams struct {
+	CreatedBy pgtype.UUID
+	ClientID  pgtype.UUID
+}
+
+// Groups (FR-16.6). Each write runs while the caller holds the conversation's row.
+func (q *Queries) FindGroupByClient(ctx context.Context, arg FindGroupByClientParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, findGroupByClient, arg.CreatedBy, arg.ClientID)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const findItem = `-- name: FindItem :one
-SELECT c.id, c.state, c.requested_by, c.last_message_at,
+SELECT c.id, c.kind, c.state, c.requested_by, c.last_message_at, COALESCE(c.name, '')::text AS name,
+       me.role AS my_role, me.joined_at AS my_joined_at,
        o.user_id AS other_id, o.last_read_message_id AS other_read_id,
        COALESCE(p.full_name, '')::text AS full_name, p.headline, p.photo_file_id,
-       (u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL)::boolean AS other_available,
-       lm.sender_id AS last_sender_id, COALESCE(lm.preview, '')::text AS last_preview, lm.created_at AS last_created_at,
+       COALESCE(u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL, false)::boolean AS other_available,
+       lm.sender_id AS last_sender_id, lm.sender_name AS last_sender_name, COALESCE(lm.kind, '')::text AS last_kind, lm.event AS last_event,
+       COALESCE(lm.preview, '')::text AS last_preview, lm.created_at AS last_created_at,
+       COALESCE(lm.deleted, false)::boolean AS last_deleted,
+       COALESCE(lm.attachment_count, 0)::integer AS last_attachment_count,
        unread.n AS unread_count,
+       (SELECT count(*) FROM conversation_members gm WHERE c.kind = 'group' AND gm.conversation_id = c.id) AS member_count,
        EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = me.user_id AND b.blocked_id = o.user_id)::boolean AS blocked_by_me,
        EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = o.user_id AND b.blocked_id = me.user_id)::boolean AS blocked_me
 FROM conversation_members me
 JOIN conversations c ON c.id = me.conversation_id
-JOIN conversation_members o ON o.conversation_id = c.id AND o.user_id <> me.user_id
-JOIN users u ON u.id = o.user_id
+LEFT JOIN conversation_members o ON c.kind = 'direct' AND o.conversation_id = c.id AND o.user_id <> me.user_id
+LEFT JOIN users u ON u.id = o.user_id
 LEFT JOIN profiles p ON p.user_id = u.id
 LEFT JOIN LATERAL (
-    SELECT m.sender_id, left(m.body, 120) AS preview, m.created_at
-    FROM messages m WHERE m.conversation_id = c.id
+    SELECT m.sender_id, sp.full_name AS sender_name, m.kind, m.event, left(m.body, 120) AS preview, m.created_at,
+           m.deleted_at IS NOT NULL AS deleted,
+           CASE WHEN m.has_attachments AND m.deleted_at IS NULL
+                THEN (SELECT count(*) FROM message_attachments a
+                      WHERE a.conversation_id = m.conversation_id AND a.message_id = m.id)
+                ELSE 0 END AS attachment_count
+    FROM messages m
+    LEFT JOIN profiles sp ON sp.user_id = m.sender_id
+    WHERE m.conversation_id = c.id AND m.created_at >= me.joined_at
     ORDER BY m.id DESC LIMIT 1
 ) lm ON true
 CROSS JOIN LATERAL (
     SELECT count(*) AS n
     FROM messages m
-    WHERE m.conversation_id = c.id AND m.sender_id <> me.user_id
+    WHERE m.conversation_id = c.id AND m.kind = 'text' AND m.sender_id <> me.user_id AND m.deleted_at IS NULL
+      AND m.created_at >= me.joined_at
       AND (me.last_read_message_id IS NULL OR m.id > me.last_read_message_id)
 ) unread
 WHERE me.conversation_id = $1 AND me.user_id = $2
@@ -306,22 +610,32 @@ type FindItemParams struct {
 }
 
 type FindItemRow struct {
-	ID             pgtype.UUID
-	State          string
-	RequestedBy    pgtype.UUID
-	LastMessageAt  pgtype.Timestamptz
-	OtherID        pgtype.UUID
-	OtherReadID    pgtype.UUID
-	FullName       string
-	Headline       pgtype.Text
-	PhotoFileID    pgtype.UUID
-	OtherAvailable bool
-	LastSenderID   pgtype.UUID
-	LastPreview    string
-	LastCreatedAt  pgtype.Timestamptz
-	UnreadCount    int64
-	BlockedByMe    bool
-	BlockedMe      bool
+	ID                  pgtype.UUID
+	Kind                string
+	State               string
+	RequestedBy         pgtype.UUID
+	LastMessageAt       pgtype.Timestamptz
+	Name                string
+	MyRole              string
+	MyJoinedAt          pgtype.Timestamptz
+	OtherID             pgtype.UUID
+	OtherReadID         pgtype.UUID
+	FullName            string
+	Headline            pgtype.Text
+	PhotoFileID         pgtype.UUID
+	OtherAvailable      bool
+	LastSenderID        pgtype.UUID
+	LastSenderName      pgtype.Text
+	LastKind            string
+	LastEvent           pgtype.Text
+	LastPreview         string
+	LastCreatedAt       pgtype.Timestamptz
+	LastDeleted         bool
+	LastAttachmentCount int32
+	UnreadCount         int64
+	MemberCount         int64
+	BlockedByMe         bool
+	BlockedMe           bool
 }
 
 func (q *Queries) FindItem(ctx context.Context, arg FindItemParams) (FindItemRow, error) {
@@ -329,9 +643,13 @@ func (q *Queries) FindItem(ctx context.Context, arg FindItemParams) (FindItemRow
 	var i FindItemRow
 	err := row.Scan(
 		&i.ID,
+		&i.Kind,
 		&i.State,
 		&i.RequestedBy,
 		&i.LastMessageAt,
+		&i.Name,
+		&i.MyRole,
+		&i.MyJoinedAt,
 		&i.OtherID,
 		&i.OtherReadID,
 		&i.FullName,
@@ -339,9 +657,15 @@ func (q *Queries) FindItem(ctx context.Context, arg FindItemParams) (FindItemRow
 		&i.PhotoFileID,
 		&i.OtherAvailable,
 		&i.LastSenderID,
+		&i.LastSenderName,
+		&i.LastKind,
+		&i.LastEvent,
 		&i.LastPreview,
 		&i.LastCreatedAt,
+		&i.LastDeleted,
+		&i.LastAttachmentCount,
 		&i.UnreadCount,
+		&i.MemberCount,
 		&i.BlockedByMe,
 		&i.BlockedMe,
 	)
@@ -349,29 +673,67 @@ func (q *Queries) FindItem(ctx context.Context, arg FindItemParams) (FindItemRow
 }
 
 const findMessageSender = `-- name: FindMessageSender :one
-SELECT sender_id FROM messages WHERE conversation_id = $1 AND id = $2
+SELECT sender_id FROM messages
+WHERE conversation_id = $1 AND id = $2 AND kind = 'text' AND created_at >= $3::timestamptz
 `
 
 type FindMessageSenderParams struct {
 	ConversationID pgtype.UUID
 	ID             pgtype.UUID
+	Since          pgtype.Timestamptz
 }
 
+// Only a text message the reporter could see: a system message is no one's to report.
 func (q *Queries) FindMessageSender(ctx context.Context, arg FindMessageSenderParams) (pgtype.UUID, error) {
-	row := q.db.QueryRow(ctx, findMessageSender, arg.ConversationID, arg.ID)
+	row := q.db.QueryRow(ctx, findMessageSender, arg.ConversationID, arg.ID, arg.Since)
 	var sender_id pgtype.UUID
 	err := row.Scan(&sender_id)
 	return sender_id, err
 }
 
+const findOwnMessage = `-- name: FindOwnMessage :one
+SELECT id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at, kind, event, event_data, has_attachments
+FROM messages
+WHERE conversation_id = $1 AND id = $2 AND sender_id = $3 AND kind = 'text'
+`
+
+type FindOwnMessageParams struct {
+	ConversationID pgtype.UUID
+	ID             pgtype.UUID
+	SenderID       pgtype.UUID
+}
+
+// LockOwnMessage without the lock, for the checks before the transaction.
+func (q *Queries) FindOwnMessage(ctx context.Context, arg FindOwnMessageParams) (Message, error) {
+	row := q.db.QueryRow(ctx, findOwnMessage, arg.ConversationID, arg.ID, arg.SenderID)
+	var i Message
+	err := row.Scan(
+		&i.ID,
+		&i.ConversationID,
+		&i.SenderID,
+		&i.Body,
+		&i.ClientID,
+		&i.CreatedAt,
+		&i.EditedAt,
+		&i.DeletedAt,
+		&i.Kind,
+		&i.Event,
+		&i.EventData,
+		&i.HasAttachments,
+	)
+	return i, err
+}
+
 const findReport = `-- name: FindReport :one
-SELECT r.id, r.conversation_id, r.reason, r.details, r.message_id, r.created_at,
+SELECT r.id, r.conversation_id, c.kind AS conversation_kind, c.name AS group_name,
+       r.reason, r.details, r.message_id, r.created_at,
        r.outcome, r.resolution_note, r.resolved_at,
        r.reporter_id, COALESCE(rp.full_name, '')::text AS reporter_name, rp.headline AS reporter_headline, rp.photo_file_id AS reporter_photo, ru.role::text AS reporter_role,
-       r.reported_id, COALESCE(dp.full_name, '')::text AS reported_name, dp.headline AS reported_headline, dp.photo_file_id AS reported_photo, du.role::text AS reported_role
+       r.reported_id, COALESCE(dp.full_name, '')::text AS reported_name, dp.headline AS reported_headline, dp.photo_file_id AS reported_photo, COALESCE(du.role::text, '')::text AS reported_role
 FROM message_reports r
+JOIN conversations c ON c.id = r.conversation_id
 JOIN users ru ON ru.id = r.reporter_id
-JOIN users du ON du.id = r.reported_id
+LEFT JOIN users du ON du.id = r.reported_id
 LEFT JOIN profiles rp ON rp.user_id = r.reporter_id
 LEFT JOIN profiles dp ON dp.user_id = r.reported_id
 WHERE r.id = $1
@@ -380,6 +742,8 @@ WHERE r.id = $1
 type FindReportRow struct {
 	ID               pgtype.UUID
 	ConversationID   pgtype.UUID
+	ConversationKind string
+	GroupName        pgtype.Text
 	Reason           string
 	Details          pgtype.Text
 	MessageID        pgtype.UUID
@@ -405,6 +769,8 @@ func (q *Queries) FindReport(ctx context.Context, id pgtype.UUID) (FindReportRow
 	err := row.Scan(
 		&i.ID,
 		&i.ConversationID,
+		&i.ConversationKind,
+		&i.GroupName,
 		&i.Reason,
 		&i.Details,
 		&i.MessageID,
@@ -426,8 +792,45 @@ func (q *Queries) FindReport(ctx context.Context, id pgtype.UUID) (FindReportRow
 	return i, err
 }
 
+const findReportedAttachment = `-- name: FindReportedAttachment :one
+SELECT a.file_id, a.name, f.object_key, f.content_type, f.scan_status
+FROM message_reports r
+JOIN message_attachments a ON a.conversation_id = r.conversation_id
+JOIN messages m ON m.conversation_id = a.conversation_id AND m.id = a.message_id AND m.created_at <= r.created_at
+JOIN stored_files f ON f.id = a.file_id
+WHERE r.id = $1 AND a.file_id = $2
+`
+
+type FindReportedAttachmentParams struct {
+	ReportID pgtype.UUID
+	FileID   pgtype.UUID
+}
+
+type FindReportedAttachmentRow struct {
+	FileID      pgtype.UUID
+	Name        string
+	ObjectKey   string
+	ContentType string
+	ScanStatus  string
+}
+
+// An attachment as the administrator may reach it (NFR-13): starting from the report, only of a
+// message of the reported conversation sent by the report's moment.
+func (q *Queries) FindReportedAttachment(ctx context.Context, arg FindReportedAttachmentParams) (FindReportedAttachmentRow, error) {
+	row := q.db.QueryRow(ctx, findReportedAttachment, arg.ReportID, arg.FileID)
+	var i FindReportedAttachmentRow
+	err := row.Scan(
+		&i.FileID,
+		&i.Name,
+		&i.ObjectKey,
+		&i.ContentType,
+		&i.ScanStatus,
+	)
+	return i, err
+}
+
 const findSent = `-- name: FindSent :one
-SELECT m.id, m.conversation_id, m.sender_id, m.body, m.client_id, m.created_at, c.state
+SELECT m.id, m.conversation_id, m.sender_id, m.body, m.client_id, m.created_at, m.edited_at, m.deleted_at, m.kind, m.event, m.event_data, m.has_attachments, c.state
 FROM messages m
 JOIN conversations c ON c.id = m.conversation_id
 WHERE m.sender_id = $1 AND m.client_id = $2
@@ -442,9 +845,15 @@ type FindSentRow struct {
 	ID             pgtype.UUID
 	ConversationID pgtype.UUID
 	SenderID       pgtype.UUID
-	Body           string
+	Body           pgtype.Text
 	ClientID       pgtype.UUID
 	CreatedAt      pgtype.Timestamptz
+	EditedAt       pgtype.Timestamptz
+	DeletedAt      pgtype.Timestamptz
+	Kind           string
+	Event          pgtype.Text
+	EventData      []byte
+	HasAttachments bool
 	State          string
 }
 
@@ -458,52 +867,49 @@ func (q *Queries) FindSent(ctx context.Context, arg FindSentParams) (FindSentRow
 		&i.Body,
 		&i.ClientID,
 		&i.CreatedAt,
+		&i.EditedAt,
+		&i.DeletedAt,
+		&i.Kind,
+		&i.Event,
+		&i.EventData,
+		&i.HasAttachments,
 		&i.State,
 	)
 	return i, err
 }
 
-const insertMessage = `-- name: InsertMessage :one
-INSERT INTO messages (id, conversation_id, sender_id, body, client_id, created_at)
-SELECT uuid_v7_at(t.instant), c.id, $1::uuid, $2::text, $3::uuid, t.instant
-FROM conversations c
-CROSS JOIN LATERAL (
-    SELECT GREATEST(clock_timestamp(), c.last_message_at + interval '1 microsecond') AS instant
-) t
-WHERE c.id = $4::uuid
-ON CONFLICT (sender_id, client_id) DO NOTHING
-RETURNING id, conversation_id, sender_id, body, client_id, created_at
+const findVisibleMessage = `-- name: FindVisibleMessage :one
+SELECT id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at, kind, event, event_data, has_attachments
+FROM visible_messages
+WHERE viewer_id = $1 AND conversation_id = $2 AND id = $3
 `
 
-type InsertMessageParams struct {
-	SenderID       pgtype.UUID
-	Body           string
-	ClientID       pgtype.UUID
+type FindVisibleMessageParams struct {
+	ViewerID       pgtype.UUID
 	ConversationID pgtype.UUID
+	ID             pgtype.UUID
 }
 
-type InsertMessageRow struct {
+type FindVisibleMessageRow struct {
 	ID             pgtype.UUID
 	ConversationID pgtype.UUID
 	SenderID       pgtype.UUID
-	Body           string
+	Body           pgtype.Text
 	ClientID       pgtype.UUID
 	CreatedAt      pgtype.Timestamptz
+	EditedAt       pgtype.Timestamptz
+	DeletedAt      pgtype.Timestamptz
+	Kind           string
+	Event          pgtype.Text
+	EventData      []byte
+	HasAttachments bool
 }
 
-// The caller holds the conversation's row, so this reads the last send's time and no other
-// send runs. The ID and created_at come from one instant, after that lock, and always later
-// than the last message, even in the same microsecond or if the clock steps back: the ID
-// alone decides the order of a conversation's messages, and created_at agrees with it.
-// ON CONFLICT also settles two sends of one client_id at the same moment.
-func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (InsertMessageRow, error) {
-	row := q.db.QueryRow(ctx, insertMessage,
-		arg.SenderID,
-		arg.Body,
-		arg.ClientID,
-		arg.ConversationID,
-	)
-	var i InsertMessageRow
+// One message of the thread as viewer_id may read it (the ListMessages rule), for a page
+// centred on it.
+func (q *Queries) FindVisibleMessage(ctx context.Context, arg FindVisibleMessageParams) (FindVisibleMessageRow, error) {
+	row := q.db.QueryRow(ctx, findVisibleMessage, arg.ViewerID, arg.ConversationID, arg.ID)
+	var i FindVisibleMessageRow
 	err := row.Scan(
 		&i.ID,
 		&i.ConversationID,
@@ -511,6 +917,277 @@ func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (I
 		&i.Body,
 		&i.ClientID,
 		&i.CreatedAt,
+		&i.EditedAt,
+		&i.DeletedAt,
+		&i.Kind,
+		&i.Event,
+		&i.EventData,
+		&i.HasAttachments,
+	)
+	return i, err
+}
+
+const groupAvatars = `-- name: GroupAvatars :many
+SELECT a.conversation_id, a.user_id, a.full_name, a.headline, a.photo_file_id, a.available
+FROM (
+    SELECT gm.conversation_id, gm.user_id, COALESCE(p.full_name, '')::text AS full_name, p.headline, p.photo_file_id,
+           (u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL)::boolean AS available,
+           row_number() OVER (PARTITION BY gm.conversation_id ORDER BY gm.joined_at, gm.user_id) AS n,
+           gm.joined_at
+    FROM conversation_members gm
+    JOIN users u ON u.id = gm.user_id
+    LEFT JOIN profiles p ON p.user_id = gm.user_id
+    WHERE gm.conversation_id = ANY($1::uuid[]) AND gm.user_id <> $2
+) a
+WHERE a.n <= 3
+ORDER BY a.conversation_id, a.n
+`
+
+type GroupAvatarsParams struct {
+	ConversationIds []pgtype.UUID
+	ViewerID        pgtype.UUID
+}
+
+type GroupAvatarsRow struct {
+	ConversationID pgtype.UUID
+	UserID         pgtype.UUID
+	FullName       string
+	Headline       pgtype.Text
+	PhotoFileID    pgtype.UUID
+	Available      bool
+}
+
+// Up to 3 members other than the viewer per group, those who joined earliest first.
+func (q *Queries) GroupAvatars(ctx context.Context, arg GroupAvatarsParams) ([]GroupAvatarsRow, error) {
+	rows, err := q.db.Query(ctx, groupAvatars, arg.ConversationIds, arg.ViewerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GroupAvatarsRow
+	for rows.Next() {
+		var i GroupAvatarsRow
+		if err := rows.Scan(
+			&i.ConversationID,
+			&i.UserID,
+			&i.FullName,
+			&i.Headline,
+			&i.PhotoFileID,
+			&i.Available,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const groupMemberIDs = `-- name: GroupMemberIDs :many
+SELECT user_id FROM conversation_members WHERE conversation_id = $1 ORDER BY joined_at, user_id
+`
+
+func (q *Queries) GroupMemberIDs(ctx context.Context, conversationID pgtype.UUID) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, groupMemberIDs, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var user_id pgtype.UUID
+		if err := rows.Scan(&user_id); err != nil {
+			return nil, err
+		}
+		items = append(items, user_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const groupNames = `-- name: GroupNames :many
+SELECT c.id, COALESCE(c.name, '')::text AS name
+FROM conversations c
+JOIN conversation_members m ON m.conversation_id = c.id AND m.user_id = $1
+WHERE c.id = ANY($2::uuid[]) AND c.kind = 'group'
+`
+
+type GroupNamesParams struct {
+	ViewerID pgtype.UUID
+	Ids      []pgtype.UUID
+}
+
+type GroupNamesRow struct {
+	ID   pgtype.UUID
+	Name string
+}
+
+// The current names of the groups among ids that viewer_id is a member of now, for the
+// notifications that name a group (FR-9.5). A group they left is not found.
+func (q *Queries) GroupNames(ctx context.Context, arg GroupNamesParams) ([]GroupNamesRow, error) {
+	rows, err := q.db.Query(ctx, groupNames, arg.ViewerID, arg.Ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GroupNamesRow
+	for rows.Next() {
+		var i GroupNamesRow
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const insertAttachment = `-- name: InsertAttachment :one
+
+WITH f AS (
+    INSERT INTO stored_files (id, owner_user_id, purpose, object_key, content_type, size_bytes, width, height, scan_status)
+    VALUES ($4, $5, 'attachment', $6, $7, $8,
+            $9, $10, 'pending')
+    RETURNING id, owner_user_id, size_bytes, content_type, scan_status
+)
+INSERT INTO message_attachments (file_id, uploader_id, conversation_id, name, expires_at)
+SELECT f.id, f.owner_user_id, $1, $2, $3 FROM f
+RETURNING file_id, created_at, expires_at
+`
+
+type InsertAttachmentParams struct {
+	ConversationID pgtype.UUID
+	Name           string
+	ExpiresAt      pgtype.Timestamptz
+	ID             pgtype.UUID
+	UploaderID     pgtype.UUID
+	ObjectKey      string
+	ContentType    string
+	SizeBytes      int64
+	Width          pgtype.Int4
+	Height         pgtype.Int4
+}
+
+type InsertAttachmentRow struct {
+	FileID    pgtype.UUID
+	CreatedAt pgtype.Timestamptz
+	ExpiresAt pgtype.Timestamptz
+}
+
+// ---------------------------------------------------------------------------
+// Attachments (FR-16.7, NFR-13; slice 14B, chunk 14B.3). An attachment is the stored_files row
+// (purpose 'attachment') and its message_attachments row; the ID of both is the file's.
+// ---------------------------------------------------------------------------
+// The file's row starts pending: the scan worker (media module) picks it up.
+func (q *Queries) InsertAttachment(ctx context.Context, arg InsertAttachmentParams) (InsertAttachmentRow, error) {
+	row := q.db.QueryRow(ctx, insertAttachment,
+		arg.ConversationID,
+		arg.Name,
+		arg.ExpiresAt,
+		arg.ID,
+		arg.UploaderID,
+		arg.ObjectKey,
+		arg.ContentType,
+		arg.SizeBytes,
+		arg.Width,
+		arg.Height,
+	)
+	var i InsertAttachmentRow
+	err := row.Scan(&i.FileID, &i.CreatedAt, &i.ExpiresAt)
+	return i, err
+}
+
+const insertAttachmentDownload = `-- name: InsertAttachmentDownload :exec
+INSERT INTO message_report_attachment_downloads (report_id, file_id, admin_id)
+VALUES ($1, $2, $3)
+`
+
+type InsertAttachmentDownloadParams struct {
+	ReportID pgtype.UUID
+	FileID   pgtype.UUID
+	AdminID  pgtype.UUID
+}
+
+func (q *Queries) InsertAttachmentDownload(ctx context.Context, arg InsertAttachmentDownloadParams) error {
+	_, err := q.db.Exec(ctx, insertAttachmentDownload, arg.ReportID, arg.FileID, arg.AdminID)
+	return err
+}
+
+const insertGroup = `-- name: InsertGroup :one
+INSERT INTO conversations (kind, state, name, created_by, client_id)
+VALUES ('group', 'active', $1, $2, $3)
+ON CONFLICT (created_by, client_id) DO NOTHING
+RETURNING id
+`
+
+type InsertGroupParams struct {
+	Name      pgtype.Text
+	CreatedBy pgtype.UUID
+	ClientID  pgtype.UUID
+}
+
+// conversations_creator_client_uq settles two creates with one client ID.
+func (q *Queries) InsertGroup(ctx context.Context, arg InsertGroupParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, insertGroup, arg.Name, arg.CreatedBy, arg.ClientID)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
+const insertMessage = `-- name: InsertMessage :one
+INSERT INTO messages (id, conversation_id, sender_id, body, client_id, created_at, has_attachments)
+SELECT uuid_v7_at(t.instant), c.id, $1::uuid, $2::text, $3::uuid, t.instant, $4::boolean
+FROM conversations c
+CROSS JOIN LATERAL (
+    SELECT GREATEST(clock_timestamp(), c.last_message_at + interval '1 microsecond') AS instant
+) t
+WHERE c.id = $5::uuid
+ON CONFLICT (sender_id, client_id) DO NOTHING
+RETURNING id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at, kind, event, event_data, has_attachments
+`
+
+type InsertMessageParams struct {
+	SenderID       pgtype.UUID
+	Body           pgtype.Text
+	ClientID       pgtype.UUID
+	HasAttachments bool
+	ConversationID pgtype.UUID
+}
+
+// The caller holds the conversation's row, so this reads the last send's time and no other
+// send runs. The ID and created_at come from one instant, after that lock, and always later
+// than the last message, even in the same microsecond or if the clock steps back: the ID
+// alone decides the order of a conversation's messages, and created_at agrees with it.
+// ON CONFLICT also settles two sends of one client_id at the same moment. body is null only
+// for a message that carries attachments (FR-16.7).
+func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (Message, error) {
+	row := q.db.QueryRow(ctx, insertMessage,
+		arg.SenderID,
+		arg.Body,
+		arg.ClientID,
+		arg.HasAttachments,
+		arg.ConversationID,
+	)
+	var i Message
+	err := row.Scan(
+		&i.ID,
+		&i.ConversationID,
+		&i.SenderID,
+		&i.Body,
+		&i.ClientID,
+		&i.CreatedAt,
+		&i.EditedAt,
+		&i.DeletedAt,
+		&i.Kind,
+		&i.Event,
+		&i.EventData,
+		&i.HasAttachments,
 	)
 	return i, err
 }
@@ -563,29 +1240,132 @@ func (q *Queries) InsertReportView(ctx context.Context, arg InsertReportViewPara
 	return err
 }
 
+const insertSystemMessage = `-- name: InsertSystemMessage :one
+INSERT INTO messages (id, conversation_id, sender_id, kind, event, event_data, created_at)
+SELECT uuid_v7_at(t.instant), c.id, $1::uuid, 'system', $2::text, $3::jsonb, t.instant
+FROM conversations c
+CROSS JOIN LATERAL (
+    SELECT GREATEST(clock_timestamp(), c.last_message_at + interval '1 microsecond') AS instant
+) t
+WHERE c.id = $4::uuid
+RETURNING id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at, kind, event, event_data, has_attachments
+`
+
+type InsertSystemMessageParams struct {
+	SenderID       pgtype.UUID
+	Event          string
+	EventData      []byte
+	ConversationID pgtype.UUID
+}
+
+// The instant rule of InsertMessage: after the conversation's last message, so the ID orders it.
+func (q *Queries) InsertSystemMessage(ctx context.Context, arg InsertSystemMessageParams) (Message, error) {
+	row := q.db.QueryRow(ctx, insertSystemMessage,
+		arg.SenderID,
+		arg.Event,
+		arg.EventData,
+		arg.ConversationID,
+	)
+	var i Message
+	err := row.Scan(
+		&i.ID,
+		&i.ConversationID,
+		&i.SenderID,
+		&i.Body,
+		&i.ClientID,
+		&i.CreatedAt,
+		&i.EditedAt,
+		&i.DeletedAt,
+		&i.Kind,
+		&i.Event,
+		&i.EventData,
+		&i.HasAttachments,
+	)
+	return i, err
+}
+
+const listGroupMembers = `-- name: ListGroupMembers :many
+SELECT gm.user_id, COALESCE(p.full_name, '')::text AS full_name, p.photo_file_id, gm.role, gm.joined_at,
+       (u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL)::boolean AS available
+FROM conversation_members gm
+JOIN users u ON u.id = gm.user_id
+LEFT JOIN profiles p ON p.user_id = gm.user_id
+WHERE gm.conversation_id = $1
+ORDER BY gm.role = 'owner' DESC, gm.joined_at, gm.user_id
+`
+
+type ListGroupMembersRow struct {
+	UserID      pgtype.UUID
+	FullName    string
+	PhotoFileID pgtype.UUID
+	Role        string
+	JoinedAt    pgtype.Timestamptz
+	Available   bool
+}
+
+func (q *Queries) ListGroupMembers(ctx context.Context, conversationID pgtype.UUID) ([]ListGroupMembersRow, error) {
+	rows, err := q.db.Query(ctx, listGroupMembers, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListGroupMembersRow
+	for rows.Next() {
+		var i ListGroupMembersRow
+		if err := rows.Scan(
+			&i.UserID,
+			&i.FullName,
+			&i.PhotoFileID,
+			&i.Role,
+			&i.JoinedAt,
+			&i.Available,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listItems = `-- name: ListItems :many
-SELECT c.id, c.state, c.requested_by, c.last_message_at,
+SELECT c.id, c.kind, c.state, c.requested_by, c.last_message_at, COALESCE(c.name, '')::text AS name,
+       me.role AS my_role, me.joined_at AS my_joined_at,
        o.user_id AS other_id, o.last_read_message_id AS other_read_id,
        COALESCE(p.full_name, '')::text AS full_name, p.headline, p.photo_file_id,
-       (u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL)::boolean AS other_available,
-       lm.sender_id AS last_sender_id, COALESCE(lm.preview, '')::text AS last_preview, lm.created_at AS last_created_at,
+       COALESCE(u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL, false)::boolean AS other_available,
+       lm.sender_id AS last_sender_id, lm.sender_name AS last_sender_name, COALESCE(lm.kind, '')::text AS last_kind, lm.event AS last_event,
+       COALESCE(lm.preview, '')::text AS last_preview, lm.created_at AS last_created_at,
+       COALESCE(lm.deleted, false)::boolean AS last_deleted,
+       COALESCE(lm.attachment_count, 0)::integer AS last_attachment_count,
        unread.n AS unread_count,
+       (SELECT count(*) FROM conversation_members gm WHERE c.kind = 'group' AND gm.conversation_id = c.id) AS member_count,
        EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = me.user_id AND b.blocked_id = o.user_id)::boolean AS blocked_by_me,
        EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = o.user_id AND b.blocked_id = me.user_id)::boolean AS blocked_me
 FROM conversation_members me
 JOIN conversations c ON c.id = me.conversation_id
-JOIN conversation_members o ON o.conversation_id = c.id AND o.user_id <> me.user_id
-JOIN users u ON u.id = o.user_id
+LEFT JOIN conversation_members o ON c.kind = 'direct' AND o.conversation_id = c.id AND o.user_id <> me.user_id
+LEFT JOIN users u ON u.id = o.user_id
 LEFT JOIN profiles p ON p.user_id = u.id
 LEFT JOIN LATERAL (
-    SELECT m.sender_id, left(m.body, 120) AS preview, m.created_at
-    FROM messages m WHERE m.conversation_id = c.id
+    SELECT m.sender_id, sp.full_name AS sender_name, m.kind, m.event, left(m.body, 120) AS preview, m.created_at,
+           m.deleted_at IS NOT NULL AS deleted,
+           CASE WHEN m.has_attachments AND m.deleted_at IS NULL
+                THEN (SELECT count(*) FROM message_attachments a
+                      WHERE a.conversation_id = m.conversation_id AND a.message_id = m.id)
+                ELSE 0 END AS attachment_count
+    FROM messages m
+    LEFT JOIN profiles sp ON sp.user_id = m.sender_id
+    WHERE m.conversation_id = c.id AND m.created_at >= me.joined_at
     ORDER BY m.id DESC LIMIT 1
 ) lm ON true
 CROSS JOIN LATERAL (
     SELECT count(*) AS n
     FROM messages m
-    WHERE m.conversation_id = c.id AND m.sender_id <> me.user_id
+    WHERE m.conversation_id = c.id AND m.kind = 'text' AND m.sender_id <> me.user_id AND m.deleted_at IS NULL
+      AND m.created_at >= me.joined_at
       AND (me.last_read_message_id IS NULL OR m.id > me.last_read_message_id)
 ) unread
 WHERE me.user_id = $1
@@ -609,26 +1389,37 @@ type ListItemsParams struct {
 }
 
 type ListItemsRow struct {
-	ID             pgtype.UUID
-	State          string
-	RequestedBy    pgtype.UUID
-	LastMessageAt  pgtype.Timestamptz
-	OtherID        pgtype.UUID
-	OtherReadID    pgtype.UUID
-	FullName       string
-	Headline       pgtype.Text
-	PhotoFileID    pgtype.UUID
-	OtherAvailable bool
-	LastSenderID   pgtype.UUID
-	LastPreview    string
-	LastCreatedAt  pgtype.Timestamptz
-	UnreadCount    int64
-	BlockedByMe    bool
-	BlockedMe      bool
+	ID                  pgtype.UUID
+	Kind                string
+	State               string
+	RequestedBy         pgtype.UUID
+	LastMessageAt       pgtype.Timestamptz
+	Name                string
+	MyRole              string
+	MyJoinedAt          pgtype.Timestamptz
+	OtherID             pgtype.UUID
+	OtherReadID         pgtype.UUID
+	FullName            string
+	Headline            pgtype.Text
+	PhotoFileID         pgtype.UUID
+	OtherAvailable      bool
+	LastSenderID        pgtype.UUID
+	LastSenderName      pgtype.Text
+	LastKind            string
+	LastEvent           pgtype.Text
+	LastPreview         string
+	LastCreatedAt       pgtype.Timestamptz
+	LastDeleted         bool
+	LastAttachmentCount int32
+	UnreadCount         int64
+	MemberCount         int64
+	BlockedByMe         bool
+	BlockedMe           bool
 }
 
 // The columns and joins of FindItem. A request whose sender is no longer verified or is
 // suspended cannot be answered, so it leaves the requests box and CountPendingRequests.
+// Groups are always active, so they are in the inbox.
 func (q *Queries) ListItems(ctx context.Context, arg ListItemsParams) ([]ListItemsRow, error) {
 	rows, err := q.db.Query(ctx, listItems,
 		arg.UserID,
@@ -647,9 +1438,13 @@ func (q *Queries) ListItems(ctx context.Context, arg ListItemsParams) ([]ListIte
 		var i ListItemsRow
 		if err := rows.Scan(
 			&i.ID,
+			&i.Kind,
 			&i.State,
 			&i.RequestedBy,
 			&i.LastMessageAt,
+			&i.Name,
+			&i.MyRole,
+			&i.MyJoinedAt,
 			&i.OtherID,
 			&i.OtherReadID,
 			&i.FullName,
@@ -657,9 +1452,15 @@ func (q *Queries) ListItems(ctx context.Context, arg ListItemsParams) ([]ListIte
 			&i.PhotoFileID,
 			&i.OtherAvailable,
 			&i.LastSenderID,
+			&i.LastSenderName,
+			&i.LastKind,
+			&i.LastEvent,
 			&i.LastPreview,
 			&i.LastCreatedAt,
+			&i.LastDeleted,
+			&i.LastAttachmentCount,
 			&i.UnreadCount,
+			&i.MemberCount,
 			&i.BlockedByMe,
 			&i.BlockedMe,
 		); err != nil {
@@ -673,16 +1474,68 @@ func (q *Queries) ListItems(ctx context.Context, arg ListItemsParams) ([]ListIte
 	return items, nil
 }
 
+const listMessageAttachments = `-- name: ListMessageAttachments :many
+SELECT a.message_id::uuid AS message_id, a.file_id, a.name, f.size_bytes, f.content_type, f.scan_status
+FROM message_attachments a
+JOIN stored_files f ON f.id = a.file_id
+WHERE a.conversation_id = $1 AND a.message_id = ANY($2::uuid[])
+ORDER BY a.message_id, a.position
+`
+
+type ListMessageAttachmentsParams struct {
+	ConversationID pgtype.UUID
+	MessageIds     []pgtype.UUID
+}
+
+type ListMessageAttachmentsRow struct {
+	MessageID   pgtype.UUID
+	FileID      pgtype.UUID
+	Name        string
+	SizeBytes   int64
+	ContentType string
+	ScanStatus  string
+}
+
+// The attachments of the listed messages, in order. The caller has already checked who may see
+// the messages.
+func (q *Queries) ListMessageAttachments(ctx context.Context, arg ListMessageAttachmentsParams) ([]ListMessageAttachmentsRow, error) {
+	rows, err := q.db.Query(ctx, listMessageAttachments, arg.ConversationID, arg.MessageIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListMessageAttachmentsRow
+	for rows.Next() {
+		var i ListMessageAttachmentsRow
+		if err := rows.Scan(
+			&i.MessageID,
+			&i.FileID,
+			&i.Name,
+			&i.SizeBytes,
+			&i.ContentType,
+			&i.ScanStatus,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listMessages = `-- name: ListMessages :many
-SELECT id, conversation_id, sender_id, body, client_id, created_at
-FROM messages
-WHERE conversation_id = $1
-  AND (NOT $2::boolean OR id < $3::uuid)
+SELECT id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at, kind, event, event_data, has_attachments
+FROM visible_messages
+WHERE viewer_id = $1 AND conversation_id = $2
+  AND (NOT $3::boolean OR id < $4::uuid)
 ORDER BY id DESC
-LIMIT $4
+LIMIT $5
 `
 
 type ListMessagesParams struct {
+	ViewerID       pgtype.UUID
 	ConversationID pgtype.UUID
 	HasBefore      bool
 	BeforeID       pgtype.UUID
@@ -693,14 +1546,24 @@ type ListMessagesRow struct {
 	ID             pgtype.UUID
 	ConversationID pgtype.UUID
 	SenderID       pgtype.UUID
-	Body           string
+	Body           pgtype.Text
 	ClientID       pgtype.UUID
 	CreatedAt      pgtype.Timestamptz
+	EditedAt       pgtype.Timestamptz
+	DeletedAt      pgtype.Timestamptz
+	Kind           string
+	Event          pgtype.Text
+	EventData      []byte
+	HasAttachments bool
 }
 
-// messages_conversation_id_uq, scanned backward, serves this.
+// The thread as viewer_id may read it, through visible_messages (migration 000025), the rule the
+// search shares (NFR-13). The member row is found by its primary key, then
+// messages_conversation_id_uq, scanned backward, serves the rest. A deleted message is listed in
+// its place with no body; message_versions is never read for a member.
 func (q *Queries) ListMessages(ctx context.Context, arg ListMessagesParams) ([]ListMessagesRow, error) {
 	rows, err := q.db.Query(ctx, listMessages,
+		arg.ViewerID,
 		arg.ConversationID,
 		arg.HasBefore,
 		arg.BeforeID,
@@ -720,6 +1583,82 @@ func (q *Queries) ListMessages(ctx context.Context, arg ListMessagesParams) ([]L
 			&i.Body,
 			&i.ClientID,
 			&i.CreatedAt,
+			&i.EditedAt,
+			&i.DeletedAt,
+			&i.Kind,
+			&i.Event,
+			&i.EventData,
+			&i.HasAttachments,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listMessagesAfter = `-- name: ListMessagesAfter :many
+SELECT id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at, kind, event, event_data, has_attachments
+FROM visible_messages
+WHERE viewer_id = $1 AND conversation_id = $2 AND id > $3::uuid
+ORDER BY id
+LIMIT $4
+`
+
+type ListMessagesAfterParams struct {
+	ViewerID       pgtype.UUID
+	ConversationID pgtype.UUID
+	AfterID        pgtype.UUID
+	Lim            int32
+}
+
+type ListMessagesAfterRow struct {
+	ID             pgtype.UUID
+	ConversationID pgtype.UUID
+	SenderID       pgtype.UUID
+	Body           pgtype.Text
+	ClientID       pgtype.UUID
+	CreatedAt      pgtype.Timestamptz
+	EditedAt       pgtype.Timestamptz
+	DeletedAt      pgtype.Timestamptz
+	Kind           string
+	Event          pgtype.Text
+	EventData      []byte
+	HasAttachments bool
+}
+
+// ListMessages the other way: the messages newer than after_id, oldest first, served by
+// messages_conversation_id_uq scanned forward.
+func (q *Queries) ListMessagesAfter(ctx context.Context, arg ListMessagesAfterParams) ([]ListMessagesAfterRow, error) {
+	rows, err := q.db.Query(ctx, listMessagesAfter,
+		arg.ViewerID,
+		arg.ConversationID,
+		arg.AfterID,
+		arg.Lim,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListMessagesAfterRow
+	for rows.Next() {
+		var i ListMessagesAfterRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ConversationID,
+			&i.SenderID,
+			&i.Body,
+			&i.ClientID,
+			&i.CreatedAt,
+			&i.EditedAt,
+			&i.DeletedAt,
+			&i.Kind,
+			&i.Event,
+			&i.EventData,
+			&i.HasAttachments,
 		); err != nil {
 			return nil, err
 		}
@@ -734,6 +1673,7 @@ func (q *Queries) ListMessages(ctx context.Context, arg ListMessagesParams) ([]L
 const listPartners = `-- name: ListPartners :many
 SELECT o.conversation_id, o.user_id
 FROM conversation_members me
+JOIN conversations c ON c.id = me.conversation_id AND c.kind = 'direct'
 JOIN conversation_members o ON o.conversation_id = me.conversation_id AND o.user_id <> me.user_id
 WHERE me.user_id = $1
 `
@@ -743,7 +1683,7 @@ type ListPartnersRow struct {
 	UserID         pgtype.UUID
 }
 
-// Every conversation of the user, in any state, with its other member.
+// Every direct conversation of the user, in any state, with its other member.
 func (q *Queries) ListPartners(ctx context.Context, userID pgtype.UUID) ([]ListPartnersRow, error) {
 	rows, err := q.db.Query(ctx, listPartners, userID)
 	if err != nil {
@@ -764,10 +1704,113 @@ func (q *Queries) ListPartners(ctx context.Context, userID pgtype.UUID) ([]ListP
 	return items, nil
 }
 
+const listReaders = `-- name: ListReaders :many
+SELECT user_id, last_read_message_id FROM conversation_members
+WHERE conversation_id = $1 AND user_id <> $2
+ORDER BY joined_at, user_id
+`
+
+type ListReadersParams struct {
+	ConversationID pgtype.UUID
+	ViewerID       pgtype.UUID
+}
+
+type ListReadersRow struct {
+	UserID            pgtype.UUID
+	LastReadMessageID pgtype.UUID
+}
+
+func (q *Queries) ListReaders(ctx context.Context, arg ListReadersParams) ([]ListReadersRow, error) {
+	rows, err := q.db.Query(ctx, listReaders, arg.ConversationID, arg.ViewerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListReadersRow
+	for rows.Next() {
+		var i ListReadersRow
+		if err := rows.Scan(&i.UserID, &i.LastReadMessageID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listReportedAttachments = `-- name: ListReportedAttachments :many
+SELECT a.message_id::uuid AS message_id, a.file_id, a.name, f.size_bytes, f.content_type, f.scan_status
+FROM message_reports r
+JOIN message_attachments a ON a.conversation_id = r.conversation_id
+JOIN messages m ON m.conversation_id = a.conversation_id AND m.id = a.message_id AND m.created_at <= r.created_at
+JOIN stored_files f ON f.id = a.file_id
+WHERE r.id = $1 AND a.message_id = ANY($2::uuid[])
+ORDER BY a.message_id, a.position
+`
+
+type ListReportedAttachmentsParams struct {
+	ReportID   pgtype.UUID
+	MessageIds []pgtype.UUID
+}
+
+type ListReportedAttachmentsRow struct {
+	MessageID   pgtype.UUID
+	FileID      pgtype.UUID
+	Name        string
+	SizeBytes   int64
+	ContentType string
+	ScanStatus  string
+}
+
+// The attachments of the listed messages of a report, deleted messages' included. Like
+// ListReportedMessages it starts from the report (NFR-13).
+func (q *Queries) ListReportedAttachments(ctx context.Context, arg ListReportedAttachmentsParams) ([]ListReportedAttachmentsRow, error) {
+	rows, err := q.db.Query(ctx, listReportedAttachments, arg.ReportID, arg.MessageIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListReportedAttachmentsRow
+	for rows.Next() {
+		var i ListReportedAttachmentsRow
+		if err := rows.Scan(
+			&i.MessageID,
+			&i.FileID,
+			&i.Name,
+			&i.SizeBytes,
+			&i.ContentType,
+			&i.ScanStatus,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listReportedMessages = `-- name: ListReportedMessages :many
-SELECT m.id, m.conversation_id, m.sender_id, m.body, m.client_id, m.created_at
+SELECT m.id, m.conversation_id, m.sender_id, m.kind, m.event, m.event_data, m.created_at, m.edited_at, m.deleted_at,
+       COALESCE(at_report.body, '')::text AS body_at_report,
+       (at_report.body IS NOT NULL)::boolean AS has_body_at_report,
+       (COALESCE(m.edited_at > r.created_at, false) OR COALESCE(m.deleted_at > r.created_at, false))::boolean AS changed_after_report
 FROM message_reports r
 JOIN messages m ON m.conversation_id = r.conversation_id AND m.created_at <= r.created_at
+CROSS JOIN LATERAL (
+    SELECT CASE
+        WHEN m.deleted_at IS NOT NULL AND m.deleted_at <= r.created_at THEN NULL
+        ELSE COALESCE(
+            (SELECT v.body FROM message_versions v
+             WHERE v.conversation_id = m.conversation_id AND v.message_id = m.id
+               AND v.shown_from <= r.created_at AND v.shown_until > r.created_at
+             ORDER BY v.shown_until LIMIT 1),
+            CASE WHEN COALESCE(m.edited_at, m.created_at) <= r.created_at THEN m.body END)
+    END AS body
+) at_report
 WHERE r.id = $1
   AND (NOT $2::boolean OR m.id < $3::uuid)
 ORDER BY m.id DESC
@@ -782,16 +1825,26 @@ type ListReportedMessagesParams struct {
 }
 
 type ListReportedMessagesRow struct {
-	ID             pgtype.UUID
-	ConversationID pgtype.UUID
-	SenderID       pgtype.UUID
-	Body           string
-	ClientID       pgtype.UUID
-	CreatedAt      pgtype.Timestamptz
+	ID                 pgtype.UUID
+	ConversationID     pgtype.UUID
+	SenderID           pgtype.UUID
+	Kind               string
+	Event              pgtype.Text
+	EventData          []byte
+	CreatedAt          pgtype.Timestamptz
+	EditedAt           pgtype.Timestamptz
+	DeletedAt          pgtype.Timestamptz
+	BodyAtReport       string
+	HasBodyAtReport    bool
+	ChangedAfterReport bool
 }
 
-// The one way an administrator reads a conversation (NFR-14): it starts from a report, so a
-// conversation without one is out of reach, and stops at the report's moment.
+// The one way an administrator reads a conversation (NFR-13): it starts from a report, so a
+// conversation without one is out of reach, and stops at the report's moment. at_report is
+// the text shown at that moment: none when deleted by then, else the kept version that was
+// showing, else the current text, which has shown since before the report. Text written after
+// the report never leaves the database. In a group it shows every message up to the report,
+// system messages included, whoever was a member when.
 func (q *Queries) ListReportedMessages(ctx context.Context, arg ListReportedMessagesParams) ([]ListReportedMessagesRow, error) {
 	rows, err := q.db.Query(ctx, listReportedMessages,
 		arg.ReportID,
@@ -810,9 +1863,64 @@ func (q *Queries) ListReportedMessages(ctx context.Context, arg ListReportedMess
 			&i.ID,
 			&i.ConversationID,
 			&i.SenderID,
-			&i.Body,
-			&i.ClientID,
+			&i.Kind,
+			&i.Event,
+			&i.EventData,
 			&i.CreatedAt,
+			&i.EditedAt,
+			&i.DeletedAt,
+			&i.BodyAtReport,
+			&i.HasBodyAtReport,
+			&i.ChangedAfterReport,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listReportedVersions = `-- name: ListReportedVersions :many
+SELECT v.message_id, v.body, v.shown_from, v.shown_until, v.ended_by
+FROM message_reports r
+JOIN message_versions v ON v.conversation_id = r.conversation_id AND v.shown_from <= r.created_at
+WHERE r.id = $1 AND v.message_id = ANY($2::uuid[])
+ORDER BY v.message_id, v.shown_from, v.shown_until
+`
+
+type ListReportedVersionsParams struct {
+	ReportID   pgtype.UUID
+	MessageIds []pgtype.UUID
+}
+
+type ListReportedVersionsRow struct {
+	MessageID  pgtype.UUID
+	Body       string
+	ShownFrom  pgtype.Timestamptz
+	ShownUntil pgtype.Timestamptz
+	EndedBy    string
+}
+
+// The kept texts of the listed messages that were shown at or before the report's moment,
+// oldest first. Like ListReportedMessages it starts from the report (NFR-13).
+func (q *Queries) ListReportedVersions(ctx context.Context, arg ListReportedVersionsParams) ([]ListReportedVersionsRow, error) {
+	rows, err := q.db.Query(ctx, listReportedVersions, arg.ReportID, arg.MessageIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListReportedVersionsRow
+	for rows.Next() {
+		var i ListReportedVersionsRow
+		if err := rows.Scan(
+			&i.MessageID,
+			&i.Body,
+			&i.ShownFrom,
+			&i.ShownUntil,
+			&i.EndedBy,
 		); err != nil {
 			return nil, err
 		}
@@ -825,13 +1933,15 @@ func (q *Queries) ListReportedMessages(ctx context.Context, arg ListReportedMess
 }
 
 const listReports = `-- name: ListReports :many
-SELECT r.id, r.conversation_id, r.reason, r.details, r.message_id, r.created_at,
+SELECT r.id, r.conversation_id, c.kind AS conversation_kind, c.name AS group_name,
+       r.reason, r.details, r.message_id, r.created_at,
        r.outcome, r.resolution_note, r.resolved_at,
        r.reporter_id, COALESCE(rp.full_name, '')::text AS reporter_name, rp.headline AS reporter_headline, rp.photo_file_id AS reporter_photo, ru.role::text AS reporter_role,
-       r.reported_id, COALESCE(dp.full_name, '')::text AS reported_name, dp.headline AS reported_headline, dp.photo_file_id AS reported_photo, du.role::text AS reported_role
+       r.reported_id, COALESCE(dp.full_name, '')::text AS reported_name, dp.headline AS reported_headline, dp.photo_file_id AS reported_photo, COALESCE(du.role::text, '')::text AS reported_role
 FROM message_reports r
+JOIN conversations c ON c.id = r.conversation_id
 JOIN users ru ON ru.id = r.reporter_id
-JOIN users du ON du.id = r.reported_id
+LEFT JOIN users du ON du.id = r.reported_id
 LEFT JOIN profiles rp ON rp.user_id = r.reporter_id
 LEFT JOIN profiles dp ON dp.user_id = r.reported_id
 WHERE (r.resolved_at IS NULL) = $1::boolean
@@ -848,6 +1958,8 @@ type ListReportsParams struct {
 type ListReportsRow struct {
 	ID               pgtype.UUID
 	ConversationID   pgtype.UUID
+	ConversationKind string
+	GroupName        pgtype.Text
 	Reason           string
 	Details          pgtype.Text
 	MessageID        pgtype.UUID
@@ -868,7 +1980,8 @@ type ListReportsRow struct {
 }
 
 // message_reports_status_idx serves this. The two people are shown whatever their state:
-// an administrator must be able to review a report about a suspended user.
+// an administrator must be able to review a report about a suspended user. A report of a
+// whole group has no reported user.
 func (q *Queries) ListReports(ctx context.Context, arg ListReportsParams) ([]ListReportsRow, error) {
 	rows, err := q.db.Query(ctx, listReports, arg.Open, arg.Off, arg.Lim)
 	if err != nil {
@@ -881,6 +1994,8 @@ func (q *Queries) ListReports(ctx context.Context, arg ListReportsParams) ([]Lis
 		if err := rows.Scan(
 			&i.ID,
 			&i.ConversationID,
+			&i.ConversationKind,
+			&i.GroupName,
 			&i.Reason,
 			&i.Details,
 			&i.MessageID,
@@ -963,19 +2078,156 @@ func (q *Queries) LockDirect(ctx context.Context, arg LockDirectParams) (LockDir
 	return i, err
 }
 
+const lockOwnMessage = `-- name: LockOwnMessage :one
+SELECT id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at, kind, event, event_data, has_attachments
+FROM messages
+WHERE conversation_id = $1 AND id = $2 AND sender_id = $3 AND kind = 'text'
+FOR UPDATE
+`
+
+type LockOwnMessageParams struct {
+	ConversationID pgtype.UUID
+	ID             pgtype.UUID
+	SenderID       pgtype.UUID
+}
+
+// The sender's message in the conversation, held until the transaction ends so an edit and a
+// deletion of one message run one at a time. No row for anyone else's (NFR-13), nor for a
+// system message, which is no one's to edit or delete.
+func (q *Queries) LockOwnMessage(ctx context.Context, arg LockOwnMessageParams) (Message, error) {
+	row := q.db.QueryRow(ctx, lockOwnMessage, arg.ConversationID, arg.ID, arg.SenderID)
+	var i Message
+	err := row.Scan(
+		&i.ID,
+		&i.ConversationID,
+		&i.SenderID,
+		&i.Body,
+		&i.ClientID,
+		&i.CreatedAt,
+		&i.EditedAt,
+		&i.DeletedAt,
+		&i.Kind,
+		&i.Event,
+		&i.EventData,
+		&i.HasAttachments,
+	)
+	return i, err
+}
+
+const memberAtReport = `-- name: MemberAtReport :one
+SELECT EXISTS (
+    SELECT 1 FROM message_reports r
+    JOIN conversation_memberships ms ON ms.conversation_id = r.conversation_id
+        AND ms.joined_at <= r.created_at AND (ms.left_at IS NULL OR ms.left_at > r.created_at)
+    WHERE r.id = $1 AND ms.user_id = $2
+)::boolean AS member
+`
+
+type MemberAtReportParams struct {
+	ReportID pgtype.UUID
+	UserID   pgtype.UUID
+}
+
+func (q *Queries) MemberAtReport(ctx context.Context, arg MemberAtReportParams) (bool, error) {
+	row := q.db.QueryRow(ctx, memberAtReport, arg.ReportID, arg.UserID)
+	var member bool
+	err := row.Scan(&member)
+	return member, err
+}
+
+const membersAtReport = `-- name: MembersAtReport :many
+SELECT ms.user_id, COALESCE(p.full_name, '')::text AS full_name, p.headline, p.photo_file_id, u.role::text AS role
+FROM message_reports r
+JOIN conversation_memberships ms ON ms.conversation_id = r.conversation_id
+    AND ms.joined_at <= r.created_at AND (ms.left_at IS NULL OR ms.left_at > r.created_at)
+JOIN users u ON u.id = ms.user_id
+LEFT JOIN profiles p ON p.user_id = ms.user_id
+WHERE r.id = $1
+ORDER BY full_name, ms.user_id
+`
+
+type MembersAtReportRow struct {
+	UserID      pgtype.UUID
+	FullName    string
+	Headline    pgtype.Text
+	PhotoFileID pgtype.UUID
+	Role        string
+}
+
+// Everyone in the report's group at the report's moment, also those who left since. Like
+// ListReportedMessages it starts from the report (NFR-13).
+func (q *Queries) MembersAtReport(ctx context.Context, reportID pgtype.UUID) ([]MembersAtReportRow, error) {
+	rows, err := q.db.Query(ctx, membersAtReport, reportID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MembersAtReportRow
+	for rows.Next() {
+		var i MembersAtReportRow
+		if err := rows.Scan(
+			&i.UserID,
+			&i.FullName,
+			&i.Headline,
+			&i.PhotoFileID,
+			&i.Role,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const membersSince = `-- name: MembersSince :many
+SELECT user_id FROM conversation_members
+WHERE conversation_id = $1 AND joined_at <= $2::timestamptz
+`
+
+type MembersSinceParams struct {
+	ConversationID pgtype.UUID
+	At             pgtype.Timestamptz
+}
+
+// The current members who joined at or before the moment (they can see a message sent then).
+func (q *Queries) MembersSince(ctx context.Context, arg MembersSinceParams) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, membersSince, arg.ConversationID, arg.At)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var user_id pgtype.UUID
+		if err := rows.Scan(&user_id); err != nil {
+			return nil, err
+		}
+		items = append(items, user_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const messageIn = `-- name: MessageIn :one
 SELECT EXISTS (
-    SELECT 1 FROM messages WHERE conversation_id = $1 AND id = $2
+    SELECT 1 FROM messages WHERE conversation_id = $1 AND id = $2 AND created_at >= $3::timestamptz
 )::boolean AS present
 `
 
 type MessageInParams struct {
 	ConversationID pgtype.UUID
 	ID             pgtype.UUID
+	Since          pgtype.Timestamptz
 }
 
+// since is the member's joining time: a message from before it is not theirs to see.
 func (q *Queries) MessageIn(ctx context.Context, arg MessageInParams) (bool, error) {
-	row := q.db.QueryRow(ctx, messageIn, arg.ConversationID, arg.ID)
+	row := q.db.QueryRow(ctx, messageIn, arg.ConversationID, arg.ID, arg.Since)
 	var present bool
 	err := row.Scan(&present)
 	return present, err
@@ -1001,6 +2253,113 @@ func (q *Queries) MoveReadMarker(ctx context.Context, arg MoveReadMarkerParams) 
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const pagePeople = `-- name: PagePeople :many
+SELECT DISTINCT u.id, COALESCE(p.full_name, '')::text AS full_name, p.photo_file_id,
+       (u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL
+        AND NOT EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = u.id AND b.blocked_id = $1::uuid))::boolean AS available
+FROM unnest($2::uuid[]) WITH ORDINALITY AS rc(conversation_id, n)
+JOIN unnest($3::uuid[]) WITH ORDINALITY AS ru(user_id, n) ON ru.n = rc.n
+JOIN users u ON u.id = ru.user_id
+LEFT JOIN profiles p ON p.user_id = u.id
+WHERE EXISTS (SELECT 1 FROM conversation_members m WHERE m.conversation_id = rc.conversation_id AND m.user_id = ru.user_id)
+   OR EXISTS (SELECT 1 FROM conversation_memberships s WHERE s.conversation_id = rc.conversation_id AND s.user_id = ru.user_id)
+`
+
+type PagePeopleParams struct {
+	ViewerID        pgtype.UUID
+	ConversationIds []pgtype.UUID
+	UserIds         []pgtype.UUID
+}
+
+type PagePeopleRow struct {
+	ID          pgtype.UUID
+	FullName    string
+	PhotoFileID pgtype.UUID
+	Available   bool
+}
+
+// The people a page of messages or search results names (FR-16.6). conversation_ids and
+// user_ids are paired by position: each user with the conversation that names them. Only
+// someone who is or was in that conversation (a member row, or a stay in
+// conversation_memberships of a group they left) is returned, so the list cannot be used to
+// look anyone else up. The name is always given; available follows the profile view rule
+// (verified, not suspended, has not blocked the viewer).
+func (q *Queries) PagePeople(ctx context.Context, arg PagePeopleParams) ([]PagePeopleRow, error) {
+	rows, err := q.db.Query(ctx, pagePeople, arg.ViewerID, arg.ConversationIds, arg.UserIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PagePeopleRow
+	for rows.Next() {
+		var i PagePeopleRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.FullName,
+			&i.PhotoFileID,
+			&i.Available,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const prepareSearch = `-- name: PrepareSearch :exec
+
+SELECT set_config('pg_trgm.word_similarity_threshold', $1::text, true),
+       set_config('plan_cache_mode', 'force_custom_plan', true)
+`
+
+// ---------------------------------------------------------------------------
+// Message search (FR-16.8, NFR-13; slice 14B, chunk 14B.4). docs/decisions.md, 2026-11-10.
+// ---------------------------------------------------------------------------
+// For the rest of the transaction only (is_local): the threshold of %>, which the GIN trigram
+// indexes serve, and a plan made for each search's own text. A generic plan cannot tell a
+// common word from a rare one and scans the word's index once per conversation (seconds for
+// a common word; docs/decisions.md, 2026-11-10, message search).
+func (q *Queries) PrepareSearch(ctx context.Context, threshold string) error {
+	_, err := q.db.Exec(ctx, prepareSearch, threshold)
+	return err
+}
+
+const removeGroupMember = `-- name: RemoveGroupMember :execrows
+DELETE FROM conversation_members WHERE conversation_id = $1 AND user_id = $2
+`
+
+type RemoveGroupMemberParams struct {
+	ConversationID pgtype.UUID
+	UserID         pgtype.UUID
+}
+
+// conversation_members_left (migration 000021) ends the stay, hands ownership over with its
+// owner_changed message, or closes the group when nobody is left.
+func (q *Queries) RemoveGroupMember(ctx context.Context, arg RemoveGroupMemberParams) (int64, error) {
+	result, err := q.db.Exec(ctx, removeGroupMember, arg.ConversationID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const renameGroup = `-- name: RenameGroup :exec
+UPDATE conversations SET name = $1 WHERE id = $2 AND kind = 'group'
+`
+
+type RenameGroupParams struct {
+	Name pgtype.Text
+	ID   pgtype.UUID
+}
+
+func (q *Queries) RenameGroup(ctx context.Context, arg RenameGroupParams) error {
+	_, err := q.db.Exec(ctx, renameGroup, arg.Name, arg.ID)
+	return err
 }
 
 const resolveReport = `-- name: ResolveReport :execrows
@@ -1029,6 +2388,197 @@ func (q *Queries) ResolveReport(ctx context.Context, arg ResolveReportParams) (i
 	return result.RowsAffected(), nil
 }
 
+const searchMessages = `-- name: SearchMessages :many
+WITH mine AS NOT MATERIALIZED (
+    SELECT v.id, v.conversation_id, v.body
+    FROM visible_messages v
+    WHERE v.viewer_id = $1 AND v.kind = 'text' AND v.deleted_at IS NULL
+      AND (NOT $2::boolean OR v.conversation_id = $3::uuid)
+      AND (NOT $4::boolean OR v.sender_id = $5::uuid)
+      AND (NOT $6::boolean OR v.created_at >= $7::timestamptz)
+      AND (NOT $8::boolean OR v.created_at < $9::timestamptz)
+), hits AS (
+    SELECT m.id, m.conversation_id,
+           CASE WHEN to_tsvector('simple', m.body) @@ plainto_tsquery('simple', $10::text) THEN 0 ELSE 1 END AS tier,
+           0 AS source, NULL::text AS attachment_name, 0::smallint AS position
+    FROM mine m
+    WHERE to_tsvector('simple', m.body) @@ plainto_tsquery('simple', $10::text) OR m.body %> $10::text
+    UNION ALL
+    SELECT m.id, m.conversation_id,
+           CASE WHEN to_tsvector('simple', translate(a.name, '_-.', '   ')) @@ plainto_tsquery('simple', $10::text) THEN 0 ELSE 1 END,
+           1, a.name, a.position
+    FROM mine m
+    JOIN message_attachments a ON a.conversation_id = m.conversation_id AND a.message_id = m.id
+    WHERE to_tsvector('simple', translate(a.name, '_-.', '   ')) @@ plainto_tsquery('simple', $10::text)
+       OR a.name %> $10::text
+), best AS (
+    SELECT DISTINCT ON (h.id) h.id, h.conversation_id, h.tier, h.source, h.attachment_name
+    FROM hits h
+    ORDER BY h.id, h.tier, h.source, h.position
+), page AS MATERIALIZED (
+    -- The page is cut before anything is joined to it: a common word matches thousands of
+    -- messages, and the planner cannot tell how many.
+    SELECT b.id, b.conversation_id, b.tier, b.source, b.attachment_name
+    FROM best b
+    WHERE NOT $11::boolean OR b.tier > $12::integer
+       OR (b.tier = $12::integer AND b.id < $13::uuid)
+    ORDER BY b.tier, b.id DESC
+    LIMIT $14
+)
+SELECT b.id, b.conversation_id, b.tier::integer AS tier, (b.source = 1)::boolean AS on_attachment,
+       COALESCE(b.attachment_name, '')::text AS attachment_name,
+       m.sender_id, m.body, m.created_at, c.kind, COALESCE(c.name, '')::text AS name,
+       COALESCE(sp.full_name, '')::text AS sender_name,
+       o.user_id AS other_id, COALESCE(op.full_name, '')::text AS other_name, op.headline AS other_headline,
+       op.photo_file_id AS other_photo_file_id,
+       COALESCE(ou.email_verified_at IS NOT NULL AND ou.suspended_at IS NULL, false)::boolean AS other_available
+FROM page b
+JOIN messages m ON m.conversation_id = b.conversation_id AND m.id = b.id
+JOIN conversations c ON c.id = b.conversation_id
+LEFT JOIN profiles sp ON sp.user_id = m.sender_id
+LEFT JOIN conversation_members o ON c.kind = 'direct' AND o.conversation_id = c.id AND o.user_id <> $1
+LEFT JOIN users ou ON ou.id = o.user_id
+LEFT JOIN profiles op ON op.user_id = o.user_id
+ORDER BY b.tier, b.id DESC
+`
+
+type SearchMessagesParams struct {
+	ViewerID        pgtype.UUID
+	HasConversation bool
+	ConversationID  pgtype.UUID
+	HasSender       bool
+	SenderID        pgtype.UUID
+	HasAfter        bool
+	AfterAt         pgtype.Timestamptz
+	HasBefore       bool
+	BeforeAt        pgtype.Timestamptz
+	Q               string
+	HasCursor       bool
+	CursorTier      int32
+	CursorID        pgtype.UUID
+	Lim             int32
+}
+
+type SearchMessagesRow struct {
+	ID               pgtype.UUID
+	ConversationID   pgtype.UUID
+	Tier             int32
+	OnAttachment     bool
+	AttachmentName   string
+	SenderID         pgtype.UUID
+	Body             pgtype.Text
+	CreatedAt        pgtype.Timestamptz
+	Kind             string
+	Name             string
+	SenderName       string
+	OtherID          pgtype.UUID
+	OtherName        string
+	OtherHeadline    pgtype.Text
+	OtherPhotoFileID pgtype.UUID
+	OtherAvailable   bool
+}
+
+// What viewer_id may read (visible_messages, as the thread), less deleted and system messages,
+// whose text or attachment name matches q. Tier 0 is a word match ('simple' configuration),
+// tier 1 a trigram match only. One row per message: its best match, the text before an
+// attachment, then the attachment's position. Newest first within a tier (IDs are UUIDv7).
+func (q *Queries) SearchMessages(ctx context.Context, arg SearchMessagesParams) ([]SearchMessagesRow, error) {
+	rows, err := q.db.Query(ctx, searchMessages,
+		arg.ViewerID,
+		arg.HasConversation,
+		arg.ConversationID,
+		arg.HasSender,
+		arg.SenderID,
+		arg.HasAfter,
+		arg.AfterAt,
+		arg.HasBefore,
+		arg.BeforeAt,
+		arg.Q,
+		arg.HasCursor,
+		arg.CursorTier,
+		arg.CursorID,
+		arg.Lim,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SearchMessagesRow
+	for rows.Next() {
+		var i SearchMessagesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ConversationID,
+			&i.Tier,
+			&i.OnAttachment,
+			&i.AttachmentName,
+			&i.SenderID,
+			&i.Body,
+			&i.CreatedAt,
+			&i.Kind,
+			&i.Name,
+			&i.SenderName,
+			&i.OtherID,
+			&i.OtherName,
+			&i.OtherHeadline,
+			&i.OtherPhotoFileID,
+			&i.OtherAvailable,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const systemMessagesAfter = `-- name: SystemMessagesAfter :many
+SELECT id, conversation_id, sender_id, body, client_id, created_at, edited_at, deleted_at, kind, event, event_data, has_attachments
+FROM messages
+WHERE conversation_id = $1 AND kind = 'system' AND id > $2
+ORDER BY id
+`
+
+type SystemMessagesAfterParams struct {
+	ConversationID pgtype.UUID
+	AfterID        pgtype.UUID
+}
+
+func (q *Queries) SystemMessagesAfter(ctx context.Context, arg SystemMessagesAfterParams) ([]Message, error) {
+	rows, err := q.db.Query(ctx, systemMessagesAfter, arg.ConversationID, arg.AfterID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Message
+	for rows.Next() {
+		var i Message
+		if err := rows.Scan(
+			&i.ID,
+			&i.ConversationID,
+			&i.SenderID,
+			&i.Body,
+			&i.ClientID,
+			&i.CreatedAt,
+			&i.EditedAt,
+			&i.DeletedAt,
+			&i.Kind,
+			&i.Event,
+			&i.EventData,
+			&i.HasAttachments,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const touchConversation = `-- name: TouchConversation :exec
 UPDATE conversations SET last_message_at = $1 WHERE id = $2
 `
@@ -1044,16 +2594,12 @@ func (q *Queries) TouchConversation(ctx context.Context, arg TouchConversationPa
 }
 
 const userVisible = `-- name: UserVisible :one
-
 SELECT EXISTS (
     SELECT 1 FROM users u
     WHERE u.id = $1 AND u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL
 )::boolean AS visible
 `
 
-// Messaging (FR-16). A direct conversation has exactly two members, so "the other member"
-// is the one row that is not the caller. Every read names the caller as a member; only
-// ListMessages and the locks do not, and the usecase calls them after FindConversation.
 func (q *Queries) UserVisible(ctx context.Context, id pgtype.UUID) (bool, error) {
 	row := q.db.QueryRow(ctx, userVisible, id)
 	var visible bool
@@ -1061,10 +2607,43 @@ func (q *Queries) UserVisible(ctx context.Context, id pgtype.UUID) (bool, error)
 	return visible, err
 }
 
+const usersVisible = `-- name: UsersVisible :many
+
+SELECT u.id FROM users u
+WHERE u.id = ANY($1::uuid[]) AND u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL
+`
+
+// Messaging (FR-16). A direct conversation has exactly two members, so "the other member"
+// is the one row that is not the caller; a group (FR-16.6) has a name, an owner and up to 50
+// members. Every read names the caller as a member; only ListMessages, the locks and the group
+// queries do not, and the usecase calls them after FindConversation. A member sees only the
+// messages created from the moment they joined (joined_at), and system messages never count
+// as unread. Message rows list the columns of the messages table in its order, so sqlc maps
+// them all to sqlcgen.Message.
+func (q *Queries) UsersVisible(ctx context.Context, ids []pgtype.UUID) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, usersVisible, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var id pgtype.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const visiblePeers = `-- name: VisiblePeers :many
 SELECT o.user_id
 FROM conversation_members me
-JOIN conversations c ON c.id = me.conversation_id AND c.state = 'active'
+JOIN conversations c ON c.id = me.conversation_id AND c.state = 'active' AND c.kind = 'direct'
 JOIN conversation_members o ON o.conversation_id = c.id AND o.user_id <> me.user_id
 WHERE me.user_id = $1 AND o.user_id = ANY($2::uuid[])
   AND NOT EXISTS (

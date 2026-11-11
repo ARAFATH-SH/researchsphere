@@ -316,6 +316,10 @@ func (fakeAPI) GetMessageUnreadCount(context.Context, gen.GetMessageUnreadCountR
 	return gen.GetMessageUnreadCount200JSONResponse{}, nil
 }
 
+func (fakeAPI) SearchMessages(context.Context, gen.SearchMessagesRequestObject) (gen.SearchMessagesResponseObject, error) {
+	return gen.SearchMessages200JSONResponse{}, nil
+}
+
 func (fakeAPI) ListConversations(context.Context, gen.ListConversationsRequestObject) (gen.ListConversationsResponseObject, error) {
 	return gen.ListConversations200JSONResponse{}, nil
 }
@@ -330,6 +334,26 @@ func (fakeAPI) ListMessages(context.Context, gen.ListMessagesRequestObject) (gen
 
 func (fakeAPI) MarkConversationRead(context.Context, gen.MarkConversationReadRequestObject) (gen.MarkConversationReadResponseObject, error) {
 	return gen.MarkConversationRead204Response{}, nil
+}
+
+func (fakeAPI) EditMessage(context.Context, gen.EditMessageRequestObject) (gen.EditMessageResponseObject, error) {
+	return gen.EditMessage200JSONResponse{}, nil
+}
+
+func (fakeAPI) UploadAttachment(context.Context, gen.UploadAttachmentRequestObject) (gen.UploadAttachmentResponseObject, error) {
+	return gen.UploadAttachment201JSONResponse{}, nil
+}
+
+func (fakeAPI) GetAttachment(context.Context, gen.GetAttachmentRequestObject) (gen.GetAttachmentResponseObject, error) {
+	return gen.GetAttachment302Response{Headers: gen.AttachmentRedirectResponseHeaders{Location: "http://localhost/x", CacheControl: "no-store", XContentTypeOptions: "nosniff"}}, nil
+}
+
+func (fakeAPI) GetReportedAttachment(context.Context, gen.GetReportedAttachmentRequestObject) (gen.GetReportedAttachmentResponseObject, error) {
+	return gen.GetReportedAttachment302Response{Headers: gen.AttachmentRedirectResponseHeaders{Location: "http://localhost/x", CacheControl: "no-store", XContentTypeOptions: "nosniff"}}, nil
+}
+
+func (fakeAPI) DeleteMessage(context.Context, gen.DeleteMessageRequestObject) (gen.DeleteMessageResponseObject, error) {
+	return gen.DeleteMessage204Response{}, nil
 }
 
 func (fakeAPI) AcceptMessageRequest(context.Context, gen.AcceptMessageRequestRequestObject) (gen.AcceptMessageRequestResponseObject, error) {
@@ -392,6 +416,26 @@ func (fakeAPI) GetMyWarning(context.Context, gen.GetMyWarningRequestObject) (gen
 
 func (fakeAPI) AcknowledgeWarning(context.Context, gen.AcknowledgeWarningRequestObject) (gen.AcknowledgeWarningResponseObject, error) {
 	return nil, nil
+}
+
+func (fakeAPI) CreateGroup(context.Context, gen.CreateGroupRequestObject) (gen.CreateGroupResponseObject, error) {
+	return gen.CreateGroup201JSONResponse{}, nil
+}
+
+func (fakeAPI) RenameGroup(context.Context, gen.RenameGroupRequestObject) (gen.RenameGroupResponseObject, error) {
+	return gen.RenameGroup200JSONResponse{}, nil
+}
+
+func (fakeAPI) AddGroupMembers(context.Context, gen.AddGroupMembersRequestObject) (gen.AddGroupMembersResponseObject, error) {
+	return gen.AddGroupMembers200JSONResponse{}, nil
+}
+
+func (fakeAPI) RemoveGroupMember(context.Context, gen.RemoveGroupMemberRequestObject) (gen.RemoveGroupMemberResponseObject, error) {
+	return gen.RemoveGroupMember204Response{}, nil
+}
+
+func (fakeAPI) LeaveGroup(context.Context, gen.LeaveGroupRequestObject) (gen.LeaveGroupResponseObject, error) {
+	return gen.LeaveGroup204Response{}, nil
 }
 
 var _ gen.StrictServerInterface = fakeAPI{}
@@ -768,8 +812,8 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 
 func TestRoutes(t *testing.T) {
 	got := Routes()
-	if len(got) != 91 {
-		t.Errorf("Routes() returned %d routes, want the 91 operations in the contract: %v", len(got), got)
+	if len(got) != 102 {
+		t.Errorf("Routes() returned %d routes, want the 102 operations in the contract: %v", len(got), got)
 	}
 	seen := map[string]bool{}
 	for _, p := range got {
@@ -778,7 +822,8 @@ func TestRoutes(t *testing.T) {
 		}
 		seen[p] = true
 	}
-	for _, want := range []string{"GET /api/v1/health", "GET /api/v1/auth/me", "POST /api/v1/account/delete", "POST /api/v1/admin/restrictions/{restrictionId}/lift", "GET /api/v1/media/{fileId}", "GET /api/v1/notifications/unread-count"} {
+	for _, want := range []string{"GET /api/v1/health", "GET /api/v1/auth/me", "POST /api/v1/account/delete", "POST /api/v1/admin/restrictions/{restrictionId}/lift", "GET /api/v1/media/{fileId}", "GET /api/v1/notifications/unread-count",
+		"POST /api/v1/conversations/{conversationId}/attachments", "GET /api/v1/attachments/{attachmentId}", "GET /api/v1/admin/message-reports/{reportId}/attachments/{attachmentId}"} {
 		if !seen[want] {
 			t.Errorf("Routes() lacks %q", want)
 		}

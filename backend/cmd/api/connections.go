@@ -102,6 +102,26 @@ func (c *connectionChecker) Connected(ctx context.Context, a, b string) (bool, e
 	return r.Status == socialdomain.StatusConnected, nil
 }
 
+// ConnectedAmong returns which of ids have an accepted connection with userID, read at once.
+func (c *connectionChecker) ConnectedAmong(ctx context.Context, userID string, ids []string) ([]string, error) {
+	rs, err := c.social.Relations(ctx, userID, ids)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, id := range ids {
+		if rs[id].Status == socialdomain.StatusConnected {
+			out = append(out, id)
+		}
+	}
+	return out, nil
+}
+
+// BlockedAmong returns which of ids are in a block with userID, either way.
+func (c *connectionChecker) BlockedAmong(ctx context.Context, userID string, ids []string) ([]string, error) {
+	return c.social.BlockedAmong(ctx, userID, ids)
+}
+
 // Lock holds the pair's lock in the send's transaction.
 func (c *connectionChecker) Lock(ctx context.Context, a, b string) error {
 	return c.social.LockPair(ctx, a, b)

@@ -71,10 +71,11 @@ var platformGuards = map[string]authz.Action{
 	"GET /api/v1/me/warnings/{warningId}":                  authz.ViewContent,
 	"POST /api/v1/me/warnings/{warningId}/acknowledge":     authz.ViewContent,
 
-	// Reported conversations (FR-16.9, NFR-14): the only way an administrator reads messages.
-	"GET /api/v1/admin/message-reports":                     authz.ReviewMessageReports,
-	"GET /api/v1/admin/message-reports/{reportId}":          authz.ReviewMessageReports,
-	"POST /api/v1/admin/message-reports/{reportId}/resolve": authz.ReviewMessageReports,
+	// Reported conversations (FR-16.9, NFR-13): the only way an administrator reads messages.
+	"GET /api/v1/admin/message-reports":                                       authz.ReviewMessageReports,
+	"GET /api/v1/admin/message-reports/{reportId}":                            authz.ReviewMessageReports,
+	"GET /api/v1/admin/message-reports/{reportId}/attachments/{attachmentId}": authz.ReviewMessageReports,
+	"POST /api/v1/admin/message-reports/{reportId}/resolve":                   authz.ReviewMessageReports,
 
 	// Profiles (FR-4.1, FR-4.5): reading any profile, the caller's own included, is the
 	// row "View profiles, ..."; editing is the row "Edit own profile, ...".
@@ -163,18 +164,29 @@ var platformGuards = map[string]authz.Action{
 
 	// Messaging (FR-16): SRS 2.3 has no row for it. Reading one's own conversations is
 	// closest to "View ...", writing to "Edit own profile, connect, ...". Membership is
-	// checked on every operation by the usecase (NFR-14); no role gets more access on these
+	// checked on every operation by the usecase (NFR-13); no role gets more access on these
 	// routes. An administrator reads a reported conversation through /admin/message-reports.
-	"POST /api/v1/messages/direct":                         authz.ActAsMember,
-	"GET /api/v1/messages/unread-count":                    authz.ViewContent,
-	"GET /api/v1/conversations":                            authz.ViewContent,
-	"GET /api/v1/conversations/{conversationId}":           authz.ViewContent,
-	"GET /api/v1/conversations/{conversationId}/messages":  authz.ViewContent,
-	"POST /api/v1/conversations/{conversationId}/messages": authz.ActAsMember,
-	"POST /api/v1/conversations/{conversationId}/read":     authz.ActAsMember,
-	"POST /api/v1/conversations/{conversationId}/accept":   authz.ActAsMember,
-	"POST /api/v1/conversations/{conversationId}/decline":  authz.ActAsMember,
-	"POST /api/v1/conversations/{conversationId}/reports":  authz.ActAsMember,
+	"POST /api/v1/messages/direct":                                       authz.ActAsMember,
+	"GET /api/v1/messages/unread-count":                                  authz.ViewContent,
+	"GET /api/v1/messages/search":                                        authz.ViewContent,
+	"GET /api/v1/conversations":                                          authz.ViewContent,
+	"GET /api/v1/conversations/{conversationId}":                         authz.ViewContent,
+	"GET /api/v1/conversations/{conversationId}/messages":                authz.ViewContent,
+	"POST /api/v1/conversations/{conversationId}/messages":               authz.ActAsMember,
+	"POST /api/v1/conversations/{conversationId}/attachments":            authz.ActAsMember,
+	"GET /api/v1/attachments/{attachmentId}":                             authz.ViewContent,
+	"POST /api/v1/conversations/{conversationId}/read":                   authz.ActAsMember,
+	"PATCH /api/v1/conversations/{conversationId}/messages/{messageId}":  authz.ActAsMember,
+	"DELETE /api/v1/conversations/{conversationId}/messages/{messageId}": authz.ActAsMember,
+	"POST /api/v1/conversations/{conversationId}/accept":                 authz.ActAsMember,
+	"POST /api/v1/conversations/{conversationId}/decline":                authz.ActAsMember,
+	"POST /api/v1/conversations/{conversationId}/reports":                authz.ActAsMember,
+	// Groups (FR-16.6): writing, as for a message. Ownership is checked by the usecase.
+	"POST /api/v1/conversations/groups":                              authz.ActAsMember,
+	"PATCH /api/v1/conversations/{conversationId}":                   authz.ActAsMember,
+	"POST /api/v1/conversations/{conversationId}/members":            authz.ActAsMember,
+	"DELETE /api/v1/conversations/{conversationId}/members/{userId}": authz.ActAsMember,
+	"POST /api/v1/conversations/{conversationId}/leave":              authz.ActAsMember,
 
 	// Blocks (FR-16.9): SRS 2.3 has no row for them. Blocking is closest to "Edit own
 	// profile, connect, ...", and reading one's own list to "View ...".
@@ -199,6 +211,8 @@ const multipartOverhead = 64 << 10
 var bodyLimits = map[string]int64{
 	"PUT /api/v1/profiles/me/photo": mediausecase.Specs[mediadomain.PurposePhoto].MaxBytes + multipartOverhead,
 	"PUT /api/v1/profiles/me/cover": mediausecase.Specs[mediadomain.PurposeCover].MaxBytes + multipartOverhead,
+	// FR-16.7: 25 MB.
+	"POST /api/v1/conversations/{conversationId}/attachments": mediausecase.MaxAttachmentBytes + multipartOverhead,
 }
 
 // limitBody wraps the request body of the routes in bodyLimits in http.MaxBytesReader.

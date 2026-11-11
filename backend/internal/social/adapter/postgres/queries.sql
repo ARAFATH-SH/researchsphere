@@ -77,6 +77,58 @@ WHERE (c.requester_id = @user_id::uuid OR c.receiver_id = @user_id::uuid) AND c.
 ORDER BY c.responded_at DESC, c.id DESC
 LIMIT @lim OFFSET @off;
 
+-- Connection search (FR-16.6, the group member picker): the caller's own connections, as
+-- ListConnections shows them, matched on name, institution and headline by the rule of the
+-- researcher search (profile queries.sql). Parameters: q the trimmed text; pattern
+-- '%' || q || '%' with \ % _ escaped, for ILIKE; fuzzy true when no connection's name contains
+-- q, so names similar to it (full_name %> q, the threshold SetWordSimilarityThreshold sets in
+-- the same transaction) match instead. Ranks: 0 exact name, 1 name prefix, 2 name contains,
+-- 3 similar name (most similar first), 4 institution, 5 headline; then newest first. A person has thousands of connections at most,
+-- so the connection list is read first and matched in memory.
+
+-- name: SetWordSimilarityThreshold :exec
+-- Transaction-local (is_local true), so it ends with the search's transaction.
+SELECT set_config('pg_trgm.word_similarity_threshold', @threshold::text, true);
+
+-- name: AnyConnectionNameContains :one
+SELECT EXISTS (
+    SELECT 1
+    FROM connections c
+    JOIN users o ON o.id = CASE WHEN c.requester_id = @user_id::uuid THEN c.receiver_id ELSE c.requester_id END
+    JOIN profiles p ON p.user_id = o.id
+    WHERE (c.requester_id = @user_id::uuid OR c.receiver_id = @user_id::uuid) AND c.status = 'accepted'
+      AND o.email_verified_at IS NOT NULL AND o.suspended_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = o.id AND b.blocked_id = @user_id::uuid)
+      AND p.full_name ILIKE @pattern::text
+)::boolean;
+
+-- name: SearchConnections :many
+WITH mine AS (
+    SELECT c.id, c.responded_at, o.id AS other_id, COALESCE(p.full_name, '')::text AS full_name,
+           p.headline, p.institution, p.photo_file_id
+    FROM connections c
+    JOIN users o ON o.id = CASE WHEN c.requester_id = @user_id::uuid THEN c.receiver_id ELSE c.requester_id END
+    LEFT JOIN profiles p ON p.user_id = o.id
+    WHERE (c.requester_id = @user_id::uuid OR c.receiver_id = @user_id::uuid) AND c.status = 'accepted'
+      AND o.email_verified_at IS NOT NULL AND o.suspended_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = o.id AND b.blocked_id = @user_id::uuid)
+), ranked AS (
+    SELECT mine.*,
+           CASE WHEN NOT @fuzzy::boolean AND lower(full_name) = lower(@q::text) THEN 0
+                WHEN NOT @fuzzy::boolean AND starts_with(lower(full_name), lower(@q::text)) THEN 1
+                WHEN NOT @fuzzy::boolean AND full_name ILIKE @pattern::text THEN 2
+                WHEN @fuzzy::boolean AND full_name %> @q::text THEN 3
+                WHEN institution ILIKE @pattern::text THEN 4
+                WHEN headline ILIKE @pattern::text THEN 5
+           END AS rank
+    FROM mine
+)
+SELECT id, responded_at, other_id, full_name, headline, institution, photo_file_id, count(*) OVER ()::bigint AS total
+FROM ranked
+WHERE rank IS NOT NULL
+ORDER BY rank, CASE WHEN rank = 3 THEN word_similarity(@q::text, full_name) END DESC NULLS LAST, responded_at DESC, id DESC
+LIMIT @lim OFFSET @off;
+
 -- name: CountConnections :one
 SELECT count(*)
 FROM connections c
@@ -133,6 +185,13 @@ SELECT pg_advisory_xact_lock(hashtextextended(LEAST(@a::uuid, @b::uuid)::text ||
 -- name: BlockBetween :one
 SELECT EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = @me::uuid AND b.blocked_id = @other::uuid)::boolean AS by_me,
        EXISTS (SELECT 1 FROM blocks b WHERE b.blocker_id = @other::uuid AND b.blocked_id = @me::uuid)::boolean AS by_them;
+
+-- name: BlockedAmong :many
+-- Which of the IDs are in a block with the user, either way: a blocked pair cannot be put in a
+-- new group by either of them (FR-16.6). blocks_blocked_idx serves the second half.
+SELECT b.blocked_id AS user_id FROM blocks b WHERE b.blocker_id = @user_id::uuid AND b.blocked_id = ANY(@ids::uuid[])
+UNION
+SELECT b.blocker_id FROM blocks b WHERE b.blocked_id = @user_id::uuid AND b.blocker_id = ANY(@ids::uuid[]);
 
 -- name: AddBlock :execrows
 INSERT INTO blocks (blocker_id, blocked_id) VALUES (@blocker_id, @blocked_id)

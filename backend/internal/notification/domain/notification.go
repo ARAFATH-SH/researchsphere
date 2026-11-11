@@ -23,12 +23,20 @@ const (
 	// TypeAccountWarning: an administrator warned the recipient (FR-15.5). A system
 	// notification: it has no actor. The subject is the warning.
 	TypeAccountWarning Type = "account_warning"
+	// TypeGroupAdded: the actor, a group's owner, added the recipient to the group (FR-16.6).
+	// The subject is the conversation.
+	TypeGroupAdded Type = "group_added"
+	// TypeAttachmentBlocked: the malware scan found something in a file the recipient attached,
+	// and it was deleted (FR-16.7). A system notification: it has no actor. The subject is the
+	// conversation the file was uploaded to.
+	TypeAttachmentBlocked Type = "attachment_blocked"
 )
 
 // Subject kinds: what a notification's SubjectID names.
 const (
 	SubjectConnectionRequest = "connection_request"
 	SubjectWarning           = "warning"
+	SubjectConversation      = "conversation"
 )
 
 // Spec describes one Type.
@@ -37,6 +45,9 @@ type Spec struct {
 	SubjectKind string
 	// Link is the web client path of the item the notification is about (FR-9.5).
 	Link func(n Notification) string
+	// ShowsSubject is set when the client's sentence names the subject (the group of
+	// group_added): the list then carries its current title, from SubjectTitles.
+	ShowsSubject bool
 }
 
 // Registry maps every Type to its Spec. A stored type without an entry is an error when
@@ -53,6 +64,15 @@ var Registry = map[Type]Spec{
 	TypeAccountWarning: {
 		SubjectKind: SubjectWarning,
 		Link:        func(n Notification) string { return "/warnings/" + n.SubjectID },
+	},
+	TypeGroupAdded: {
+		SubjectKind:  SubjectConversation,
+		Link:         func(n Notification) string { return "/messaging/" + n.SubjectID },
+		ShowsSubject: true,
+	},
+	TypeAttachmentBlocked: {
+		SubjectKind: SubjectConversation,
+		Link:        func(n Notification) string { return "/messaging/" + n.SubjectID },
 	},
 }
 
@@ -83,6 +103,23 @@ type Item struct {
 	RequestPending *bool
 	// Link is filled from Registry.
 	Link string
+	// Subject is the item as it is now, for a type whose Spec.ShowsSubject; nil otherwise, and
+	// when the item is gone or the recipient cannot see it.
+	Subject *Subject
+}
+
+// Subject is the item a notification is about, with its current title.
+type Subject struct {
+	Kind  string // a Subject* constant
+	ID    string
+	Title string
+}
+
+// SubjectTitles gives the current titles of the items notifications name, as viewerID may see
+// them; another module implements it (the messaging module for conversations). An item that
+// is gone or that viewerID cannot see has no entry.
+type SubjectTitles interface {
+	Titles(ctx context.Context, viewerID, kind string, ids []string) (map[string]string, error)
 }
 
 // Cursor is the position after the last item of a page: the list is ordered by
@@ -121,6 +158,9 @@ type Store interface {
 	// DeleteBySubject deletes the notifications of type t about subjectID and returns
 	// their recipients.
 	DeleteBySubject(ctx context.Context, t Type, subjectID string) ([]string, error)
+	// DeleteFor deletes recipientID's notifications of type t about subjectID and reports
+	// whether there were any.
+	DeleteFor(ctx context.Context, t Type, subjectID, recipientID string) (bool, error)
 	// Find returns one visible notification of recipientID, otherwise ErrNotFound.
 	Find(ctx context.Context, recipientID, id string) (Item, error)
 	// DeleteBetween deletes everything a and b were told about each other, of any type.

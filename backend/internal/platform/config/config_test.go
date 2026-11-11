@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 )
 
 const (
@@ -405,6 +406,23 @@ func TestLoadORCIDSettings(t *testing.T) {
 	}
 }
 
+func TestLoadMessageEditWindow(t *testing.T) {
+	cfg, err := Load(env(map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL}))
+	if err != nil || cfg.MessageEditWindow != 15*time.Minute {
+		t.Errorf("default = %v (%v)", cfg.MessageEditWindow, err)
+	}
+	cfg, err = Load(env(map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL, "MESSAGE_EDIT_WINDOW": " 90s "}))
+	if err != nil || cfg.MessageEditWindow != 90*time.Second {
+		t.Errorf("set = %v (%v)", cfg.MessageEditWindow, err)
+	}
+	for _, bad := range []string{"0", "-1m", "15", "soon"} {
+		v := map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL, "MESSAGE_EDIT_WINDOW": bad}
+		if _, err := Load(env(v)); err == nil || !strings.Contains(err.Error(), "MESSAGE_EDIT_WINDOW") {
+			t.Errorf("MESSAGE_EDIT_WINDOW=%s: error = %v", bad, err)
+		}
+	}
+}
+
 func TestLoadMessageLimits(t *testing.T) {
 	base := map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL}
 	cfg, err := Load(env(base))
@@ -432,6 +450,41 @@ func TestLoadMessageLimits(t *testing.T) {
 			if _, err := Load(env(v)); err == nil || !strings.Contains(err.Error(), name) {
 				t.Errorf("%s=%s: error = %v", name, bad, err)
 			}
+		}
+	}
+}
+
+// FR-16.8: the message search limit defaults to 30 a minute and must be a positive number.
+func TestLoadMessageSearchLimit(t *testing.T) {
+	base := map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL}
+	if cfg, err := Load(env(base)); err != nil || cfg.SearchesPerMinute != 30 {
+		t.Errorf("default = %d (%v)", cfg.SearchesPerMinute, err)
+	}
+	base["MESSAGE_SEARCH_LIMIT_PER_MINUTE"] = " 7 "
+	if cfg, err := Load(env(base)); err != nil || cfg.SearchesPerMinute != 7 {
+		t.Errorf("set = %d (%v)", cfg.SearchesPerMinute, err)
+	}
+	for _, bad := range []string{"0", "-1", "many"} {
+		base["MESSAGE_SEARCH_LIMIT_PER_MINUTE"] = bad
+		if _, err := Load(env(base)); err == nil || !strings.Contains(err.Error(), "MESSAGE_SEARCH_LIMIT_PER_MINUTE") {
+			t.Errorf("%s: error = %v", bad, err)
+		}
+	}
+}
+
+func TestLoadClamAVAddr(t *testing.T) {
+	cfg, err := Load(env(map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL}))
+	if err != nil || cfg.ClamAVAddr != DefaultClamAVAddr {
+		t.Errorf("default = %q (%v)", cfg.ClamAVAddr, err)
+	}
+	cfg, err = Load(env(map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL, "CLAMAV_ADDR": " clamav:3310 "}))
+	if err != nil || cfg.ClamAVAddr != "clamav:3310" {
+		t.Errorf("set = %q (%v)", cfg.ClamAVAddr, err)
+	}
+	for _, bad := range []string{"clamav", "tcp://clamav:3310", "clamav:port"} {
+		v := map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL, "CLAMAV_ADDR": bad}
+		if _, err := Load(env(v)); err == nil || !strings.Contains(err.Error(), "CLAMAV_ADDR") {
+			t.Errorf("CLAMAV_ADDR=%s: error = %v", bad, err)
 		}
 	}
 }

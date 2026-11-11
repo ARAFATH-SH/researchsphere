@@ -11,6 +11,7 @@ import (
 	goredis "github.com/redis/go-redis/v9"
 
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/media/domain"
+	platformredis "github.com/ARAFATH-SH/researchsphere/backend/internal/platform/redis"
 )
 
 // keyPrefix is followed by the user ID. User IDs are UUIDs, not personal data.
@@ -38,6 +39,7 @@ func New(shared *goredis.Client) *Limiter {
 	opts.DialTimeout = callTimeout
 	opts.ReadTimeout = callTimeout
 	opts.WriteTimeout = callTimeout
+	platformredis.ApplyDefaults(&opts)
 	return &Limiter{client: goredis.NewClient(&opts)}
 }
 

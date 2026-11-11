@@ -21,7 +21,10 @@ import (
 // Codec reads and re-encodes JPEG, PNG and WebP images.
 type Codec struct{}
 
-var _ domain.ImageCodec = Codec{}
+var (
+	_ domain.ImageCodec     = Codec{}
+	_ domain.ImageReencoder = Codec{}
+)
 
 // Size reads only the image header.
 func (Codec) Size(r io.Reader, f domain.Format) (domain.ImageSize, error) {
@@ -77,6 +80,69 @@ func (Codec) Render(r io.Reader, f domain.Format, width, height, quality int) ([
 		return nil, fmt.Errorf("encode jpeg: %w", err)
 	}
 	return out.Bytes(), nil
+}
+
+// Reencode decodes the image and encodes it again at its own size. Only a JPEG carries an
+// EXIF Orientation; it is applied, so the stored image is upright without its metadata.
+func (Codec) Reencode(r io.Reader, f domain.Format, quality int) ([]byte, domain.Format, error) {
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return nil, "", fmt.Errorf("read image: %w", err)
+	}
+	src, err := decode(bytes.NewReader(data), f)
+	if err != nil {
+		return nil, "", err
+	}
+	out := domain.FormatJPEG
+	switch {
+	case f == domain.FormatPNG:
+		out = domain.FormatPNG
+	case f == domain.FormatWebP && !opaque(src):
+		out = domain.FormatPNG
+	}
+
+	img := src
+	if f == domain.FormatJPEG {
+		if o := exifOrientation(data); o >= 2 && o <= 8 {
+			rgba := image.NewRGBA(image.Rect(0, 0, src.Bounds().Dx(), src.Bounds().Dy()))
+			draw.Draw(rgba, rgba.Bounds(), src, src.Bounds().Min, draw.Src)
+			img = orient(rgba, o)
+		}
+	}
+
+	var buf bytes.Buffer
+	if out == domain.FormatPNG {
+		err = (&png.Encoder{CompressionLevel: png.DefaultCompression}).Encode(&buf, img)
+	} else {
+		if !opaque(img) { // a transparent WebP never gets here; flatten anything else onto white
+			flat := image.NewRGBA(image.Rect(0, 0, img.Bounds().Dx(), img.Bounds().Dy()))
+			draw.Draw(flat, flat.Bounds(), image.White, image.Point{}, draw.Src)
+			draw.Draw(flat, flat.Bounds(), img, img.Bounds().Min, draw.Over)
+			img = flat
+		}
+		err = jpeg.Encode(&buf, img, &jpeg.Options{Quality: quality})
+	}
+	if err != nil {
+		return nil, "", fmt.Errorf("encode %s: %w", out, err)
+	}
+	return buf.Bytes(), out, nil
+}
+
+// opaque reports whether every pixel of img is fully opaque. Image types that know say so
+// at once; others are checked pixel by pixel.
+func opaque(img image.Image) bool {
+	if o, ok := img.(interface{ Opaque() bool }); ok {
+		return o.Opaque()
+	}
+	b := img.Bounds()
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			if _, _, _, a := img.At(x, y).RGBA(); a != 0xffff {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func decode(r io.Reader, f domain.Format) (image.Image, error) {

@@ -125,6 +125,13 @@ func NotificationBody(it domain.Item) (gen.Notification, error) {
 		}
 		n.Actor = &gen.NotificationActor{UserId: actor, FullName: it.Actor.FullName, PhotoUrl: mediaURL(it.Actor.PhotoFileID)}
 	}
+	if it.Subject != nil {
+		sid, err := uuid(it.Subject.ID)
+		if err != nil {
+			return gen.Notification{}, err
+		}
+		n.Subject = &gen.NotificationSubject{Type: gen.NotificationSubjectType(it.Subject.Kind), Id: sid, Title: it.Subject.Title}
+	}
 	if it.Type == domain.TypeConnectionRequestReceived {
 		rid, err := uuid(it.SubjectID)
 		if err != nil {

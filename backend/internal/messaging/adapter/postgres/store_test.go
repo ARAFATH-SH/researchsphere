@@ -67,7 +67,7 @@ func create(t *testing.T, s *Store, a, b string, state domain.State, requester *
 
 func add(t *testing.T, s *Store, c, sender, body string) domain.Message {
 	t.Helper()
-	m, added, err := s.AddMessage(t.Context(), domain.Message{ConversationID: c, SenderID: sender, Body: body, ClientID: clientID()})
+	m, added, err := s.AddMessage(t.Context(), domain.Message{ConversationID: c, SenderID: sender, Body: &body, ClientID: clientID()})
 	if err != nil || !added {
 		t.Fatalf("AddMessage: %v, %v", added, err)
 	}
@@ -149,11 +149,11 @@ func TestAddMessage(t *testing.T) {
 	}
 
 	// The same client ID stores nothing and changes nothing.
-	if _, added, err := s.AddMessage(ctx, domain.Message{ConversationID: c.ID, SenderID: ada, Body: "again", ClientID: m.ClientID}); err != nil || added {
+	if _, added, err := s.AddMessage(ctx, domain.Message{ConversationID: c.ID, SenderID: ada, Body: str("again"), ClientID: m.ClientID}); err != nil || added {
 		t.Fatalf("second add: %v, %v", added, err)
 	}
 	sent, found, err := s.FindSent(ctx, ada, m.ClientID)
-	if err != nil || !found || sent.Message.ID != m.ID || sent.Message.Body != m.Body || sent.State != domain.StateActive {
+	if err != nil || !found || sent.Message.ID != m.ID || *sent.Message.Body != *m.Body || sent.State != domain.StateActive {
 		t.Errorf("FindSent: %+v, %v, %v", sent, found, err)
 	}
 	if _, found, _ := s.FindSent(ctx, bob, m.ClientID); found {
@@ -252,7 +252,7 @@ func TestLockedSendsAreInOrder(t *testing.T) {
 						mu.Lock()
 						granted = append(granted, body)
 						mu.Unlock()
-						_, _, err := s.AddMessage(ctx, domain.Message{ConversationID: c.ID, SenderID: ada, Body: body, ClientID: clientID()})
+						_, _, err := s.AddMessage(ctx, domain.Message{ConversationID: c.ID, SenderID: ada, Body: &body, ClientID: clientID()})
 						return err
 					})
 					if err != nil {
@@ -261,13 +261,13 @@ func TestLockedSendsAreInOrder(t *testing.T) {
 				}()
 			}
 			wg.Wait()
-			newestFirst, err := s.ListMessages(t.Context(), c.ID, "", sends)
+			newestFirst, err := s.ListMessages(t.Context(), c.ID, ada, "", sends)
 			if err != nil || len(newestFirst) != sends {
 				t.Fatalf("%d messages, %v", len(newestFirst), err)
 			}
 			for i, m := range newestFirst {
-				if want := granted[sends-1-i]; m.Body != want {
-					t.Errorf("position %d holds send %s, want %s (lock order %v)", i, m.Body, want, granted)
+				if want := granted[sends-1-i]; *m.Body != want {
+					t.Errorf("position %d holds send %s, want %s (lock order %v)", i, *m.Body, want, granted)
 				}
 				ms, fraction := idMicrosecond(t, m.ID)
 				at := m.CreatedAt.UnixMicro()
@@ -325,7 +325,7 @@ func TestReadMarkerOnlyMovesForward(t *testing.T) {
 	// The database refuses a marker that points into another conversation.
 	d := create(t, s, ada, cy, domain.StateActive, nil)
 	foreign := add(t, s, d.ID, ada, "elsewhere")
-	if in, err := s.MessageIn(ctx, c.ID, foreign.ID); err != nil || in {
+	if in, err := s.MessageIn(ctx, c.ID, foreign.ID, time.Time{}); err != nil || in {
 		t.Errorf("MessageIn: %v, %v", in, err)
 	}
 	_, err := s.MoveReadMarker(ctx, c.ID, bob, "ffffffff-ffff-7fff-bfff-ffffffffffff")
@@ -393,7 +393,7 @@ func TestItemsAndUnreadCounts(t *testing.T) {
 		t.Errorf("order: %s, %s", inbox[0].ID, inbox[1].ID)
 	}
 	it := inbox[1]
-	if it.UnreadCount != 1 || it.LastMessage == nil || it.LastMessage.Body != "newest" || it.LastMessage.SenderID != bob {
+	if it.UnreadCount != 1 || it.LastMessage == nil || *it.LastMessage.Body != "newest" || it.LastMessage.SenderID != bob {
 		t.Errorf("item = %+v", it)
 	}
 	if it.Other.UserID != bob || it.Other.FullName != "Bob" || it.Other.Headline == nil || *it.Other.Headline != "Chemist" || !it.Other.Available {
@@ -408,8 +408,8 @@ func TestItemsAndUnreadCounts(t *testing.T) {
 	// The preview is the first 120 characters, not bytes.
 	add(t, s, active.ID, bob, string(long))
 	one, err := s.FindItem(ctx, active.ID, ada)
-	if err != nil || len([]rune(one.LastMessage.Body)) != 120 {
-		t.Errorf("preview has %d characters, %v", len([]rune(one.LastMessage.Body)), err)
+	if err != nil || len([]rune(*one.LastMessage.Body)) != 120 {
+		t.Errorf("preview has %d characters, %v", len([]rune(*one.LastMessage.Body)), err)
 	}
 
 	n, err := s.CountUnread(ctx, ada)
@@ -476,12 +476,14 @@ func TestListMessagesPages(t *testing.T) {
 	for range 5 {
 		sent = append(sent, add(t, s, c.ID, ada, "x"))
 	}
-	page, err := s.ListMessages(ctx, c.ID, "", 2)
+	page, err := s.ListMessages(ctx, c.ID, ada, "", 2)
 	if err != nil || len(page) != 2 || page[0].ID != sent[4].ID || page[1].ID != sent[3].ID {
 		t.Fatalf("first page: %+v, %v", page, err)
 	}
-	page, err = s.ListMessages(ctx, c.ID, page[1].ID, 10)
+	page, err = s.ListMessages(ctx, c.ID, ada, page[1].ID, 10)
 	if err != nil || len(page) != 3 || page[0].ID != sent[2].ID {
 		t.Fatalf("second page: %+v, %v", page, err)
 	}
 }
+
+func str(s string) *string { return &s }

@@ -24,6 +24,30 @@ const (
 	CookieAuthScopes cookieAuthContextKey = "cookieAuth.Scopes"
 )
 
+// Defines values for AttachmentStatus.
+const (
+	Clean    AttachmentStatus = "clean"
+	Failed   AttachmentStatus = "failed"
+	Infected AttachmentStatus = "infected"
+	Pending  AttachmentStatus = "pending"
+)
+
+// Valid indicates whether the value is a known member of the AttachmentStatus enum.
+func (e AttachmentStatus) Valid() bool {
+	switch e {
+	case Clean:
+		return true
+	case Failed:
+		return true
+	case Infected:
+		return true
+	case Pending:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ConnectionConflictCode.
 const (
 	AlreadyConnected       ConnectionConflictCode = "already_connected"
@@ -69,6 +93,24 @@ func (e ConnectionStatus) Valid() bool {
 	case PendingSent:
 		return true
 	case Self:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConversationKind.
+const (
+	Direct ConversationKind = "direct"
+	Group  ConversationKind = "group"
+)
+
+// Valid indicates whether the value is a known member of the ConversationKind enum.
+func (e ConversationKind) Valid() bool {
+	switch e {
+	case Direct:
+		return true
+	case Group:
 		return true
 	default:
 		return false
@@ -132,6 +174,24 @@ func (e EmploymentType) Valid() bool {
 	case TeachingAssistant:
 		return true
 	case Volunteer:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for GroupRole.
+const (
+	Member GroupRole = "member"
+	Owner  GroupRole = "owner"
+)
+
+// Valid indicates whether the value is a known member of the GroupRole enum.
+func (e GroupRole) Valid() bool {
+	switch e {
+	case Member:
+		return true
+	case Owner:
 		return true
 	default:
 		return false
@@ -276,6 +336,24 @@ func (e LocationType) Valid() bool {
 	}
 }
 
+// Defines values for MessageKind.
+const (
+	MessageKindSystem MessageKind = "system"
+	MessageKindText   MessageKind = "text"
+)
+
+// Valid indicates whether the value is a known member of the MessageKind enum.
+func (e MessageKind) Valid() bool {
+	switch e {
+	case MessageKindSystem:
+		return true
+	case MessageKindText:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for MessageReportOutcome.
 const (
 	MessageReportOutcomeActionTaken MessageReportOutcome = "action_taken"
@@ -306,6 +384,42 @@ func (e MessageReportStatus) Valid() bool {
 	case Open:
 		return true
 	case Resolved:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MessageSearchMatch.
+const (
+	MessageSearchMatchAttachment MessageSearchMatch = "attachment"
+	MessageSearchMatchText       MessageSearchMatch = "text"
+)
+
+// Valid indicates whether the value is a known member of the MessageSearchMatch enum.
+func (e MessageSearchMatch) Valid() bool {
+	switch e {
+	case MessageSearchMatchAttachment:
+		return true
+	case MessageSearchMatchText:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MessageVersionEndedBy.
+const (
+	Deleted MessageVersionEndedBy = "deleted"
+	Edited  MessageVersionEndedBy = "edited"
+)
+
+// Valid indicates whether the value is a known member of the MessageVersionEndedBy enum.
+func (e MessageVersionEndedBy) Valid() bool {
+	switch e {
+	case Deleted:
+		return true
+	case Edited:
 		return true
 	default:
 		return false
@@ -357,11 +471,28 @@ func (e ModerationLinkedReportOutcome) Valid() bool {
 	}
 }
 
+// Defines values for NotificationSubjectType.
+const (
+	NotificationSubjectTypeConversation NotificationSubjectType = "conversation"
+)
+
+// Valid indicates whether the value is a known member of the NotificationSubjectType enum.
+func (e NotificationSubjectType) Valid() bool {
+	switch e {
+	case NotificationSubjectTypeConversation:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for NotificationType.
 const (
 	NotificationTypeAccountWarning            NotificationType = "account_warning"
+	NotificationTypeAttachmentBlocked         NotificationType = "attachment_blocked"
 	NotificationTypeConnectionRequestAccepted NotificationType = "connection_request_accepted"
 	NotificationTypeConnectionRequestReceived NotificationType = "connection_request_received"
+	NotificationTypeGroupAdded                NotificationType = "group_added"
 )
 
 // Valid indicates whether the value is a known member of the NotificationType enum.
@@ -369,9 +500,13 @@ func (e NotificationType) Valid() bool {
 	switch e {
 	case NotificationTypeAccountWarning:
 		return true
+	case NotificationTypeAttachmentBlocked:
+		return true
 	case NotificationTypeConnectionRequestAccepted:
 		return true
 	case NotificationTypeConnectionRequestReceived:
+		return true
+	case NotificationTypeGroupAdded:
 		return true
 	default:
 		return false
@@ -462,11 +597,42 @@ func (e RealtimeClientEventType) Valid() bool {
 	}
 }
 
+// Defines values for RealtimeConversationMembersChange.
+const (
+	RealtimeConversationMembersChangeAdded        RealtimeConversationMembersChange = "added"
+	RealtimeConversationMembersChangeLeft         RealtimeConversationMembersChange = "left"
+	RealtimeConversationMembersChangeOwnerChanged RealtimeConversationMembersChange = "owner_changed"
+	RealtimeConversationMembersChangeRemoved      RealtimeConversationMembersChange = "removed"
+	RealtimeConversationMembersChangeRenamed      RealtimeConversationMembersChange = "renamed"
+)
+
+// Valid indicates whether the value is a known member of the RealtimeConversationMembersChange enum.
+func (e RealtimeConversationMembersChange) Valid() bool {
+	switch e {
+	case RealtimeConversationMembersChangeAdded:
+		return true
+	case RealtimeConversationMembersChangeLeft:
+		return true
+	case RealtimeConversationMembersChangeOwnerChanged:
+		return true
+	case RealtimeConversationMembersChangeRemoved:
+		return true
+	case RealtimeConversationMembersChangeRenamed:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RealtimeEventType.
 const (
+	AttachmentUpdated   RealtimeEventType = "attachment.updated"
+	ConversationMembers RealtimeEventType = "conversation.members"
 	ConversationRead    RealtimeEventType = "conversation.read"
 	ConversationUpdated RealtimeEventType = "conversation.updated"
 	MessageCreated      RealtimeEventType = "message.created"
+	MessageDeleted      RealtimeEventType = "message.deleted"
+	MessageUpdated      RealtimeEventType = "message.updated"
 	NotificationCreated RealtimeEventType = "notification.created"
 	NotificationsUnread RealtimeEventType = "notifications.unread"
 	Presence            RealtimeEventType = "presence"
@@ -477,11 +643,19 @@ const (
 // Valid indicates whether the value is a known member of the RealtimeEventType enum.
 func (e RealtimeEventType) Valid() bool {
 	switch e {
+	case AttachmentUpdated:
+		return true
+	case ConversationMembers:
+		return true
 	case ConversationRead:
 		return true
 	case ConversationUpdated:
 		return true
 	case MessageCreated:
+		return true
+	case MessageDeleted:
+		return true
+	case MessageUpdated:
 		return true
 	case NotificationCreated:
 		return true
@@ -573,6 +747,36 @@ func (e Role) Valid() bool {
 	}
 }
 
+// Defines values for SystemEventType.
+const (
+	SystemEventTypeGroupCreated  SystemEventType = "group_created"
+	SystemEventTypeGroupRenamed  SystemEventType = "group_renamed"
+	SystemEventTypeMemberAdded   SystemEventType = "member_added"
+	SystemEventTypeMemberLeft    SystemEventType = "member_left"
+	SystemEventTypeMemberRemoved SystemEventType = "member_removed"
+	SystemEventTypeOwnerChanged  SystemEventType = "owner_changed"
+)
+
+// Valid indicates whether the value is a known member of the SystemEventType enum.
+func (e SystemEventType) Valid() bool {
+	switch e {
+	case SystemEventTypeGroupCreated:
+		return true
+	case SystemEventTypeGroupRenamed:
+		return true
+	case SystemEventTypeMemberAdded:
+		return true
+	case SystemEventTypeMemberLeft:
+		return true
+	case SystemEventTypeMemberRemoved:
+		return true
+	case SystemEventTypeOwnerChanged:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for Visibility.
 const (
 	LoggedIn Visibility = "logged_in"
@@ -605,6 +809,12 @@ type AccountWarning struct {
 // AccountWarningList defines model for AccountWarningList.
 type AccountWarningList struct {
 	Items []AccountWarning `json:"items"`
+}
+
+// AddGroupMembersRequest defines model for AddGroupMembersRequest.
+type AddGroupMembersRequest struct {
+	// UserIds 1 to 49 users, not the caller.
+	UserIds []openapi_types.UUID `json:"userIds"`
 }
 
 // AddLinkRequest defines model for AddLinkRequest.
@@ -650,6 +860,47 @@ type AdminUser struct {
 
 	// Verified The email address is verified (FR-1.4).
 	Verified bool `json:"verified"`
+}
+
+// Attachment defines model for Attachment.
+type Attachment struct {
+	// ContentType The type found from the content, one of the allowed types.
+	ContentType string `json:"contentType"`
+
+	// Id Download it with `GET /attachments/{id}`.
+	Id openapi_types.UUID `json:"id"`
+
+	// Name The file's name for display, cleaned up; at most 200 characters.
+	Name string `json:"name"`
+
+	// Size Bytes as stored (an image after it was encoded again).
+	Size int64 `json:"size"`
+
+	// Status The malware scan (FR-16.7). `pending`: not scanned yet; nobody can download it.
+	// `clean`: it can be downloaded. `infected`: malware was found and the file deleted.
+	// `failed`: the scanner could not read the file; it will not be served.
+	Status AttachmentStatus `json:"status"`
+}
+
+// AttachmentStatus The malware scan (FR-16.7). `pending`: not scanned yet; nobody can download it.
+// `clean`: it can be downloaded. `infected`: malware was found and the file deleted.
+// `failed`: the scanner could not read the file; it will not be served.
+type AttachmentStatus string
+
+// AttachmentUpload defines model for AttachmentUpload.
+type AttachmentUpload struct {
+	ContentType string `json:"contentType"`
+
+	// ExpiresAt The attachment is deleted when it has not been sent by then.
+	ExpiresAt time.Time          `json:"expiresAt"`
+	Id        openapi_types.UUID `json:"id"`
+	Name      string             `json:"name"`
+	Size      int64              `json:"size"`
+
+	// Status The malware scan (FR-16.7). `pending`: not scanned yet; nobody can download it.
+	// `clean`: it can be downloaded. `infected`: malware was found and the file deleted.
+	// `failed`: the scanner could not read the file; it will not be served.
+	Status AttachmentStatus `json:"status"`
 }
 
 // Birthday A birthday without a year. `day` is a real day of `month`; 29 February is allowed.
@@ -838,18 +1089,25 @@ type ContactUpdate struct {
 // Conversation defines model for Conversation.
 type Conversation struct {
 	// BlockedByMe True when the caller has blocked the other member. A blocked person is never told.
+	// Always false for a group.
 	BlockedByMe bool `json:"blockedByMe"`
 
 	// CanMessage True when a message from the caller would be accepted now: the conversation is
 	// `active`, the other member is available and neither has blocked the other
-	// (FR-16.9).
-	CanMessage    bool               `json:"canMessage"`
-	Id            openapi_types.UUID `json:"id"`
-	LastMessage   *MessagePreview    `json:"lastMessage"`
-	LastMessageAt time.Time          `json:"lastMessageAt"`
+	// (FR-16.9). In a group, true while the caller is a member; blocks do not apply.
+	CanMessage bool `json:"canMessage"`
 
-	// OtherMember The other member of a direct conversation.
-	OtherMember ConversationMember `json:"otherMember"`
+	// Group The group's name and members; null for a direct conversation.
+	Group *ConversationGroup `json:"group"`
+	Id    openapi_types.UUID `json:"id"`
+
+	// Kind `direct`: two people. `group`: a named group of up to 50 members (FR-16.6).
+	Kind          ConversationKind `json:"kind"`
+	LastMessage   *MessagePreview  `json:"lastMessage"`
+	LastMessageAt time.Time        `json:"lastMessageAt"`
+
+	// OtherMember The other member of a direct conversation; null for a group.
+	OtherMember *ConversationMember `json:"otherMember"`
 
 	// RequestedBy Who sent the request; null when the conversation never was one.
 	RequestedBy *openapi_types.UUID `json:"requestedBy"`
@@ -858,9 +1116,30 @@ type Conversation struct {
 	// `declined`: closed for good.
 	State ConversationState `json:"state"`
 
-	// UnreadCount Messages from the other member after the caller's read marker.
+	// UnreadCount Messages from other members after the caller's read marker, not deleted. System
+	// messages never count.
 	UnreadCount int `json:"unreadCount"`
 }
+
+// ConversationGroup defines model for ConversationGroup.
+type ConversationGroup struct {
+	// Avatars Up to 3 other members, those who joined earliest first.
+	Avatars []GroupAvatar `json:"avatars"`
+
+	// MemberCount Current members, the caller included.
+	MemberCount int `json:"memberCount"`
+
+	// Members Every current member, the owner first, then by joining time. Given by
+	// `getConversation` and the group operations; null in the lists.
+	Members *[]GroupMember `json:"members"`
+
+	// MyRole `owner` renames the group and adds and removes members; `member` does not.
+	MyRole GroupRole `json:"myRole"`
+	Name   string    `json:"name"`
+}
+
+// ConversationKind `direct`: two people. `group`: a named group of up to 50 members (FR-16.6).
+type ConversationKind string
 
 // ConversationMember The other member of a direct conversation.
 type ConversationMember struct {
@@ -884,18 +1163,31 @@ type ConversationPage struct {
 
 // ConversationReportReceipt defines model for ConversationReportReceipt.
 type ConversationReportReceipt struct {
-	// BlockedByMe Whether the caller has blocked that user. Reporting never does it.
+	// BlockedByMe Whether the caller has blocked that user. Reporting never does it. False when no one is reported.
 	BlockedByMe bool               `json:"blockedByMe"`
 	CreatedAt   time.Time          `json:"createdAt"`
 	Id          openapi_types.UUID `json:"id"`
 
-	// ReportedUserId The other member, whom the client can offer to block.
-	ReportedUserId openapi_types.UUID `json:"reportedUserId"`
+	// ReportedUserId The other member, or in a group the sender of the reported message, whom the client
+	// can offer to block. Null for a report of a whole group.
+	ReportedUserId *openapi_types.UUID `json:"reportedUserId"`
 }
 
 // ConversationState `active`: both members can send. `request`: waiting for the receiver to accept.
 // `declined`: closed for good.
 type ConversationState string
+
+// CreateGroupRequest defines model for CreateGroupRequest.
+type CreateGroupRequest struct {
+	// ClientId Made by the client for this create; a retry with the same value creates nothing new.
+	ClientId openapi_types.UUID `json:"clientId"`
+
+	// MemberIds 1 to 49 other users; the caller is the owner and is not listed.
+	MemberIds []openapi_types.UUID `json:"memberIds"`
+
+	// Name 1 to 100 characters after trimming, on one line.
+	Name string `json:"name"`
+}
 
 // CurrentUser defines model for CurrentUser.
 type CurrentUser struct {
@@ -911,6 +1203,12 @@ type CurrentUser struct {
 // DeleteAccountRequest defines model for DeleteAccountRequest.
 type DeleteAccountRequest struct {
 	Password string `json:"password"`
+}
+
+// EditMessageRequest defines model for EditMessageRequest.
+type EditMessageRequest struct {
+	// Body 1 to 5,000 characters after trimming; line breaks are kept.
+	Body string `json:"body"`
 }
 
 // Education One education entry (FR-4.4). The optional fields are always present and null when not set.
@@ -1006,6 +1304,10 @@ type Error struct {
 	// Until On `account_suspended`, when a temporary suspension ends; absent when it is
 	// permanent. On `messaging_restricted`, when the restriction ends.
 	Until *time.Time `json:"until,omitempty"`
+
+	// UserIds On `ineligible_members`, the users who cannot be added to the group. It never says
+	// why for any of them (FR-16.6).
+	UserIds *[]openapi_types.UUID `json:"userIds,omitempty"`
 }
 
 // Experience One work experience entry (FR-4.8). The optional fields are always present and null when not set.
@@ -1082,6 +1384,33 @@ type ExperienceUpdate struct {
 	StartDate nullable.Nullable[YearMonth] `json:"startDate,omitempty"`
 	Title     nullable.Nullable[string]    `json:"title,omitempty"`
 }
+
+// GroupAvatar defines model for GroupAvatar.
+type GroupAvatar struct {
+	FullName string `json:"fullName"`
+
+	// PhotoUrl The profile photo as `/api/v1/media/{fileId}`; null when not set.
+	PhotoUrl *string            `json:"photoUrl"`
+	UserId   openapi_types.UUID `json:"userId"`
+}
+
+// GroupMember defines model for GroupMember.
+type GroupMember struct {
+	// Available False when the member is suspended or not verified. They stay in the group.
+	Available bool      `json:"available"`
+	FullName  string    `json:"fullName"`
+	JoinedAt  time.Time `json:"joinedAt"`
+
+	// PhotoUrl The profile photo as `/api/v1/media/{fileId}`; null when not set.
+	PhotoUrl *string `json:"photoUrl"`
+
+	// Role `owner` renames the group and adds and removes members; `member` does not.
+	Role   GroupRole          `json:"role"`
+	UserId openapi_types.UUID `json:"userId"`
+}
+
+// GroupRole `owner` renames the group and adds and removes members; `member` does not.
+type GroupRole string
 
 // Health defines model for Health.
 type Health struct {
@@ -1169,54 +1498,151 @@ type Me struct {
 
 // Message defines model for Message.
 type Message struct {
-	Body           string             `json:"body"`
+	// Attachments The message's files in order (FR-16.7); empty when none and for a deleted message.
+	Attachments []Attachment `json:"attachments"`
+
+	// Body The latest text. Null for a deleted message and for a system message; only
+	// `deleted` says a message was deleted, as a later message may have no text.
+	Body           *string            `json:"body"`
 	ConversationId openapi_types.UUID `json:"conversationId"`
 	CreatedAt      time.Time          `json:"createdAt"`
 
+	// Deleted True when the sender deleted the message. It stays in its place, with no body.
+	Deleted bool `json:"deleted"`
+
+	// EditedAt When the text was last edited; null when never (FR-16.5).
+	EditedAt *time.Time `json:"editedAt"`
+
+	// Event The change a system message describes; null for a text message.
+	Event *SystemEvent `json:"event"`
+
 	// Id A UUIDv7; within a conversation, a later message has a greater ID.
-	Id       openapi_types.UUID `json:"id"`
-	SenderId openapi_types.UUID `json:"senderId"`
+	Id openapi_types.UUID `json:"id"`
+
+	// Kind `text`: a member's message. `system`: a change to a group (FR-16.6), described by
+	// `event`; it has no body, cannot be edited, deleted or reported, and never counts as
+	// unread.
+	Kind MessageKind `json:"kind"`
+
+	// SenderId The sender; for a system message the actor, or null when it has none.
+	SenderId *openapi_types.UUID `json:"senderId"`
 }
+
+// MessageKind `text`: a member's message. `system`: a change to a group (FR-16.6), described by
+// `event`; it has no body, cannot be edited, deleted or reported, and never counts as
+// unread.
+type MessageKind string
 
 // MessagePage defines model for MessagePage.
 type MessagePage struct {
 	Items []Message `json:"items"`
 
+	// NextAfter Pass as `after` to get newer messages; null when the page reaches the newest
+	// message, and always null for a page asked without `after` or `around`.
+	NextAfter *string `json:"nextAfter"`
+
 	// NextBefore Pass as `before` to get older messages; null on the last page.
 	NextBefore *string `json:"nextBefore"`
 
-	// OtherLastReadMessageId The other member's read marker; null until they have read a message.
+	// OtherLastReadMessageId The other member's read marker; null until they have read a message, and for a group.
 	OtherLastReadMessageId *openapi_types.UUID `json:"otherLastReadMessageId"`
+
+	// People The people a page names, by user ID: every sender and every user (and actor) a system
+	// message names, also those who have left the group (FR-16.6). Only people who were ever
+	// in the conversation appear. A user whose account was deleted is absent; the client
+	// shows "Deleted account".
+	People MessagePeople `json:"people"`
+
+	// Readers For a group, every other current member's read marker (FR-16.3), so the client can
+	// show "Seen by N" under a message; null for a direct conversation.
+	Readers *[]MessageReader `json:"readers"`
+}
+
+// MessagePeople The people a page names, by user ID: every sender and every user (and actor) a system
+// message names, also those who have left the group (FR-16.6). Only people who were ever
+// in the conversation appear. A user whose account was deleted is absent; the client
+// shows "Deleted account".
+type MessagePeople map[string]MessagePerson
+
+// MessagePerson defines model for MessagePerson.
+type MessagePerson struct {
+	// Available False when the profile cannot be viewed: the person is suspended or not verified,
+	// or has blocked the caller. The client then shows initials and no profile link.
+	Available bool `json:"available"`
+
+	// FullName Always given, as the members already saw it in the conversation.
+	FullName string `json:"fullName"`
+
+	// PhotoUrl Null without a photo, and when `available` is false.
+	PhotoUrl *string `json:"photoUrl"`
 }
 
 // MessagePreview defines model for MessagePreview.
 type MessagePreview struct {
-	// Body The first 120 characters of the message.
-	Body      string             `json:"body"`
-	CreatedAt time.Time          `json:"createdAt"`
-	SenderId  openapi_types.UUID `json:"senderId"`
+	// AttachmentCount How many files the latest message carries; 0 when deleted. A message may have files and no text.
+	AttachmentCount int `json:"attachmentCount"`
+
+	// Body The first 120 characters of the message's latest text; null when deleted and for a system message.
+	Body      *string   `json:"body"`
+	CreatedAt time.Time `json:"createdAt"`
+
+	// Deleted True when the latest message was deleted; the client says so.
+	Deleted bool `json:"deleted"`
+
+	// Event For a system message, what changed; the client writes its own text.
+	Event *SystemEventType `json:"event"`
+
+	// Kind `text`: a member's message. `system`: a change to a group (FR-16.6), described by
+	// `event`; it has no body, cannot be edited, deleted or reported, and never counts as
+	// unread.
+	Kind MessageKind `json:"kind"`
+
+	// SenderId The sender; for a system message the actor, or null when it has none.
+	SenderId *openapi_types.UUID `json:"senderId"`
+
+	// SenderName The sender's (or actor's) full name, so a group's row can say "Nafisa: …" (FR-16.6).
+	// Always given, as with `MessagePage.people`, whatever the sender's standing; null when
+	// there is no sender.
+	SenderName *string `json:"senderName"`
+}
+
+// MessageReader defines model for MessageReader.
+type MessageReader struct {
+	// LastReadMessageId Null until the member has read a message.
+	LastReadMessageId *openapi_types.UUID `json:"lastReadMessageId"`
+	UserId            openapi_types.UUID  `json:"userId"`
 }
 
 // MessageReport defines model for MessageReport.
 type MessageReport struct {
 	ConversationId openapi_types.UUID `json:"conversationId"`
 
+	// ConversationKind `direct`: two people. `group`: a named group of up to 50 members (FR-16.6).
+	ConversationKind ConversationKind `json:"conversationKind"`
+
 	// CreatedAt The moment of the report; an administrator sees messages only up to it.
 	CreatedAt time.Time `json:"createdAt"`
 
 	// Details The reporter's own words.
-	Details *string            `json:"details"`
-	Id      openapi_types.UUID `json:"id"`
+	Details *string `json:"details"`
+
+	// GroupName The group's name now; null for a direct conversation.
+	GroupName *string            `json:"groupName"`
+	Id        openapi_types.UUID `json:"id"`
 
 	// MessageId The reported message; null when the whole conversation was reported.
-	MessageId    *openapi_types.UUID   `json:"messageId"`
-	Note         *string               `json:"note"`
-	Outcome      *MessageReportOutcome `json:"outcome"`
-	Reason       ReportReason          `json:"reason"`
-	ReportedUser MessageReportPerson   `json:"reportedUser"`
-	Reporter     MessageReportPerson   `json:"reporter"`
-	ResolvedAt   *time.Time            `json:"resolvedAt"`
-	Status       MessageReportStatus   `json:"status"`
+	MessageId *openapi_types.UUID   `json:"messageId"`
+	Note      *string               `json:"note"`
+	Outcome   *MessageReportOutcome `json:"outcome"`
+	Reason    ReportReason          `json:"reason"`
+
+	// ReportedUser The other member, or in a group the sender of the reported message. Null for a
+	// report of a whole group: a moderation action may then name any member who was in
+	// the group at the report's moment (`membersAtReport`).
+	ReportedUser *MessageReportPerson `json:"reportedUser"`
+	Reporter     MessageReportPerson  `json:"reporter"`
+	ResolvedAt   *time.Time           `json:"resolvedAt"`
+	Status       MessageReportStatus  `json:"status"`
 }
 
 // MessageReportOutcome defines model for MessageReport.Outcome.
@@ -1227,8 +1653,13 @@ type MessageReportStatus string
 
 // MessageReportDetail defines model for MessageReportDetail.
 type MessageReportDetail struct {
+	// MembersAtReport For a group, everyone who was a member at the report's moment, also those who have
+	// left since; a moderation action that names this report may name any of them. Null
+	// for a direct conversation.
+	MembersAtReport *[]MessageReportPerson `json:"membersAtReport"`
+
 	// Messages Newest first, none later than the report.
-	Messages []Message `json:"messages"`
+	Messages []ReportedMessage `json:"messages"`
 
 	// NextBefore Pass as `before` to load earlier messages; null on the last page.
 	NextBefore *string       `json:"nextBefore"`
@@ -1259,6 +1690,63 @@ type MessageReportPerson struct {
 	UserId openapi_types.UUID `json:"userId"`
 }
 
+// MessageSearchConversation defines model for MessageSearchConversation.
+type MessageSearchConversation struct {
+	// Avatars For a group, up to 3 other members, those who joined earliest first; empty for a direct conversation.
+	Avatars []GroupAvatar `json:"avatars"`
+
+	// Kind `direct`: two people. `group`: a named group of up to 50 members (FR-16.6).
+	Kind ConversationKind `json:"kind"`
+
+	// Name The group's name; null for a direct conversation.
+	Name *string `json:"name"`
+
+	// OtherMember The other member of a direct conversation; null for a group.
+	OtherMember *GroupAvatar `json:"otherMember"`
+}
+
+// MessageSearchMatch `text`: the message's text matched. `attachment`: the name of one of its attachments matched.
+type MessageSearchMatch string
+
+// MessageSearchPage defines model for MessageSearchPage.
+type MessageSearchPage struct {
+	Items []MessageSearchResult `json:"items"`
+
+	// NextCursor Pass as `cursor` to get the next page; null on the last page.
+	NextCursor *string `json:"nextCursor"`
+
+	// People The people a page names, by user ID: every sender and every user (and actor) a system
+	// message names, also those who have left the group (FR-16.6). Only people who were ever
+	// in the conversation appear. A user whose account was deleted is absent; the client
+	// shows "Deleted account".
+	People MessagePeople `json:"people"`
+}
+
+// MessageSearchResult defines model for MessageSearchResult.
+type MessageSearchResult struct {
+	Conversation   MessageSearchConversation `json:"conversation"`
+	ConversationId openapi_types.UUID        `json:"conversationId"`
+	CreatedAt      time.Time                 `json:"createdAt"`
+	Highlights     []TextRange               `json:"highlights"`
+
+	// MatchedOn `text`: the message's text matched. `attachment`: the name of one of its attachments matched.
+	MatchedOn MessageSearchMatch  `json:"matchedOn"`
+	MessageId openapi_types.UUID  `json:"messageId"`
+	Sender    MessageSearchSender `json:"sender"`
+
+	// Snippet Plain text, never HTML: about 160 characters of the message around its first
+	// highlighted word, or the matching attachment's name. Runs of spaces and line
+	// breaks are one space, and a cut is marked with "…". When a similar match has no
+	// word close enough to mark, it is the start of the message with no highlights.
+	Snippet string `json:"snippet"`
+}
+
+// MessageSearchSender defines model for MessageSearchSender.
+type MessageSearchSender struct {
+	FullName string             `json:"fullName"`
+	UserId   openapi_types.UUID `json:"userId"`
+}
+
 // MessageUnreadCount defines model for MessageUnreadCount.
 type MessageUnreadCount struct {
 	// Requests Pending message requests to the caller.
@@ -1267,6 +1755,19 @@ type MessageUnreadCount struct {
 	// Total Unread messages in active conversations.
 	Total int `json:"total"`
 }
+
+// MessageVersion defines model for MessageVersion.
+type MessageVersion struct {
+	Body string `json:"body"`
+
+	// EndedBy `edited`: a new text replaced it. `deleted`: the sender deleted the message.
+	EndedBy    MessageVersionEndedBy `json:"endedBy"`
+	ShownFrom  time.Time             `json:"shownFrom"`
+	ShownUntil time.Time             `json:"shownUntil"`
+}
+
+// MessageVersionEndedBy `edited`: a new text replaced it. `deleted`: the sender deleted the message.
+type MessageVersionEndedBy string
 
 // ModerationAction One row of the audit trail, as only an administrator sees it.
 type ModerationAction struct {
@@ -1327,9 +1828,10 @@ type ModerationNote = string
 // ModerationReason What the user is told, by email and in the app. 10 to 1000 characters, trimmed.
 type ModerationReason = string
 
-// ModerationReportId A report about this user to resolve as `action_taken`. Unknown gets 404, about someone
-// else 400 with `field`, already resolved 409 `report_already_resolved`; each undoes the
-// action.
+// ModerationReportId A report about this user to resolve as `action_taken`. For a group, this user may also be
+// anyone in the report's `membersAtReport`, which is how a report of a whole group, with no
+// reported user, is acted on (FR-16.6). Unknown gets 404, about someone else 400 with
+// `field`, already resolved 409 `report_already_resolved`; each undoes the action.
 type ModerationReportId = string
 
 // Notification defines model for Notification.
@@ -1342,7 +1844,8 @@ type Notification struct {
 
 	// Link The web client path of the item it is about (FR-9.5):
 	// `/network` for a received request, `/profile/{actorId}` for an accepted one,
-	// `/warnings/{warningId}` for a warning.
+	// `/warnings/{warningId}` for a warning, `/messaging/{conversationId}` for a group
+	// and for a blocked attachment.
 	Link string `json:"link"`
 	Read bool   `json:"read"`
 
@@ -1353,10 +1856,20 @@ type Notification struct {
 	// pending, so the client can offer Accept and Ignore.
 	RequestPending *bool `json:"requestPending,omitempty"`
 
+	// Subject The item a notification is about, as it is now, for types whose sentence names it
+	// (`group_added`: the group, with its current name). Read when the notification is
+	// listed or sent, so a rename shows. Left out for the other types, and when the item no
+	// longer exists or the recipient cannot see it (they left the group); the client then
+	// uses a sentence without the title ("added you to a group").
+	Subject *NotificationSubject `json:"subject,omitempty"`
+
 	// Type What happened (FR-9.1). `connection_request_received`: the actor sent the caller a
 	// connection request. `connection_request_accepted`: the actor accepted the caller's
 	// request. `account_warning`: an administrator warned the caller; a system notification,
-	// with no actor. Later slices add the project, comment and like types.
+	// with no actor. `group_added`: the actor, the group's owner, added the caller to a
+	// group (FR-16.6). `attachment_blocked`: the malware scan found something in a file the
+	// caller attached, and it was deleted (FR-16.7); a system notification, with no actor.
+	// Later slices add the project, comment and like types.
 	Type NotificationType `json:"type"`
 }
 
@@ -1378,10 +1891,27 @@ type NotificationPage struct {
 	NextCursor *string `json:"nextCursor"`
 }
 
+// NotificationSubject The item a notification is about, as it is now, for types whose sentence names it
+// (`group_added`: the group, with its current name). Read when the notification is
+// listed or sent, so a rename shows. Left out for the other types, and when the item no
+// longer exists or the recipient cannot see it (they left the group); the client then
+// uses a sentence without the title ("added you to a group").
+type NotificationSubject struct {
+	Id    openapi_types.UUID      `json:"id"`
+	Title string                  `json:"title"`
+	Type  NotificationSubjectType `json:"type"`
+}
+
+// NotificationSubjectType defines model for NotificationSubject.Type.
+type NotificationSubjectType string
+
 // NotificationType What happened (FR-9.1). `connection_request_received`: the actor sent the caller a
 // connection request. `connection_request_accepted`: the actor accepted the caller's
 // request. `account_warning`: an administrator warned the caller; a system notification,
-// with no actor. Later slices add the project, comment and like types.
+// with no actor. `group_added`: the actor, the group's owner, added the caller to a
+// group (FR-16.6). `attachment_blocked`: the malware scan found something in a file the
+// caller attached, and it was deleted (FR-16.7); a system notification, with no actor.
+// Later slices add the project, comment and like types.
 type NotificationType string
 
 // NotificationsMarked defines model for NotificationsMarked.
@@ -1884,6 +2414,20 @@ type PublicationUpdate struct {
 	Year     nullable.Nullable[int]    `json:"year,omitempty"`
 }
 
+// RealtimeAttachmentUpdated An attachment's malware scan finished (FR-16.7). Sent to the members who can see its
+// message and to the uploader; before it is sent, only to the uploader, with a null
+// `messageId`.
+type RealtimeAttachmentUpdated struct {
+	AttachmentId   openapi_types.UUID  `json:"attachmentId"`
+	ConversationId openapi_types.UUID  `json:"conversationId"`
+	MessageId      *openapi_types.UUID `json:"messageId"`
+
+	// Status The malware scan (FR-16.7). `pending`: not scanned yet; nobody can download it.
+	// `clean`: it can be downloaded. `infected`: malware was found and the file deleted.
+	// `failed`: the scanner could not read the file; it will not be served.
+	Status AttachmentStatus `json:"status"`
+}
+
 // RealtimeClientEvent One client-to-server WebSocket frame, as JSON text, at most 4 KB. Anything else is
 // ignored.
 type RealtimeClientEvent struct {
@@ -1896,6 +2440,24 @@ type RealtimeClientEvent struct {
 // RealtimeClientEventType defines model for RealtimeClientEvent.Type.
 type RealtimeClientEventType string
 
+// RealtimeConversationMembers A group's name, members or owner changed (FR-16.6). Sent to every current member after
+// the change, new members included. Refetch the conversation for the full member list.
+type RealtimeConversationMembers struct {
+	// ActorId Who made the change; null for `owner_changed`.
+	ActorId        *openapi_types.UUID               `json:"actorId"`
+	Change         RealtimeConversationMembersChange `json:"change"`
+	ConversationId openapi_types.UUID                `json:"conversationId"`
+
+	// Name The group's name after the change.
+	Name string `json:"name"`
+
+	// UserIds Who was added or removed, who left, or the new owner; empty for `renamed`.
+	UserIds []openapi_types.UUID `json:"userIds"`
+}
+
+// RealtimeConversationMembersChange defines model for RealtimeConversationMembers.Change.
+type RealtimeConversationMembersChange string
+
 // RealtimeConversationRead The other member moved their read marker (FR-16.3).
 type RealtimeConversationRead struct {
 	ConversationId openapi_types.UUID `json:"conversationId"`
@@ -1904,7 +2466,10 @@ type RealtimeConversationRead struct {
 
 // RealtimeConversationUpdated The conversation's state or `canMessage` changed for the recipient, who gets their own
 // view of it. It never says why, so a blocked person is not told about a block.
+// `accessLost` is true for someone who left or was removed from a group: the client
+// closes the thread and drops the conversation.
 type RealtimeConversationUpdated struct {
+	AccessLost     bool               `json:"accessLost"`
 	CanMessage     bool               `json:"canMessage"`
 	ConversationId openapi_types.UUID `json:"conversationId"`
 
@@ -1914,7 +2479,7 @@ type RealtimeConversationUpdated struct {
 }
 
 // RealtimeEvent One server-to-client WebSocket frame, as JSON text. `data` is `RealtimeMessageCreated`,
-// `RealtimeConversationRead`, `RealtimeConversationUpdated`, `MessageUnreadCount`,
+// `RealtimeMessageUpdated`, `RealtimeMessageDeleted`, `RealtimeAttachmentUpdated`, `RealtimeConversationRead`, `RealtimeConversationUpdated`, `RealtimeConversationMembers`, `MessageUnreadCount`,
 // `RealtimeTyping`, `PresenceStatus`, `Notification` or `UnreadNotificationCount`,
 // by `type`.
 type RealtimeEvent struct {
@@ -1937,6 +2502,17 @@ type RealtimeMessageCreated struct {
 	// `declined`: closed for good.
 	ConversationState ConversationState `json:"conversationState"`
 	Message           Message           `json:"message"`
+}
+
+// RealtimeMessageDeleted The sender deleted a message (FR-16.5). It stays in its place with no text.
+type RealtimeMessageDeleted struct {
+	ConversationId openapi_types.UUID `json:"conversationId"`
+	MessageId      openapi_types.UUID `json:"messageId"`
+}
+
+// RealtimeMessageUpdated The sender edited a message (FR-16.5). `message` is the REST `Message` with the new text.
+type RealtimeMessageUpdated struct {
+	Message Message `json:"message"`
 }
 
 // RealtimeTyping defines model for RealtimeTyping.
@@ -1966,6 +2542,12 @@ type RegisterResponse struct {
 	Email string `json:"email"`
 }
 
+// RenameGroupRequest defines model for RenameGroupRequest.
+type RenameGroupRequest struct {
+	// Name 1 to 100 characters after trimming, on one line.
+	Name string `json:"name"`
+}
+
 // ReportConversationRequest defines model for ReportConversationRequest.
 type ReportConversationRequest struct {
 	// Details At most 1,000 characters after trimming; empty means none.
@@ -1978,6 +2560,45 @@ type ReportConversationRequest struct {
 
 // ReportReason defines model for ReportReason.
 type ReportReason string
+
+// ReportedMessage A message of a reported conversation as the administrator sees it (NFR-13): the text
+// at the report's moment and the texts shown before it. Text written after the report is
+// never shown; `changedAfterReport` only says there was some.
+type ReportedMessage struct {
+	// Attachments The message's files with their scan status, also for a message deleted later. A clean
+	// one can be downloaded with `getReportedAttachment`.
+	Attachments []Attachment `json:"attachments"`
+
+	// Body The text shown at the report's moment; null when the message was deleted by then.
+	Body *string `json:"body"`
+
+	// ChangedAfterReport The message was edited or deleted after the report. The later text is not shown.
+	ChangedAfterReport bool               `json:"changedAfterReport"`
+	ConversationId     openapi_types.UUID `json:"conversationId"`
+	CreatedAt          time.Time          `json:"createdAt"`
+
+	// DeletedAt When the sender deleted the message, also after the report; null when not deleted.
+	DeletedAt *time.Time `json:"deletedAt"`
+
+	// EditedAt The latest edit, also one after the report; null when never edited.
+	EditedAt *time.Time `json:"editedAt"`
+
+	// Event The change a system message describes; null for a text message.
+	Event *SystemEvent       `json:"event"`
+	Id    openapi_types.UUID `json:"id"`
+
+	// Kind `text`: a member's message. `system`: a change to a group (FR-16.6), described by
+	// `event`; it has no body, cannot be edited, deleted or reported, and never counts as
+	// unread.
+	Kind MessageKind `json:"kind"`
+
+	// SenderId The sender; for a system message the actor, or null when it has none.
+	SenderId *openapi_types.UUID `json:"senderId"`
+
+	// Versions Earlier texts that were shown at or before the report's moment, oldest first. Each
+	// ended with an edit or with the deletion. Empty when the text never changed by then.
+	Versions []MessageVersion `json:"versions"`
+}
 
 // ResendVerificationRequest defines model for ResendVerificationRequest.
 type ResendVerificationRequest struct {
@@ -2005,9 +2626,10 @@ type RestrictUserRequest struct {
 	// Reason What the user is told, by email and in the app. 10 to 1000 characters, trimmed.
 	Reason ModerationReason `json:"reason"`
 
-	// ReportId A report about this user to resolve as `action_taken`. Unknown gets 404, about someone
-	// else 400 with `field`, already resolved 409 `report_already_resolved`; each undoes the
-	// action.
+	// ReportId A report about this user to resolve as `action_taken`. For a group, this user may also be
+	// anyone in the report's `membersAtReport`, which is how a report of a whole group, with no
+	// reported user, is acted on (FR-16.6). Unknown gets 404, about someone else 400 with
+	// `field`, already resolved 409 `report_already_resolved`; each undoes the action.
 	ReportId *ModerationReportId `json:"reportId,omitempty"`
 }
 
@@ -2047,8 +2669,12 @@ type SendDirectMessageRequest struct {
 
 // SendMessageRequest defines model for SendMessageRequest.
 type SendMessageRequest struct {
-	// Body 1 to 5,000 characters after trimming; line breaks are kept.
-	Body string `json:"body"`
+	// AttachmentIds Files from `uploadAttachment` to send with the message, in order (FR-16.7).
+	AttachmentIds *[]openapi_types.UUID `json:"attachmentIds,omitempty"`
+
+	// Body 1 to 5,000 characters after trimming; line breaks are kept. May be left out when
+	// `attachmentIds` is not empty.
+	Body *string `json:"body,omitempty"`
 
 	// ClientId Made by the client for each new message and sent again on a retry, so a retry stores nothing new.
 	ClientId openapi_types.UUID `json:"clientId"`
@@ -2070,15 +2696,41 @@ type SuspendUserRequest struct {
 	// Reason What the user is told, by email and in the app. 10 to 1000 characters, trimmed.
 	Reason ModerationReason `json:"reason"`
 
-	// ReportId A report about this user to resolve as `action_taken`. Unknown gets 404, about someone
-	// else 400 with `field`, already resolved 409 `report_already_resolved`; each undoes the
-	// action.
+	// ReportId A report about this user to resolve as `action_taken`. For a group, this user may also be
+	// anyone in the report's `membersAtReport`, which is how a report of a whole group, with no
+	// reported user, is acted on (FR-16.6). Unknown gets 404, about someone else 400 with
+	// `field`, already resolved 409 `report_already_resolved`; each undoes the action.
 	ReportId *ModerationReportId `json:"reportId,omitempty"`
 
 	// Until When the suspension ends: 1 to 365 days from now, with 5 minutes of slack at each
 	// end for the time the request takes. Left out, the suspension is permanent.
 	Until *time.Time `json:"until,omitempty"`
 }
+
+// SystemEvent defines model for SystemEvent.
+type SystemEvent struct {
+	// ActorId Who made the change; null for `owner_changed`, and when the actor's account is gone.
+	ActorId *openapi_types.UUID `json:"actorId"`
+	NewName *string             `json:"newName"`
+	OldName *string             `json:"oldName"`
+
+	// Type What changed in a group. The client writes its own text for each; the API sends no
+	// English copy. `group_created` (`newName`, `userIds` the first members),
+	// `group_renamed` (`oldName`, `newName`), `member_added` (`userIds`), `member_removed`
+	// (`userIds`, the one removed), `member_left` (the actor left), `owner_changed`
+	// (`userIds`, the new owner; no actor, as it follows from someone leaving).
+	Type SystemEventType `json:"type"`
+
+	// UserIds The users the change is about; empty when none.
+	UserIds []openapi_types.UUID `json:"userIds"`
+}
+
+// SystemEventType What changed in a group. The client writes its own text for each; the API sends no
+// English copy. `group_created` (`newName`, `userIds` the first members),
+// `group_renamed` (`oldName`, `newName`), `member_added` (`userIds`), `member_removed`
+// (`userIds`, the one removed), `member_left` (the actor left), `owner_changed`
+// (`userIds`, the new owner; no actor, as it follows from someone leaving).
+type SystemEventType string
 
 // Tag A research interest or skill (FR-4.2). Tags are shared by all users; names that
 // differ only in letter case are the same tag, and the name keeps the spelling it was
@@ -2093,6 +2745,14 @@ type Tag struct {
 // TagSuggestions Existing tags that match the typed text (FR-4.3), best match first.
 type TagSuggestions struct {
 	Items []Tag `json:"items"`
+}
+
+// TextRange A stretch of `snippet` to highlight. `start` and `length` count Unicode code points,
+// not bytes or UTF-16 units: the client indexes `Array.from(snippet)`, never the string
+// itself, so a range never splits a character. Ranges are sorted and never overlap.
+type TextRange struct {
+	Length int `json:"length"`
+	Start  int `json:"start"`
 }
 
 // UnreadNotificationCount defines model for UnreadNotificationCount.
@@ -2130,9 +2790,10 @@ type WarnUserRequest struct {
 	// Reason What the user is told, by email and in the app. 10 to 1000 characters, trimmed.
 	Reason ModerationReason `json:"reason"`
 
-	// ReportId A report about this user to resolve as `action_taken`. Unknown gets 404, about someone
-	// else 400 with `field`, already resolved 409 `report_already_resolved`; each undoes the
-	// action.
+	// ReportId A report about this user to resolve as `action_taken`. For a group, this user may also be
+	// anyone in the report's `membersAtReport`, which is how a report of a whole group, with no
+	// reported user, is acted on (FR-16.6). Unknown gets 404, about someone else 400 with
+	// `field`, already resolved 409 `report_already_resolved`; each undoes the action.
 	ReportId *ModerationReportId `json:"reportId,omitempty"`
 }
 
@@ -2146,6 +2807,9 @@ type YearMonth struct {
 	// Year Example: 2021
 	Year int `json:"year"`
 }
+
+// AttachmentId defines model for AttachmentId.
+type AttachmentId = string
 
 // ConnectionListPage defines model for ConnectionListPage.
 type ConnectionListPage = int
@@ -2170,6 +2834,9 @@ type LanguageID = string
 
 // LinkID defines model for LinkID.
 type LinkID = string
+
+// MessageId defines model for MessageId.
+type MessageId = string
 
 // ModeratedUserId defines model for ModeratedUserId.
 type ModeratedUserId = string
@@ -2207,6 +2874,15 @@ type WarningId = string
 // AccountSuspendedOrForbidden The shape of every error response (SRS 5.3).
 type AccountSuspendedOrForbidden = Error
 
+// AttachmentNotReady The shape of every error response (SRS 5.3).
+type AttachmentNotReady = Error
+
+// AttachmentRateLimited The shape of every error response (SRS 5.3).
+type AttachmentRateLimited = Error
+
+// AttachmentRemoved The shape of every error response (SRS 5.3).
+type AttachmentRemoved = Error
+
 // DOINotFound The shape of every error response (SRS 5.3).
 type DOINotFound = Error
 
@@ -2215,6 +2891,15 @@ type FileTooLarge = Error
 
 // Forbidden The shape of every error response (SRS 5.3).
 type Forbidden = Error
+
+// GroupForbidden The shape of every error response (SRS 5.3).
+type GroupForbidden = Error
+
+// GroupInvalid The shape of every error response (SRS 5.3).
+type GroupInvalid = Error
+
+// GroupRateLimited The shape of every error response (SRS 5.3).
+type GroupRateLimited = Error
 
 // InternalError The shape of every error response (SRS 5.3).
 type InternalError = Error
@@ -2246,6 +2931,9 @@ type InvalidPublication = Error
 // LookupRateLimited The shape of every error response (SRS 5.3).
 type LookupRateLimited = Error
 
+// MessageEditRefused The shape of every error response (SRS 5.3).
+type MessageEditRefused = Error
+
 // MessageForbidden The shape of every error response (SRS 5.3).
 type MessageForbidden = Error
 
@@ -2254,6 +2942,9 @@ type MessageRateLimited = Error
 
 // MessageRefused The shape of every error response (SRS 5.3).
 type MessageRefused = Error
+
+// MessageSearchRateLimited The shape of every error response (SRS 5.3).
+type MessageSearchRateLimited = Error
 
 // MetadataUnavailable The shape of every error response (SRS 5.3).
 type MetadataUnavailable = Error
@@ -2293,6 +2984,9 @@ type SearchRateLimited = Error
 
 // Unauthorized The shape of every error response (SRS 5.3).
 type Unauthorized = Error
+
+// UnsupportedAttachmentType The shape of every error response (SRS 5.3).
+type UnsupportedAttachmentType = Error
 
 // UnsupportedImageType The shape of every error response (SRS 5.3).
 type UnsupportedImageType = Error
@@ -2363,6 +3057,10 @@ type ListBlockedPeopleParams struct {
 type ListMyConnectionsParams struct {
 	// Page The page to return, from 1, 20 items each. Defaults to 1.
 	Page *ConnectionListPage `form:"page,omitempty" json:"page,omitempty"`
+
+	// Q The text to look for, 2 to 100 characters after trimming; otherwise 400
+	// `bad_request` with `field: q`. Leave it out for every connection.
+	Q *string `form:"q,omitempty" json:"q,omitempty"`
 }
 
 // ListReceivedConnectionRequestsParams defines parameters for ListReceivedConnectionRequests.
@@ -2391,14 +3089,56 @@ type ListConversationsParams struct {
 	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// UploadAttachmentMultipartBody defines parameters for UploadAttachment.
+type UploadAttachmentMultipartBody struct {
+	File openapi_types.File `json:"file"`
+}
+
 // ListMessagesParams defines parameters for ListMessages.
 type ListMessagesParams struct {
 	// Before `nextBefore` from the previous page; leave it out for the newest messages. A
 	// value that is not a UUID gets 400 `bad_request`.
 	Before *string `form:"before,omitempty" json:"before,omitempty"`
 
+	// After `nextAfter` from the previous page, for newer messages. A value that is not a
+	// UUID gets 400 `bad_request`.
+	After *string `form:"after,omitempty" json:"after,omitempty"`
+
+	// Around A message ID: the page is centred on it. A value that is not a UUID gets 400
+	// `bad_request`; a message the caller cannot see gets 404.
+	Around *string `form:"around,omitempty" json:"around,omitempty"`
+
 	// Limit Items to return, from 1. Defaults to 30. A larger value than 100 is reduced to
 	// 100; a value below 1 gets 400 `bad_request`.
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// SearchMessagesParams defines parameters for SearchMessages.
+type SearchMessagesParams struct {
+	// Q The search text, 2 to 100 characters after trimming, else 400 `bad_request` with
+	// `field` `q`. It is required: it is declared optional only so that the session is
+	// checked first (the generated code checks a required parameter before the session,
+	// as for `searchPeople`).
+	Q *string `form:"q,omitempty" json:"q,omitempty"`
+
+	// ConversationId Search only this conversation. One the caller is not a member of gets 404
+	// `not_found`, the same answer as for one that does not exist.
+	ConversationId *openapi_types.UUID `form:"conversationId,omitempty" json:"conversationId,omitempty"`
+
+	// From Only messages sent by this user.
+	From *openapi_types.UUID `form:"from,omitempty" json:"from,omitempty"`
+
+	// After Only messages sent at or after this moment (RFC 3339, inclusive).
+	After *time.Time `form:"after,omitempty" json:"after,omitempty"`
+
+	// Before Only messages sent before this moment (RFC 3339, exclusive).
+	Before *time.Time `form:"before,omitempty" json:"before,omitempty"`
+
+	// Cursor `nextCursor` from the previous page. A value the server did not issue gets 400 `bad_request`.
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Items to return, from 1. Defaults to 20. A larger value than 50 is reduced to
+	// 50; a value below 1 gets 400 `bad_request`.
 	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
@@ -2555,8 +3295,23 @@ type BlockUserJSONRequestBody = BlockRequest
 // SendConnectionRequestJSONRequestBody defines body for SendConnectionRequest for application/json ContentType.
 type SendConnectionRequestJSONRequestBody = ConnectionRequestCreate
 
+// CreateGroupJSONRequestBody defines body for CreateGroup for application/json ContentType.
+type CreateGroupJSONRequestBody = CreateGroupRequest
+
+// RenameGroupJSONRequestBody defines body for RenameGroup for application/json ContentType.
+type RenameGroupJSONRequestBody = RenameGroupRequest
+
+// UploadAttachmentMultipartRequestBody defines body for UploadAttachment for multipart/form-data ContentType.
+type UploadAttachmentMultipartRequestBody UploadAttachmentMultipartBody
+
+// AddGroupMembersJSONRequestBody defines body for AddGroupMembers for application/json ContentType.
+type AddGroupMembersJSONRequestBody = AddGroupMembersRequest
+
 // SendMessageJSONRequestBody defines body for SendMessage for application/json ContentType.
 type SendMessageJSONRequestBody = SendMessageRequest
+
+// EditMessageJSONRequestBody defines body for EditMessage for application/json ContentType.
+type EditMessageJSONRequestBody = EditMessageRequest
 
 // MarkConversationReadJSONRequestBody defines body for MarkConversationRead for application/json ContentType.
 type MarkConversationReadJSONRequestBody = MarkConversationReadRequest
@@ -2626,12 +3381,15 @@ type ServerInterface interface {
 	// DeleteAccount Delete the logged-in user's account after entering the password (FR-2.8, FR-2.9)
 	// (POST /account/delete)
 	DeleteAccount(w http.ResponseWriter, r *http.Request)
-	// ListMessageReports List reports of conversations for an administrator (FR-16.9, NFR-14)
+	// ListMessageReports List reports of conversations for an administrator (FR-16.9, NFR-13)
 	// (GET /admin/message-reports)
 	ListMessageReports(w http.ResponseWriter, r *http.Request, params ListMessageReportsParams)
-	// GetMessageReport Read a report and its conversation up to the report (FR-16.9, NFR-14)
+	// GetMessageReport Read a report and its conversation up to the report (FR-16.9, NFR-13)
 	// (GET /admin/message-reports/{reportId})
 	GetMessageReport(w http.ResponseWriter, r *http.Request, reportId ReportId, params GetMessageReportParams)
+	// GetReportedAttachment Download an attachment of a reported conversation (FR-16.7, FR-16.9, NFR-13)
+	// (GET /admin/message-reports/{reportId}/attachments/{attachmentId})
+	GetReportedAttachment(w http.ResponseWriter, r *http.Request, reportId ReportId, attachmentId AttachmentId)
 	// ResolveMessageReport Close a report with an outcome (FR-16.9)
 	// (POST /admin/message-reports/{reportId}/resolve)
 	ResolveMessageReport(w http.ResponseWriter, r *http.Request, reportId ReportId)
@@ -2656,6 +3414,9 @@ type ServerInterface interface {
 	// WarnUser Warn a user (FR-15.5)
 	// (POST /admin/users/{userId}/warnings)
 	WarnUser(w http.ResponseWriter, r *http.Request, userId ModeratedUserId)
+	// GetAttachment Download an attachment after a permission check (FR-16.7, NFR-13)
+	// (GET /attachments/{attachmentId})
+	GetAttachment(w http.ResponseWriter, r *http.Request, attachmentId AttachmentId)
 	// LoginUser Log in with email address and password (FR-2.1, FR-1.4, FR-3.4)
 	// (POST /auth/login)
 	LoginUser(w http.ResponseWriter, r *http.Request)
@@ -2722,25 +3483,49 @@ type ServerInterface interface {
 	// ListConversations List the logged-in user's conversations, newest activity first (FR-16.1 to FR-16.3)
 	// (GET /conversations)
 	ListConversations(w http.ResponseWriter, r *http.Request, params ListConversationsParams)
-	// GetConversation Get one of the logged-in user's conversations (FR-16.1, NFR-14)
+	// CreateGroup Create a group conversation (FR-16.6, FR-16.10)
+	// (POST /conversations/groups)
+	CreateGroup(w http.ResponseWriter, r *http.Request)
+	// GetConversation Get one of the logged-in user's conversations (FR-16.1, FR-16.6, NFR-13)
 	// (GET /conversations/{conversationId})
 	GetConversation(w http.ResponseWriter, r *http.Request, conversationId ConversationId)
+	// RenameGroup Rename a group (FR-16.6)
+	// (PATCH /conversations/{conversationId})
+	RenameGroup(w http.ResponseWriter, r *http.Request, conversationId ConversationId)
 	// AcceptMessageRequest Accept a message request (FR-16.2)
 	// (POST /conversations/{conversationId}/accept)
 	AcceptMessageRequest(w http.ResponseWriter, r *http.Request, conversationId ConversationId)
+	// UploadAttachment Upload a file to send with a message later (FR-16.7, NFR-13)
+	// (POST /conversations/{conversationId}/attachments)
+	UploadAttachment(w http.ResponseWriter, r *http.Request, conversationId ConversationId)
 	// DeclineMessageRequest Decline a message request (FR-16.2)
 	// (POST /conversations/{conversationId}/decline)
 	DeclineMessageRequest(w http.ResponseWriter, r *http.Request, conversationId ConversationId)
-	// ListMessages List a conversation's messages, newest first (FR-16.1, FR-16.3, NFR-14)
+	// LeaveGroup Leave a group (FR-16.6, NFR-13)
+	// (POST /conversations/{conversationId}/leave)
+	LeaveGroup(w http.ResponseWriter, r *http.Request, conversationId ConversationId)
+	// AddGroupMembers Add members to a group (FR-16.6, FR-16.10)
+	// (POST /conversations/{conversationId}/members)
+	AddGroupMembers(w http.ResponseWriter, r *http.Request, conversationId ConversationId)
+	// RemoveGroupMember Remove a member from a group (FR-16.6, NFR-13)
+	// (DELETE /conversations/{conversationId}/members/{userId})
+	RemoveGroupMember(w http.ResponseWriter, r *http.Request, conversationId ConversationId, userId string)
+	// ListMessages List a conversation's messages, newest first (FR-16.1, FR-16.3, NFR-13)
 	// (GET /conversations/{conversationId}/messages)
 	ListMessages(w http.ResponseWriter, r *http.Request, conversationId ConversationId, params ListMessagesParams)
-	// SendMessage Send a message in a conversation (FR-16.1, FR-16.2, FR-16.10, NFR-14)
+	// SendMessage Send a message in a conversation (FR-16.1, FR-16.2, FR-16.10, NFR-13)
 	// (POST /conversations/{conversationId}/messages)
 	SendMessage(w http.ResponseWriter, r *http.Request, conversationId ConversationId)
-	// MarkConversationRead Move the logged-in user's read marker forward (FR-16.3, NFR-14)
+	// DeleteMessage Delete one's own message (FR-16.5, NFR-13)
+	// (DELETE /conversations/{conversationId}/messages/{messageId})
+	DeleteMessage(w http.ResponseWriter, r *http.Request, conversationId ConversationId, messageId MessageId)
+	// EditMessage Edit one's own message (FR-16.5, FR-16.10, NFR-13)
+	// (PATCH /conversations/{conversationId}/messages/{messageId})
+	EditMessage(w http.ResponseWriter, r *http.Request, conversationId ConversationId, messageId MessageId)
+	// MarkConversationRead Move the logged-in user's read marker forward (FR-16.3, NFR-13)
 	// (POST /conversations/{conversationId}/read)
 	MarkConversationRead(w http.ResponseWriter, r *http.Request, conversationId ConversationId)
-	// ReportConversation Report a conversation or one of its messages (FR-16.9, NFR-14)
+	// ReportConversation Report a conversation or one of its messages (FR-16.9, NFR-13)
 	// (POST /conversations/{conversationId}/reports)
 	ReportConversation(w http.ResponseWriter, r *http.Request, conversationId ConversationId)
 	// GetHealth Report whether the database, Redis and object storage respond
@@ -2761,6 +3546,9 @@ type ServerInterface interface {
 	// SendDirectMessage Send a message to a user, finding or creating the direct conversation (FR-16.1, FR-16.2, FR-16.10)
 	// (POST /messages/direct)
 	SendDirectMessage(w http.ResponseWriter, r *http.Request)
+	// SearchMessages Search the text of the caller's own conversations (FR-16.8, NFR-13)
+	// (GET /messages/search)
+	SearchMessages(w http.ResponseWriter, r *http.Request, params SearchMessagesParams)
 	// GetMessageUnreadCount Count unread messages and pending message requests (FR-16.3)
 	// (GET /messages/unread-count)
 	GetMessageUnreadCount(w http.ResponseWriter, r *http.Request)
@@ -3018,6 +3806,47 @@ func (siw *ServerInterfaceWrapper) GetMessageReport(w http.ResponseWriter, r *ht
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetMessageReport(w, r, reportId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetReportedAttachment operation middleware
+func (siw *ServerInterfaceWrapper) GetReportedAttachment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "reportId" -------------
+	var reportId ReportId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "reportId", r.PathValue("reportId"), &reportId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "reportId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "attachmentId" -------------
+	var attachmentId AttachmentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "attachmentId", r.PathValue("attachmentId"), &attachmentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "attachmentId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetReportedAttachment(w, r, reportId, attachmentId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3310,6 +4139,38 @@ func (siw *ServerInterfaceWrapper) WarnUser(w http.ResponseWriter, r *http.Reque
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.WarnUser(w, r, userId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetAttachment operation middleware
+func (siw *ServerInterfaceWrapper) GetAttachment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "attachmentId" -------------
+	var attachmentId AttachmentId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "attachmentId", r.PathValue("attachmentId"), &attachmentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "attachmentId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAttachment(w, r, attachmentId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3653,6 +4514,19 @@ func (siw *ServerInterfaceWrapper) ListMyConnections(w http.ResponseWriter, r *h
 		return
 	}
 
+	// ------------- Optional query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListMyConnections(w, r, params)
 	}))
@@ -3955,6 +4829,26 @@ func (siw *ServerInterfaceWrapper) ListConversations(w http.ResponseWriter, r *h
 	handler.ServeHTTP(w, r)
 }
 
+// CreateGroup operation middleware
+func (siw *ServerInterfaceWrapper) CreateGroup(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateGroup(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetConversation operation middleware
 func (siw *ServerInterfaceWrapper) GetConversation(w http.ResponseWriter, r *http.Request) {
 
@@ -3978,6 +4872,38 @@ func (siw *ServerInterfaceWrapper) GetConversation(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetConversation(w, r, conversationId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RenameGroup operation middleware
+func (siw *ServerInterfaceWrapper) RenameGroup(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "conversationId" -------------
+	var conversationId ConversationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "conversationId", r.PathValue("conversationId"), &conversationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "conversationId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RenameGroup(w, r, conversationId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4019,6 +4945,38 @@ func (siw *ServerInterfaceWrapper) AcceptMessageRequest(w http.ResponseWriter, r
 	handler.ServeHTTP(w, r)
 }
 
+// UploadAttachment operation middleware
+func (siw *ServerInterfaceWrapper) UploadAttachment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "conversationId" -------------
+	var conversationId ConversationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "conversationId", r.PathValue("conversationId"), &conversationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "conversationId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UploadAttachment(w, r, conversationId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // DeclineMessageRequest operation middleware
 func (siw *ServerInterfaceWrapper) DeclineMessageRequest(w http.ResponseWriter, r *http.Request) {
 
@@ -4042,6 +5000,111 @@ func (siw *ServerInterfaceWrapper) DeclineMessageRequest(w http.ResponseWriter, 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.DeclineMessageRequest(w, r, conversationId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// LeaveGroup operation middleware
+func (siw *ServerInterfaceWrapper) LeaveGroup(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "conversationId" -------------
+	var conversationId ConversationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "conversationId", r.PathValue("conversationId"), &conversationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "conversationId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.LeaveGroup(w, r, conversationId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AddGroupMembers operation middleware
+func (siw *ServerInterfaceWrapper) AddGroupMembers(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "conversationId" -------------
+	var conversationId ConversationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "conversationId", r.PathValue("conversationId"), &conversationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "conversationId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AddGroupMembers(w, r, conversationId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RemoveGroupMember operation middleware
+func (siw *ServerInterfaceWrapper) RemoveGroupMember(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "conversationId" -------------
+	var conversationId ConversationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "conversationId", r.PathValue("conversationId"), &conversationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "conversationId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "userId" -------------
+	var userId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", r.PathValue("userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "userId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RemoveGroupMember(w, r, conversationId, userId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4084,6 +5147,32 @@ func (siw *ServerInterfaceWrapper) ListMessages(w http.ResponseWriter, r *http.R
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "before"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "before", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "after" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "after", r.URL.Query(), &params.After, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "after"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "after", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "around" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "around", r.URL.Query(), &params.Around, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "around"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "around", Err: err})
 		}
 		return
 	}
@@ -4135,6 +5224,88 @@ func (siw *ServerInterfaceWrapper) SendMessage(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SendMessage(w, r, conversationId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteMessage operation middleware
+func (siw *ServerInterfaceWrapper) DeleteMessage(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "conversationId" -------------
+	var conversationId ConversationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "conversationId", r.PathValue("conversationId"), &conversationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "conversationId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "messageId" -------------
+	var messageId MessageId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "messageId", r.PathValue("messageId"), &messageId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "messageId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteMessage(w, r, conversationId, messageId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// EditMessage operation middleware
+func (siw *ServerInterfaceWrapper) EditMessage(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "conversationId" -------------
+	var conversationId ConversationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "conversationId", r.PathValue("conversationId"), &conversationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "conversationId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "messageId" -------------
+	var messageId MessageId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "messageId", r.PathValue("messageId"), &messageId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "messageId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.EditMessage(w, r, conversationId, messageId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4349,6 +5520,123 @@ func (siw *ServerInterfaceWrapper) SendDirectMessage(w http.ResponseWriter, r *h
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SendDirectMessage(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SearchMessages operation middleware
+func (siw *ServerInterfaceWrapper) SearchMessages(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SearchMessagesParams
+
+	// ------------- Optional query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "conversationId" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "conversationId", r.URL.Query(), &params.ConversationId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "conversationId"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "conversationId", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "after" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "after", r.URL.Query(), &params.After, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "after"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "after", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "before" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "before", r.URL.Query(), &params.Before, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "before"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "before", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SearchMessages(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -5842,6 +7130,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/admin/users", wrapper.ListUsers)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/admin/message-reports", wrapper.ListMessageReports)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/admin/message-reports/{reportId}", wrapper.GetMessageReport)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/admin/message-reports/{reportId}/attachments/{attachmentId}", wrapper.GetReportedAttachment)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/admin/message-reports/{reportId}/resolve", wrapper.ResolveMessageReport)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/admin/users/{userId}/warnings", wrapper.WarnUser)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/admin/users/{userId}/restrictions", wrapper.RestrictUser)
@@ -5907,10 +7196,20 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/notifications/read-all", wrapper.MarkAllNotificationsRead)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/messages/direct", wrapper.SendDirectMessage)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/messages/unread-count", wrapper.GetMessageUnreadCount)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/messages/search", wrapper.SearchMessages)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/conversations", wrapper.ListConversations)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/conversations/groups", wrapper.CreateGroup)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/conversations/{conversationId}", wrapper.GetConversation)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/conversations/{conversationId}", wrapper.RenameGroup)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/conversations/{conversationId}/members", wrapper.AddGroupMembers)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/conversations/{conversationId}/members/{userId}", wrapper.RemoveGroupMember)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/conversations/{conversationId}/leave", wrapper.LeaveGroup)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/conversations/{conversationId}/messages", wrapper.ListMessages)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/conversations/{conversationId}/messages", wrapper.SendMessage)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/conversations/{conversationId}/attachments", wrapper.UploadAttachment)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/attachments/{attachmentId}", wrapper.GetAttachment)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/conversations/{conversationId}/messages/{messageId}", wrapper.DeleteMessage)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/conversations/{conversationId}/messages/{messageId}", wrapper.EditMessage)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/conversations/{conversationId}/read", wrapper.MarkConversationRead)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/conversations/{conversationId}/accept", wrapper.AcceptMessageRequest)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/conversations/{conversationId}/decline", wrapper.DeclineMessageRequest)
@@ -5924,11 +7223,46 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 
 type AccountSuspendedOrForbiddenJSONResponse Error
 
+type AttachmentNotReadyJSONResponse Error
+
+type AttachmentRateLimitedResponseHeaders struct {
+	RetryAfter int
+}
+type AttachmentRateLimitedJSONResponse struct {
+	Body Error
+
+	Headers AttachmentRateLimitedResponseHeaders
+}
+
+type AttachmentRedirectResponseHeaders struct {
+	CacheControl        string
+	Location            string
+	XContentTypeOptions string
+}
+type AttachmentRedirectResponse struct {
+	Headers AttachmentRedirectResponseHeaders
+}
+
+type AttachmentRemovedJSONResponse Error
+
 type DOINotFoundJSONResponse Error
 
 type FileTooLargeJSONResponse Error
 
 type ForbiddenJSONResponse Error
+
+type GroupForbiddenJSONResponse Error
+
+type GroupInvalidJSONResponse Error
+
+type GroupRateLimitedResponseHeaders struct {
+	RetryAfter int
+}
+type GroupRateLimitedJSONResponse struct {
+	Body Error
+
+	Headers GroupRateLimitedResponseHeaders
+}
 
 type InternalErrorJSONResponse Error
 
@@ -5957,6 +7291,8 @@ type LookupRateLimitedJSONResponse struct {
 	Headers LookupRateLimitedResponseHeaders
 }
 
+type MessageEditRefusedJSONResponse Error
+
 type MessageForbiddenJSONResponse Error
 
 type MessageRateLimitedResponseHeaders struct {
@@ -5969,6 +7305,15 @@ type MessageRateLimitedJSONResponse struct {
 }
 
 type MessageRefusedJSONResponse Error
+
+type MessageSearchRateLimitedResponseHeaders struct {
+	RetryAfter int
+}
+type MessageSearchRateLimitedJSONResponse struct {
+	Body Error
+
+	Headers MessageSearchRateLimitedResponseHeaders
+}
 
 type MetadataUnavailableJSONResponse Error
 
@@ -6009,6 +7354,8 @@ type SearchRateLimitedJSONResponse struct {
 }
 
 type UnauthorizedJSONResponse Error
+
+type UnsupportedAttachmentTypeJSONResponse Error
 
 type UnsupportedImageTypeJSONResponse Error
 
@@ -6285,6 +7632,109 @@ func (response GetMessageReport404JSONResponse) VisitGetMessageReportResponse(w 
 type GetMessageReport500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response GetMessageReport500JSONResponse) VisitGetMessageReportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetReportedAttachmentRequestObject struct {
+	ReportId     ReportId     `json:"reportId"`
+	AttachmentId AttachmentId `json:"attachmentId"`
+}
+
+type GetReportedAttachmentResponseObject interface {
+	VisitGetReportedAttachmentResponse(w http.ResponseWriter) error
+}
+
+type GetReportedAttachment302Response = AttachmentRedirectResponse
+
+func (response GetReportedAttachment302Response) VisitGetReportedAttachmentResponse(w http.ResponseWriter) error {
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.Header().Set("Location", fmt.Sprint(response.Headers.Location))
+	w.Header().Set("X-Content-Type-Options", fmt.Sprint(response.Headers.XContentTypeOptions))
+	w.WriteHeader(302)
+	return nil
+}
+
+type GetReportedAttachment401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetReportedAttachment401JSONResponse) VisitGetReportedAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetReportedAttachment403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetReportedAttachment403JSONResponse) VisitGetReportedAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetReportedAttachment404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetReportedAttachment404JSONResponse) VisitGetReportedAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetReportedAttachment409JSONResponse struct{ AttachmentNotReadyJSONResponse }
+
+func (response GetReportedAttachment409JSONResponse) VisitGetReportedAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetReportedAttachment410JSONResponse struct{ AttachmentRemovedJSONResponse }
+
+func (response GetReportedAttachment410JSONResponse) VisitGetReportedAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(410)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetReportedAttachment500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response GetReportedAttachment500JSONResponse) VisitGetReportedAttachmentResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -7102,6 +8552,108 @@ func (response WarnUser409JSONResponse) VisitWarnUserResponse(w http.ResponseWri
 type WarnUser500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response WarnUser500JSONResponse) VisitWarnUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAttachmentRequestObject struct {
+	AttachmentId AttachmentId `json:"attachmentId"`
+}
+
+type GetAttachmentResponseObject interface {
+	VisitGetAttachmentResponse(w http.ResponseWriter) error
+}
+
+type GetAttachment302Response = AttachmentRedirectResponse
+
+func (response GetAttachment302Response) VisitGetAttachmentResponse(w http.ResponseWriter) error {
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.Header().Set("Location", fmt.Sprint(response.Headers.Location))
+	w.Header().Set("X-Content-Type-Options", fmt.Sprint(response.Headers.XContentTypeOptions))
+	w.WriteHeader(302)
+	return nil
+}
+
+type GetAttachment401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetAttachment401JSONResponse) VisitGetAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAttachment403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetAttachment403JSONResponse) VisitGetAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAttachment404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetAttachment404JSONResponse) VisitGetAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAttachment409JSONResponse struct{ AttachmentNotReadyJSONResponse }
+
+func (response GetAttachment409JSONResponse) VisitGetAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAttachment410JSONResponse struct{ AttachmentRemovedJSONResponse }
+
+func (response GetAttachment410JSONResponse) VisitGetAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(410)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAttachment500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response GetAttachment500JSONResponse) VisitGetAttachmentResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -7955,9 +9507,7 @@ func (response ListMyConnections200JSONResponse) VisitListMyConnectionsResponse(
 	return err
 }
 
-type ListMyConnections400JSONResponse struct {
-	InvalidConnectionPageJSONResponse
-}
+type ListMyConnections400JSONResponse Error
 
 func (response ListMyConnections400JSONResponse) VisitListMyConnectionsResponse(w http.ResponseWriter) error {
 
@@ -8675,6 +10225,129 @@ func (response ListConversations500JSONResponse) VisitListConversationsResponse(
 	return err
 }
 
+type CreateGroupRequestObject struct {
+	Body *CreateGroupJSONRequestBody
+}
+
+type CreateGroupResponseObject interface {
+	VisitCreateGroupResponse(w http.ResponseWriter) error
+}
+
+type CreateGroup200JSONResponse Conversation
+
+func (response CreateGroup200JSONResponse) VisitCreateGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGroup201JSONResponse Conversation
+
+func (response CreateGroup201JSONResponse) VisitCreateGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGroup400JSONResponse struct{ GroupInvalidJSONResponse }
+
+func (response CreateGroup400JSONResponse) VisitCreateGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGroup401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateGroup401JSONResponse) VisitCreateGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGroup403JSONResponse struct {
+	AccountSuspendedOrForbiddenJSONResponse
+}
+
+func (response CreateGroup403JSONResponse) VisitCreateGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGroup404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateGroup404JSONResponse) VisitCreateGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGroup429JSONResponse struct{ GroupRateLimitedJSONResponse }
+
+func (response CreateGroup429JSONResponse) VisitCreateGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGroup500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response CreateGroup500JSONResponse) VisitCreateGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetConversationRequestObject struct {
 	ConversationId ConversationId `json:"conversationId"`
 }
@@ -8742,6 +10415,99 @@ func (response GetConversation404JSONResponse) VisitGetConversationResponse(w ht
 type GetConversation500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response GetConversation500JSONResponse) VisitGetConversationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RenameGroupRequestObject struct {
+	ConversationId ConversationId `json:"conversationId"`
+	Body           *RenameGroupJSONRequestBody
+}
+
+type RenameGroupResponseObject interface {
+	VisitRenameGroupResponse(w http.ResponseWriter) error
+}
+
+type RenameGroup200JSONResponse Conversation
+
+func (response RenameGroup200JSONResponse) VisitRenameGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RenameGroup400JSONResponse struct{ GroupInvalidJSONResponse }
+
+func (response RenameGroup400JSONResponse) VisitRenameGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RenameGroup401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RenameGroup401JSONResponse) VisitRenameGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RenameGroup403JSONResponse struct{ GroupForbiddenJSONResponse }
+
+func (response RenameGroup403JSONResponse) VisitRenameGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RenameGroup404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RenameGroup404JSONResponse) VisitRenameGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RenameGroup500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RenameGroup500JSONResponse) VisitRenameGroupResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -8833,6 +10599,160 @@ func (response AcceptMessageRequest500JSONResponse) VisitAcceptMessageRequestRes
 	return err
 }
 
+type UploadAttachmentRequestObject struct {
+	ConversationId ConversationId `json:"conversationId"`
+	Body           *multipart.Reader
+}
+
+type UploadAttachmentResponseObject interface {
+	VisitUploadAttachmentResponse(w http.ResponseWriter) error
+}
+
+type UploadAttachment201JSONResponse AttachmentUpload
+
+func (response UploadAttachment201JSONResponse) VisitUploadAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadAttachment400JSONResponse struct{ InvalidImageJSONResponse }
+
+func (response UploadAttachment400JSONResponse) VisitUploadAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadAttachment401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response UploadAttachment401JSONResponse) VisitUploadAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadAttachment403JSONResponse struct{ MessageForbiddenJSONResponse }
+
+func (response UploadAttachment403JSONResponse) VisitUploadAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadAttachment404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response UploadAttachment404JSONResponse) VisitUploadAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadAttachment409JSONResponse struct{ MessageRefusedJSONResponse }
+
+func (response UploadAttachment409JSONResponse) VisitUploadAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadAttachment413JSONResponse struct{ FileTooLargeJSONResponse }
+
+func (response UploadAttachment413JSONResponse) VisitUploadAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(413)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadAttachment415JSONResponse struct {
+	UnsupportedAttachmentTypeJSONResponse
+}
+
+func (response UploadAttachment415JSONResponse) VisitUploadAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(415)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadAttachment429JSONResponse struct {
+	AttachmentRateLimitedJSONResponse
+}
+
+func (response UploadAttachment429JSONResponse) VisitUploadAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadAttachment500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response UploadAttachment500JSONResponse) VisitUploadAttachmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type DeclineMessageRequestRequestObject struct {
 	ConversationId ConversationId `json:"conversationId"`
 }
@@ -8902,6 +10822,287 @@ func (response DeclineMessageRequest404JSONResponse) VisitDeclineMessageRequestR
 type DeclineMessageRequest500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response DeclineMessageRequest500JSONResponse) VisitDeclineMessageRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LeaveGroupRequestObject struct {
+	ConversationId ConversationId `json:"conversationId"`
+}
+
+type LeaveGroupResponseObject interface {
+	VisitLeaveGroupResponse(w http.ResponseWriter) error
+}
+
+type LeaveGroup204Response struct {
+}
+
+func (response LeaveGroup204Response) VisitLeaveGroupResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type LeaveGroup401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response LeaveGroup401JSONResponse) VisitLeaveGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LeaveGroup403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response LeaveGroup403JSONResponse) VisitLeaveGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LeaveGroup404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response LeaveGroup404JSONResponse) VisitLeaveGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LeaveGroup500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response LeaveGroup500JSONResponse) VisitLeaveGroupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddGroupMembersRequestObject struct {
+	ConversationId ConversationId `json:"conversationId"`
+	Body           *AddGroupMembersJSONRequestBody
+}
+
+type AddGroupMembersResponseObject interface {
+	VisitAddGroupMembersResponse(w http.ResponseWriter) error
+}
+
+type AddGroupMembers200JSONResponse Conversation
+
+func (response AddGroupMembers200JSONResponse) VisitAddGroupMembersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddGroupMembers400JSONResponse struct{ GroupInvalidJSONResponse }
+
+func (response AddGroupMembers400JSONResponse) VisitAddGroupMembersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddGroupMembers401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response AddGroupMembers401JSONResponse) VisitAddGroupMembersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddGroupMembers403JSONResponse struct{ GroupForbiddenJSONResponse }
+
+func (response AddGroupMembers403JSONResponse) VisitAddGroupMembersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddGroupMembers404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response AddGroupMembers404JSONResponse) VisitAddGroupMembersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddGroupMembers409JSONResponse Error
+
+func (response AddGroupMembers409JSONResponse) VisitAddGroupMembersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddGroupMembers429JSONResponse struct{ GroupRateLimitedJSONResponse }
+
+func (response AddGroupMembers429JSONResponse) VisitAddGroupMembersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddGroupMembers500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response AddGroupMembers500JSONResponse) VisitAddGroupMembersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveGroupMemberRequestObject struct {
+	ConversationId ConversationId `json:"conversationId"`
+	UserId         string         `json:"userId"`
+}
+
+type RemoveGroupMemberResponseObject interface {
+	VisitRemoveGroupMemberResponse(w http.ResponseWriter) error
+}
+
+type RemoveGroupMember204Response struct {
+}
+
+func (response RemoveGroupMember204Response) VisitRemoveGroupMemberResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RemoveGroupMember400JSONResponse Error
+
+func (response RemoveGroupMember400JSONResponse) VisitRemoveGroupMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveGroupMember401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RemoveGroupMember401JSONResponse) VisitRemoveGroupMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveGroupMember403JSONResponse struct{ GroupForbiddenJSONResponse }
+
+func (response RemoveGroupMember403JSONResponse) VisitRemoveGroupMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveGroupMember404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RemoveGroupMember404JSONResponse) VisitRemoveGroupMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveGroupMember500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RemoveGroupMember500JSONResponse) VisitRemoveGroupMemberResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -9131,6 +11332,202 @@ func (response SendMessage429JSONResponse) VisitSendMessageResponse(w http.Respo
 type SendMessage500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response SendMessage500JSONResponse) VisitSendMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMessageRequestObject struct {
+	ConversationId ConversationId `json:"conversationId"`
+	MessageId      MessageId      `json:"messageId"`
+}
+
+type DeleteMessageResponseObject interface {
+	VisitDeleteMessageResponse(w http.ResponseWriter) error
+}
+
+type DeleteMessage204Response struct {
+}
+
+func (response DeleteMessage204Response) VisitDeleteMessageResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteMessage401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response DeleteMessage401JSONResponse) VisitDeleteMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMessage403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response DeleteMessage403JSONResponse) VisitDeleteMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMessage404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DeleteMessage404JSONResponse) VisitDeleteMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMessage500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response DeleteMessage500JSONResponse) VisitDeleteMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type EditMessageRequestObject struct {
+	ConversationId ConversationId `json:"conversationId"`
+	MessageId      MessageId      `json:"messageId"`
+	Body           *EditMessageJSONRequestBody
+}
+
+type EditMessageResponseObject interface {
+	VisitEditMessageResponse(w http.ResponseWriter) error
+}
+
+type EditMessage200JSONResponse Message
+
+func (response EditMessage200JSONResponse) VisitEditMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type EditMessage400JSONResponse struct{ InvalidMessageJSONResponse }
+
+func (response EditMessage400JSONResponse) VisitEditMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type EditMessage401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response EditMessage401JSONResponse) VisitEditMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type EditMessage403JSONResponse struct{ MessageForbiddenJSONResponse }
+
+func (response EditMessage403JSONResponse) VisitEditMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type EditMessage404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response EditMessage404JSONResponse) VisitEditMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type EditMessage409JSONResponse struct{ MessageEditRefusedJSONResponse }
+
+func (response EditMessage409JSONResponse) VisitEditMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type EditMessage429JSONResponse struct{ MessageRateLimitedJSONResponse }
+
+func (response EditMessage429JSONResponse) VisitEditMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type EditMessage500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response EditMessage500JSONResponse) VisitEditMessageResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -9812,6 +12209,115 @@ func (response SendDirectMessage429JSONResponse) VisitSendDirectMessageResponse(
 type SendDirectMessage500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response SendDirectMessage500JSONResponse) VisitSendDirectMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SearchMessagesRequestObject struct {
+	Params SearchMessagesParams
+}
+
+type SearchMessagesResponseObject interface {
+	VisitSearchMessagesResponse(w http.ResponseWriter) error
+}
+
+type SearchMessages200JSONResponse MessageSearchPage
+
+func (response SearchMessages200JSONResponse) VisitSearchMessagesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SearchMessages400JSONResponse Error
+
+func (response SearchMessages400JSONResponse) VisitSearchMessagesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SearchMessages401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response SearchMessages401JSONResponse) VisitSearchMessagesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SearchMessages403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response SearchMessages403JSONResponse) VisitSearchMessagesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SearchMessages404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response SearchMessages404JSONResponse) VisitSearchMessagesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SearchMessages429JSONResponse struct {
+	MessageSearchRateLimitedJSONResponse
+}
+
+func (response SearchMessages429JSONResponse) VisitSearchMessagesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SearchMessages500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response SearchMessages500JSONResponse) VisitSearchMessagesResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -13776,12 +16282,15 @@ type StrictServerInterface interface {
 	// DeleteAccount Delete the logged-in user's account after entering the password (FR-2.8, FR-2.9)
 	// (POST /account/delete)
 	DeleteAccount(ctx context.Context, request DeleteAccountRequestObject) (DeleteAccountResponseObject, error)
-	// ListMessageReports List reports of conversations for an administrator (FR-16.9, NFR-14)
+	// ListMessageReports List reports of conversations for an administrator (FR-16.9, NFR-13)
 	// (GET /admin/message-reports)
 	ListMessageReports(ctx context.Context, request ListMessageReportsRequestObject) (ListMessageReportsResponseObject, error)
-	// GetMessageReport Read a report and its conversation up to the report (FR-16.9, NFR-14)
+	// GetMessageReport Read a report and its conversation up to the report (FR-16.9, NFR-13)
 	// (GET /admin/message-reports/{reportId})
 	GetMessageReport(ctx context.Context, request GetMessageReportRequestObject) (GetMessageReportResponseObject, error)
+	// GetReportedAttachment Download an attachment of a reported conversation (FR-16.7, FR-16.9, NFR-13)
+	// (GET /admin/message-reports/{reportId}/attachments/{attachmentId})
+	GetReportedAttachment(ctx context.Context, request GetReportedAttachmentRequestObject) (GetReportedAttachmentResponseObject, error)
 	// ResolveMessageReport Close a report with an outcome (FR-16.9)
 	// (POST /admin/message-reports/{reportId}/resolve)
 	ResolveMessageReport(ctx context.Context, request ResolveMessageReportRequestObject) (ResolveMessageReportResponseObject, error)
@@ -13806,6 +16315,9 @@ type StrictServerInterface interface {
 	// WarnUser Warn a user (FR-15.5)
 	// (POST /admin/users/{userId}/warnings)
 	WarnUser(ctx context.Context, request WarnUserRequestObject) (WarnUserResponseObject, error)
+	// GetAttachment Download an attachment after a permission check (FR-16.7, NFR-13)
+	// (GET /attachments/{attachmentId})
+	GetAttachment(ctx context.Context, request GetAttachmentRequestObject) (GetAttachmentResponseObject, error)
 	// LoginUser Log in with email address and password (FR-2.1, FR-1.4, FR-3.4)
 	// (POST /auth/login)
 	LoginUser(ctx context.Context, request LoginUserRequestObject) (LoginUserResponseObject, error)
@@ -13872,25 +16384,49 @@ type StrictServerInterface interface {
 	// ListConversations List the logged-in user's conversations, newest activity first (FR-16.1 to FR-16.3)
 	// (GET /conversations)
 	ListConversations(ctx context.Context, request ListConversationsRequestObject) (ListConversationsResponseObject, error)
-	// GetConversation Get one of the logged-in user's conversations (FR-16.1, NFR-14)
+	// CreateGroup Create a group conversation (FR-16.6, FR-16.10)
+	// (POST /conversations/groups)
+	CreateGroup(ctx context.Context, request CreateGroupRequestObject) (CreateGroupResponseObject, error)
+	// GetConversation Get one of the logged-in user's conversations (FR-16.1, FR-16.6, NFR-13)
 	// (GET /conversations/{conversationId})
 	GetConversation(ctx context.Context, request GetConversationRequestObject) (GetConversationResponseObject, error)
+	// RenameGroup Rename a group (FR-16.6)
+	// (PATCH /conversations/{conversationId})
+	RenameGroup(ctx context.Context, request RenameGroupRequestObject) (RenameGroupResponseObject, error)
 	// AcceptMessageRequest Accept a message request (FR-16.2)
 	// (POST /conversations/{conversationId}/accept)
 	AcceptMessageRequest(ctx context.Context, request AcceptMessageRequestRequestObject) (AcceptMessageRequestResponseObject, error)
+	// UploadAttachment Upload a file to send with a message later (FR-16.7, NFR-13)
+	// (POST /conversations/{conversationId}/attachments)
+	UploadAttachment(ctx context.Context, request UploadAttachmentRequestObject) (UploadAttachmentResponseObject, error)
 	// DeclineMessageRequest Decline a message request (FR-16.2)
 	// (POST /conversations/{conversationId}/decline)
 	DeclineMessageRequest(ctx context.Context, request DeclineMessageRequestRequestObject) (DeclineMessageRequestResponseObject, error)
-	// ListMessages List a conversation's messages, newest first (FR-16.1, FR-16.3, NFR-14)
+	// LeaveGroup Leave a group (FR-16.6, NFR-13)
+	// (POST /conversations/{conversationId}/leave)
+	LeaveGroup(ctx context.Context, request LeaveGroupRequestObject) (LeaveGroupResponseObject, error)
+	// AddGroupMembers Add members to a group (FR-16.6, FR-16.10)
+	// (POST /conversations/{conversationId}/members)
+	AddGroupMembers(ctx context.Context, request AddGroupMembersRequestObject) (AddGroupMembersResponseObject, error)
+	// RemoveGroupMember Remove a member from a group (FR-16.6, NFR-13)
+	// (DELETE /conversations/{conversationId}/members/{userId})
+	RemoveGroupMember(ctx context.Context, request RemoveGroupMemberRequestObject) (RemoveGroupMemberResponseObject, error)
+	// ListMessages List a conversation's messages, newest first (FR-16.1, FR-16.3, NFR-13)
 	// (GET /conversations/{conversationId}/messages)
 	ListMessages(ctx context.Context, request ListMessagesRequestObject) (ListMessagesResponseObject, error)
-	// SendMessage Send a message in a conversation (FR-16.1, FR-16.2, FR-16.10, NFR-14)
+	// SendMessage Send a message in a conversation (FR-16.1, FR-16.2, FR-16.10, NFR-13)
 	// (POST /conversations/{conversationId}/messages)
 	SendMessage(ctx context.Context, request SendMessageRequestObject) (SendMessageResponseObject, error)
-	// MarkConversationRead Move the logged-in user's read marker forward (FR-16.3, NFR-14)
+	// DeleteMessage Delete one's own message (FR-16.5, NFR-13)
+	// (DELETE /conversations/{conversationId}/messages/{messageId})
+	DeleteMessage(ctx context.Context, request DeleteMessageRequestObject) (DeleteMessageResponseObject, error)
+	// EditMessage Edit one's own message (FR-16.5, FR-16.10, NFR-13)
+	// (PATCH /conversations/{conversationId}/messages/{messageId})
+	EditMessage(ctx context.Context, request EditMessageRequestObject) (EditMessageResponseObject, error)
+	// MarkConversationRead Move the logged-in user's read marker forward (FR-16.3, NFR-13)
 	// (POST /conversations/{conversationId}/read)
 	MarkConversationRead(ctx context.Context, request MarkConversationReadRequestObject) (MarkConversationReadResponseObject, error)
-	// ReportConversation Report a conversation or one of its messages (FR-16.9, NFR-14)
+	// ReportConversation Report a conversation or one of its messages (FR-16.9, NFR-13)
 	// (POST /conversations/{conversationId}/reports)
 	ReportConversation(ctx context.Context, request ReportConversationRequestObject) (ReportConversationResponseObject, error)
 	// GetHealth Report whether the database, Redis and object storage respond
@@ -13911,6 +16447,9 @@ type StrictServerInterface interface {
 	// SendDirectMessage Send a message to a user, finding or creating the direct conversation (FR-16.1, FR-16.2, FR-16.10)
 	// (POST /messages/direct)
 	SendDirectMessage(ctx context.Context, request SendDirectMessageRequestObject) (SendDirectMessageResponseObject, error)
+	// SearchMessages Search the text of the caller's own conversations (FR-16.8, NFR-13)
+	// (GET /messages/search)
+	SearchMessages(ctx context.Context, request SearchMessagesRequestObject) (SearchMessagesResponseObject, error)
 	// GetMessageUnreadCount Count unread messages and pending message requests (FR-16.3)
 	// (GET /messages/unread-count)
 	GetMessageUnreadCount(ctx context.Context, request GetMessageUnreadCountRequestObject) (GetMessageUnreadCountResponseObject, error)
@@ -14171,6 +16710,33 @@ func (sh *strictHandler) GetMessageReport(w http.ResponseWriter, r *http.Request
 	}
 }
 
+// GetReportedAttachment operation middleware
+func (sh *strictHandler) GetReportedAttachment(w http.ResponseWriter, r *http.Request, reportId ReportId, attachmentId AttachmentId) {
+	var request GetReportedAttachmentRequestObject
+
+	request.ReportId = reportId
+	request.AttachmentId = attachmentId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetReportedAttachment(ctx, request.(GetReportedAttachmentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetReportedAttachment")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetReportedAttachmentResponseObject); ok {
+		if err := validResponse.VisitGetReportedAttachmentResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ResolveMessageReport operation middleware
 func (sh *strictHandler) ResolveMessageReport(w http.ResponseWriter, r *http.Request, reportId ReportId) {
 	var request ResolveMessageReportRequestObject
@@ -14415,6 +16981,32 @@ func (sh *strictHandler) WarnUser(w http.ResponseWriter, r *http.Request, userId
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(WarnUserResponseObject); ok {
 		if err := validResponse.VisitWarnUserResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetAttachment operation middleware
+func (sh *strictHandler) GetAttachment(w http.ResponseWriter, r *http.Request, attachmentId AttachmentId) {
+	var request GetAttachmentRequestObject
+
+	request.AttachmentId = attachmentId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetAttachment(ctx, request.(GetAttachmentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetAttachment")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetAttachmentResponseObject); ok {
+		if err := validResponse.VisitGetAttachmentResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -15039,6 +17631,37 @@ func (sh *strictHandler) ListConversations(w http.ResponseWriter, r *http.Reques
 	}
 }
 
+// CreateGroup operation middleware
+func (sh *strictHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
+	var request CreateGroupRequestObject
+
+	var body CreateGroupJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateGroup(ctx, request.(CreateGroupRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateGroup")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateGroupResponseObject); ok {
+		if err := validResponse.VisitCreateGroupResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetConversation operation middleware
 func (sh *strictHandler) GetConversation(w http.ResponseWriter, r *http.Request, conversationId ConversationId) {
 	var request GetConversationRequestObject
@@ -15058,6 +17681,39 @@ func (sh *strictHandler) GetConversation(w http.ResponseWriter, r *http.Request,
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetConversationResponseObject); ok {
 		if err := validResponse.VisitGetConversationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RenameGroup operation middleware
+func (sh *strictHandler) RenameGroup(w http.ResponseWriter, r *http.Request, conversationId ConversationId) {
+	var request RenameGroupRequestObject
+
+	request.ConversationId = conversationId
+
+	var body RenameGroupJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RenameGroup(ctx, request.(RenameGroupRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RenameGroup")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RenameGroupResponseObject); ok {
+		if err := validResponse.VisitRenameGroupResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -15091,6 +17747,39 @@ func (sh *strictHandler) AcceptMessageRequest(w http.ResponseWriter, r *http.Req
 	}
 }
 
+// UploadAttachment operation middleware
+func (sh *strictHandler) UploadAttachment(w http.ResponseWriter, r *http.Request, conversationId ConversationId) {
+	var request UploadAttachmentRequestObject
+
+	request.ConversationId = conversationId
+
+	if reader, err := r.MultipartReader(); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode multipart body: %w", err))
+		return
+	} else {
+		request.Body = reader
+	}
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UploadAttachment(ctx, request.(UploadAttachmentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UploadAttachment")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UploadAttachmentResponseObject); ok {
+		if err := validResponse.VisitUploadAttachmentResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // DeclineMessageRequest operation middleware
 func (sh *strictHandler) DeclineMessageRequest(w http.ResponseWriter, r *http.Request, conversationId ConversationId) {
 	var request DeclineMessageRequestRequestObject
@@ -15110,6 +17799,92 @@ func (sh *strictHandler) DeclineMessageRequest(w http.ResponseWriter, r *http.Re
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(DeclineMessageRequestResponseObject); ok {
 		if err := validResponse.VisitDeclineMessageRequestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// LeaveGroup operation middleware
+func (sh *strictHandler) LeaveGroup(w http.ResponseWriter, r *http.Request, conversationId ConversationId) {
+	var request LeaveGroupRequestObject
+
+	request.ConversationId = conversationId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.LeaveGroup(ctx, request.(LeaveGroupRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "LeaveGroup")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(LeaveGroupResponseObject); ok {
+		if err := validResponse.VisitLeaveGroupResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AddGroupMembers operation middleware
+func (sh *strictHandler) AddGroupMembers(w http.ResponseWriter, r *http.Request, conversationId ConversationId) {
+	var request AddGroupMembersRequestObject
+
+	request.ConversationId = conversationId
+
+	var body AddGroupMembersJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AddGroupMembers(ctx, request.(AddGroupMembersRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AddGroupMembers")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AddGroupMembersResponseObject); ok {
+		if err := validResponse.VisitAddGroupMembersResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RemoveGroupMember operation middleware
+func (sh *strictHandler) RemoveGroupMember(w http.ResponseWriter, r *http.Request, conversationId ConversationId, userId string) {
+	var request RemoveGroupMemberRequestObject
+
+	request.ConversationId = conversationId
+	request.UserId = userId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RemoveGroupMember(ctx, request.(RemoveGroupMemberRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RemoveGroupMember")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RemoveGroupMemberResponseObject); ok {
+		if err := validResponse.VisitRemoveGroupMemberResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -15170,6 +17945,67 @@ func (sh *strictHandler) SendMessage(w http.ResponseWriter, r *http.Request, con
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SendMessageResponseObject); ok {
 		if err := validResponse.VisitSendMessageResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteMessage operation middleware
+func (sh *strictHandler) DeleteMessage(w http.ResponseWriter, r *http.Request, conversationId ConversationId, messageId MessageId) {
+	var request DeleteMessageRequestObject
+
+	request.ConversationId = conversationId
+	request.MessageId = messageId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteMessage(ctx, request.(DeleteMessageRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteMessage")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteMessageResponseObject); ok {
+		if err := validResponse.VisitDeleteMessageResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// EditMessage operation middleware
+func (sh *strictHandler) EditMessage(w http.ResponseWriter, r *http.Request, conversationId ConversationId, messageId MessageId) {
+	var request EditMessageRequestObject
+
+	request.ConversationId = conversationId
+	request.MessageId = messageId
+
+	var body EditMessageJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.EditMessage(ctx, request.(EditMessageRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "EditMessage")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(EditMessageResponseObject); ok {
+		if err := validResponse.VisitEditMessageResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -15393,6 +18229,32 @@ func (sh *strictHandler) SendDirectMessage(w http.ResponseWriter, r *http.Reques
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SendDirectMessageResponseObject); ok {
 		if err := validResponse.VisitSendDirectMessageResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SearchMessages operation middleware
+func (sh *strictHandler) SearchMessages(w http.ResponseWriter, r *http.Request, params SearchMessagesParams) {
+	var request SearchMessagesRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SearchMessages(ctx, request.(SearchMessagesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SearchMessages")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SearchMessagesResponseObject); ok {
+		if err := validResponse.VisitSearchMessagesResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

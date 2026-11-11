@@ -52,7 +52,8 @@ func (s *fakeStore) Put(_ context.Context, n domain.Notification) (string, error
 	}
 	s.clock = s.clock.Add(time.Second)
 	for _, r := range s.rows {
-		if r.RecipientID == n.RecipientID && r.ActorID == n.ActorID && r.Type == n.Type {
+		connection := n.Type == domain.TypeConnectionRequestReceived || n.Type == domain.TypeConnectionRequestAccepted
+		if connection && r.RecipientID == n.RecipientID && r.ActorID == n.ActorID && r.Type == n.Type {
 			r.SubjectID, r.CreatedAt, r.ReadAt = n.SubjectID, s.clock, nil
 			return r.ID, nil
 		}
@@ -71,6 +72,17 @@ func (s *fakeStore) Find(_ context.Context, recipientID, id string) (domain.Item
 		}
 	}
 	return domain.Item{}, domain.ErrNotFound
+}
+
+func (s *fakeStore) DeleteFor(_ context.Context, t domain.Type, subjectID, recipientID string) (bool, error) {
+	if s.err != nil {
+		return false, s.err
+	}
+	before := len(s.rows)
+	s.rows = slices.DeleteFunc(s.rows, func(r *domain.Notification) bool {
+		return r.Type == t && r.SubjectID == subjectID && r.RecipientID == recipientID
+	})
+	return len(s.rows) < before, nil
 }
 
 func (s *fakeStore) DeleteBySubject(_ context.Context, t domain.Type, subjectID string) ([]string, error) {
@@ -202,7 +214,7 @@ func count(t *testing.T, svc *Service, user string) int {
 
 // Every type has a registry entry with a subject kind and a link (FR-9.5).
 func TestRegistryCoversEveryType(t *testing.T) {
-	for _, typ := range []domain.Type{domain.TypeConnectionRequestReceived, domain.TypeConnectionRequestAccepted} {
+	for _, typ := range []domain.Type{domain.TypeConnectionRequestReceived, domain.TypeConnectionRequestAccepted, domain.TypeAccountWarning, domain.TypeGroupAdded} {
 		spec, ok := domain.Registry[typ]
 		if !ok || spec.SubjectKind == "" || spec.Link == nil {
 			t.Errorf("type %s has no complete registry entry", typ)
@@ -632,5 +644,115 @@ func TestGet(t *testing.T) {
 	}
 	if _, err := svc.Get(t.Context(), "cy", id); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("another user's: %v", err)
+	}
+}
+
+// Being added to a group notifies each new member, from the owner, linking to the group; leaving
+// or removal takes it back, for that member only (FR-16.6).
+func TestGroupAddedAndAccessLost(t *testing.T) {
+	const group = "00000000-0000-0000-0000-0000000000c1"
+	p := &fakePublisher{}
+	svc := New(newFakeStore(), WithPublisher(p))
+	if err := svc.GroupMembersAdded(ctx, group, ada, []string{bob, cy}); err != nil {
+		t.Fatal(err)
+	}
+	for _, u := range []string{bob, cy} {
+		items := list(t, svc, u)
+		if len(items) != 1 || items[0].Type != domain.TypeGroupAdded || items[0].ActorID != ada || items[0].SubjectID != group ||
+			items[0].Link != "/messaging/"+group || items[0].ReadAt != nil {
+			t.Errorf("%s: %+v", u, items)
+		}
+	}
+	p.events = nil
+	if err := svc.GroupAccessLost(ctx, group, bob); err != nil {
+		t.Fatal(err)
+	}
+	if len(list(t, svc, bob)) != 0 || len(list(t, svc, cy)) != 1 {
+		t.Error("the wrong notification was taken back")
+	}
+	if !slices.Equal(p.events, []string{"unread " + bob}) {
+		t.Errorf("events = %v", p.events)
+	}
+	p.events = nil
+	if err := svc.GroupAccessLost(ctx, group, bob); err != nil || len(p.events) != 0 {
+		t.Errorf("nothing to take back: %v %v", err, p.events)
+	}
+}
+
+// fakeTitles knows the titles each viewer may see, by kind and ID, and records each call.
+type fakeTitles struct {
+	titles map[string]string // viewer|kind|id -> title
+	calls  []string
+	err    error
+}
+
+func (f *fakeTitles) Titles(_ context.Context, viewerID, kind string, ids []string) (map[string]string, error) {
+	f.calls = append(f.calls, fmt.Sprintf("%s %s %v", viewerID, kind, ids))
+	if f.err != nil {
+		return nil, f.err
+	}
+	out := map[string]string{}
+	for _, id := range ids {
+		if title, ok := f.titles[viewerID+"|"+kind+"|"+id]; ok {
+			out[id] = title
+		}
+	}
+	return out, nil
+}
+
+// FR-9.5: group_added carries the group's current name, asked once for the whole page; a group
+// the recipient cannot see has no subject, and other types never have one.
+func TestSubjects(t *testing.T) {
+	const g1, g2, g3 = "00000000-0000-0000-0000-0000000000c1", "00000000-0000-0000-0000-0000000000c2", "00000000-0000-0000-0000-0000000000c3"
+	titles := &fakeTitles{titles: map[string]string{
+		bob + "|conversation|" + g1: "Lab", bob + "|conversation|" + g2: "Reading group",
+		bob + "|conversation|" + "00000000-0000-0000-0000-0000000000aa": "never asked",
+	}}
+	svc := New(newFakeStore(), WithSubjectTitles(titles))
+	for _, g := range []string{g1, g2, g3} {
+		if err := svc.GroupMembersAdded(ctx, g, ada, []string{bob}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := svc.AttachmentBlocked(ctx, g1, bob); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ConnectionRequestSent(ctx, "00000000-0000-0000-0000-0000000000aa", cy, bob); err != nil {
+		t.Fatal(err)
+	}
+	items := list(t, svc, bob)
+	if len(titles.calls) != 1 || titles.calls[0] != fmt.Sprintf("%s conversation [%s %s %s]", bob, g3, g2, g1) {
+		t.Errorf("calls = %v", titles.calls)
+	}
+	got := map[string]string{}
+	for _, it := range items {
+		if it.Subject != nil {
+			if it.Type != domain.TypeGroupAdded || it.Subject.Kind != domain.SubjectConversation || it.Subject.ID != it.SubjectID {
+				t.Errorf("subject on %+v", it)
+			}
+			got[it.SubjectID] = it.Subject.Title
+		}
+	}
+	if len(got) != 2 || got[g1] != "Lab" || got[g2] != "Reading group" {
+		t.Errorf("subjects = %v", got)
+	}
+
+	// Get, which the real-time event uses, fills it too.
+	one, err := svc.Get(ctx, bob, items[len(items)-1].ID) // the oldest: g1's
+	if err != nil || one.Subject == nil || one.Subject.Title != "Lab" {
+		t.Errorf("Get = %+v, %v", one.Subject, err)
+	}
+	// A failure to read the titles fails the list.
+	titles.err = errors.New("down")
+	if _, err := svc.List(ctx, bob, "", nil); err == nil {
+		t.Error("the list ignored the failure")
+	}
+	// Without a reader, nothing has a subject.
+	plain := New(newFakeStore())
+	if err := plain.GroupMembersAdded(ctx, g1, ada, []string{bob}); err != nil {
+		t.Fatal(err)
+	}
+	if it := list(t, plain, bob); it[0].Subject != nil {
+		t.Errorf("subject without a reader: %+v", it[0].Subject)
 	}
 }

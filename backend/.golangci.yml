@@ -107,6 +107,13 @@ linters:
             - $gostd
             - golang.org/x/image
             - github.com/ARAFATH-SH/researchsphere/backend/internal/media/domain
+        # The ClamAV client sees only a TCP socket and the media domain (FR-16.7).
+        adapter-clamav:
+          files: ["**/internal/media/adapter/clamav/**"]
+          list-mode: strict
+          allow:
+            - $gostd
+            - github.com/ARAFATH-SH/researchsphere/backend/internal/media/domain
         # The OpenAlex client sees only HTTP and the profile domain: no database, Redis or
         # generated API code (FR-5.2).
         adapter-openalex:

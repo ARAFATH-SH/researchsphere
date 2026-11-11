@@ -48,6 +48,15 @@ func (s *Store) UserVisible(ctx context.Context, userID string) (bool, error) {
 	return v, nil
 }
 
+// UsersVisible leaves out IDs that are not UUIDs.
+func (s *Store) UsersVisible(ctx context.Context, ids []string) ([]string, error) {
+	rows, err := s.q(ctx).UsersVisible(ctx, parseUUIDs(ids))
+	if err != nil {
+		return nil, fmt.Errorf("check users: %w", err)
+	}
+	return uuidStrings(rows), nil
+}
+
 // FindSent finds nothing for IDs that are not UUIDs.
 func (s *Store) FindSent(ctx context.Context, senderID, clientID string) (domain.Sent, bool, error) {
 	sender, ok1 := parseUUID(senderID)
@@ -62,7 +71,11 @@ func (s *Store) FindSent(ctx context.Context, senderID, clientID string) (domain
 	if err != nil {
 		return domain.Sent{}, false, fmt.Errorf("find sent message: %w", err)
 	}
-	m := message(r.ID, r.ConversationID, r.SenderID, r.Body, r.ClientID, r.CreatedAt)
+	m := message(sqlcgen.Message{
+		ID: r.ID, ConversationID: r.ConversationID, SenderID: r.SenderID, Body: r.Body, ClientID: r.ClientID,
+		CreatedAt: r.CreatedAt, EditedAt: r.EditedAt, DeletedAt: r.DeletedAt, Kind: r.Kind, Event: r.Event, EventData: r.EventData,
+		HasAttachments: r.HasAttachments,
+	})
 	return domain.Sent{Message: m, State: domain.State(r.State)}, true, nil
 }
 
@@ -168,8 +181,15 @@ func (s *Store) AddMessage(ctx context.Context, m domain.Message) (domain.Messag
 	if !ok1 || !ok2 || !ok3 {
 		return domain.Message{}, false, fmt.Errorf("add message: conversation %q, sender %q or client ID %q is not a UUID", m.ConversationID, m.SenderID, m.ClientID)
 	}
+	if m.Body == nil && !m.HasAttachments {
+		return domain.Message{}, false, errors.New("add message: no body and no attachments")
+	}
 	q := s.q(ctx)
-	r, err := q.InsertMessage(ctx, sqlcgen.InsertMessageParams{ConversationID: conv, SenderID: sender, Body: m.Body, ClientID: client})
+	arg := sqlcgen.InsertMessageParams{ConversationID: conv, SenderID: sender, ClientID: client, HasAttachments: m.HasAttachments}
+	if m.Body != nil {
+		arg.Body = pgtype.Text{String: *m.Body, Valid: true}
+	}
+	r, err := q.InsertMessage(ctx, arg)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Message{}, false, nil
 	}
@@ -182,7 +202,7 @@ func (s *Store) AddMessage(ctx context.Context, m domain.Message) (domain.Messag
 	if _, err := q.MoveReadMarker(ctx, sqlcgen.MoveReadMarkerParams{MessageID: r.ID, ConversationID: conv, UserID: sender}); err != nil {
 		return domain.Message{}, false, fmt.Errorf("move sender's read marker: %w", err)
 	}
-	return message(r.ID, r.ConversationID, r.SenderID, r.Body, r.ClientID, r.CreatedAt), true, nil
+	return message(r), true, nil
 }
 
 // FindConversation returns domain.ErrNotFound for a bad ID or a non-member.
@@ -200,7 +220,11 @@ func (s *Store) FindConversation(ctx context.Context, id, memberID string) (doma
 		return domain.Conversation{}, fmt.Errorf("find conversation: %w", err)
 	}
 	c := conversation(r.ID, r.State, r.RequestedBy, r.LastMessageAt)
+	c.Kind, c.Name, c.JoinedAt = domain.Kind(r.Kind), r.Name, r.MyJoinedAt.Time
 	c.OtherID, c.OtherReadID = r.OtherID.String(), uuidPtr(r.OtherReadID)
+	if c.IsGroup() {
+		c.MyRole = domain.Role(r.MyRole)
+	}
 	return c, nil
 }
 
@@ -218,7 +242,11 @@ func (s *Store) FindItem(ctx context.Context, id, memberID string) (domain.Item,
 	if err != nil {
 		return domain.Item{}, fmt.Errorf("find conversation: %w", err)
 	}
-	return item(sqlcgen.ListItemsRow(r)), nil
+	it := item(sqlcgen.ListItemsRow(r))
+	if err := s.fillAvatars(ctx, memberID, []*domain.Item{&it}); err != nil {
+		return domain.Item{}, err
+	}
+	return it, nil
 }
 
 // ListItems finds nothing for a member that is not a UUID. The cursor's ID was checked
@@ -243,19 +271,25 @@ func (s *Store) ListItems(ctx context.Context, memberID string, box domain.Box, 
 		return nil, fmt.Errorf("list conversations: %w", err)
 	}
 	items := make([]domain.Item, len(rows))
+	ptrs := make([]*domain.Item, len(rows))
 	for i, r := range rows {
 		items[i] = item(r)
+		ptrs[i] = &items[i]
+	}
+	if err := s.fillAvatars(ctx, memberID, ptrs); err != nil {
+		return nil, err
 	}
 	return items, nil
 }
 
 // ListMessages finds nothing for a conversation that is not a UUID.
-func (s *Store) ListMessages(ctx context.Context, conversationID, before string, limit int) ([]domain.Message, error) {
-	conv, ok := parseUUID(conversationID)
-	if !ok {
+func (s *Store) ListMessages(ctx context.Context, conversationID, viewerID, before string, limit int) ([]domain.Message, error) {
+	conv, ok1 := parseUUID(conversationID)
+	viewer, ok2 := parseUUID(viewerID)
+	if !ok1 || !ok2 {
 		return nil, nil
 	}
-	arg := sqlcgen.ListMessagesParams{ConversationID: conv, Lim: int32(min(limit, 1000))} //nolint:gosec // bounded above
+	arg := sqlcgen.ListMessagesParams{ConversationID: conv, ViewerID: viewer, Lim: int32(min(limit, 1000))} //nolint:gosec // bounded above
 	if before != "" {
 		id, ok := parseUUID(before)
 		if !ok {
@@ -267,21 +301,82 @@ func (s *Store) ListMessages(ctx context.Context, conversationID, before string,
 	if err != nil {
 		return nil, fmt.Errorf("list messages: %w", err)
 	}
-	items := make([]domain.Message, len(rows))
+	out := make([]domain.Message, len(rows))
 	for i, r := range rows {
-		items[i] = message(r.ID, r.ConversationID, r.SenderID, r.Body, r.ClientID, r.CreatedAt)
+		out[i] = message(sqlcgen.Message(r))
 	}
-	return items, nil
+	return out, nil
+}
+
+// FindOwnMessage returns domain.ErrNotFound for IDs that are not UUIDs.
+func (s *Store) FindOwnMessage(ctx context.Context, conversationID, messageID, senderID string) (domain.Message, error) {
+	return s.ownMessage(ctx, conversationID, messageID, senderID, false)
+}
+
+// LockOwnMessage holds the row until the transaction the context carries ends.
+func (s *Store) LockOwnMessage(ctx context.Context, conversationID, messageID, senderID string) (domain.Message, error) {
+	return s.ownMessage(ctx, conversationID, messageID, senderID, true)
+}
+
+func (s *Store) ownMessage(ctx context.Context, conversationID, messageID, senderID string, lock bool) (domain.Message, error) {
+	conv, ok1 := parseUUID(conversationID)
+	id, ok2 := parseUUID(messageID)
+	sender, ok3 := parseUUID(senderID)
+	if !ok1 || !ok2 || !ok3 {
+		return domain.Message{}, domain.ErrNotFound
+	}
+	var (
+		r   sqlcgen.Message
+		err error
+	)
+	if lock {
+		r, err = s.q(ctx).LockOwnMessage(ctx, sqlcgen.LockOwnMessageParams{ConversationID: conv, ID: id, SenderID: sender})
+	} else {
+		r, err = s.q(ctx).FindOwnMessage(ctx, sqlcgen.FindOwnMessageParams{ConversationID: conv, ID: id, SenderID: sender})
+	}
+	return stored(r, err, "find own message")
+}
+
+// EditMessage needs a transaction in the context only to run with the caller's locks; its
+// two writes are one statement.
+func (s *Store) EditMessage(ctx context.Context, messageID, body string) (domain.Message, error) {
+	id, ok := parseUUID(messageID)
+	if !ok {
+		return domain.Message{}, domain.ErrNotFound
+	}
+	r, err := s.q(ctx).EditMessage(ctx, sqlcgen.EditMessageParams{ID: id, Body: body})
+	return stored(r, err, "edit message")
+}
+
+// DeleteMessage keeps the text and leaves the tombstone in one statement.
+func (s *Store) DeleteMessage(ctx context.Context, messageID string) (domain.Message, error) {
+	id, ok := parseUUID(messageID)
+	if !ok {
+		return domain.Message{}, domain.ErrNotFound
+	}
+	r, err := s.q(ctx).DeleteMessage(ctx, id)
+	return stored(r, err, "delete message")
+}
+
+// stored maps a row of messages, and no row to domain.ErrNotFound.
+func stored(r sqlcgen.Message, err error, what string) (domain.Message, error) {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Message{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.Message{}, fmt.Errorf("%s: %w", what, err)
+	}
+	return message(r), nil
 }
 
 // MessageIn is false for IDs that are not UUIDs.
-func (s *Store) MessageIn(ctx context.Context, conversationID, messageID string) (bool, error) {
+func (s *Store) MessageIn(ctx context.Context, conversationID, messageID string, since time.Time) (bool, error) {
 	conv, ok1 := parseUUID(conversationID)
 	id, ok2 := parseUUID(messageID)
 	if !ok1 || !ok2 {
 		return false, nil
 	}
-	v, err := s.q(ctx).MessageIn(ctx, sqlcgen.MessageInParams{ConversationID: conv, ID: id})
+	v, err := s.q(ctx).MessageIn(ctx, sqlcgen.MessageInParams{ConversationID: conv, ID: id, Since: timestamptz(since)})
 	if err != nil {
 		return false, fmt.Errorf("find message: %w", err)
 	}
@@ -355,34 +450,67 @@ func conversation(id pgtype.UUID, state string, requestedBy pgtype.UUID, last pg
 	return domain.Conversation{ID: id.String(), State: domain.State(state), RequestedBy: uuidPtr(requestedBy), LastMessageAt: last.Time}
 }
 
-func message(id, conversationID, senderID pgtype.UUID, body string, clientID pgtype.UUID, createdAt pgtype.Timestamptz) domain.Message {
+// message maps a row of messages. An invalid UUID (no sender, no client ID) maps to "".
+func message(r sqlcgen.Message) domain.Message {
 	return domain.Message{
-		ID: id.String(), ConversationID: conversationID.String(), SenderID: senderID.String(),
-		Body: body, ClientID: clientID.String(), CreatedAt: createdAt.Time,
+		ID: r.ID.String(), ConversationID: r.ConversationID.String(), SenderID: r.SenderID.String(),
+		Kind: domain.MessageKind(r.Kind), Event: systemEvent(r.Event, r.EventData),
+		Body: textPtr(r.Body), ClientID: r.ClientID.String(), CreatedAt: r.CreatedAt.Time,
+		EditedAt: timePtr(r.EditedAt), DeletedAt: timePtr(r.DeletedAt), HasAttachments: r.HasAttachments,
 	}
+}
+
+func messages(rows []sqlcgen.Message) []domain.Message {
+	out := make([]domain.Message, len(rows))
+	for i, r := range rows {
+		out[i] = message(r)
+	}
+	return out
+}
+
+func timestamptz(t time.Time) pgtype.Timestamptz {
+	return pgtype.Timestamptz{Time: t, Valid: true}
+}
+
+func timePtr(t pgtype.Timestamptz) *time.Time {
+	if !t.Valid {
+		return nil
+	}
+	return &t.Time
 }
 
 func item(r sqlcgen.ListItemsRow) domain.Item {
 	it := domain.Item{
 		Conversation: conversation(r.ID, r.State, r.RequestedBy, r.LastMessageAt),
-		Other: domain.Person{
+		UnreadCount:  int(r.UnreadCount), BlockedByMe: r.BlockedByMe, BlockedMe: r.BlockedMe,
+	}
+	it.Kind, it.Name, it.JoinedAt = domain.Kind(r.Kind), r.Name, r.MyJoinedAt.Time
+	if it.IsGroup() {
+		it.MyRole = domain.Role(r.MyRole)
+		it.Group = &domain.GroupInfo{Name: r.Name, MemberCount: int(r.MemberCount), MyRole: it.MyRole, Avatars: []domain.Person{}}
+	} else {
+		it.Other = domain.Person{
 			UserID: r.OtherID.String(), FullName: r.FullName, Headline: textPtr(r.Headline),
 			PhotoFileID: uuidPtr(r.PhotoFileID), Available: r.OtherAvailable,
-		},
-		UnreadCount: int(r.UnreadCount), BlockedByMe: r.BlockedByMe, BlockedMe: r.BlockedMe,
+		}
+		it.OtherID, it.OtherReadID = r.OtherID.String(), uuidPtr(r.OtherReadID)
 	}
-	it.OtherID, it.OtherReadID = r.OtherID.String(), uuidPtr(r.OtherReadID)
-	if r.LastSenderID.Valid {
-		it.LastMessage = &domain.Preview{SenderID: r.LastSenderID.String(), Body: r.LastPreview, CreatedAt: timeOf(r.LastCreatedAt)}
+	if r.LastCreatedAt.Valid {
+		// The query cannot say the preview is null; last_deleted and last_kind do.
+		it.LastMessage = &domain.Preview{
+			SenderID: r.LastSenderID.String(), SenderName: textPtr(r.LastSenderName), Kind: domain.MessageKind(r.LastKind),
+			Deleted: r.LastDeleted, CreatedAt: r.LastCreatedAt.Time, AttachmentCount: int(r.LastAttachmentCount),
+		}
+		switch {
+		case r.LastEvent.Valid:
+			ev := domain.EventType(r.LastEvent.String)
+			it.LastMessage.Event = &ev
+		case !r.LastDeleted && r.LastPreview != "": // a message with only attachments has no text
+			body := r.LastPreview
+			it.LastMessage.Body = &body
+		}
 	}
 	return it
-}
-
-func timeOf(t pgtype.Timestamptz) time.Time {
-	if !t.Valid {
-		return time.Time{}
-	}
-	return t.Time
 }
 
 // ActivePeers finds nothing for a user who is not a UUID.
@@ -404,13 +532,7 @@ func (s *Store) VisiblePeers(ctx context.Context, viewerID string, ids []string)
 	if !ok {
 		return nil, nil
 	}
-	parsed := make([]pgtype.UUID, 0, len(ids))
-	for _, id := range ids {
-		if u, ok := parseUUID(id); ok {
-			parsed = append(parsed, u)
-		}
-	}
-	rows, err := s.q(ctx).VisiblePeers(ctx, sqlcgen.VisiblePeersParams{UserID: viewer, Ids: parsed})
+	rows, err := s.q(ctx).VisiblePeers(ctx, sqlcgen.VisiblePeersParams{UserID: viewer, Ids: parseUUIDs(ids)})
 	if err != nil {
 		return nil, fmt.Errorf("list visible peers: %w", err)
 	}
@@ -459,6 +581,17 @@ func uuidStrings(ids []pgtype.UUID) []string {
 	return out
 }
 
+// parseUUIDs leaves out the values that are not UUIDs.
+func parseUUIDs(ids []string) []pgtype.UUID {
+	out := make([]pgtype.UUID, 0, len(ids))
+	for _, id := range ids {
+		if u, ok := parseUUID(id); ok {
+			out = append(out, u)
+		}
+	}
+	return out
+}
+
 func parseUUID(s string) (pgtype.UUID, bool) {
 	var id pgtype.UUID
 	if err := id.Scan(s); err != nil {
@@ -480,4 +613,78 @@ func textPtr(t pgtype.Text) *string {
 		return nil
 	}
 	return &t.String
+}
+
+// ListMessagesAfter finds nothing for a conversation that is not a UUID.
+func (s *Store) ListMessagesAfter(ctx context.Context, conversationID, viewerID, after string, limit int) ([]domain.Message, error) {
+	conv, ok1 := parseUUID(conversationID)
+	viewer, ok2 := parseUUID(viewerID)
+	if !ok1 || !ok2 {
+		return nil, nil
+	}
+	id, ok := parseUUID(after)
+	if !ok {
+		return nil, domain.ErrInvalidCursor
+	}
+	rows, err := s.q(ctx).ListMessagesAfter(ctx, sqlcgen.ListMessagesAfterParams{
+		ConversationID: conv, ViewerID: viewer, AfterID: id, Lim: int32(min(limit, 1000)), //nolint:gosec // bounded above
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list newer messages: %w", err)
+	}
+	out := make([]domain.Message, len(rows))
+	for i, r := range rows {
+		out[i] = message(sqlcgen.Message(r))
+	}
+	return out, nil
+}
+
+// FindVisibleMessage returns domain.ErrNotFound for IDs that are not UUIDs.
+func (s *Store) FindVisibleMessage(ctx context.Context, conversationID, viewerID, messageID string) (domain.Message, error) {
+	conv, ok1 := parseUUID(conversationID)
+	viewer, ok2 := parseUUID(viewerID)
+	id, ok3 := parseUUID(messageID)
+	if !ok1 || !ok2 || !ok3 {
+		return domain.Message{}, domain.ErrNotFound
+	}
+	r, err := s.q(ctx).FindVisibleMessage(ctx, sqlcgen.FindVisibleMessageParams{ConversationID: conv, ViewerID: viewer, ID: id})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Message{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.Message{}, fmt.Errorf("find message: %w", err)
+	}
+	return message(sqlcgen.Message(r)), nil
+}
+
+// People skips references whose IDs are not UUIDs.
+func (s *Store) People(ctx context.Context, viewerID string, refs []domain.PersonRef) ([]domain.PagePerson, error) {
+	viewer, ok := parseUUID(viewerID)
+	if !ok || len(refs) == 0 {
+		return nil, nil
+	}
+	arg := sqlcgen.PagePeopleParams{ViewerID: viewer}
+	for _, r := range refs {
+		conv, ok1 := parseUUID(r.ConversationID)
+		user, ok2 := parseUUID(r.UserID)
+		if ok1 && ok2 {
+			arg.ConversationIds = append(arg.ConversationIds, conv)
+			arg.UserIds = append(arg.UserIds, user)
+		}
+	}
+	if len(arg.UserIds) == 0 {
+		return nil, nil
+	}
+	rows, err := s.q(ctx).PagePeople(ctx, arg)
+	if err != nil {
+		return nil, fmt.Errorf("find people: %w", err)
+	}
+	out := make([]domain.PagePerson, len(rows))
+	for i, r := range rows {
+		out[i] = domain.PagePerson{UserID: r.ID.String(), FullName: r.FullName, Available: r.Available}
+		if r.Available {
+			out[i].PhotoFileID = uuidPtr(r.PhotoFileID)
+		}
+	}
+	return out, nil
 }

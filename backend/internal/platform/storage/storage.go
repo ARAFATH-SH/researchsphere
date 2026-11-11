@@ -15,7 +15,7 @@ import (
 // permission check.
 const MaxPresignExpiry = time.Hour
 
-// ErrNotFound is returned by Stat when no object has the key.
+// ErrNotFound is returned by Stat and Get when no object has the key.
 var ErrNotFound = errors.New("storage: object not found")
 
 // ObjectInfo describes a stored object.
@@ -36,6 +36,12 @@ type Storage interface {
 	// PresignGet returns a URL that reads the object without credentials until expiry
 	// passes. expiry must be more than 0 and at most MaxPresignExpiry.
 	PresignGet(ctx context.Context, key string, expiry time.Duration) (*url.URL, error)
+	// PresignDownload is PresignGet for a file to save, never to show (NFR-13, FR-16.7): the
+	// object's answer carries Content-Disposition: attachment with filename and the given
+	// content type, whatever was stored with the object.
+	PresignDownload(ctx context.Context, key string, expiry time.Duration, filename, contentType string) (*url.URL, error)
+	// Get opens the object for reading, or returns ErrNotFound. Close the reader.
+	Get(ctx context.Context, key string) (io.ReadCloser, error)
 	// Stat returns the object's details, or ErrNotFound.
 	Stat(ctx context.Context, key string) (ObjectInfo, error)
 	// Ping reports whether the bucket can be reached (the health check).
