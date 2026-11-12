@@ -1,11 +1,16 @@
 // Package smtp implements the auth domain's Mailer over SMTP. In development it talks
-// to Mailpit (docker-compose.yml), which shows the messages at http://localhost:8025.
+// to Mailpit (docker-compose.yml), which shows the messages at http://localhost:8025. In
+// production it talks to a mail provider (Brevo, Resend, Amazon SES or any other SMTP
+// relay), chosen by settings alone (FR-17.1, docs/email-delivery.md).
 package smtp
 
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/tls"
+	"crypto/x509"
+	"errors"
 	"fmt"
 	"mime"
 	"mime/quotedprintable"
@@ -22,20 +27,57 @@ import (
 // DefaultTimeout bounds one delivery when the context has no deadline.
 const DefaultTimeout = 10 * time.Second
 
-// Mailer sends plain-text email through one SMTP server. It uses STARTTLS when the
-// server offers it; it does not log in (Mailpit needs neither).
+// TLSMode says how the connection to the SMTP server is encrypted (SMTP_TLS).
+type TLSMode string
+
+// TLS modes.
+const (
+	// StartTLS connects in plain text and requires the server to offer STARTTLS before
+	// anything else is sent (usually port 587). A server without it is an error, never a
+	// silent fallback to plain text.
+	StartTLS TLSMode = "starttls"
+	// ImplicitTLS speaks TLS from the first byte (usually port 465).
+	ImplicitTLS TLSMode = "tls"
+	// NoTLS sends in plain text. Only for Mailpit; the config refuses it in production.
+	NoTLS TLSMode = "none"
+)
+
+// Options configure a Mailer. Password is a secret: never log it.
+type Options struct {
+	Host string
+	Port int
+	From mail.Address
+	TLS  TLSMode
+	// Username and Password log in with AUTH PLAIN when Username is set. net/smtp sends
+	// them only over TLS, or in plain text to localhost.
+	Username string
+	Password string
+}
+
+// Mailer sends plain-text email through one SMTP server.
 type Mailer struct {
-	addr string
-	host string
-	from mail.Address
-	now  func() time.Time
+	addr     string
+	host     string
+	from     mail.Address
+	mode     TLSMode
+	username string
+	password string
+	now      func() time.Time
+	rootCAs  *x509.CertPool // nil uses the system's; tests trust their own certificate
 }
 
 var _ domain.Mailer = (*Mailer)(nil)
 
-// New returns a Mailer for the server at host:port that sends from from.
-func New(host string, port int, from mail.Address) *Mailer {
-	return &Mailer{addr: net.JoinHostPort(host, strconv.Itoa(port)), host: host, from: from, now: time.Now}
+// New returns a Mailer for the server o names.
+func New(o Options) *Mailer {
+	return &Mailer{
+		addr: net.JoinHostPort(o.Host, strconv.Itoa(o.Port)), host: o.Host, from: o.From, mode: o.TLS,
+		username: o.Username, password: o.Password, now: time.Now,
+	}
+}
+
+func (m *Mailer) tlsConfig() *tls.Config {
+	return &tls.Config{ServerName: m.host, MinVersion: tls.VersionTLS12, RootCAs: m.rootCAs}
 }
 
 // SendVerification sends the verification link. Errors never contain the message,
@@ -89,8 +131,14 @@ func (m *Mailer) send(ctx context.Context, to mail.Address, subject, body string
 		ctx, cancel = context.WithTimeout(ctx, DefaultTimeout)
 		defer cancel()
 	}
-	var d net.Dialer
-	conn, err := d.DialContext(ctx, "tcp", m.addr)
+	var conn net.Conn
+	if m.mode == ImplicitTLS {
+		d := tls.Dialer{Config: m.tlsConfig()}
+		conn, err = d.DialContext(ctx, "tcp", m.addr)
+	} else {
+		var d net.Dialer
+		conn, err = d.DialContext(ctx, "tcp", m.addr)
+	}
 	if err != nil {
 		return fmt.Errorf("smtp: dial: %w", err)
 	}
@@ -107,9 +155,18 @@ func (m *Mailer) send(ctx context.Context, to mail.Address, subject, body string
 	}
 	defer func() { _ = c.Close() }()
 
-	if ok, _ := c.Extension("STARTTLS"); ok {
-		if err := c.StartTLS(&tls.Config{ServerName: m.host, MinVersion: tls.VersionTLS12}); err != nil {
+	if m.mode == StartTLS {
+		if ok, _ := c.Extension("STARTTLS"); !ok {
+			return errNoStartTLS
+		}
+		if err := c.StartTLS(m.tlsConfig()); err != nil {
 			return fmt.Errorf("smtp: starttls: %w", err)
+		}
+	}
+	if m.username != "" {
+		// The error may quote the server's reply; it never holds the password.
+		if err := c.Auth(smtp.PlainAuth("", m.username, m.password, m.host)); err != nil {
+			return fmt.Errorf("smtp: auth: %w", err)
 		}
 	}
 	if err := c.Mail(m.from.Address); err != nil {
@@ -134,6 +191,19 @@ func (m *Mailer) send(ctx context.Context, to mail.Address, subject, body string
 	return nil
 }
 
+// errNoStartTLS is returned when SMTP_TLS=starttls and the server does not offer it.
+var errNoStartTLS = errors.New("smtp: the server does not offer STARTTLS")
+
+// messageID returns a new Message-ID at the sender's domain. Providers and DKIM signing
+// expect every message to have one.
+func (m *Mailer) messageID() string {
+	domainPart := "researchsphere.local"
+	if _, d, ok := strings.Cut(m.from.Address, "@"); ok && d != "" {
+		domainPart = d
+	}
+	return "<" + strings.ToLower(rand.Text()) + "@" + domainPart + ">"
+}
+
 // message builds the headers and a quoted-printable UTF-8 body. mail.Address.String
 // quotes or encodes the display name, so a name cannot add headers.
 func (m *Mailer) message(to mail.Address, subject, body string) ([]byte, error) {
@@ -146,6 +216,7 @@ func (m *Mailer) message(to mail.Address, subject, body string) ([]byte, error) 
 	header("To", to.String())
 	header("Subject", mime.QEncoding.Encode("utf-8", subject))
 	header("Date", m.now().Format(time.RFC1123Z))
+	header("Message-ID", m.messageID())
 	header("MIME-Version", "1.0")
 	header("Content-Type", "text/plain; charset=utf-8")
 	header("Content-Transfer-Encoding", "quoted-printable")

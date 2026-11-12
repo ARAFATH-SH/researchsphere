@@ -51,3 +51,24 @@ func TestRefreshSignsTheCurrentRole(t *testing.T) {
 		t.Errorf("AccessToken = %q, want %q", res.AccessToken, want)
 	}
 }
+
+// FR-17.3: the access token carries whether the email address is verified, read from the
+// user at every refresh. Login refuses unverified accounts (FR-1.4), so this can only happen
+// to a session whose user lost the verified state; ORCID sign-up (8A.3) will make it common.
+func TestRefreshSignsTheCurrentVerifiedState(t *testing.T) {
+	e := newEnv()
+	id := verifiedUser(t, e, "ada@example.org")
+	refresh := loggedIn(t, e, "ada@example.org")
+
+	u := e.store.users["ada@example.org"]
+	u.EmailVerifiedAt = nil
+	e.store.users["ada@example.org"] = u
+	e.clock.t = e.clock.t.Add(20 * time.Minute)
+	res, err := e.svc.Refresh(context.Background(), refresh)
+	if err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+	if want := "access-for-" + id + "-as-researcher-unverified"; res.AccessToken != want {
+		t.Errorf("AccessToken = %q, want %q", res.AccessToken, want)
+	}
+}

@@ -17,11 +17,11 @@ func TestRequireAuth(t *testing.T) {
 	start := time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC)
 	signer := accesstoken.New([]byte("test-secret-that-is-at-least-32-bytes-long"), 15*time.Minute)
 	other := accesstoken.New([]byte("another-secret-of-at-least-32-bytes!!"), 15*time.Minute)
-	valid, _, err := signer.Sign("user-1", "admin", start)
+	valid, _, err := signer.Sign("user-1", "admin", true, start)
 	if err != nil {
 		t.Fatal(err)
 	}
-	foreign, _, err := other.Sign("user-1", "admin", start)
+	foreign, _, err := other.Sign("user-1", "admin", true, start)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,5 +93,32 @@ func TestRequireAuth(t *testing.T) {
 				t.Errorf("role in context = %q, want %q", gotRole, tt.wantRole)
 			}
 		})
+	}
+}
+
+// FR-17.3: RequireAuth puts the token's email verification state in the context, and a
+// context without it counts as unverified.
+func TestRequireAuthEmailVerified(t *testing.T) {
+	signer := accesstoken.New([]byte("test-secret-that-is-at-least-32-bytes-long"), 15*time.Minute)
+	if EmailVerified(context.Background()) {
+		t.Error("EmailVerified of an empty context = true, want false")
+	}
+	for _, verified := range []bool{true, false} {
+		token, _, err := signer.Sign("user-1", "researcher", verified, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got *bool
+		h := RequireAuth(signer, time.Now)(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+			v := EmailVerified(r.Context())
+			got = &v
+		}))
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/auth/me", nil)
+		req = req.WithContext(context.WithValue(req.Context(), gen.CookieAuthScopes, []string{}))
+		req.Header.Set("Cookie", AccessCookie+"="+token)
+		h.ServeHTTP(httptest.NewRecorder(), req)
+		if got == nil || *got != verified {
+			t.Errorf("signed verified=%v: EmailVerified = %v", verified, got)
+		}
 	}
 }

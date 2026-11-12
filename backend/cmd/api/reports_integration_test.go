@@ -26,7 +26,7 @@ func (e mediaEnv) asAdmin(t *testing.T, adminID, method, path, body string) (int
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	token, _, err := accesstoken.New([]byte(testSecret), accessTTL).Sign(adminID, "admin", time.Now())
+	token, _, err := accesstoken.New([]byte(testSecret), accessTTL).Sign(adminID, "admin", true, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}

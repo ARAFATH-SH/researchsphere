@@ -270,7 +270,8 @@ func (q *Queries) FindSessionByRetiredTokenForUpdate(ctx context.Context, tokenH
 }
 
 const findSessionForUpdate = `-- name: FindSessionForUpdate :one
-SELECT s.id, s.user_id, s.expires_at, s.revoked_at, u.suspended_at, u.suspended_until, u.role
+SELECT s.id, s.user_id, s.expires_at, s.revoked_at, u.suspended_at, u.suspended_until, u.role,
+       (u.email_verified_at IS NOT NULL)::boolean AS user_verified
 FROM sessions s
 JOIN users u ON u.id = s.user_id
 WHERE s.refresh_token_hash = $1
@@ -285,6 +286,7 @@ type FindSessionForUpdateRow struct {
 	SuspendedAt    pgtype.Timestamptz
 	SuspendedUntil pgtype.Timestamptz
 	Role           UserRole
+	UserVerified   bool
 }
 
 func (q *Queries) FindSessionForUpdate(ctx context.Context, refreshTokenHash string) (FindSessionForUpdateRow, error) {
@@ -298,6 +300,7 @@ func (q *Queries) FindSessionForUpdate(ctx context.Context, refreshTokenHash str
 		&i.SuspendedAt,
 		&i.SuspendedUntil,
 		&i.Role,
+		&i.UserVerified,
 	)
 	return i, err
 }
@@ -454,6 +457,47 @@ func (q *Queries) InsertRetiredToken(ctx context.Context, arg InsertRetiredToken
 	return err
 }
 
+const listUnverifiedUsersBefore = `-- name: ListUnverifiedUsersBefore :many
+
+SELECT id
+FROM users
+WHERE email_verified_at IS NULL
+  AND created_at < $1
+  AND NOT (lower(split_part(email::text, '@', 2)) = ANY(coalesce($2::text[], '{}')))
+ORDER BY created_at, id
+LIMIT $3
+`
+
+type ListUnverifiedUsersBeforeParams struct {
+	Cutoff      pgtype.Timestamptz
+	SkipDomains []string
+	MaxUsers    int32
+}
+
+// Email trust (FR-17.4).
+// Accounts still unverified that signed up before the cutoff, oldest first, leaving out the
+// test email domains (FR-17.9; the API passes none in production). Uses
+// users_unverified_created_idx.
+func (q *Queries) ListUnverifiedUsersBefore(ctx context.Context, arg ListUnverifiedUsersBeforeParams) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, listUnverifiedUsersBefore, arg.Cutoff, arg.SkipDomains, arg.MaxUsers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var id pgtype.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUsers = `-- name: ListUsers :many
 
 SELECT u.id, u.email, u.role, u.email_verified_at, u.suspended_at, u.suspended_until, u.suspension_reason, u.created_at, p.full_name
@@ -528,6 +572,27 @@ FOR UPDATE OF p
 func (q *Queries) LockOwnedProjects(ctx context.Context, userID pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, lockOwnedProjects, userID)
 	return err
+}
+
+const lockUnverifiedUserBefore = `-- name: LockUnverifiedUserBefore :one
+SELECT (email_verified_at IS NULL AND created_at < $1)::boolean AS purge
+FROM users
+WHERE id = $2
+FOR UPDATE
+`
+
+type LockUnverifiedUserBeforeParams struct {
+	Cutoff pgtype.Timestamptz
+	ID     pgtype.UUID
+}
+
+// Locks the user until the transaction ends and says whether it is still unverified and old
+// enough, so a user who verifies while the purge runs is kept.
+func (q *Queries) LockUnverifiedUserBefore(ctx context.Context, arg LockUnverifiedUserBeforeParams) (bool, error) {
+	row := q.db.QueryRow(ctx, lockUnverifiedUserBefore, arg.Cutoff, arg.ID)
+	var purge bool
+	err := row.Scan(&purge)
+	return purge, err
 }
 
 const lockUser = `-- name: LockUser :one

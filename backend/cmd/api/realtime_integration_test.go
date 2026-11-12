@@ -57,7 +57,7 @@ func wsURL(srv *httptest.Server) string {
 
 func tokenFor(t *testing.T, userID string) string {
 	t.Helper()
-	token, _, err := accesstoken.New([]byte(testSecret), accessTTL).Sign(userID, "researcher", time.Now())
+	token, _, err := accesstoken.New([]byte(testSecret), accessTTL).Sign(userID, "researcher", true, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}

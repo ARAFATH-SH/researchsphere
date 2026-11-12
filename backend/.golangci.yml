@@ -129,6 +129,14 @@ linters:
           allow:
             - $gostd
             - github.com/ARAFATH-SH/researchsphere/backend/internal/profile/domain
+        # The email domain checker sees only DNS, its embedded list and the auth domain
+        # (FR-17.2).
+        adapter-emaildomain:
+          files: ["**/internal/auth/adapter/emaildomain/**"]
+          list-mode: strict
+          allow:
+            - $gostd
+            - github.com/ARAFATH-SH/researchsphere/backend/internal/auth/domain
     sloglint:
       attr-only: false
       no-mixed-args: true

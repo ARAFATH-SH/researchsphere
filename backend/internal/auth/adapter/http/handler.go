@@ -31,9 +31,12 @@ const (
 	CodePasswordTooShort = "password_too_short"
 	CodePasswordTooLong  = "password_too_long"
 	CodeEmailTaken       = "email_taken"
-	CodeTokenInvalid     = "token_invalid"
-	CodeTokenUsed        = "token_used"
-	CodeTokenExpired     = "token_expired"
+	// CodeEmailDomainNotAllowed refuses a disposable domain or one that cannot receive
+	// email (FR-17.2). The message is the same for both.
+	CodeEmailDomainNotAllowed = "email_domain_not_allowed"
+	CodeTokenInvalid          = "token_invalid"
+	CodeTokenUsed             = "token_used"
+	CodeTokenExpired          = "token_expired"
 
 	CodeInvalidCredentials = "invalid_credentials" //nolint:gosec // an error code, not a credential
 	CodeEmailNotVerified   = "email_not_verified"
@@ -116,6 +119,14 @@ func (h *Handler) RegisterUser(ctx context.Context, req gen.RegisterUserRequestO
 	})
 	if e, ok := inputError(err); ok {
 		return gen.RegisterUser400JSONResponse(e), nil
+	}
+	if errors.Is(err, domain.ErrEmailDomainNotAllowed) {
+		field := "email"
+		return gen.RegisterUser400JSONResponse{
+			Code:    CodeEmailDomainNotAllowed,
+			Message: "Use a permanent email address you can receive mail at.",
+			Field:   &field,
+		}, nil
 	}
 	if errors.Is(err, domain.ErrEmailTaken) {
 		return gen.RegisterUser409JSONResponse{

@@ -3,6 +3,8 @@ package config
 import (
 	"bytes"
 	"log/slog"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -13,7 +15,8 @@ const (
 	testDBURL    = "postgres://user:" + testPassword + "@localhost:5433/db?sslmode=disable"
 	testRedisURL = "redis://:" + testPassword + "@localhost:6379/0"
 	testSecret   = "test-jwt-secret-0123456789abcdefghij"
-	testS3Secret = "test-s3-secret-key" //nolint:gosec // test value, not a credential
+	testS3Secret = "test-s3-secret-key"     //nolint:gosec // test value, not a credential
+	testSMTPPass = "smtp-secret-do-not-log" //nolint:gosec // test value, not a credential
 )
 
 // validDefaults are served for these settings unless vars sets them (even to "").
@@ -246,7 +249,8 @@ func TestLoadLoginSettings(t *testing.T) {
 }
 
 func TestLogValueHidesSecrets(t *testing.T) {
-	cfg, err := Load(env(map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL}))
+	cfg, err := Load(env(map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL,
+		"SMTP_USERNAME": "apikey", "SMTP_PASSWORD": testSMTPPass}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,7 +258,7 @@ func TestLogValueHidesSecrets(t *testing.T) {
 	slog.New(slog.NewJSONHandler(&buf, nil)).Info("config loaded", "config", cfg)
 
 	out := buf.String()
-	for _, secret := range []string{testPassword, testDBURL, testRedisURL, "postgres://", "redis://", testSecret, testS3Secret} {
+	for _, secret := range []string{testPassword, testDBURL, testRedisURL, "postgres://", "redis://", testSecret, testS3Secret, testSMTPPass} {
 		if strings.Contains(out, secret) {
 			t.Errorf("log line contains %q: %s", secret, out)
 		}
@@ -485,6 +489,121 @@ func TestLoadClamAVAddr(t *testing.T) {
 		v := map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL, "CLAMAV_ADDR": bad}
 		if _, err := Load(env(v)); err == nil || !strings.Contains(err.Error(), "CLAMAV_ADDR") {
 			t.Errorf("CLAMAV_ADDR=%s: error = %v", bad, err)
+		}
+	}
+}
+
+// prodMail is a production mail setup that passes every FR-17.1 check.
+var prodMail = map[string]string{
+	"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL, "APP_ENV": "production",
+	"SMTP_HOST": "smtp-relay.brevo.com", "SMTP_PORT": "587", "SMTP_TLS": "starttls",
+	"SMTP_USERNAME": "apikey", "SMTP_PASSWORD": "provider-key",
+}
+
+// with returns a copy of base with the key and value pairs in kv set.
+func with(base map[string]string, kv ...string) map[string]string {
+	out := maps.Clone(base)
+	for i := 0; i+1 < len(kv); i += 2 {
+		out[kv[i]] = kv[i+1]
+	}
+	return out
+}
+
+// FR-17.1: the provider is chosen by settings alone, and production refuses a setup that
+// would send unencrypted, to this machine or without logging in.
+func TestLoadMailProvider(t *testing.T) {
+	t.Run("development defaults: Mailpit, plain, no login", func(t *testing.T) {
+		cfg, err := Load(env(map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.AppEnv != EnvDevelopment || cfg.SMTPTLS != SMTPTLSNone || cfg.SMTPUsername != "" || cfg.SMTPPassword != "" {
+			t.Errorf("cfg = env %q, tls %q, user %q", cfg.AppEnv, cfg.SMTPTLS, cfg.SMTPUsername)
+		}
+	})
+	t.Run("a valid production setup loads", func(t *testing.T) {
+		cfg, err := Load(env(prodMail))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.AppEnv != EnvProduction || cfg.SMTPTLS != SMTPTLSStartTLS || cfg.SMTPUsername != "apikey" || cfg.SMTPPassword != "provider-key" {
+			t.Errorf("cfg = %+v", cfg)
+		}
+	})
+	t.Run("implicit TLS in production", func(t *testing.T) {
+		if _, err := Load(env(with(prodMail, "SMTP_TLS", "TLS", "SMTP_PORT", "465"))); err != nil {
+			t.Error(err)
+		}
+	})
+
+	refusals := []struct {
+		name string
+		vars map[string]string
+		want string
+	}{
+		{"production without TLS", with(prodMail, "SMTP_TLS", "none"), "SMTP_TLS must be starttls or tls"},
+		{"production with TLS unset (defaults to none)", with(prodMail, "SMTP_TLS", ""), "SMTP_TLS must be starttls or tls"},
+		{"production to localhost", with(prodMail, "SMTP_HOST", "localhost"), "SMTP_HOST must be"},
+		{"production to 127.0.0.1", with(prodMail, "SMTP_HOST", "127.0.0.1"), "SMTP_HOST must be"},
+		{"production to ::1", with(prodMail, "SMTP_HOST", "::1"), "SMTP_HOST must be"},
+		{"production with SMTP_HOST unset (defaults to localhost)", with(prodMail, "SMTP_HOST", ""), "SMTP_HOST must be"},
+		{"production without credentials", with(prodMail, "SMTP_USERNAME", "", "SMTP_PASSWORD", ""), "required when APP_ENV=production"},
+		{"username without password", with(prodMail, "SMTP_PASSWORD", ""), "must be set together"},
+		{"password without username", map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL, "SMTP_PASSWORD": "x"}, "must be set together"},
+		{"unknown TLS mode", map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL, "SMTP_TLS": "ssl"}, "SMTP_TLS must be starttls, tls or none"},
+		{"unknown APP_ENV", map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL, "APP_ENV": "staging"}, "APP_ENV must be"},
+	}
+	for _, tt := range refusals {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Load(env(tt.vars))
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %v, want one containing %q", err, tt.want)
+			}
+			if strings.Contains(err.Error(), "provider-key") {
+				t.Errorf("error repeats the SMTP password: %v", err)
+			}
+		})
+	}
+}
+
+// FR-17.9 and FR-17.4: test domains apply only outside production; the purge age defaults
+// to 7 days.
+func TestLoadEmailTrustSettings(t *testing.T) {
+	base := map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL}
+	cfg, err := Load(env(with(base, "TEST_EMAIL_DOMAINS", " Example.com, compare.researchsphere.local,example.com ,")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(cfg.TestEmailDomains, []string{"example.com", "compare.researchsphere.local"}) || cfg.TestEmailDomainsIgnored {
+		t.Errorf("development: TestEmailDomains = %v, ignored = %v", cfg.TestEmailDomains, cfg.TestEmailDomainsIgnored)
+	}
+	if cfg.UnverifiedAccountDays != 7 {
+		t.Errorf("UnverifiedAccountDays = %d, want 7", cfg.UnverifiedAccountDays)
+	}
+
+	cfg, err = Load(env(with(prodMail, "TEST_EMAIL_DOMAINS", "example.com")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.TestEmailDomains) != 0 || !cfg.TestEmailDomainsIgnored {
+		t.Errorf("production: TestEmailDomains = %v, ignored = %v; want none, ignored", cfg.TestEmailDomains, cfg.TestEmailDomainsIgnored)
+	}
+	if cfg, err = Load(env(prodMail)); err != nil || cfg.TestEmailDomainsIgnored {
+		t.Errorf("production without the setting: ignored = %v, %v", cfg.TestEmailDomainsIgnored, err)
+	}
+
+	if cfg, err = Load(env(with(base, "UNVERIFIED_ACCOUNT_DAYS", "30"))); err != nil || cfg.UnverifiedAccountDays != 30 {
+		t.Errorf("UnverifiedAccountDays = %d, %v; want 30", cfg.UnverifiedAccountDays, err)
+	}
+	for _, bad := range []map[string]string{
+		with(base, "UNVERIFIED_ACCOUNT_DAYS", "0"),
+		with(base, "UNVERIFIED_ACCOUNT_DAYS", "seven"),
+		with(base, "TEST_EMAIL_DOMAINS", "localhost"),
+		with(base, "TEST_EMAIL_DOMAINS", "exa mple.com"),
+		with(base, "TEST_EMAIL_DOMAINS", "@example.com"),
+	} {
+		if _, err := Load(env(bad)); err == nil {
+			t.Errorf("Load(%v) succeeded, want an error", bad)
 		}
 	}
 }

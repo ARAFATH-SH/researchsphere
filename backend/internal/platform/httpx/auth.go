@@ -20,7 +20,8 @@ const (
 const CodeUnauthenticated = "unauthenticated"
 
 // TokenVerifier checks an access token and returns its claims: the user ID it was
-// issued to and that user's platform role. accesstoken.Signer implements it.
+// issued to, that user's platform role and whether their email address is verified.
+// accesstoken.Signer implements it.
 type TokenVerifier interface {
 	Verify(token string, now time.Time) (accesstoken.Claims, error)
 }
@@ -28,6 +29,7 @@ type TokenVerifier interface {
 type (
 	userIDKey      struct{}
 	roleKey        struct{}
+	verifiedKey    struct{}
 	tokenExpiryKey struct{}
 	requestKey     struct{}
 )
@@ -68,6 +70,20 @@ func UserID(ctx context.Context) (string, bool) {
 	return id, ok && id != ""
 }
 
+// WithEmailVerified returns a context that carries whether the logged-in user's email
+// address is verified (FR-17.3).
+func WithEmailVerified(ctx context.Context, verified bool) context.Context {
+	return context.WithValue(ctx, verifiedKey{}, verified)
+}
+
+// EmailVerified reports whether the logged-in user's email address was verified when the
+// access token was signed. A context without the value counts as unverified (deny by
+// default).
+func EmailVerified(ctx context.Context) bool {
+	v, _ := ctx.Value(verifiedKey{}).(bool)
+	return v
+}
+
 // WithRole returns a context that carries the logged-in user's platform role.
 func WithRole(ctx context.Context, role authz.Role) context.Context {
 	return context.WithValue(ctx, roleKey{}, role)
@@ -84,7 +100,7 @@ func Role(ctx context.Context) (authz.Role, bool) {
 // (FR-3.1). The generated wrapper marks those operations by putting gen.CookieAuthScopes
 // in the context, so the middleware must run inside it (StdHTTPServerOptions.Middlewares).
 // A missing, malformed or expired token gets 401; a valid one puts the user ID in the
-// context, with the role the token carries. Public operations pass through untouched.
+// context, with the role and the email verification state the token carries. Public operations pass through untouched.
 func RequireAuth(v TokenVerifier, now func() time.Time) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -104,6 +120,7 @@ func RequireAuth(v TokenVerifier, now func() time.Time) func(http.Handler) http.
 			}
 			ctx := WithUserID(r.Context(), claims.UserID)
 			ctx = WithRole(ctx, authz.Role(claims.Role))
+			ctx = WithEmailVerified(ctx, claims.Verified)
 			ctx = WithTokenExpiry(ctx, claims.ExpiresAt)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})

@@ -152,7 +152,7 @@ func (e mediaEnv) download(t *testing.T, userID, path string) (int, map[string]a
 func (e mediaEnv) asAdminRaw(t *testing.T, adminID, path string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil)
-	token, _, err := accesstoken.New([]byte(testSecret), accessTTL).Sign(adminID, "admin", time.Now())
+	token, _, err := accesstoken.New([]byte(testSecret), accessTTL).Sign(adminID, "admin", true, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}

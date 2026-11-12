@@ -130,6 +130,10 @@ type Session struct {
 	// token at refresh, so a role change takes effect there (SRS 2.3). Only
 	// FindSessionForUpdate fills it.
 	UserRole string
+	// UserVerified says whether the session's user has verified their email address,
+	// signed into the new access token at refresh (FR-17.3). Only FindSessionForUpdate
+	// fills it.
+	UserVerified bool
 }
 
 // VerificationEmail is the message that carries a verification link.
@@ -160,6 +164,9 @@ var (
 	// so a login attempt cannot tell which accounts exist (FR-2.1).
 	ErrInvalidCredentials = errors.New("email address or password is wrong")
 	ErrEmailNotVerified   = errors.New("email address is not verified")
+	// ErrEmailDomainNotAllowed refuses a sign-up with a disposable domain or one that
+	// cannot receive email (FR-17.2).
+	ErrEmailDomainNotAllowed = errors.New("email domain is not allowed")
 	// ErrAccountSuspended refuses a login, only after the right password, and a password
 	// reset of a suspended account (FR-3.4).
 	ErrAccountSuspended = errors.New("account is suspended")

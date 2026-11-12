@@ -10,6 +10,7 @@ recommendations. One developer builds it in 30 slices over 12 weeks.
   refer to it. When code and the SRS disagree, stop and ask which one changes.
 - `docs/openapi.yaml` is the API contract (added in slice 4). Change it before a handler.
 - `docs/decisions.md` lists decisions already made. Do not reopen one without asking.
+- `docs/email-delivery.md` says how mail is sent and how to switch provider (FR-17.1).
 - `docs/realtime.md` is the WebSocket contract: events, payloads, close codes and what a client
   must do after a reconnect. OpenAPI covers only the upgrade.
 
@@ -43,6 +44,9 @@ Run these from the repository root. `make help` prints the current list.
 | `make admin email=...` | Give that account the admin role (the only way to make an administrator; there is no API for it). Prints a message and fails if no account has the address. Takes effect at the user's next token refresh or login |
 | `make unadmin email=...` | Set that account back to the researcher role |
 | `make seed-ui-compare` | Create or refresh the fake accounts `npm run ui:compare` signs in with: Compare Alpha and Compare Beta, connected, with about 40 messages over several days and Beta's open report of a message from Alpha, Compare Gamma's pending message request to Alpha, and Compare Admin, an administrator (`@compare.researchsphere.local`). Needs `make migrate` and `UI_COMPARE_PASSWORD`. Refuses a database name ending in `_test`, `APP_ENV=production` and any host but this machine |
+| `make seed-dev` | Create or repair the development accounts `test1@example.com` to `test4@example.com` (researchers) and `admin@example.com` (administrator), all verified, with the password `DEV_SEED_PASSWORD` from `.env`. Running it again resets their password, role and suspension and touches no other account. Needs `make migrate`. Refuses a database name ending in `_test`, `APP_ENV=production` and any host but this machine. The API accepts these addresses only while `TEST_EMAIL_DOMAINS` names `example.com` |
+| `make purge-unverified` | Run the FR-17.4 purge once now, with the `.env` settings: delete the accounts still unverified `UNVERIFIED_ACCOUNT_DAYS` (7) after sign-up, except those at `TEST_EMAIL_DOMAINS` outside production, and log what it deleted. The API also runs it every hour |
+| `make update-disposable-domains` | Download the latest list of disposable email domains (FR-17.2, CC0) into `backend/internal/auth/adapter/emaildomain/disposable_domains.txt`; review and commit the result |
 | `make api` | Run the API server (needs `make up`; settings from `.env`) |
 | `make web` | Run the web client dev server on port 3000; it forwards `/api/v1` to `API_URL` |
 | `make stop` | Stop this project's dev servers: the API on `API_PORT` (8080) and the Next.js dev server on ports 3000-3002. Stops only your own processes running inside this repository, prints what it stopped, and removes a stale `frontend/.next/dev/lock` when no dev server is left. Leaves the Docker containers running (use `make down` for those) |
@@ -168,6 +172,9 @@ do not rename them.
 - **API:** JSON under `/api/v1`. Errors have the shape `{"code": "...", "message": "..."}`;
   a `bad_request` about one body field or parameter adds `"field"`, and never repeats the value.
   Lists are paginated and the server caps the page size at 50 (a conversation's messages cap at 100).
+  A session whose email address is not verified gets 403 `email_not_verified` on every route
+  except those in `unverifiedAllowed` (`cmd/api/handlers.go`, FR-17.3): a new route needs a
+  verified email unless it is added there, and only within FR-17.3.
 - **SQL:** each module's queries are in `internal/<module>/adapter/postgres/queries.sql`; sqlc
   generates `sqlcgen/` beside it (`backend/sqlc.yaml`, run by `make generate`). Repository tests
   that need the database carry the build tag `integration`.

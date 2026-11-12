@@ -1,0 +1,1 @@
+DROP INDEX users_unverified_created_idx;

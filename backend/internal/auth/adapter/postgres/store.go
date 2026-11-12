@@ -428,6 +428,7 @@ func (t tx) FindSessionForUpdate(ctx context.Context, hash string) (domain.Sessi
 	sess.UserSuspendedAt = timePtr(row.SuspendedAt)
 	sess.UserSuspendedUntil = timePtr(row.SuspendedUntil)
 	sess.UserRole = string(row.Role)
+	sess.UserVerified = row.UserVerified
 	return sess, nil
 }
 
@@ -619,4 +620,37 @@ func timePtr(t pgtype.Timestamptz) *time.Time {
 		return nil
 	}
 	return &t.Time
+}
+
+// ListUnverifiedBefore returns the IDs of at most limit accounts still unverified that
+// signed up before cutoff, oldest first, leaving out addresses at skipDomains (FR-17.4).
+func (s *Store) ListUnverifiedBefore(ctx context.Context, cutoff time.Time, skipDomains []string, limit int) ([]string, error) {
+	rows, err := s.q.ListUnverifiedUsersBefore(ctx, sqlcgen.ListUnverifiedUsersBeforeParams{
+		Cutoff: timestamptz(cutoff), SkipDomains: skipDomains, MaxUsers: int32(min(limit, 10_000)), //nolint:gosec // capped
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list unverified users: %w", err)
+	}
+	ids := make([]string, len(rows))
+	for i, id := range rows {
+		ids[i] = uuidString(id)
+	}
+	return ids, nil
+}
+
+// LockUnverifiedBefore locks the user until the transaction ends and reports whether it is
+// still unverified and signed up before cutoff. A user that no longer exists reports false.
+func (t tx) LockUnverifiedBefore(ctx context.Context, userID string, cutoff time.Time) (bool, error) {
+	id, err := parseUUID(userID)
+	if err != nil {
+		return false, nil
+	}
+	purge, err := t.q.LockUnverifiedUserBefore(ctx, sqlcgen.LockUnverifiedUserBeforeParams{ID: id, Cutoff: timestamptz(cutoff)})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("lock unverified user: %w", err)
+	}
+	return purge, nil
 }

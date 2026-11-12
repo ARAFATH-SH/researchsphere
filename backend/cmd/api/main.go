@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"io"
 	"log/slog"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/auth/adapter/argon2"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/auth/adapter/emaildomain"
 	authhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/adapter/http"
 	authpg "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/adapter/postgres"
 	authredis "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/adapter/redis"
@@ -70,11 +72,22 @@ const cleanupInterval = time.Minute
 // attachmentPurgeInterval is how often attachments not sent within a day are deleted (FR-16.7).
 const attachmentPurgeInterval = 10 * time.Minute
 
+// unverifiedPurgeInterval is how often accounts still unverified after
+// UNVERIFIED_ACCOUNT_DAYS are deleted (FR-17.4).
+const unverifiedPurgeInterval = time.Hour
+
 func main() {
+	purgeOnce := flag.Bool("purge-unverified", false, "delete the accounts still unverified after UNVERIFIED_ACCOUNT_DAYS once (FR-17.4), then exit; make purge-unverified runs it")
+	flag.Parse()
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if err := run(ctx, os.Getenv, os.Stdout); err != nil {
+	runner := run
+	if *purgeOnce {
+		runner = runPurgeOnce
+	}
+	if err := runner(ctx, os.Getenv, os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, "api:", err)
 		stop()
 		os.Exit(1)
@@ -90,6 +103,7 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 
 	logger := logging.New(logOut, cfg.LogLevel)
 	logger.Info("starting api", slog.Any("config", cfg))
+	warnIgnoredSettings(cfg, logger)
 
 	// No client connects until first used, so the server starts while the database,
 	// Redis or storage is down; the health check reports it.
@@ -181,17 +195,11 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 	)
 
 	tokens := accesstoken.New(cfg.JWTSecret, accessTTL)
-	mailer := smtp.New(cfg.SMTPHost, cfg.SMTPPort, cfg.MailFrom)
-	auth := authusecase.New(
-		authpg.NewStore(pool),
-		argon2.New(argon2.DefaultParams),
-		mailer,
-		tokens,
-		attempts,
-		authusecase.Config{AppBaseURL: cfg.AppBaseURL, Sessions: realtime.events, Restrictions: standings},
-		time.Now,
-		logger,
-	)
+	mailer := newMailer(cfg)
+	authCfg := authConfig(cfg, logger)
+	authCfg.Sessions, authCfg.Restrictions = realtime.events, standings
+	auth := authusecase.New(authpg.NewStore(pool), argon2.New(argon2.DefaultParams), mailer, tokens, attempts, authCfg, time.Now, logger)
+	go auth.RunUnverifiedPurge(ctx, unverifiedPurgeInterval)
 	moderation := moderationusecase.New(moderationStore, postgres.NewTransactor(pool), moderationAccounts{auth: auth, events: realtime.events},
 		moderationReports{messaging: messaging}, moderationNotifier{notifications: notifications},
 		moderationMailer{mailer: mailer}, time.Now, logger)
@@ -212,4 +220,66 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 		return fmt.Errorf("listen on port %d: %w", cfg.Port, err)
 	}
 	return httpserver.Serve(ctx, ln, handler, logger, realtime.hub.Shutdown)
+}
+
+// newMailer sends through the SMTP server the settings name: Mailpit locally, a provider in
+// production (FR-17.1).
+func newMailer(cfg config.Config) *smtp.Mailer {
+	return smtp.New(smtp.Options{
+		Host: cfg.SMTPHost, Port: cfg.SMTPPort, From: cfg.MailFrom, TLS: smtp.TLSMode(cfg.SMTPTLS),
+		Username: cfg.SMTPUsername, Password: cfg.SMTPPassword,
+	})
+}
+
+// authConfig holds the auth settings that come from the environment: the sign-up domain
+// checks (FR-17.2), the test domains (FR-17.9, none in production) and the age at which an
+// unverified account is deleted (FR-17.4).
+func authConfig(cfg config.Config, logger *slog.Logger) authusecase.Config {
+	return authusecase.Config{
+		AppBaseURL:           cfg.AppBaseURL,
+		EmailDomains:         emaildomain.New(logger),
+		TestEmailDomains:     cfg.TestEmailDomains,
+		UnverifiedAccountAge: time.Duration(cfg.UnverifiedAccountDays) * 24 * time.Hour,
+	}
+}
+
+// warnIgnoredSettings logs the settings production ignores (FR-17.9).
+func warnIgnoredSettings(cfg config.Config, logger *slog.Logger) {
+	if cfg.TestEmailDomainsIgnored {
+		logger.Warn("TEST_EMAIL_DOMAINS is set but ignored in production: every address gets the domain checks and the purge")
+	}
+}
+
+// runPurgeOnce runs one pass of the purge of unverified accounts (FR-17.4) with the API's
+// settings, logs what it deleted and returns. `make purge-unverified` runs it, so the job
+// can be tried without waiting for the hourly loop.
+func runPurgeOnce(ctx context.Context, getenv func(string) string, logOut io.Writer) error {
+	cfg, err := config.Load(getenv)
+	if err != nil {
+		return err
+	}
+	logger := logging.New(logOut, cfg.LogLevel)
+	warnIgnoredSettings(cfg, logger)
+	pool, err := postgres.NewPool(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	rdb, err := redis.NewClient(cfg.RedisURL, logger)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rdb.Close() }()
+	attempts := authredis.New(rdb)
+	defer func() { _ = attempts.Close() }()
+
+	auth := authusecase.New(authpg.NewStore(pool), argon2.New(argon2.DefaultParams), newMailer(cfg),
+		accesstoken.New(cfg.JWTSecret, accessTTL), attempts, authConfig(cfg, logger), time.Now, logger)
+	n, err := auth.PurgeUnverified(ctx)
+	if err != nil {
+		return err
+	}
+	logger.Info("purge of unverified accounts finished", slog.Int("deleted", n),
+		slog.Int("unverified_account_days", cfg.UnverifiedAccountDays), slog.Any("kept_test_domains", cfg.TestEmailDomains))
+	return nil
 }

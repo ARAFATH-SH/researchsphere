@@ -554,7 +554,7 @@ func TestUnknownBodyFieldIsRefused(t *testing.T) {
 // postJSON posts a JSON body with a session and returns the decoded answer too.
 func postJSON(t *testing.T, router http.Handler, path, body string) (*httptest.ResponseRecorder, map[string]any) {
 	t.Helper()
-	token, _, err := testSigner.Sign(testUserID, "researcher", time.Now())
+	token, _, err := testSigner.Sign(testUserID, "researcher", true, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -604,7 +604,7 @@ func TestBodyErrorsNameTheField(t *testing.T) {
 
 func TestParameterErrorsNameTheParameter(t *testing.T) {
 	router, _ := newTestRouter(t)
-	token, _, err := testSigner.Sign(testUserID, "researcher", time.Now())
+	token, _, err := testSigner.Sign(testUserID, "researcher", true, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -663,7 +663,7 @@ func TestBadRequestsNeverRepeatTheValue(t *testing.T) {
 			t.Errorf("%s: answer %d %v", body, rec.Code, got)
 		}
 	}
-	token, _, err := testSigner.Sign(testUserID, "researcher", time.Now())
+	token, _, err := testSigner.Sign(testUserID, "researcher", true, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -775,7 +775,7 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 		t.Errorf("code = %q, want %q", code, httpx.CodeUnauthenticated)
 	}
 
-	token, _, err := testSigner.Sign("user-1", "researcher", time.Now())
+	token, _, err := testSigner.Sign("user-1", "researcher", true, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -52,7 +52,8 @@ INSERT INTO sessions (user_id, refresh_token_hash, expires_at)
 VALUES (@user_id, @refresh_token_hash, @expires_at);
 
 -- name: FindSessionForUpdate :one
-SELECT s.id, s.user_id, s.expires_at, s.revoked_at, u.suspended_at, u.suspended_until, u.role
+SELECT s.id, s.user_id, s.expires_at, s.revoked_at, u.suspended_at, u.suspended_until, u.role,
+       (u.email_verified_at IS NOT NULL)::boolean AS user_verified
 FROM sessions s
 JOIN users u ON u.id = s.user_id
 WHERE s.refresh_token_hash = @refresh_token_hash
@@ -184,3 +185,25 @@ WHERE id = @id AND suspended_until <= @now;
 -- name: SetUserRoleByEmail :execrows
 -- Only `make admin` and `make unadmin` (cmd/setrole) run it; no API operation does.
 UPDATE users SET role = @role WHERE email = @email;
+
+-- Email trust (FR-17.4).
+
+-- name: ListUnverifiedUsersBefore :many
+-- Accounts still unverified that signed up before the cutoff, oldest first, leaving out the
+-- test email domains (FR-17.9; the API passes none in production). Uses
+-- users_unverified_created_idx.
+SELECT id
+FROM users
+WHERE email_verified_at IS NULL
+  AND created_at < @cutoff
+  AND NOT (lower(split_part(email::text, '@', 2)) = ANY(coalesce(@skip_domains::text[], '{}')))
+ORDER BY created_at, id
+LIMIT @max_users;
+
+-- name: LockUnverifiedUserBefore :one
+-- Locks the user until the transaction ends and says whether it is still unverified and old
+-- enough, so a user who verifies while the purge runs is kept.
+SELECT (email_verified_at IS NULL AND created_at < @cutoff)::boolean AS purge
+FROM users
+WHERE id = @id
+FOR UPDATE;

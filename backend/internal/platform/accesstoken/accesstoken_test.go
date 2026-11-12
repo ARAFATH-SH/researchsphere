@@ -16,7 +16,7 @@ var (
 
 func TestSignThenVerify(t *testing.T) {
 	s := New(secret, 15*time.Minute)
-	token, exp, err := s.Sign("user-1", "researcher", start)
+	token, exp, err := s.Sign("user-1", "researcher", true, start)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,14 +27,30 @@ func TestSignThenVerify(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
-	if got.UserID != "user-1" || got.Role != "researcher" || !got.ExpiresAt.Equal(exp) {
-		t.Errorf("claims = %+v, want user-1, researcher, expiring at %v", got, exp)
+	if got.UserID != "user-1" || got.Role != "researcher" || !got.Verified || !got.ExpiresAt.Equal(exp) {
+		t.Errorf("claims = %+v, want user-1, researcher, verified, expiring at %v", got, exp)
+	}
+}
+
+// FR-17.3: the token says whether the email address was verified when it was signed.
+func TestSignUnverified(t *testing.T) {
+	s := New(secret, 15*time.Minute)
+	token, _, err := s.Sign("user-1", "researcher", false, start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Verify(token, start)
+	if err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	if got.Verified {
+		t.Errorf("Verified = true, want false")
 	}
 }
 
 func TestVerifyRefuses(t *testing.T) {
 	s := New(secret, 15*time.Minute)
-	good, _, err := s.Sign("user-1", "researcher", start)
+	good, _, err := s.Sign("user-1", "researcher", true, start)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,14 +73,16 @@ func TestVerifyRefuses(t *testing.T) {
 		{"long expired", good, start.Add(48 * time.Hour)},
 		{"tampered payload", parts[0] + "." + parts[1] + "x." + parts[2], start},
 		{"tampered signature", parts[0] + "." + parts[1] + "." + strings.Repeat("A", len(parts[2])), start},
-		{"wrong secret", sign(jwt.SigningMethodHS256, []byte("another-secret-of-at-least-32-bytes!!"), jwt.MapClaims{"sub": "user-1", "role": "researcher", "exp": exp}), start},
-		{"alg none", sign(jwt.SigningMethodNone, jwt.UnsafeAllowNoneSignatureType, jwt.MapClaims{"sub": "user-1", "role": "researcher", "exp": exp}), start},
-		{"other HMAC algorithm", sign(jwt.SigningMethodHS512, secret, jwt.MapClaims{"sub": "user-1", "role": "researcher", "exp": exp}), start},
-		{"no exp", sign(jwt.SigningMethodHS256, secret, jwt.MapClaims{"sub": "user-1", "role": "researcher"}), start},
+		{"wrong secret", sign(jwt.SigningMethodHS256, []byte("another-secret-of-at-least-32-bytes!!"), jwt.MapClaims{"sub": "user-1", "role": "researcher", "ev": true, "exp": exp}), start},
+		{"alg none", sign(jwt.SigningMethodNone, jwt.UnsafeAllowNoneSignatureType, jwt.MapClaims{"sub": "user-1", "role": "researcher", "ev": true, "exp": exp}), start},
+		{"other HMAC algorithm", sign(jwt.SigningMethodHS512, secret, jwt.MapClaims{"sub": "user-1", "role": "researcher", "ev": true, "exp": exp}), start},
+		{"no exp", sign(jwt.SigningMethodHS256, secret, jwt.MapClaims{"sub": "user-1", "role": "researcher", "ev": true}), start},
 		{"no sub", sign(jwt.SigningMethodHS256, secret, jwt.MapClaims{"role": "researcher", "exp": exp}), start},
-		{"empty sub", sign(jwt.SigningMethodHS256, secret, jwt.MapClaims{"sub": "", "role": "researcher", "exp": exp}), start},
+		{"empty sub", sign(jwt.SigningMethodHS256, secret, jwt.MapClaims{"sub": "", "role": "researcher", "ev": true, "exp": exp}), start},
 		{"no role (signed before roles)", sign(jwt.SigningMethodHS256, secret, jwt.MapClaims{"sub": "user-1", "exp": exp}), start},
 		{"empty role", sign(jwt.SigningMethodHS256, secret, jwt.MapClaims{"sub": "user-1", "role": "", "exp": exp}), start},
+		{"no ev (signed before FR-17.3)", sign(jwt.SigningMethodHS256, secret, jwt.MapClaims{"sub": "user-1", "role": "researcher", "exp": exp}), start},
+		{"ev not a bool", sign(jwt.SigningMethodHS256, secret, jwt.MapClaims{"sub": "user-1", "role": "researcher", "ev": "yes", "exp": exp}), start},
 		{"role not a string", sign(jwt.SigningMethodHS256, secret, jwt.MapClaims{"sub": "user-1", "role": 1, "exp": exp}), start},
 		{"empty string", "", start},
 		{"garbage", "not-a-token", start},

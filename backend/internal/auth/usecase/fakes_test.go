@@ -365,6 +365,7 @@ func (tx fakeTx) FindSessionForUpdate(_ context.Context, hash string) (domain.Se
 			found.UserSuspendedAt = u.SuspendedAt // as the query's join with users
 			found.UserSuspendedUntil = u.SuspendedUntil
 			found.UserRole = u.Role
+			found.UserVerified = u.Verified()
 			return found, nil
 		}
 	}
@@ -541,11 +542,15 @@ func (h *fakeHasher) Verify(password, encoded string) (bool, error) {
 // fakeSigner issues readable access tokens that name the user and the role.
 type fakeSigner struct{ err error }
 
-func (s fakeSigner) Sign(userID, role string, now time.Time) (string, time.Time, error) {
+func (s fakeSigner) Sign(userID, role string, verified bool, now time.Time) (string, time.Time, error) {
 	if s.err != nil {
 		return "", time.Time{}, s.err
 	}
-	return "access-for-" + userID + "-as-" + role, now.Add(15 * time.Minute), nil
+	token := "access-for-" + userID + "-as-" + role
+	if !verified {
+		token += "-unverified"
+	}
+	return token, now.Add(15 * time.Minute), nil
 }
 
 // fakeMailer records the messages it was asked to send.
@@ -665,4 +670,43 @@ func newEnv() *env {
 func tokenFromLink(link string) string {
 	_, token, _ := strings.Cut(link, "#token=")
 	return token
+}
+
+// ListUnverifiedBefore is the query's filter over the users in memory, oldest first.
+func (s *fakeStore) ListUnverifiedBefore(_ context.Context, cutoff time.Time, skipDomains []string, limit int) ([]string, error) {
+	if s.failFind != nil {
+		return nil, s.failFind
+	}
+	var found []domain.User
+	for _, u := range s.users {
+		_, d, _ := strings.Cut(strings.ToLower(u.Email), "@")
+		if u.EmailVerifiedAt == nil && u.CreatedAt.Before(cutoff) && !slices.Contains(skipDomains, d) {
+			found = append(found, u.User)
+		}
+	}
+	slices.SortFunc(found, func(a, b domain.User) int { return a.CreatedAt.Compare(b.CreatedAt) })
+	ids := make([]string, 0, len(found))
+	for _, u := range found[:min(limit, len(found))] {
+		ids = append(ids, u.ID)
+	}
+	return ids, nil
+}
+
+func (tx fakeTx) LockUnverifiedBefore(_ context.Context, userID string, cutoff time.Time) (bool, error) {
+	if tx.s.failTx != nil {
+		return false, tx.s.failTx
+	}
+	_, u, ok := tx.s.userByID(userID)
+	return ok && u.EmailVerifiedAt == nil && u.CreatedAt.Before(cutoff), nil
+}
+
+// fakeDomains refuses the domains in refuse and records what it was asked.
+type fakeDomains struct {
+	refuse map[string]bool
+	asked  []string
+}
+
+func (f *fakeDomains) AllowsEmailDomain(_ context.Context, d string) bool {
+	f.asked = append(f.asked, d)
+	return !f.refuse[d]
 }

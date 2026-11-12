@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -167,12 +168,21 @@ func TestRegisterUser(t *testing.T) {
 		{"short password", domain.ErrPasswordTooShort, http.StatusBadRequest, CodePasswordTooShort},
 		{"long password", domain.ErrPasswordTooLong, http.StatusBadRequest, CodePasswordTooLong},
 		{"email taken", domain.ErrEmailTaken, http.StatusConflict, CodeEmailTaken},
+		{"email domain not allowed", domain.ErrEmailDomainNotAllowed, http.StatusBadRequest, CodeEmailDomainNotAllowed},
 		{"unexpected error", errors.New("database down"), http.StatusInternalServerError, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			svc := &fakeService{err: tt.err}
 			rec := post(t, svc, "/auth/register", body)
+			if tt.wantCode == CodeEmailDomainNotAllowed {
+				// FR-17.2: one message for a disposable domain and one that cannot receive
+				// mail, on the email field, without repeating the address.
+				want := map[string]string{"code": "email_domain_not_allowed", "message": "Use a permanent email address you can receive mail at.", "field": "email"}
+				if got := decode(t, rec); !maps.Equal(got, want) {
+					t.Errorf("body = %v, want %v", got, want)
+				}
+			}
 			if rec.Code != tt.wantStatus {
 				t.Fatalf("status = %d, want %d; body %s", rec.Code, tt.wantStatus, rec.Body)
 			}

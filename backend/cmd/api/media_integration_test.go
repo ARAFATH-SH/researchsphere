@@ -311,7 +311,7 @@ func (e mediaEnv) send(t *testing.T, userID, method, path string, body io.Reader
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
-	token, _, err := accesstoken.New([]byte(testSecret), accessTTL).Sign(userID, "researcher", time.Now())
+	token, _, err := accesstoken.New([]byte(testSecret), accessTTL).Sign(userID, "researcher", true, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}

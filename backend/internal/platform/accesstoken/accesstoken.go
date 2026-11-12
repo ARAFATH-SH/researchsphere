@@ -1,6 +1,7 @@
 // Package accesstoken signs and checks the access tokens issued at login (FR-2.1):
 // JWTs signed with HS256 that carry the user ID in "sub", the platform role in "role"
-// (SRS 2.3) and expire after a fixed time.
+// (SRS 2.3), whether the email address is verified in "ev" (FR-17.3) and expire after a
+// fixed time.
 // The auth usecase signs them through its domain interface; the auth middleware in
 // httpx checks them.
 package accesstoken
@@ -21,6 +22,7 @@ var ErrInvalid = errors.New("access token is not valid")
 type Claims struct {
 	UserID    string
 	Role      string    // the platform role when the token was signed (users.role)
+	Verified  bool      // the email address was verified when the token was signed (FR-17.3)
 	ExpiresAt time.Time // a WebSocket closes then (docs/realtime.md)
 }
 
@@ -28,6 +30,8 @@ type Claims struct {
 // (docs/decisions.md).
 type claims struct {
 	Role string `json:"role"`
+	// Verified is a pointer so a token without the claim can be told from an unverified one.
+	Verified *bool `json:"ev"`
 	jwt.RegisteredClaims
 }
 
@@ -43,11 +47,13 @@ func New(secret []byte, ttl time.Duration) *Signer {
 	return &Signer{secret: secret, ttl: ttl}
 }
 
-// Sign returns a token for userID with role, issued at now, and the time it expires.
-func (s *Signer) Sign(userID, role string, now time.Time) (string, time.Time, error) {
+// Sign returns a token for userID with role and the email verification state, issued at
+// now, and the time it expires.
+func (s *Signer) Sign(userID, role string, verified bool, now time.Time) (string, time.Time, error) {
 	exp := now.Add(s.ttl)
 	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims{
-		Role: role,
+		Role:     role,
+		Verified: &verified,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   userID,
 			IssuedAt:  jwt.NewNumericDate(now),
@@ -61,8 +67,8 @@ func (s *Signer) Sign(userID, role string, now time.Time) (string, time.Time, er
 }
 
 // Verify returns the claims in token, or ErrInvalid. now decides whether it expired. A
-// token without a role (signed before roles were added) is invalid, so the client
-// refreshes and gets one with a role.
+// token without a role or without "ev" (signed before they were added) is invalid, so the
+// client refreshes and gets one with both.
 func (s *Signer) Verify(token string, now time.Time) (Claims, error) {
 	var c claims
 	_, err := jwt.ParseWithClaims(token, &c,
@@ -71,8 +77,8 @@ func (s *Signer) Verify(token string, now time.Time) (Claims, error) {
 		jwt.WithExpirationRequired(),
 		jwt.WithTimeFunc(func() time.Time { return now }),
 	)
-	if err != nil || c.Subject == "" || c.Role == "" {
+	if err != nil || c.Subject == "" || c.Role == "" || c.Verified == nil {
 		return Claims{}, ErrInvalid
 	}
-	return Claims{UserID: c.Subject, Role: c.Role, ExpiresAt: c.ExpiresAt.Time}, nil
+	return Claims{UserID: c.Subject, Role: c.Role, Verified: *c.Verified, ExpiresAt: c.ExpiresAt.Time}, nil
 }

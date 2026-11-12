@@ -22,8 +22,8 @@ type RegisterResult struct {
 
 // Register creates the user, the profile and a verification token in one transaction,
 // then emails the link (FR-1.1 to FR-1.3). It returns ErrInvalidFullName,
-// ErrInvalidEmail, ErrPasswordTooShort, ErrPasswordTooLong or ErrEmailTaken when the
-// registration is refused (FR-1.2). A failure to send the email is logged, not
+// ErrInvalidEmail, ErrPasswordTooShort, ErrPasswordTooLong, ErrEmailDomainNotAllowed
+// (FR-17.2) or ErrEmailTaken when the registration is refused (FR-1.2). A failure to send the email is logged, not
 // returned: the account exists and the user can ask for a new link (FR-1.5).
 func (s *Service) Register(ctx context.Context, in RegisterInput) (RegisterResult, error) {
 	fullName, err := normalizeFullName(in.FullName)
@@ -35,6 +35,9 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (RegisterResul
 		return RegisterResult{}, err
 	}
 	if err := checkPassword(in.Password); err != nil {
+		return RegisterResult{}, err
+	}
+	if err := s.checkEmailDomain(ctx, email); err != nil {
 		return RegisterResult{}, err
 	}
 
