@@ -4328,7 +4328,8 @@ export interface components {
         /**
          * @description The user's role does not permit the action (FR-3.2). The body is always
          *     `{"code":"forbidden","message":"You do not have permission to do this."}`, with no
-         *     resource data and no reason (FR-3.3).
+         *     resource data and no reason (FR-3.3). A session whose email address is not
+         *     verified gets `email_not_verified` instead (FR-17.3, see the API description).
          */
         Forbidden: {
             headers: {
@@ -4834,7 +4835,11 @@ export interface operations {
             };
             /**
              * @description The input is not valid. `code` is one of `bad_request`, `invalid_full_name`,
-             *     `invalid_email`, `password_too_short` or `password_too_long`.
+             *     `invalid_email`, `password_too_short` or `password_too_long`, or
+             *     `email_domain_not_allowed` (`field: email`, FR-17.2): the domain is a known
+             *     disposable one, or it cannot receive email (no MX and no A or AAAA record, or a
+             *     null MX). The message is the same for both: "Use a permanent email address you
+             *     can receive mail at."
              */
             400: {
                 headers: {

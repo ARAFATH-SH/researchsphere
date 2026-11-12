@@ -26,6 +26,15 @@ type Config struct {
 	Sessions domain.SessionListener
 	// Restrictions, when set, says when a user's messaging restriction ends.
 	Restrictions domain.RestrictionLookup
+	// EmailDomains, when set, refuses sign-up with a disposable domain or one that cannot
+	// receive email (FR-17.2).
+	EmailDomains domain.EmailDomainChecker
+	// TestEmailDomains skip the domain checks and the purge of unverified accounts
+	// (FR-17.9). The API passes none in production.
+	TestEmailDomains []string
+	// UnverifiedAccountAge is how long after sign-up an account that never verified its
+	// address is deleted (FR-17.4); zero turns the purge off.
+	UnverifiedAccountAge time.Duration
 }
 
 // Service registers users, verifies their email addresses and logs them in.

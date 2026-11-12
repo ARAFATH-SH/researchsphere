@@ -720,3 +720,28 @@ func TestRoleIsRead(t *testing.T) {
 		}
 	}
 }
+
+// FR-17.3: FindSessionForUpdate reads whether the session's user is verified, so a refresh
+// signs the current state.
+func TestSessionVerifiedIsRead(t *testing.T) {
+	ctx := t.Context()
+	s, _ := newTestStore(t)
+	id, err := register(ctx, s, testenv.Email(t), "Ada", rand.Text(), time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessHash := rand.Text()
+	if err := s.CreateSession(ctx, domain.NewSession{UserID: id, TokenHash: sessHash, ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	sess, err := findSession(t, s, sessHash)
+	if err != nil || sess.UserVerified {
+		t.Fatalf("before verifying: UserVerified = %v, %v; want false", sess.UserVerified, err)
+	}
+	if err := s.RunInTx(ctx, func(tx domain.Tx) error { return tx.MarkEmailVerified(ctx, id, time.Now()) }); err != nil {
+		t.Fatal(err)
+	}
+	if sess, err = findSession(t, s, sessHash); err != nil || !sess.UserVerified {
+		t.Errorf("after verifying: UserVerified = %v, %v; want true", sess.UserVerified, err)
+	}
+}

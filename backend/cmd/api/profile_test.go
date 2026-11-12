@@ -59,7 +59,7 @@ func TestProfileRoutesThroughRouter(t *testing.T) {
 		req := httptest.NewRequestWithContext(t.Context(), method, path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		if role != "" {
-			token, _, err := accesstoken.New([]byte(testSecret), accessTTL).Sign(okUserID, role, time.Now())
+			token, _, err := accesstoken.New([]byte(testSecret), accessTTL).Sign(okUserID, role, true, time.Now())
 			if err != nil {
 				t.Fatal(err)
 			}

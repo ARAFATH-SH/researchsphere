@@ -20,7 +20,7 @@ TEST_REDIS_URL    ?= redis://localhost:6379/15
 MIGRATIONS_DIR := backend/db/migrations
 
 .DEFAULT_GOAL := help
-.PHONY: help up down logs ps psql check migrate migrate-down migrate-new admin unadmin seed-ui-compare api web stop web-clean generate check-generated test test-prepare test-db test-go test-integration test-one test-web lint lint-go lint-web
+.PHONY: help up down logs ps psql check migrate migrate-down migrate-new admin unadmin seed-ui-compare seed-dev purge-unverified update-disposable-domains api web stop web-clean generate check-generated test test-prepare test-db test-go test-integration test-one test-web lint lint-go lint-web
 
 help: ## List the available commands
 	@grep -hE '^[a-zA-Z_-]+:.*## ' $(firstword $(MAKEFILE_LIST)) | awk 'BEGIN {FS = ":.*## "} {printf "  make %-16s %s\n", $$1, $$2}'
@@ -76,6 +76,24 @@ unadmin: ## Make an administrator a researcher again: make unadmin email=ada@exa
 
 seed-ui-compare: ## Fill the local dev database with the fake accounts ui:compare signs in with (needs make migrate and UI_COMPARE_PASSWORD)
 	@cd backend && go run ./cmd/seedcompare
+
+seed-dev: ## Create or repair the dev accounts test1..test4@example.com and admin@example.com (needs make migrate and DEV_SEED_PASSWORD)
+	@cd backend && go run ./cmd/seeddev
+
+purge-unverified: ## Run the FR-17.4 purge of old unverified accounts once, now (settings from .env), then exit
+	cd backend && go run ./cmd/api -purge-unverified
+
+# The list of disposable email domains (FR-17.2), CC0, from github.com/disposable-email-domains.
+# The download goes to a .download file and replaces the list only when it looks whole.
+DISPOSABLE_DOMAINS_URL := https://raw.githubusercontent.com/disposable-email-domains/disposable-email-domains/main/disposable_email_blocklist.conf
+DISPOSABLE_DOMAINS_FILE := backend/internal/auth/adapter/emaildomain/disposable_domains.txt
+
+update-disposable-domains: ## Download the latest list of disposable email domains into the backend (review and commit the result)
+	curl -fsSL --max-time 60 -o "$(DISPOSABLE_DOMAINS_FILE).download" "$(DISPOSABLE_DOMAINS_URL)"
+	@count=$$(grep -c . "$(DISPOSABLE_DOMAINS_FILE).download"); \
+	if [[ "$$count" -lt 1000 ]]; then echo "the download has only $$count lines; the list was not replaced"; exit 1; fi
+	mv "$(DISPOSABLE_DOMAINS_FILE).download" "$(DISPOSABLE_DOMAINS_FILE)"
+	@echo "$$(grep -c . $(DISPOSABLE_DOMAINS_FILE)) domains in $(DISPOSABLE_DOMAINS_FILE)"
 
 api: ## Run the API server (needs make up; settings from .env)
 	cd backend && go run ./cmd/api

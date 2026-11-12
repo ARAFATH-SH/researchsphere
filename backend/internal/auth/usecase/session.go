@@ -63,7 +63,7 @@ func (s *Service) Refresh(ctx context.Context, token string) (RefreshResult, err
 		}
 
 		res = RefreshResult{IssuedAt: now, RefreshExpiresAt: sess.ExpiresAt}
-		if res.AccessToken, res.AccessExpiresAt, err = s.signer.Sign(sess.UserID, sess.UserRole, now); err != nil {
+		if res.AccessToken, res.AccessExpiresAt, err = s.signer.Sign(sess.UserID, sess.UserRole, sess.UserVerified, now); err != nil {
 			return err
 		}
 		var newHash string

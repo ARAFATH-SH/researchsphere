@@ -24,7 +24,7 @@ func getAs(t *testing.T, router http.Handler, path string, role authz.Role) *htt
 	t.Helper()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil)
 	if role != "" {
-		token, _, err := accesstoken.New([]byte(testSecret), accessTTL).Sign(okUserID, string(role), time.Now())
+		token, _, err := accesstoken.New([]byte(testSecret), accessTTL).Sign(okUserID, string(role), true, time.Now())
 		if err != nil {
 			t.Fatal(err)
 		}

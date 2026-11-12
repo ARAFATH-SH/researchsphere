@@ -36,6 +36,10 @@ type Store interface {
 	Suspend(ctx context.Context, userID string, at time.Time, until *time.Time, reason string) error
 	// Restore ends the user's suspension, in the transaction the context carries (FR-15.3).
 	Restore(ctx context.Context, userID string) error
+	// ListUnverifiedBefore returns the IDs of at most limit accounts whose email address is
+	// still unverified and that signed up before cutoff, oldest first, leaving out the
+	// addresses at skipDomains (FR-17.4, FR-17.9).
+	ListUnverifiedBefore(ctx context.Context, cutoff time.Time, skipDomains []string, limit int) ([]string, error)
 	// RevokeSessionByToken ends the session whose current refresh token has this hash and
 	// returns it. It returns ErrNotFound, and changes nothing, when there is no such
 	// session or it has already ended.
@@ -91,6 +95,10 @@ type Tx interface {
 	// publications that no author links to any more, and returns how many it deleted. A
 	// publication another user is linked to stays.
 	DeleteUserPublications(ctx context.Context, userID string) (int64, error)
+	// LockUnverifiedBefore locks the user until the transaction ends and reports whether
+	// the address is still unverified and the account signed up before cutoff, so a user who
+	// verifies while the purge runs is kept (FR-17.4). A missing user reports false.
+	LockUnverifiedBefore(ctx context.Context, userID string, cutoff time.Time) (bool, error)
 	// DeleteUser deletes the user; the database deletes the rows that belong to the user
 	// with it (FR-2.8). It returns ErrNotFound when there is no such user.
 	DeleteUser(ctx context.Context, userID string) error
@@ -106,9 +114,9 @@ type PasswordHasher interface {
 
 // AccessTokenSigner issues the short-lived access token given at login (FR-2.1).
 type AccessTokenSigner interface {
-	// Sign returns a token for userID with the platform role, issued at now, and the
-	// time it expires.
-	Sign(userID, role string, now time.Time) (string, time.Time, error)
+	// Sign returns a token for userID with the platform role and whether the email
+	// address is verified (FR-17.3), issued at now, and the time it expires.
+	Sign(userID, role string, verified bool, now time.Time) (string, time.Time, error)
 }
 
 // LoginAttempts counts failed logins per account and holds account locks (FR-2.7). key
@@ -131,6 +139,14 @@ type LoginAttempts interface {
 type Mailer interface {
 	SendVerification(ctx context.Context, msg VerificationEmail) error
 	SendPasswordReset(ctx context.Context, msg PasswordResetEmail) error
+}
+
+// EmailDomainChecker decides whether an email domain may be used to sign up (FR-17.2): it
+// must not be a known disposable domain, and it must be able to receive email.
+type EmailDomainChecker interface {
+	// AllowsEmailDomain reports false only when the domain is disposable or definitely
+	// cannot receive email. A lookup that fails or times out allows it (and is logged).
+	AllowsEmailDomain(ctx context.Context, domain string) bool
 }
 
 // RestrictionLookup says when a user's messaging restriction ends. The moderation module owns

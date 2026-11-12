@@ -78,7 +78,7 @@ func fakeServer(t *testing.T) (host string, port int, got <-chan received) {
 
 func TestSendVerification(t *testing.T) {
 	host, port, got := fakeServer(t)
-	m := New(host, port, mail.Address{Name: "ResearchSphere", Address: "no-reply@rs.example"})
+	m := New(Options{Host: host, Port: port, From: mail.Address{Name: "ResearchSphere", Address: "no-reply@rs.example"}, TLS: NoTLS})
 	link := "https://rs.example/verify-email#token=" + strings.Repeat("A", 43)
 
 	err := m.SendVerification(t.Context(), domain.VerificationEmail{To: "ada@example.org", FullName: "Ada Lovelace", Link: link})
@@ -120,7 +120,7 @@ func TestSendVerification(t *testing.T) {
 
 func TestSendVerificationCannotInjectHeaders(t *testing.T) {
 	host, port, got := fakeServer(t)
-	m := New(host, port, mail.Address{Address: "no-reply@rs.example"})
+	m := New(Options{Host: host, Port: port, From: mail.Address{Address: "no-reply@rs.example"}, TLS: NoTLS})
 
 	err := m.SendVerification(t.Context(), domain.VerificationEmail{
 		To: "ada@example.org", FullName: "Ada\r\nBcc: victim@evil.test", Link: "https://rs.example/verify-email#token=x",
@@ -144,7 +144,7 @@ func TestSendVerificationCannotInjectHeaders(t *testing.T) {
 }
 
 func TestSendVerificationRefusesBrokenRecipient(t *testing.T) {
-	m := New("127.0.0.1", 1, mail.Address{Address: "no-reply@rs.example"})
+	m := New(Options{Host: "127.0.0.1", Port: 1, From: mail.Address{Address: "no-reply@rs.example"}, TLS: NoTLS})
 	err := m.SendVerification(t.Context(), domain.VerificationEmail{To: "a@example.org\r\nBcc: x@evil.test", Link: "x"})
 	if err == nil {
 		t.Fatal("error = nil, want a refusal")
@@ -162,7 +162,7 @@ func TestSendVerificationServerDown(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
-	m := New("127.0.0.1", port, mail.Address{Address: "no-reply@rs.example"})
+	m := New(Options{Host: "127.0.0.1", Port: port, From: mail.Address{Address: "no-reply@rs.example"}, TLS: NoTLS})
 	err = m.SendVerification(ctx, domain.VerificationEmail{To: "a@example.org", Link: "https://rs.example/verify-email#token=secret"})
 	if err == nil {
 		t.Fatal("error = nil, want a dial error")
@@ -178,7 +178,7 @@ func TestSendVerificationServerDown(t *testing.T) {
 
 func TestSendPasswordReset(t *testing.T) {
 	host, port, got := fakeServer(t)
-	m := New(host, port, mail.Address{Name: "ResearchSphere", Address: "no-reply@rs.example"})
+	m := New(Options{Host: host, Port: port, From: mail.Address{Name: "ResearchSphere", Address: "no-reply@rs.example"}, TLS: NoTLS})
 	link := "https://rs.example/reset-password#token=" + strings.Repeat("A", 43)
 
 	err := m.SendPasswordReset(t.Context(), domain.PasswordResetEmail{To: "ada@example.org", FullName: "Ada\r\nBcc: victim@evil.test", Link: link})
@@ -214,7 +214,7 @@ func TestSendPasswordReset(t *testing.T) {
 // A message another module wrote: its name and subject cannot add headers (FR-15.8).
 func TestSendText(t *testing.T) {
 	host, port, got := fakeServer(t)
-	m := New(host, port, mail.Address{Name: "ResearchSphere", Address: "no-reply@rs.example"})
+	m := New(Options{Host: host, Port: port, From: mail.Address{Name: "ResearchSphere", Address: "no-reply@rs.example"}, TLS: NoTLS})
 
 	err := m.SendText(t.Context(), "ada@example.org", "Ada\r\nBcc: victim@evil.test", "Hello\r\nBcc: victim@evil.test", "Reason:\nSpam in messages")
 	if err != nil {

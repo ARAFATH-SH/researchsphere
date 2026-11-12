@@ -110,6 +110,7 @@ export function fieldForCode(code: string): RegisterField | undefined {
       return "fullName";
     case "invalid_email":
     case "email_taken":
+    case "email_domain_not_allowed": // FR-17.2: disposable, or cannot receive email
       return "email";
     case "password_too_short":
     case "password_too_long":

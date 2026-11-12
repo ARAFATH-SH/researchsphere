@@ -48,33 +48,55 @@ func (s *Service) DeleteAccount(ctx context.Context, in DeleteAccountInput) erro
 		return domain.ErrWrongPassword
 	}
 
-	var projects, publications int64
+	var d deletion
 	err = s.store.RunInTx(ctx, func(tx domain.Tx) error {
-		// Lock first, then look: a member who joined while the lock was awaited is seen.
-		if err := tx.LockOwnedProjects(ctx, creds.ID); err != nil {
-			return err
-		}
-		shared, err := tx.FindSharedOwnedProjects(ctx, creds.ID)
-		if err != nil {
-			return err
-		}
-		if len(shared) > 0 {
-			return &domain.SharedProjectsError{Projects: shared}
-		}
-		if projects, err = tx.DeleteSoloProjects(ctx, creds.ID); err != nil {
-			return err
-		}
-		if publications, err = tx.DeleteUserPublications(ctx, creds.ID); err != nil {
-			return err
-		}
-		return tx.DeleteUser(ctx, creds.ID)
+		var err error
+		d, err = deleteUserTx(ctx, tx, creds.ID)
+		return err
 	})
 	if err != nil {
 		return err
 	}
-	s.logger.InfoContext(ctx, "account deleted", slog.String("user_id", creds.ID),
-		slog.Int64("projects_deleted", projects), slog.Int64("publications_deleted", publications))
-	s.sessionsEnded(ctx, creds.ID)
+	s.accountDeleted(ctx, creds.ID, d, "user")
 	lock.reset(ctx)
 	return nil
+}
+
+// deletion counts what deleteUserTx removed besides the user.
+type deletion struct{ projects, publications int64 }
+
+// deleteUserTx is the account deletion of FR-2.8 inside tx, shared by DeleteAccount and the
+// purge of unverified accounts (FR-17.4). While the user owns a project that has other
+// members it returns a *domain.SharedProjectsError and deletes nothing (FR-2.9). Otherwise
+// it deletes the projects where the user is the only member, the user's publication links
+// and the publications left with no author, and the user, whose other rows the database
+// deletes with it.
+func deleteUserTx(ctx context.Context, tx domain.Tx, userID string) (deletion, error) {
+	var d deletion
+	// Lock first, then look: a member who joined while the lock was awaited is seen.
+	if err := tx.LockOwnedProjects(ctx, userID); err != nil {
+		return d, err
+	}
+	shared, err := tx.FindSharedOwnedProjects(ctx, userID)
+	if err != nil {
+		return d, err
+	}
+	if len(shared) > 0 {
+		return d, &domain.SharedProjectsError{Projects: shared}
+	}
+	if d.projects, err = tx.DeleteSoloProjects(ctx, userID); err != nil {
+		return d, err
+	}
+	if d.publications, err = tx.DeleteUserPublications(ctx, userID); err != nil {
+		return d, err
+	}
+	return d, tx.DeleteUser(ctx, userID)
+}
+
+// accountDeleted logs a deletion after its commit and ends the user's sessions. by says who
+// deleted it: the user, or the purge of unverified accounts.
+func (s *Service) accountDeleted(ctx context.Context, userID string, d deletion, by string) {
+	s.logger.InfoContext(ctx, "account deleted", slog.String("user_id", userID), slog.String("by", by),
+		slog.Int64("projects_deleted", d.projects), slog.Int64("publications_deleted", d.publications))
+	s.sessionsEnded(ctx, userID)
 }

@@ -170,7 +170,7 @@ Added on 8 November 2026. These requirements are planned, not scheduled: they ar
 | --- | --- | --- |
 | FR-17.1 | send email through a real delivery service in production (free tier first, such as Brevo or Resend, paid later), switched by configuration only, with SPF, DKIM and DMARC set on the domain | Must |
 | FR-17.2 | refuse sign-up with a disposable email address or a domain that cannot receive email (no MX record) | Should |
-| FR-17.3 | let an unverified user only verify, resend the link, edit their own profile and sign out; messaging, connection requests, posts and projects need a verified email | Must |
+| FR-17.3 | let an unverified user only verify, resend the link, read and edit their own profile, use their account settings (change password, delete account), read their own notifications and sign out; everything else, including messaging, uploads, connection requests, reports, search, viewing other profiles, posts and projects, needs a verified email | Must |
 | FR-17.4 | delete accounts still unverified 7 days after sign-up | Should |
 | FR-17.5 | let a user sign up and sign in with a Google account, taking the verified email, name and photo from Google | Should |
 | FR-17.6 | let a user sign up and sign in with an ORCID account, which marks their ORCID iD as verified on the profile; ask for and verify an email when ORCID does not share one | Should |

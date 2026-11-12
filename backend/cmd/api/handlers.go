@@ -201,6 +201,64 @@ var platformGuards = map[string]authz.Action{
 	"GET /api/v1/presence": authz.ViewContent,
 }
 
+// unverifiedAllowed lists the routes a session whose email address is not verified may use
+// (FR-17.3); every other route that needs a session answers 403 email_not_verified, before
+// the role is checked. Deny by default: a new route needs a verified email until it is
+// added here. No route under /api/v1/admin/ may be listed (routes_test.go). The reasons for
+// the grey areas are in docs/decisions.md (2026-11-12).
+var unverifiedAllowed = map[string]bool{
+	// Account settings: who am I, change password, delete account.
+	"GET /api/v1/auth/me":         true,
+	"POST /api/v1/auth/password":  true,
+	"POST /api/v1/account/delete": true,
+
+	// Read and edit the own profile, photo and cover included, and the tag suggestions the
+	// interest and skill fields use.
+	"GET /api/v1/profiles/me":                              true,
+	"PUT /api/v1/profiles/me":                              true,
+	"POST /api/v1/profiles/me/interests":                   true,
+	"DELETE /api/v1/profiles/me/interests/{tagId}":         true,
+	"POST /api/v1/profiles/me/skills":                      true,
+	"DELETE /api/v1/profiles/me/skills/{tagId}":            true,
+	"GET /api/v1/tags/interests":                           true,
+	"GET /api/v1/tags/skills":                              true,
+	"POST /api/v1/profiles/me/education":                   true,
+	"PATCH /api/v1/profiles/me/education/{educationId}":    true,
+	"DELETE /api/v1/profiles/me/education/{educationId}":   true,
+	"POST /api/v1/profiles/me/experience":                  true,
+	"PATCH /api/v1/profiles/me/experience/{experienceId}":  true,
+	"DELETE /api/v1/profiles/me/experience/{experienceId}": true,
+	"POST /api/v1/profiles/me/languages":                   true,
+	"PATCH /api/v1/profiles/me/languages/{languageId}":     true,
+	"DELETE /api/v1/profiles/me/languages/{languageId}":    true,
+	"GET /api/v1/profiles/me/contact":                      true,
+	"PUT /api/v1/profiles/me/contact":                      true,
+	"POST /api/v1/profiles/me/links":                       true,
+	"DELETE /api/v1/profiles/me/links/{linkId}":            true,
+	"PUT /api/v1/profiles/me/orcid":                        true,
+	"PUT /api/v1/profiles/me/photo":                        true,
+	"DELETE /api/v1/profiles/me/photo":                     true,
+	"PUT /api/v1/profiles/me/cover":                        true,
+	"DELETE /api/v1/profiles/me/cover":                     true,
+	// Publications entered by hand. The DOI lookup and the ORCID works list and import call
+	// outside services on the user's quota, so they need a verified email.
+	"GET /api/v1/profiles/me/publications":                    true,
+	"POST /api/v1/profiles/me/publications":                   true,
+	"PATCH /api/v1/profiles/me/publications/{publicationId}":  true,
+	"DELETE /api/v1/profiles/me/publications/{publicationId}": true,
+
+	// The user's own notifications, marking them read included.
+	"GET /api/v1/notifications":                        true,
+	"GET /api/v1/notifications/unread-count":           true,
+	"POST /api/v1/notifications/{notificationId}/read": true,
+	"POST /api/v1/notifications/read-all":              true,
+
+	// The user's own warnings: a notice about their account, fetched on every page load.
+	"GET /api/v1/me/warnings/pending":                  true,
+	"GET /api/v1/me/warnings/{warningId}":              true,
+	"POST /api/v1/me/warnings/{warningId}/acknowledge": true,
+}
+
 // multipartOverhead is what a multipart body may hold besides the file: boundaries, part
 // headers and small fields.
 const multipartOverhead = 64 << 10
@@ -227,15 +285,22 @@ func limitBody(next http.Handler) http.Handler {
 	})
 }
 
-// guardPlatform runs httpx.RequirePlatform with the action platformGuards gives the
-// matched route. It runs inside RequireAuth, so a request without a session gets 401
-// before any 403. A request that matched no route pattern is refused: every API route
-// is registered on the ServeMux, so that would mean the guard cannot tell which route
-// it is guarding.
+// guardPlatform is the one permission check of every route. A session whose email address
+// is not verified may use only the routes in unverifiedAllowed and gets 403
+// email_not_verified on any other (FR-17.3). Then httpx.RequirePlatform checks the action
+// platformGuards gives the matched route. It runs inside RequireAuth, so a request without
+// a session gets 401 before any 403, and a public route (no session in the context) passes
+// to it untouched. A request that matched no route pattern is refused: every API route is
+// registered on the ServeMux, so that would mean the guard cannot tell which route it is
+// guarding.
 func guardPlatform(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Pattern == "" {
 			httpx.WriteForbidden(w)
+			return
+		}
+		if _, signedIn := httpx.UserID(r.Context()); signedIn && !httpx.EmailVerified(r.Context()) && !unverifiedAllowed[r.Pattern] {
+			httpx.WriteEmailNotVerified(w)
 			return
 		}
 		action, ok := platformGuards[r.Pattern]

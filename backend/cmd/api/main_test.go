@@ -485,7 +485,7 @@ func TestCurrentUserThroughRouter(t *testing.T) {
 	if rec := get(""); rec.Code != http.StatusUnauthorized {
 		t.Errorf("without a cookie: status = %d, want 401", rec.Code)
 	}
-	token, _, err := accesstoken.New([]byte(testSecret), accessTTL).Sign(okUserID, "researcher", time.Now())
+	token, _, err := accesstoken.New([]byte(testSecret), accessTTL).Sign(okUserID, "researcher", true, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -511,7 +511,7 @@ func TestDeleteAccountThroughRouter(t *testing.T) {
 	if rec := del(""); rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), httpx.CodeUnauthenticated) {
 		t.Errorf("without a cookie: %d %s, want 401 unauthenticated", rec.Code, rec.Body)
 	}
-	token, _, err := accesstoken.New([]byte(testSecret), accessTTL).Sign(okUserID, "researcher", time.Now())
+	token, _, err := accesstoken.New([]byte(testSecret), accessTTL).Sign(okUserID, "researcher", true, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}

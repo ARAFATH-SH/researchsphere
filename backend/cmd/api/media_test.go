@@ -66,7 +66,7 @@ func sendAs(t *testing.T, router http.Handler, method, path string, body io.Read
 		req.Header.Set("Content-Type", contentType)
 	}
 	if role != "" {
-		token, _, err := accesstoken.New([]byte(testSecret), accessTTL).Sign(okUserID, role, time.Now())
+		token, _, err := accesstoken.New([]byte(testSecret), accessTTL).Sign(okUserID, role, true, time.Now())
 		if err != nil {
 			t.Fatal(err)
 		}

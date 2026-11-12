@@ -8,6 +8,8 @@ import (
 	"net"
 	"net/mail"
 	"net/url"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -41,6 +43,23 @@ const (
 	DefaultMessageEditWindow = 15 * time.Minute
 	// clamd, the malware scanner of attachments (FR-16.7), as docker-compose.yml publishes it.
 	DefaultClamAVAddr = "127.0.0.1:3310"
+	// Days after sign-up an account that never verified its email address is deleted (FR-17.4).
+	DefaultUnverifiedAccountDays = 7
+)
+
+// Environments (APP_ENV). Production turns on the checks that keep development settings
+// out of it (FR-17.1) and turns off the test email domains (FR-17.9).
+const (
+	EnvDevelopment = "development"
+	EnvProduction  = "production"
+)
+
+// SMTP TLS modes (SMTP_TLS, FR-17.1): STARTTLS required, TLS from the first byte (port
+// 465), or plain text (Mailpit; refused in production).
+const (
+	SMTPTLSStartTLS = "starttls"
+	SMTPTLSImplicit = "tls"
+	SMTPTLSNone     = "none"
 )
 
 // MinJWTSecretLen is the shortest JWT_SECRET accepted, in bytes: HS256 needs a key at
@@ -55,11 +74,29 @@ type Config struct {
 	Port        int
 	LogLevel    slog.Level
 
-	// Email (FR-1.3). AppBaseURL is where the web client runs; links in emails point there.
-	SMTPHost   string
-	SMTPPort   int
-	MailFrom   mail.Address
-	AppBaseURL string
+	// AppEnv is development or production (APP_ENV, default development).
+	AppEnv string
+
+	// Email (FR-1.3, FR-17.1). AppBaseURL is where the web client runs; links in emails
+	// point there. SMTPPassword is a secret: never log it. SMTPTLS is one of the SMTPTLS
+	// constants.
+	SMTPHost     string
+	SMTPPort     int
+	SMTPUsername string
+	SMTPPassword string
+	SMTPTLS      string
+	MailFrom     mail.Address
+	AppBaseURL   string
+
+	// TestEmailDomains skip the sign-up domain checks and the purge of unverified accounts
+	// outside production (FR-17.9); always empty in production.
+	// TestEmailDomainsIgnored is true when TEST_EMAIL_DOMAINS was set in production, so main
+	// can log a warning.
+	TestEmailDomains        []string
+	TestEmailDomainsIgnored bool
+	// UnverifiedAccountDays is how many days after sign-up an unverified account is
+	// deleted (FR-17.4).
+	UnverifiedAccountDays int
 
 	// Login (FR-2.1). JWTSecret signs access tokens. CookieSecure is true when AppBaseURL
 	// uses https, so the session cookies are sent only over HTTPS outside local work.
@@ -151,9 +188,36 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	cfg.LogLevel = level
 
+	cfg.AppEnv = strings.ToLower(orDefault(getenv("APP_ENV"), EnvDevelopment))
+	if cfg.AppEnv != EnvDevelopment && cfg.AppEnv != EnvProduction {
+		errs = append(errs, fmt.Errorf("APP_ENV must be %s or %s, got %q", EnvDevelopment, EnvProduction, cfg.AppEnv))
+	}
+	production := cfg.AppEnv == EnvProduction
+
 	cfg.SMTPHost = orDefault(getenv("SMTP_HOST"), DefaultSMTPHost)
 	if cfg.SMTPPort, err = parsePort("SMTP_PORT", getenv("SMTP_PORT"), DefaultSMTPPort); err != nil {
 		errs = append(errs, err)
+	}
+	cfg.SMTPUsername = strings.TrimSpace(getenv("SMTP_USERNAME"))
+	cfg.SMTPPassword = getenv("SMTP_PASSWORD") // a password may hold spaces
+	cfg.SMTPTLS = strings.ToLower(orDefault(getenv("SMTP_TLS"), SMTPTLSNone))
+	if !slices.Contains([]string{SMTPTLSStartTLS, SMTPTLSImplicit, SMTPTLSNone}, cfg.SMTPTLS) {
+		errs = append(errs, fmt.Errorf("SMTP_TLS must be starttls, tls or none, got %q", cfg.SMTPTLS))
+	}
+	if (cfg.SMTPUsername == "") != (cfg.SMTPPassword == "") {
+		errs = append(errs, errors.New("SMTP_USERNAME and SMTP_PASSWORD must be set together"))
+	}
+	if production {
+		// FR-17.1: production mail goes to a real provider, encrypted and logged in.
+		if cfg.SMTPTLS == SMTPTLSNone {
+			errs = append(errs, errors.New("SMTP_TLS must be starttls or tls when APP_ENV=production"))
+		}
+		if isLocalHost(cfg.SMTPHost) {
+			errs = append(errs, errors.New("SMTP_HOST must be the mail provider's server, not this machine, when APP_ENV=production"))
+		}
+		if cfg.SMTPUsername == "" || cfg.SMTPPassword == "" {
+			errs = append(errs, errors.New("SMTP_USERNAME and SMTP_PASSWORD are required when APP_ENV=production"))
+		}
 	}
 	from, err := mail.ParseAddress(orDefault(getenv("MAIL_FROM"), DefaultMailFrom))
 	if err != nil {
@@ -212,6 +276,19 @@ func Load(getenv func(string) string) (Config, error) {
 		errs = append(errs, err)
 	}
 
+	domains, err := parseDomains("TEST_EMAIL_DOMAINS", getenv("TEST_EMAIL_DOMAINS"))
+	if err != nil {
+		errs = append(errs, err)
+	}
+	if production {
+		cfg.TestEmailDomainsIgnored = len(domains) > 0
+	} else {
+		cfg.TestEmailDomains = domains
+	}
+	if cfg.UnverifiedAccountDays, err = parsePositive("UNVERIFIED_ACCOUNT_DAYS", getenv("UNVERIFIED_ACCOUNT_DAYS"), DefaultUnverifiedAccountDays); err != nil {
+		errs = append(errs, err)
+	}
+
 	if len(errs) > 0 {
 		return Config{}, errors.Join(errs...)
 	}
@@ -219,15 +296,18 @@ func Load(getenv func(string) string) (Config, error) {
 }
 
 // LogValue keeps the database and Redis URLs, and so any password in them, the JWT
-// secret and the storage keys out of the logs. The mail, cookie, storage location,
+// secret, the SMTP password and the storage keys out of the logs. The mail, cookie, storage location,
 // OpenAlex and ORCID address settings hold no secrets; the OpenAlex contact address is
 // left out as personal data.
 func (c Config) LogValue() slog.Value {
 	return slog.GroupValue(
+		slog.String("app_env", c.AppEnv),
 		slog.Int("port", c.Port),
 		slog.String("log_level", c.LogLevel.String()),
 		slog.String("smtp_host", c.SMTPHost),
 		slog.Int("smtp_port", c.SMTPPort),
+		slog.String("smtp_tls", c.SMTPTLS),
+		slog.Bool("smtp_auth", c.SMTPUsername != ""),
 		slog.String("mail_from", c.MailFrom.String()),
 		slog.String("app_base_url", c.AppBaseURL),
 		slog.Bool("cookie_secure", c.CookieSecure),
@@ -238,7 +318,41 @@ func (c Config) LogValue() slog.Value {
 		slog.String("openalex_base_url", c.OpenAlexBaseURL),
 		slog.String("orcid_base_url", c.ORCIDBaseURL),
 		slog.String("clamav_addr", c.ClamAVAddr),
+		slog.Any("test_email_domains", c.TestEmailDomains),
+		slog.Int("unverified_account_days", c.UnverifiedAccountDays),
 	)
+}
+
+// isLocalHost reports whether host names this machine.
+func isLocalHost(host string) bool {
+	host = strings.ToLower(strings.Trim(host, "[]"))
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && (ip.IsLoopback() || ip.IsUnspecified())
+}
+
+// domainName is a lower-case domain of at least two labels, such as example.com.
+var domainName = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+
+// parseDomains reads a comma-separated list of domain names, lower-cased, without repeats;
+// empty means none.
+func parseDomains(name, raw string) ([]string, error) {
+	var out []string
+	for d := range strings.SplitSeq(raw, ",") {
+		d = strings.ToLower(strings.TrimSpace(d))
+		if d == "" {
+			continue
+		}
+		if len(d) > 253 || !domainName.MatchString(d) {
+			return nil, fmt.Errorf("%s must be domain names separated by commas, such as example.com,compare.researchsphere.local, got %q", name, d)
+		}
+		if !slices.Contains(out, d) {
+			out = append(out, d)
+		}
+	}
+	return out, nil
 }
 
 // checkURL reports a malformed URL without echoing it: url.Parse errors quote

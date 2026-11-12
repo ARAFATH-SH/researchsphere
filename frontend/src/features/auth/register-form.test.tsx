@@ -66,6 +66,11 @@ describe("RegisterForm", () => {
 
   it.each([
     { code: "email_taken", message: "This email address is already registered.", field: "Email" },
+    {
+      code: "email_domain_not_allowed",
+      message: "Use a permanent email address you can receive mail at.",
+      field: "Email",
+    },
     { code: "invalid_email", message: "Enter a valid email address.", field: "Email" },
     { code: "password_too_short", message: "The password must be at least 8 characters long.", field: "Password" },
     { code: "invalid_full_name", message: "Enter your full name.", field: "Full name" },
