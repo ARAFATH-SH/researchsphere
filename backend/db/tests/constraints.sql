@@ -873,13 +873,50 @@ SELECT pg_temp.expect_ok('Venue: venues added by an administrator need no source
 -- ---------------------------------------------------------------------------
 
 INSERT INTO project_embeddings (project_id, model, content_hash, embedding) VALUES
-    ('00000000-0000-0000-0000-0000000000a1', 'test-model', 'h1', array_fill(0.1::real, ARRAY[768])::vector);
+    ('00000000-0000-0000-0000-0000000000a1', 'test-model@1', repeat('1', 64), array_fill(0.1::real, ARRAY[768])::vector);
 SELECT pg_temp.expect_error('Embedding: one per owner',
     $s$INSERT INTO project_embeddings (project_id, model, content_hash, embedding)
-       VALUES ('00000000-0000-0000-0000-0000000000a1', 'test-model', 'h2', array_fill(0.2::real, ARRAY[768])::vector)$s$, '23505');
+       VALUES ('00000000-0000-0000-0000-0000000000a1', 'test-model@1', repeat('2', 64), array_fill(0.2::real, ARRAY[768])::vector)$s$, '23505');
 SELECT pg_temp.expect_error('Embedding: vector must have 768 dimensions',
     $s$INSERT INTO venue_embeddings (venue_id, model, content_hash, embedding)
-       VALUES ('00000000-0000-0000-0000-000000000201', 'test-model', 'h1', '[1,2,3]')$s$, '22000');
+       VALUES ('00000000-0000-0000-0000-000000000201', 'test-model@1', repeat('1', 64), '[1,2,3]')$s$, '22000');
+SELECT pg_temp.expect_error('Embedding: the hash is 64 hex characters (AI-1.4)',
+    $s$INSERT INTO venue_embeddings (venue_id, model, content_hash, embedding)
+       VALUES ('00000000-0000-0000-0000-000000000201', 'test-model@1', 'h1', array_fill(0.1::real, ARRAY[768])::vector)$s$, '23514');
+SELECT pg_temp.expect_error('Embedding: the model is name@revision (AI-1.6)',
+    $s$INSERT INTO venue_embeddings (venue_id, model, content_hash, embedding)
+       VALUES ('00000000-0000-0000-0000-000000000201', 'test-model', repeat('1', 64), array_fill(0.1::real, ARRAY[768])::vector)$s$, '23514');
+SELECT pg_temp.expect_error('Embedding: at most 8 chunks (AI-1.1)',
+    $s$INSERT INTO venue_embeddings (venue_id, model, content_hash, embedding, chunk_count)
+       VALUES ('00000000-0000-0000-0000-000000000201', 'test-model@1', repeat('1', 64), array_fill(0.1::real, ARRAY[768])::vector, 9)$s$, '23514');
+SELECT pg_temp.expect_error('Embedding: at least 1 chunk (AI-1.1)',
+    $s$INSERT INTO venue_embeddings (venue_id, model, content_hash, embedding, chunk_count)
+       VALUES ('00000000-0000-0000-0000-000000000201', 'test-model@1', repeat('1', 64), array_fill(0.1::real, ARRAY[768])::vector, 0)$s$, '23514');
+
+-- The embedding queue (AI-1.5) and the administrators' AI actions (AI-1.6).
+SELECT pg_temp.expect_ok('Embedding job: queued by embedding_enqueue',
+    $s$SELECT embedding_enqueue('profile', '00000000-0000-0000-0000-0000000000f1')$s$);
+SELECT pg_temp.expect_ok('Embedding job: queuing again keeps one row and raises the generation',
+    $s$SELECT embedding_enqueue('profile', '00000000-0000-0000-0000-0000000000f1')$s$);
+SELECT pg_temp.expect_true('Embedding job: one row per owner', $q$
+    SELECT count(*) = 1 AND max(generation) = 2 FROM embedding_jobs WHERE owner_id = '00000000-0000-0000-0000-0000000000f1'$q$);
+SELECT pg_temp.expect_error('Embedding job: one row per owner (primary key)',
+    $s$INSERT INTO embedding_jobs (owner_type, owner_id) VALUES ('profile', '00000000-0000-0000-0000-0000000000f1')$s$, '23505');
+SELECT pg_temp.expect_error('Embedding job: unknown owner type',
+    $s$INSERT INTO embedding_jobs (owner_type, owner_id) VALUES ('comment', '00000000-0000-0000-0000-0000000000f2')$s$, '23514');
+SELECT pg_temp.expect_error('Embedding job: priority 0 or 1',
+    $s$INSERT INTO embedding_jobs (owner_type, owner_id, priority) VALUES ('profile', '00000000-0000-0000-0000-0000000000f2', 2)$s$, '23514');
+SELECT pg_temp.expect_error('Embedding job: attempts are not negative',
+    $s$INSERT INTO embedding_jobs (owner_type, owner_id, attempts) VALUES ('profile', '00000000-0000-0000-0000-0000000000f2', -1)$s$, '23514');
+SELECT pg_temp.expect_error('Embedding job: a failed job keeps its error',
+    $s$INSERT INTO embedding_jobs (owner_type, owner_id, failed_at) VALUES ('profile', '00000000-0000-0000-0000-0000000000f2', now())$s$, '23514');
+SELECT pg_temp.expect_error('Embedding job: the error is at most 500 characters',
+    $s$INSERT INTO embedding_jobs (owner_type, owner_id, last_error) VALUES ('profile', '00000000-0000-0000-0000-0000000000f2', repeat('x', 501))$s$, '23514');
+DELETE FROM embedding_jobs WHERE owner_id = '00000000-0000-0000-0000-0000000000f1';
+SELECT pg_temp.expect_error('AI admin action: known actions only',
+    $s$INSERT INTO ai_admin_actions (action, queued) VALUES ('drop_everything', 0)$s$, '23514');
+SELECT pg_temp.expect_error('AI admin action: the count is not negative',
+    $s$INSERT INTO ai_admin_actions (action, queued) VALUES ('embeddings_rebuild', -1)$s$, '23514');
 
 -- ---------------------------------------------------------------------------
 -- Messaging (FR-16.1, FR-16.2, NFR-13). Users 1 and 2 have one conversation.
@@ -1131,11 +1168,11 @@ INSERT INTO user_publications (user_id, publication_id, confirmed_at) VALUES
     ('00000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-0000000000c1', now()),
     ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-0000000000c1', now());
 INSERT INTO profile_embeddings (user_id, model, content_hash, embedding) VALUES
-    ('00000000-0000-0000-0000-000000000003', 'test-model', 'h3', array_fill(0.3::real, ARRAY[768])::vector);
+    ('00000000-0000-0000-0000-000000000003', 'test-model@1', repeat('3', 64), array_fill(0.3::real, ARRAY[768])::vector);
 INSERT INTO posts (id, author_id, body) VALUES
     ('00000000-0000-0000-0000-0000000000e3', '00000000-0000-0000-0000-000000000003', 'Cy post');
 INSERT INTO post_embeddings (post_id, model, content_hash, embedding) VALUES
-    ('00000000-0000-0000-0000-0000000000e3', 'test-model', 'h4', array_fill(0.4::real, ARRAY[768])::vector);
+    ('00000000-0000-0000-0000-0000000000e3', 'test-model@1', repeat('4', 64), array_fill(0.4::real, ARRAY[768])::vector);
 INSERT INTO post_likes (post_id, user_id) VALUES
     ('00000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-000000000003');
 INSERT INTO post_comments (post_id, author_id, body) VALUES

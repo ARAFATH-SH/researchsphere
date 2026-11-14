@@ -182,6 +182,16 @@ WHERE id = @id;
 UPDATE users SET suspended_at = NULL, suspended_until = NULL, suspension_reason = NULL
 WHERE id = @id AND suspended_until <= @now;
 
+-- name: ListEndedSuspensions :many
+-- Timed suspensions whose end has passed but that no login or refresh has cleared yet. The
+-- hourly upkeep clears them with ClearExpiredSuspension, as a login would, so the user is
+-- back in recommendations within an hour (the embedding trigger queues the profile).
+SELECT id
+FROM users
+WHERE suspended_until <= @now
+ORDER BY suspended_until, id
+LIMIT @max_users;
+
 -- name: SetUserRoleByEmail :execrows
 -- Only `make admin` and `make unadmin` (cmd/setrole) run it; no API operation does.
 UPDATE users SET role = @role WHERE email = @email;

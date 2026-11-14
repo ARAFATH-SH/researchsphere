@@ -406,6 +406,14 @@ func (fakeAPI) GetUserModeration(context.Context, gen.GetUserModerationRequestOb
 	return nil, nil
 }
 
+func (fakeAPI) GetEmbeddingStats(context.Context, gen.GetEmbeddingStatsRequestObject) (gen.GetEmbeddingStatsResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) RebuildEmbeddings(context.Context, gen.RebuildEmbeddingsRequestObject) (gen.RebuildEmbeddingsResponseObject, error) {
+	return nil, nil
+}
+
 func (fakeAPI) ListPendingWarnings(context.Context, gen.ListPendingWarningsRequestObject) (gen.ListPendingWarningsResponseObject, error) {
 	return nil, nil
 }
@@ -824,8 +832,8 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 
 func TestRoutes(t *testing.T) {
 	got := Routes()
-	if len(got) != 105 {
-		t.Errorf("Routes() returned %d routes, want the 105 operations in the contract: %v", len(got), got)
+	if len(got) != 107 {
+		t.Errorf("Routes() returned %d routes, want the 107 operations in the contract: %v", len(got), got)
 	}
 	seen := map[string]bool{}
 	for _, p := range got {

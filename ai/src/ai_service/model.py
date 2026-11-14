@@ -73,6 +73,18 @@ class E5Model:
         )
         return vectors.tolist()
 
+    # The tokenizer, for splitting long documents by real tokens (document.py). No special
+    # tokens and no truncation; verbose=False keeps the "longer than 512" warning out of the log.
+    def token_spans(self, text: str) -> list[tuple[int, int]]:
+        enc = self._model.tokenizer(
+            text, add_special_tokens=False, return_offsets_mapping=True, verbose=False
+        )
+        return [(int(a), int(b)) for a, b in enc["offset_mapping"]]
+
+    def count_tokens(self, text: str) -> int:
+        enc = self._model.tokenizer(text, add_special_tokens=False, verbose=False)
+        return len(enc["input_ids"])
+
 
 def load(settings: Settings) -> E5Model:
     return E5Model(fetch(settings))

@@ -1,0 +1,141 @@
+// Package domain holds the embedding module's entities and the interfaces its usecase needs
+// (AI-1): the queue of owners whose embedding must be made, the stored embeddings and the AI
+// service. Standard library only.
+package domain
+
+import (
+	"context"
+	"errors"
+	"time"
+)
+
+// OwnerType is what an embedding belongs to. Each source slice adds one: project (AI-1.2),
+// post and venue (AI-1.3). The values match embedding_jobs.owner_type.
+type OwnerType string
+
+// Owner types.
+const (
+	OwnerProfile OwnerType = "profile"
+)
+
+// OwnerTypes lists every owner type, in the order the admin statistics show them.
+var OwnerTypes = []OwnerType{OwnerProfile}
+
+// MaxChunks is how many chunks of at most 512 tokens one embedding averages (AI-1.1).
+const MaxChunks = 8
+
+// MaxTextChars is the longest source text sent to the AI service; it is far more than
+// MaxChunks chunks hold in any language, so cutting there loses nothing that is embedded.
+const MaxTextChars = 100_000
+
+// Job is a claimed row of the queue. Generation identifies the request the worker read: a
+// change made while it works raises it, so the job is kept and runs again.
+type Job struct {
+	OwnerType  OwnerType
+	OwnerID    string
+	Generation int64
+	Attempts   int
+	Force      bool
+}
+
+// Stored is what the worker compares with the current text (AI-1.4).
+type Stored struct {
+	Model       string
+	ContentHash string
+}
+
+// Embedding is a vector to store with its record (AI-1.6).
+type Embedding struct {
+	OwnerType   OwnerType
+	OwnerID     string
+	Model       string // "name@revision"
+	ContentHash string // hex SHA-256 of the source text
+	ChunkCount  int
+	Vector      []float32
+}
+
+// ProfileSource is the public part of a profile that its embedding is made from (AI-1.1),
+// and whether the user may have one: verified and not suspended. It has no contact field.
+type ProfileSource struct {
+	Eligible     bool
+	Headline     string
+	Bio          string
+	Interests    []string // by name
+	Skills       []string // by name
+	Publications []PublicationText
+}
+
+// PublicationText is a confirmed publication's text, newest first in ProfileSource.
+type PublicationText struct {
+	Title    string
+	Abstract string
+}
+
+// OwnerStats is one owner type's line of the admin statistics.
+type OwnerStats struct {
+	OwnerType    OwnerType
+	Total        int // stored embeddings
+	CurrentModel int // of them, made by the current model
+	Queued       int // jobs waiting, failed ones not counted
+	Failed       int
+}
+
+// Errors.
+var (
+	// ErrNotFound means the owner is gone.
+	ErrNotFound = errors.New("not found")
+	// ErrUnavailable means the AI service is down, loading or answered with a server error.
+	// The job is kept and nothing is counted against it.
+	ErrUnavailable = errors.New("ai service unavailable")
+	// ErrNotConfigured means the AI service is turned off (no token): jobs wait.
+	ErrNotConfigured = errors.New("ai service is not configured")
+)
+
+// Embedder is the AI service. An error that is neither ErrUnavailable nor ErrNotConfigured is
+// a problem with this text, which counts toward the job's attempts.
+type Embedder interface {
+	// EmbedDocument returns one unit-length vector for text, the model and the chunk count.
+	EmbedDocument(ctx context.Context, text string, maxChunks int) (vector []float32, model string, chunks int, err error)
+	// Model returns the model the service has loaded.
+	Model(ctx context.Context) (string, error)
+}
+
+// Store is the queue, the embeddings and the source rows.
+type Store interface {
+	// ClaimJobs leases up to limit due jobs, user changes first, that no other worker holds,
+	// until now plus lease.
+	ClaimJobs(ctx context.Context, limit int, lease time.Duration) ([]Job, error)
+	// FinishJob deletes the job when its generation is still job.Generation; otherwise it
+	// only ends the lease, so the newer request runs.
+	FinishJob(ctx context.Context, job Job) error
+	// ReleaseJob ends the lease without counting an attempt (AI service down).
+	ReleaseJob(ctx context.Context, job Job) error
+	// RetryJob counts a failed attempt: the job runs again at next, or, when failed, stays
+	// with failed_at and the error until the owner's next change. It does nothing when a
+	// newer request replaced the job.
+	RetryJob(ctx context.Context, job Job, lastError string, next time.Time, failed bool) error
+
+	// ProfileSource returns ErrNotFound when the user or profile is gone.
+	ProfileSource(ctx context.Context, userID string) (ProfileSource, error)
+	// StoredEmbedding returns ErrNotFound when the owner has none.
+	StoredEmbedding(ctx context.Context, owner OwnerType, ownerID string) (Stored, error)
+	// SaveEmbedding inserts or replaces the embedding, only while the owner is still
+	// eligible, holding the owner's row so a suspension waits for it or is seen by it. It
+	// reports whether it stored.
+	SaveEmbedding(ctx context.Context, e Embedding) (bool, error)
+	// DeleteEmbedding removes the owner's embedding, if any.
+	DeleteEmbedding(ctx context.Context, owner OwnerType, ownerID string) error
+
+	// QueueStale queues, at low priority, up to limit owners whose embedding another model
+	// made and that have no job yet. It returns how many it queued.
+	QueueStale(ctx context.Context, model string, limit int) (int, error)
+	// QueueAll queues every eligible owner at low priority, forced or not, in one statement,
+	// and returns how many.
+	QueueAll(ctx context.Context, force bool) (int, error)
+	// Rebuild queues every eligible owner, forced, and records the administrator's action,
+	// in one transaction. It returns how many it queued.
+	Rebuild(ctx context.Context, adminID string) (int, error)
+	// Stats counts the embeddings and jobs of each owner type; model is the current model
+	// ("" when unknown: no embedding counts as current).
+	Stats(ctx context.Context, model string) ([]OwnerStats, error)
+}

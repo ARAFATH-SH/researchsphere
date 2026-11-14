@@ -16,6 +16,7 @@ import (
 	authhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/adapter/http"
 	authdomain "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/domain"
 	authusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/usecase"
+	embeddinghttp "github.com/ARAFATH-SH/researchsphere/backend/internal/embedding/adapter/http"
 	healthdomain "github.com/ARAFATH-SH/researchsphere/backend/internal/health/domain"
 	mediahttp "github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/http"
 	messaginghttp "github.com/ARAFATH-SH/researchsphere/backend/internal/messaging/adapter/http"
@@ -154,6 +155,7 @@ func testRouter() http.Handler {
 		messaginghttp.NewHandler(okMessaging{}),
 		moderationhttp.NewHandler(okModeration{}),
 		realtimehttp.NewHandler(okRealtime{}, "http://localhost:3000", slog.New(slog.DiscardHandler)),
+		embeddinghttp.NewHandler(okEmbeddings{}),
 		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
 }
 
@@ -182,6 +184,7 @@ func healthRouter(storage, ai healthdomain.Pinger) http.Handler {
 		messaginghttp.NewHandler(okMessaging{}),
 		moderationhttp.NewHandler(okModeration{}),
 		realtimehttp.NewHandler(okRealtime{}, "http://localhost:3000", slog.New(slog.DiscardHandler)),
+		embeddinghttp.NewHandler(okEmbeddings{}),
 		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
 }
 

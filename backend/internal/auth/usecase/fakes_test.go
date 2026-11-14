@@ -672,6 +672,26 @@ func tokenFromLink(link string) string {
 	return token
 }
 
+// ListEndedSuspensions is the query's filter over the users in memory, the longest ended
+// first.
+func (s *fakeStore) ListEndedSuspensions(_ context.Context, now time.Time, limit int) ([]string, error) {
+	if s.failFind != nil {
+		return nil, s.failFind
+	}
+	var found []domain.User
+	for _, u := range s.users {
+		if u.SuspendedUntil != nil && !u.SuspendedUntil.After(now) {
+			found = append(found, u.User)
+		}
+	}
+	slices.SortFunc(found, func(a, b domain.User) int { return a.SuspendedUntil.Compare(*b.SuspendedUntil) })
+	ids := make([]string, 0, len(found))
+	for _, u := range found[:min(limit, len(found))] {
+		ids = append(ids, u.ID)
+	}
+	return ids, nil
+}
+
 // ListUnverifiedBefore is the query's filter over the users in memory, oldest first.
 func (s *fakeStore) ListUnverifiedBefore(_ context.Context, cutoff time.Time, skipDomains []string, limit int) ([]string, error) {
 	if s.failFind != nil {

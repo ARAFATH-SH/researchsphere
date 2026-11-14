@@ -20,7 +20,7 @@ recommendations. One developer builds it in 30 slices over 12 weeks.
 | --- | --- | --- |
 | `frontend/` | Web client | Next.js, React, TypeScript, Tailwind CSS |
 | `backend/` | API server; migrations in `backend/db/migrations` | Go 1.25+, sqlc, oapi-codegen, golang-migrate |
-| `ai/` | Internal AI service: embeddings now (`POST /embed`, intfloat/multilingual-e5-base, CPU), later matching, search, venue ranking and the writing assistant. Never public: the API calls it with `AI_SERVICE_TOKEN` (`internal/platform/aiclient`) | Python 3.12 with uv, FastAPI, Sentence Transformers |
+| `ai/` | Internal AI service: embeddings now (`POST /embed`, and `POST /embed-document`, which splits a long text by real tokens and averages; intfloat/multilingual-e5-base, CPU), later matching, search, venue ranking and the writing assistant. Never public: the API calls it with `AI_SERVICE_TOKEN` (`internal/platform/aiclient`) | Python 3.12 with uv, FastAPI, Sentence Transformers |
 | `sync/` | Real-time editing server (slice 22) | Node.js, Hocuspocus, Yjs |
 | `compile/` | LaTeX compile service (slice 23) | TeX Live in a Docker sandbox |
 | `docs/` | SRS, API contract, decisions | Markdown, OpenAPI 3 |
@@ -49,6 +49,7 @@ Run these from the repository root. `make help` prints the current list.
 | `make seed-dev` | Create or repair the development accounts `test1@example.com` to `test4@example.com` (researchers) and `admin@example.com` (administrator), all verified, with the password `DEV_SEED_PASSWORD` from `.env`. Running it again resets their password, role and suspension and touches no other account. Needs `make migrate`. Refuses a database name ending in `_test`, `APP_ENV=production` and any host but this machine. The API accepts these addresses only while `TEST_EMAIL_DOMAINS` names `example.com` |
 | `make purge-unverified` | Run the FR-17.4 purge once now, with the `.env` settings: delete the accounts still unverified `UNVERIFIED_ACCOUNT_DAYS` (7) after sign-up, except those at `TEST_EMAIL_DOMAINS` outside production, and log what it deleted. The API also runs it every hour |
 | `make send-digests` | Run the FR-16.11 unread message digest once now, with the `.env` settings: email each verified, not suspended user with the digest on who has messages unread for 24 hours that no digest counted yet and got no digest in the last 24 hours (at most 200 users a run), and log how many it sent. The API also runs it every hour. Mail goes to Mailpit locally (test-domain accounts included); needs `make migrate` and `UNSUBSCRIBE_SECRET` |
+| `make embed-backfill` | Queue every verified, not suspended profile for its AI embedding once (AI-1.5), at low priority, then exit; the running API's worker embeds them, skipping a profile whose text and model have not changed. Run it once after migration 000028 on a database with existing profiles. Needs `make migrate`; the API needs the AI service (`AI_SERVICE_TOKEN`) to embed |
 | `make update-disposable-domains` | Download the latest list of disposable email domains (FR-17.2, CC0) into `backend/internal/auth/adapter/emaildomain/disposable_domains.txt`; review and commit the result |
 | `make api` | Run the API server (needs `make up`; settings from `.env`) |
 | `make web` | Run the web client dev server on port 3000; it forwards `/api/v1` to `API_URL` |
@@ -114,7 +115,8 @@ do not rename them.
 ## Conventions
 
 - **Go:** one application (modular monolith). Modules live in `backend/internal/<module>`: health,
-  then auth, profile, media, social, project, event, notification, messaging, moderation and realtime. Return errors, do not panic.
+  then auth, profile, media, social, project, event, notification, messaging, moderation, realtime and
+  embedding (AI-1: the queue, the worker and the stored vectors). Return errors, do not panic.
   Table-driven tests beside the code they test. Each module is split into layers (clean
   architecture); `backend/internal/health` is the example to copy:
 

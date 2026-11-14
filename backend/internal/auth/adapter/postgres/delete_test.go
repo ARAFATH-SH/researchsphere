@@ -122,7 +122,7 @@ func TestDeleteAccountRemovesUserData(t *testing.T) {
 
 	exec(t, pool, "INSERT INTO sessions (user_id, refresh_token_hash, expires_at) VALUES ($1, $2, now() + interval '1 day')", ada, rand.Text())
 	exec(t, pool, `INSERT INTO profile_embeddings (user_id, model, content_hash, embedding)
-		VALUES ($1, 'test', 'hash', array_fill(0.1::real, ARRAY[768])::vector)`, ada)
+		VALUES ($1, 'test@1', repeat('a', 64), array_fill(0.1::real, ARRAY[768])::vector)`, ada)
 	exec(t, pool, "INSERT INTO connections (requester_id, receiver_id, status) VALUES ($1, $2, 'accepted')", ada, grace)
 	adaPost := insertID(t, pool, "INSERT INTO posts (author_id, body) VALUES ($1, 'Ada''s post') RETURNING id", ada)
 	gracePost := insertID(t, pool, "INSERT INTO posts (author_id, body) VALUES ($1, 'Grace''s post') RETURNING id", grace)

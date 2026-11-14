@@ -4,7 +4,7 @@ Internal service: only the API server calls it (`backend/internal/platform/aicli
 never exposed through the public API or the Next.js app. Decision record: `docs/decisions.md`,
 2026-11-14.
 
-## What it does now (AI-1, slice 15.1)
+## What it does now (AI-1, slices 15.1 and 15.2)
 
 Text embeddings with `intfloat/multilingual-e5-base` (MIT, 768 dimensions, Bangla and English)
 at a pinned revision, on the CPU.
@@ -14,11 +14,20 @@ at a pinned revision, on the CPU.
 | `GET /health` | none | `{"status": "loading" \| "ready" \| "failed", "model_loaded": bool, "model": "<name>@<revision>"}` |
 | `GET /ready` | none | 200 once the model is loaded, else 503 `model_loading` / `model_failed` |
 | `POST /embed` | `Authorization: Bearer $AI_SERVICE_TOKEN` | `{"model", "dimensions": 768, "vectors": [[...]]}` |
+| `POST /embed-document` | `Authorization: Bearer $AI_SERVICE_TOKEN` | `{"model", "dimensions": 768, "vector": [...], "chunks", "truncated"}` |
 
 `POST /embed` takes `{"kind": "passage" | "query", "texts": [...]}`: 1 to 32 texts of 1 to
 8,000 characters. Stored text is prefixed `passage: `, queries `query: `; vectors are
 L2-normalised; text past 512 tokens is truncated. Errors: 400 `bad_request` (with `field`),
 401, 413 (body over 1 MiB), 503 while loading, 504 after 30 s.
+
+`POST /embed-document` takes `{"text": "...", "maxChunks": 8}` (text of 1 to 100,000
+characters; `maxChunks` 1 to 8, default 8) and returns one vector for the whole text (AI-1.1).
+The text is split with the model's own tokenizer into chunks that each fit 512 tokens with
+the `passage: ` prefix, ending at a line break, else a sentence end, else between words; the
+start of the text is always in the first chunk. Each chunk is embedded, the vectors are
+averaged and the mean is L2-normalised. `chunks` is how many were embedded and `truncated`
+says text was left over after `maxChunks`. A text with no words is 400 `bad_request`.
 
 ## Running
 

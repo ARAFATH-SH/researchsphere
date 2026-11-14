@@ -12,12 +12,37 @@ import (
 const FakeModel = "fake-model@0000000000000000000000000000000000000000"
 
 // Fake is an Embedder for tests: it calls no service and returns deterministic unit-length
-// vectors, the same for the same kind and text. Set Err to make every call fail with it.
-// Calls records each Embed call. Safe for concurrent use.
+// vectors, the same for the same kind and text. Set Err to make every call fail with it,
+// and ModelName to report another model than FakeModel; set both with SetErr and SetModel
+// once other goroutines use it. Calls records each Embed call, DocumentCalls each
+// EmbedDocument call. Safe for concurrent use.
 type Fake struct {
-	mu    sync.Mutex
-	Err   error
-	calls []FakeCall
+	mu        sync.Mutex
+	Err       error
+	ModelName string
+	calls     []FakeCall
+	docCalls  []string
+}
+
+// SetErr sets Err under the lock.
+func (f *Fake) SetErr(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.Err = err
+}
+
+// SetModel sets ModelName under the lock.
+func (f *Fake) SetModel(name string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ModelName = name
+}
+
+func (f *Fake) model() string {
+	if f.ModelName != "" {
+		return f.ModelName
+	}
+	return FakeModel
 }
 
 // FakeCall is one Embed call Fake received.
@@ -39,11 +64,43 @@ func (f *Fake) Embed(_ context.Context, kind Kind, texts []string) (Result, erro
 	if err := checkInput(kind, texts); err != nil {
 		return Result{}, err
 	}
-	res := Result{Model: FakeModel, Vectors: make([][]float32, len(texts))}
+	res := Result{Model: f.model(), Vectors: make([][]float32, len(texts))}
 	for i, t := range texts {
 		res.Vectors[i] = FakeVector(kind, t)
 	}
 	return res, nil
+}
+
+// EmbedDocument checks the input as Client does, then returns FakeVector of the whole text
+// as one chunk.
+func (f *Fake) EmbedDocument(_ context.Context, text string, maxChunks int) (DocumentResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.docCalls = append(f.docCalls, text)
+	if f.Err != nil {
+		return DocumentResult{}, f.Err
+	}
+	if err := checkDocument(text, maxChunks); err != nil {
+		return DocumentResult{}, err
+	}
+	return DocumentResult{Model: f.model(), Vector: FakeVector(KindPassage, text), Chunks: 1}, nil
+}
+
+// DocumentCalls returns a copy of the texts EmbedDocument received.
+func (f *Fake) DocumentCalls() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.docCalls...)
+}
+
+// Model returns ModelName (FakeModel when empty), or Err.
+func (f *Fake) Model(context.Context) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.Err != nil {
+		return "", f.Err
+	}
+	return f.model(), nil
 }
 
 // Ping returns Err.

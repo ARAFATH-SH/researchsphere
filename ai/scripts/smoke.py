@@ -82,6 +82,36 @@ def main() -> int:
     status, _ = call(base, "/embed", {"kind": "passage", "texts": [long_text] * 32}, token)
     check(status == 200, "32 texts of 8,000 characters are accepted (truncated to 512 tokens)")
 
+    # POST /embed-document with the real tokenizer: long English, Bangla and mixed text is
+    # split into chunks that fit 512 tokens, and Bangla takes more chunks per character.
+    status, _ = call(base, "/embed-document", {"text": "x"})
+    check(status == 401, "POST /embed-document without the token is 401")
+    status, short = call(base, "/embed-document", {"text": passages[0]}, token)
+    check(status == 200 and short["chunks"] == 1, "a short document is one chunk")
+    if status == 200:
+        check(
+            dot(short["vector"], vecs[0]) > 0.999,
+            "a one-chunk document has the same vector as POST /embed",
+        )
+    chunk_counts = {}
+    for name, text in [
+        ("English", (passages[0] + " ") * 200),
+        ("Bangla", (passages[1] + " ") * 200),
+        ("mixed", (passages[0] + " " + passages[1] + " ") * 100),
+    ]:
+        text = text[:12_000]
+        status, doc = call(base, "/embed-document", {"text": text, "maxChunks": 8}, token)
+        ok = status == 200 and abs(math.sqrt(dot(doc["vector"], doc["vector"])) - 1) < 1e-4
+        check(ok, f"a long {name} document gives one unit-length vector")
+        if ok:
+            chunk_counts[name] = doc["chunks"]
+            print(f"     {name}: {doc['chunks']} chunks, truncated {doc['truncated']}")
+    if len(chunk_counts) == 3:
+        check(
+            chunk_counts["Bangla"] > chunk_counts["English"],
+            "12,000 Bangla characters take more chunks than 12,000 English ones",
+        )
+
     if failures:
         print(f"{len(failures)} check(s) failed")
         return 1

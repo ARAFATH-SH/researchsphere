@@ -23,6 +23,7 @@ import (
 	authredis "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/adapter/redis"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/auth/adapter/smtp"
 	authusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/usecase"
+	embeddinghttp "github.com/ARAFATH-SH/researchsphere/backend/internal/embedding/adapter/http"
 	healthpg "github.com/ARAFATH-SH/researchsphere/backend/internal/health/adapter/postgres"
 	healthredis "github.com/ARAFATH-SH/researchsphere/backend/internal/health/adapter/redis"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/clamav"
@@ -80,6 +81,7 @@ const unverifiedPurgeInterval = time.Hour
 func main() {
 	purgeOnce := flag.Bool("purge-unverified", false, "delete the accounts still unverified after UNVERIFIED_ACCOUNT_DAYS once (FR-17.4), then exit; make purge-unverified runs it")
 	digestsOnce := flag.Bool("send-digests", false, "send the unread message digests now due once (FR-16.11), then exit; make send-digests runs it")
+	backfillOnce := flag.Bool("embed-backfill", false, "queue every verified, not suspended profile for embedding once (AI-1.5), then exit; make embed-backfill runs it")
 	flag.Parse()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -87,10 +89,12 @@ func main() {
 
 	runner := run
 	switch {
-	case *purgeOnce && *digestsOnce:
-		fmt.Fprintln(os.Stderr, "api: use -purge-unverified or -send-digests, not both")
+	case btoi(*purgeOnce)+btoi(*digestsOnce)+btoi(*backfillOnce) > 1:
+		fmt.Fprintln(os.Stderr, "api: use one of -purge-unverified, -send-digests and -embed-backfill")
 		stop()
 		os.Exit(2)
+	case *backfillOnce:
+		runner = runEmbedBackfillOnce
 	case *purgeOnce:
 		runner = runPurgeOnce
 	case *digestsOnce:
@@ -101,6 +105,13 @@ func main() {
 		stop()
 		os.Exit(1)
 	}
+}
+
+func btoi(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // run starts the server and blocks until ctx is cancelled, then shuts down gracefully.
@@ -215,8 +226,11 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 	moderation := moderationusecase.New(moderationStore, postgres.NewTransactor(pool), moderationAccounts{auth: auth, events: realtime.events},
 		moderationReports{messaging: messaging}, moderationNotifier{notifications: notifications},
 		moderationMailer{mailer: mailer}, time.Now, logger)
-	// The AI service (AI-1). No caller embeds yet (slice 15.2); the health check reports it.
+	// The AI service (AI-1): the health check reports it, and the embedding worker makes
+	// profile embeddings from the queue the database triggers fill (AI-1.5), every 5 s.
 	ai := aiclient.New(aiclient.Config{BaseURL: cfg.AIServiceURL, Token: cfg.AIServiceToken})
+	embeddings, embedWorker := newEmbeddings(pool, ai, logger)
+	go embedWorker.Run(ctx)
 	handler := newRouter(logger, healthpg.NewPinger(pool), healthredis.NewPinger(rdb), files, ai,
 		authhttp.NewHandler(auth, authhttp.CookieConfig{Secure: cfg.CookieSecure}),
 		profilehttp.NewHandler(profiles),
@@ -226,6 +240,7 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 		messaginghttp.NewHandler(messaging, messaginghttp.WithDigests(digests)),
 		moderationhttp.NewHandler(moderation),
 		realtimehttp.NewHandler(realtime.hub, cfg.AppBaseURL, logger),
+		embeddinghttp.NewHandler(embeddings),
 		httpx.RequireAuth(tokens, time.Now))
 
 	var lc net.ListenConfig

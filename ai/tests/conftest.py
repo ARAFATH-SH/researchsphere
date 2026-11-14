@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import threading
 import time
 from collections.abc import Callable, Iterator, Sequence
@@ -17,9 +18,17 @@ TOKEN = "test-token-0123456789-abcdefghijklmnop"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
 
+# The stub tokenizer: an ASCII letter or digit run costs one token per 4 characters, and
+# every other visible character one token. So Bangla costs about four times as many tokens
+# per character as English, as with the real tokenizer, and a character count cannot say
+# where a chunk ends.
+_TOKEN = re.compile(r"[A-Za-z0-9]{1,4}|[^\sA-Za-z0-9]")
+
+
 class StubModel:
     """Deterministic vectors that are deliberately not normalised (length well above 1), so
-    the tests prove the service normalises. Records the texts it was given."""
+    the tests prove the service normalises. Records the texts it was given. Tokenizes with
+    a stub tokenizer (see _TOKEN)."""
 
     def __init__(self, dimensions: int = 768, delay: float = 0.0) -> None:
         self.dimensions = dimensions
@@ -35,6 +44,12 @@ class StubModel:
             seed = hashlib.sha256(t.encode()).digest()
             out.append([float(seed[i % 32]) + 1.0 for i in range(self.dimensions)])
         return out
+
+    def token_spans(self, text: str) -> list[tuple[int, int]]:
+        return [m.span() for m in _TOKEN.finditer(text)]
+
+    def count_tokens(self, text: str) -> int:
+        return len(self.token_spans(text))
 
 
 def settings(**kw) -> Settings:

@@ -6,6 +6,7 @@ import (
 
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/api/gen"
 	authhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/adapter/http"
+	embeddinghttp "github.com/ARAFATH-SH/researchsphere/backend/internal/embedding/adapter/http"
 	healthhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/health/adapter/http"
 	healthdomain "github.com/ARAFATH-SH/researchsphere/backend/internal/health/domain"
 	healthusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/health/usecase"
@@ -35,6 +36,7 @@ type (
 	messagingHandler    = messaginghttp.Handler
 	moderationHandler   = moderationhttp.Handler
 	realtimeHandler     = realtimehttp.Handler
+	embeddingHandler    = embeddinghttp.Handler
 )
 
 // handlers implements every operation in the contract by embedding each module's HTTP
@@ -49,6 +51,7 @@ type handlers struct {
 	*messagingHandler
 	*moderationHandler
 	*realtimeHandler
+	*embeddingHandler
 }
 
 var _ gen.StrictServerInterface = handlers{}
@@ -58,6 +61,10 @@ var _ gen.StrictServerInterface = handlers{}
 // under /api/v1/admin/ must be listed (routes_test.go).
 var platformGuards = map[string]authz.Action{
 	"GET /api/v1/admin/users": authz.SuspendUser, // listing users comes before suspending one (FR-15.3)
+
+	// The AI matching model's embeddings (AI-1.6).
+	"GET /api/v1/admin/ai/embeddings":          authz.ManageAI,
+	"POST /api/v1/admin/ai/embeddings/rebuild": authz.ManageAI,
 
 	// Moderation (FR-15.3, FR-15.5 to FR-15.9). Warnings are the user's own, so reading and
 	// acknowledging one needs what reading the app needs.
@@ -320,7 +327,7 @@ func guardPlatform(next http.Handler) http.Handler {
 // Tests pass fakes; run passes the real PostgreSQL, Redis, SMTP and AI service adapters. requireAuth
 // guards the operations the contract secures (httpx.RequireAuth); guardPlatform runs
 // inside it, and limitBody inside that.
-func newRouter(logger *slog.Logger, db, redis, storage, ai healthdomain.Pinger, auth *authhttp.Handler, profile *profilehttp.Handler, media *mediahttp.Handler, social *socialhttp.Handler, notifications *notificationhttp.Handler, messaging *messaginghttp.Handler, moderation *moderationhttp.Handler, realtime *realtimehttp.Handler, requireAuth func(http.Handler) http.Handler) http.Handler {
+func newRouter(logger *slog.Logger, db, redis, storage, ai healthdomain.Pinger, auth *authhttp.Handler, profile *profilehttp.Handler, media *mediahttp.Handler, social *socialhttp.Handler, notifications *notificationhttp.Handler, messaging *messaginghttp.Handler, moderation *moderationhttp.Handler, realtime *realtimehttp.Handler, embedding *embeddinghttp.Handler, requireAuth func(http.Handler) http.Handler) http.Handler {
 	checker := healthusecase.New(healthusecase.DefaultTimeout,
 		healthdomain.Dependency{Name: "database", Pinger: db},
 		healthdomain.Dependency{Name: "redis", Pinger: redis},
@@ -338,5 +345,6 @@ func newRouter(logger *slog.Logger, db, redis, storage, ai healthdomain.Pinger, 
 		messagingHandler:    messaging,
 		moderationHandler:   moderation,
 		realtimeHandler:     realtime,
+		embeddingHandler:    embedding,
 	}, func(next http.Handler) http.Handler { return requireAuth(guardPlatform(limitBody(next))) })
 }

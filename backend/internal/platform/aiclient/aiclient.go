@@ -1,7 +1,7 @@
 // Package aiclient calls the internal AI service (ai/, AI-1) for text embeddings.
 //
 // The service is optional (NFR-10.2): callers treat an error as "AI unavailable" and carry
-// on. Each Embed call tries at most twice: it retries once after a 5xx answer, a timeout
+// on. Each Embed or EmbedDocument call tries at most twice: it retries once after a 5xx answer, a timeout
 // or a connection error, never after a 4xx answer or once the caller's context is done.
 package aiclient
 
@@ -25,6 +25,12 @@ const Dimensions = 768
 const (
 	MaxTexts     = 32
 	MaxTextChars = 8000
+)
+
+// Limits of one EmbedDocument call, the same as the service's.
+const (
+	MaxDocumentChars  = 100_000
+	MaxDocumentChunks = 8
 )
 
 // Defaults for Config.
@@ -55,10 +61,25 @@ type Result struct {
 	Vectors [][]float32
 }
 
+// DocumentResult is what EmbedDocument returns: one unit-length vector for the whole text,
+// the model that made it, how many chunks of at most 512 tokens were embedded and averaged,
+// and whether text was left over after the last chunk.
+type DocumentResult struct {
+	Model     string
+	Vector    []float32
+	Chunks    int
+	Truncated bool
+}
+
 // Embedder is what callers depend on; Client and Fake implement it.
 type Embedder interface {
 	Embed(ctx context.Context, kind Kind, texts []string) (Result, error)
+	// EmbedDocument embeds a long stored text as passages: the service splits it by real
+	// tokens into at most maxChunks chunks, the start of the text in the first, and averages.
+	EmbedDocument(ctx context.Context, text string, maxChunks int) (DocumentResult, error)
 	Ping(ctx context.Context) error
+	// Model returns the "name@revision" of the loaded model, once the service is ready.
+	Model(ctx context.Context) (string, error)
 }
 
 // Errors. A failed call wraps one of them, so callers can use errors.Is.
@@ -146,6 +167,23 @@ type embedResponse struct {
 	Vectors    [][]float32 `json:"vectors"`
 }
 
+type embedDocumentRequest struct {
+	Text      string `json:"text"`
+	MaxChunks int    `json:"maxChunks"`
+}
+
+type embedDocumentResponse struct {
+	Model      string    `json:"model"`
+	Dimensions int       `json:"dimensions"`
+	Vector     []float32 `json:"vector"`
+	Chunks     int       `json:"chunks"`
+	Truncated  bool      `json:"truncated"`
+}
+
+type readyResponse struct {
+	Model string `json:"model"`
+}
+
 type errorBody struct {
 	Code string `json:"code"`
 }
@@ -164,15 +202,50 @@ func (c *Client) Embed(ctx context.Context, kind Kind, texts []string) (Result, 
 		return Result{}, fmt.Errorf("encode embed request: %w", err)
 	}
 
-	var res Result
+	var out embedResponse
+	if err := c.postWithRetry(ctx, "/embed", body, &out); err != nil {
+		return Result{}, err
+	}
+	if err := checkResponse(out, len(texts)); err != nil {
+		return Result{}, err
+	}
+	return Result{Model: out.Model, Vectors: out.Vectors}, nil
+}
+
+// EmbedDocument returns one vector for text (POST /embed-document). The text must be 1 to
+// MaxDocumentChars characters with at least one word, maxChunks 1 to MaxDocumentChunks.
+func (c *Client) EmbedDocument(ctx context.Context, text string, maxChunks int) (DocumentResult, error) {
+	if c.token == "" {
+		return DocumentResult{}, ErrNotConfigured
+	}
+	if err := checkDocument(text, maxChunks); err != nil {
+		return DocumentResult{}, err
+	}
+	body, err := json.Marshal(embedDocumentRequest{Text: text, MaxChunks: maxChunks})
+	if err != nil {
+		return DocumentResult{}, fmt.Errorf("encode embed-document request: %w", err)
+	}
+	var out embedDocumentResponse
+	if err := c.postWithRetry(ctx, "/embed-document", body, &out); err != nil {
+		return DocumentResult{}, err
+	}
+	if err := checkDocumentResponse(out, maxChunks); err != nil {
+		return DocumentResult{}, err
+	}
+	return DocumentResult{Model: out.Model, Vector: out.Vector, Chunks: out.Chunks, Truncated: out.Truncated}, nil
+}
+
+// postWithRetry posts body to path and decodes a 200 answer into out, retrying once as the
+// package comment says.
+func (c *Client) postWithRetry(ctx context.Context, path string, body []byte, out any) error {
 	for attempt := 1; ; attempt++ {
-		res, err = c.embedOnce(ctx, body, len(texts))
+		err := c.postOnce(ctx, path, body, out)
 		if err == nil || attempt == 2 || !retryable(err) || ctx.Err() != nil {
-			return res, err
+			return err
 		}
 		select {
 		case <-ctx.Done():
-			return Result{}, errors.Join(err, ctx.Err())
+			return errors.Join(err, ctx.Err())
 		case <-time.After(c.retryDelay):
 		}
 	}
@@ -181,15 +254,64 @@ func (c *Client) Embed(ctx context.Context, kind Kind, texts []string) (Result, 
 // Ping reports whether the service has loaded its model (GET /ready). It is one attempt
 // under the caller's context: the health check has its own timeout.
 func (c *Client) Ping(ctx context.Context) error {
+	_, err := c.ready(ctx, false)
+	return err
+}
+
+// Model returns the model the service has loaded (GET /ready), in one attempt under the
+// caller's context.
+func (c *Client) Model(ctx context.Context) (string, error) {
+	return c.ready(ctx, true)
+}
+
+// ready calls GET /ready and, when wantModel, reads the model name from the answer.
+func (c *Client) ready(ctx context.Context, wantModel bool) (string, error) {
 	if c.token == "" {
-		return ErrNotConfigured
+		return "", ErrNotConfigured
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/ready", nil)
 	if err != nil {
-		return fmt.Errorf("build ready request: %w", err)
+		return "", fmt.Errorf("build ready request: %w", err)
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
+		return "", fmt.Errorf("%w: %w", ErrUnavailable, err)
+	}
+	defer func() {
+		// Read what is left so the connection can be reused, then close.
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, responseLimit))
+		_ = resp.Body.Close()
+	}()
+	if resp.StatusCode != http.StatusOK {
+		return "", statusError(resp)
+	}
+	if !wantModel {
+		return "", nil
+	}
+	var out readyResponse
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&out); err != nil {
+		return "", fmt.Errorf("%w: decode: %w", ErrBadResponse, err)
+	}
+	if out.Model == "" {
+		return "", fmt.Errorf("%w: no model name", ErrBadResponse)
+	}
+	return out.Model, nil
+}
+
+func (c *Client) postOnce(ctx context.Context, path string, body []byte, out any) error {
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("build %s request: %w", path, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.token)
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		// Connection refused, reset or the attempt's timeout: the service is unavailable.
 		return fmt.Errorf("%w: %w", ErrUnavailable, err)
 	}
 	defer func() {
@@ -200,45 +322,14 @@ func (c *Client) Ping(ctx context.Context) error {
 	if resp.StatusCode != http.StatusOK {
 		return statusError(resp)
 	}
-	return nil
-}
 
-func (c *Client) embedOnce(ctx context.Context, body []byte, n int) (Result, error) {
-	ctx, cancel := context.WithTimeout(ctx, c.timeout)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/embed", bytes.NewReader(body))
-	if err != nil {
-		return Result{}, fmt.Errorf("build embed request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.token)
-
-	resp, err := c.http.Do(req)
-	if err != nil {
-		// Connection refused, reset or the attempt's timeout: the service is unavailable.
-		return Result{}, fmt.Errorf("%w: %w", ErrUnavailable, err)
-	}
-	defer func() {
-		// Read what is left so the connection can be reused, then close.
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, responseLimit))
-		_ = resp.Body.Close()
-	}()
-	if resp.StatusCode != http.StatusOK {
-		return Result{}, statusError(resp)
-	}
-
-	var out embedResponse
-	if err := json.NewDecoder(io.LimitReader(resp.Body, responseLimit)).Decode(&out); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, responseLimit)).Decode(out); err != nil {
 		if ctx.Err() != nil { // the timeout struck while reading the body
-			return Result{}, fmt.Errorf("%w: %w", ErrUnavailable, err)
+			return fmt.Errorf("%w: %w", ErrUnavailable, err)
 		}
-		return Result{}, fmt.Errorf("%w: decode: %w", ErrBadResponse, err)
+		return fmt.Errorf("%w: decode: %w", ErrBadResponse, err)
 	}
-	if err := checkResponse(out, n); err != nil {
-		return Result{}, err
-	}
-	return Result{Model: out.Model, Vectors: out.Vectors}, nil
+	return nil
 }
 
 // retryable: 5xx, timeouts and connection errors, all wrapped as ErrUnavailable.
@@ -258,6 +349,32 @@ func checkInput(kind Kind, texts []string) error {
 		if n := utf8.RuneCountInString(t); n == 0 || n > MaxTextChars {
 			return fmt.Errorf("%w: text %d has %d characters, want 1 to %d", ErrInvalidInput, i, n, MaxTextChars)
 		}
+	}
+	return nil
+}
+
+func checkDocument(text string, maxChunks int) error {
+	if maxChunks < 1 || maxChunks > MaxDocumentChunks {
+		return fmt.Errorf("%w: maxChunks %d, want 1 to %d", ErrInvalidInput, maxChunks, MaxDocumentChunks)
+	}
+	if strings.TrimSpace(text) == "" {
+		return fmt.Errorf("%w: the text is empty", ErrInvalidInput)
+	}
+	if n := utf8.RuneCountInString(text); n > MaxDocumentChars {
+		return fmt.Errorf("%w: the text has %d characters, want at most %d", ErrInvalidInput, n, MaxDocumentChars)
+	}
+	return nil
+}
+
+func checkDocumentResponse(out embedDocumentResponse, maxChunks int) error {
+	if out.Model == "" {
+		return fmt.Errorf("%w: no model name", ErrBadResponse)
+	}
+	if out.Dimensions != Dimensions || len(out.Vector) != Dimensions {
+		return fmt.Errorf("%w: %d numbers, want %d", ErrBadResponse, len(out.Vector), Dimensions)
+	}
+	if out.Chunks < 1 || out.Chunks > maxChunks {
+		return fmt.Errorf("%w: %d chunks, want 1 to %d", ErrBadResponse, out.Chunks, maxChunks)
 	}
 	return nil
 }

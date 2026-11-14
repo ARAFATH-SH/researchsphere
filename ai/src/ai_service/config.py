@@ -24,6 +24,13 @@ MAX_TEXT_CHARS = 8_000
 DEFAULT_MAX_BODY_BYTES = 1024 * 1024
 DEFAULT_EMBED_TIMEOUT_SECONDS = 30.0
 
+# Request limits of POST /embed-document. 8 chunks of 512 tokens is at most a few thousand
+# words; 100,000 characters is far more than 8 chunks hold in any language, so a caller
+# that cuts its text there loses nothing that would be embedded. 100,000 Bangla characters
+# are 300 KB of UTF-8, within the body limit.
+MAX_DOCUMENT_CHARS = 100_000
+MAX_DOCUMENT_CHUNKS = 8
+
 MIN_TOKEN_LEN = 32
 DEFAULT_MODEL_DIR = "/models"
 
