@@ -17,6 +17,7 @@ var jsonBodyRoutes = []struct {
 	method, path, missing, wrong, wrongField, message string
 }{
 	{http.MethodPost, "/api/v1/account/delete", "password", `{"password":5}`, "password", "password must be a string."},
+	{http.MethodPatch, "/api/v1/me/settings", "", `{"unreadMessageDigest":"no"}`, "unreadMessageDigest", "unreadMessageDigest must be true or false."},
 	{http.MethodPost, "/api/v1/auth/register", "email", `{"email":5}`, "email", "email must be a string."},
 	{http.MethodPost, "/api/v1/auth/verify-email", "token", `{"token":5}`, "token", "token must be a string."},
 	{http.MethodPost, "/api/v1/auth/resend-verification", "email", `{"email":5}`, "email", "email must be a string."},

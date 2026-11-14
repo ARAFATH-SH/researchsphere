@@ -7,12 +7,14 @@ import { SectionCard } from "@/components/section-layout";
 import { rsButtonClass } from "@/components/ui/button";
 import { FormError } from "@/components/ui/field";
 
+import { DigestToggle } from "@/features/messaging/digest-toggle";
+
 import { type BlockedPerson, listBlockedPeople } from "./api";
 import { BlockDialog } from "./block-dialog";
 import { usePagedList } from "./paged-list";
 
-// BlockedPeople is the settings card "Messaging & email" (design/screens/Settings.html). Only
-// its Blocked people list exists: the digest toggle needs FR-16.11, which has no API yet.
+// BlockedPeople is the settings card "Messaging & email" (design/screens/Settings.html): the
+// unread message digest switch (FR-16.11), then the Blocked people list.
 export function BlockedPeople() {
   const list = usePagedList<BlockedPerson>("blocked-people", listBlockedPeople, (p) => p.userId);
   const [unblocking, setUnblocking] = useState<BlockedPerson | null>(null);
@@ -20,7 +22,8 @@ export function BlockedPeople() {
 
   return (
     <SectionCard id="messaging-email" title="Messaging & email">
-      <div className="flex flex-col gap-2">
+      <DigestToggle />
+      <div className="flex flex-col gap-2 border-t border-rs-divider pt-2.5">
         <h3 className="text-rs-body font-bold text-rs-text">Blocked people</h3>
         {state.status === "loading" && (
           <p role="status" className="text-rs-body text-rs-text-muted">

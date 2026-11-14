@@ -418,6 +418,18 @@ func (fakeAPI) AcknowledgeWarning(context.Context, gen.AcknowledgeWarningRequest
 	return nil, nil
 }
 
+func (fakeAPI) GetMySettings(context.Context, gen.GetMySettingsRequestObject) (gen.GetMySettingsResponseObject, error) {
+	return gen.GetMySettings200JSONResponse{}, nil
+}
+
+func (fakeAPI) UpdateMySettings(context.Context, gen.UpdateMySettingsRequestObject) (gen.UpdateMySettingsResponseObject, error) {
+	return gen.UpdateMySettings200JSONResponse{}, nil
+}
+
+func (fakeAPI) UnsubscribeDigest(context.Context, gen.UnsubscribeDigestRequestObject) (gen.UnsubscribeDigestResponseObject, error) {
+	return gen.UnsubscribeDigest204Response{}, nil
+}
+
 func (fakeAPI) CreateGroup(context.Context, gen.CreateGroupRequestObject) (gen.CreateGroupResponseObject, error) {
 	return gen.CreateGroup201JSONResponse{}, nil
 }
@@ -812,8 +824,8 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 
 func TestRoutes(t *testing.T) {
 	got := Routes()
-	if len(got) != 102 {
-		t.Errorf("Routes() returned %d routes, want the 102 operations in the contract: %v", len(got), got)
+	if len(got) != 105 {
+		t.Errorf("Routes() returned %d routes, want the 105 operations in the contract: %v", len(got), got)
 	}
 	seen := map[string]bool{}
 	for _, p := range got {

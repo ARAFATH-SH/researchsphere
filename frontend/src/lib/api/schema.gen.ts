@@ -614,6 +614,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Return the caller's account settings (FR-16.11)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed, events
+         *     and recommendations" (SRS 2.3). A user who never changed a setting gets the defaults.
+         */
+        get: operations["getMySettings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Change some of the caller's account settings (FR-16.11)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed, events
+         *     and recommendations" (SRS 2.3), so a restricted user can still stop emails. Changes
+         *     only the fields in the body; a body that names no setting gets `bad_request`.
+         */
+        patch: operations["updateMySettings"];
+        trace?: never;
+    };
+    "/unsubscribe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Turn off the unread message digest with the token from its email (FR-16.11)
+         * @description Public: no session needed. The token comes from the digest's unsubscribe link and
+         *     its `List-Unsubscribe` header; mail clients POST here with the body
+         *     `List-Unsubscribe=One-Click` (RFC 8058), which is ignored. The token never
+         *     expires and only ever turns the digest off; turning it on again needs Settings.
+         *     Turning it off twice succeeds, and a valid token of an account that no longer
+         *     exists changes nothing and also gets 204.
+         */
+        post: operations["unsubscribeDigest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/profiles/me": {
         parameters: {
             query?: never;
@@ -3459,6 +3511,16 @@ export interface components {
             /** @description Pending message requests to the caller. */
             requests: number;
         };
+        UserSettings: {
+            /**
+             * @description Email a digest of messages left unread for 24 hours, at most once a day
+             *     (FR-16.11). On by default.
+             */
+            unreadMessageDigest: boolean;
+        };
+        UserSettingsUpdate: {
+            unreadMessageDigest?: boolean;
+        };
         /**
          * @description `text`: the message's text matched. `attachment`: the name of one of its attachments matched.
          * @enum {string}
@@ -5794,6 +5856,95 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getMySettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's settings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserSettings"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    updateMySettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserSettingsUpdate"];
+            };
+        };
+        responses: {
+            /** @description The settings after the change. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserSettings"];
+                };
+            };
+            /** @description The body names no setting, or a value has the wrong type (`bad_request`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    unsubscribeDigest: {
+        parameters: {
+            query: {
+                token: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The digest is off. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The token is missing, malformed or not signed by this server (`invalid_token`, with `field` `token`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             500: components["responses"]["InternalError"];
         };
     };

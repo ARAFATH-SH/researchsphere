@@ -1010,6 +1010,93 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /me/settings:
+    get:
+      operationId: getMySettings
+      summary: Return the caller's account settings (FR-16.11)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed, events
+        and recommendations" (SRS 2.3). A user who never changed a setting gets the defaults.
+      tags: [messaging]
+      responses:
+        "200":
+          description: The caller's settings.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserSettings"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    patch:
+      operationId: updateMySettings
+      summary: Change some of the caller's account settings (FR-16.11)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed, events
+        and recommendations" (SRS 2.3), so a restricted user can still stop emails. Changes
+        only the fields in the body; a body that names no setting gets `bad_request`.
+      tags: [messaging]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserSettingsUpdate"
+      responses:
+        "200":
+          description: The settings after the change.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserSettings"
+        "400":
+          description: The body names no setting, or a value has the wrong type (`bad_request`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /unsubscribe:
+    post:
+      operationId: unsubscribeDigest
+      summary: Turn off the unread message digest with the token from its email (FR-16.11)
+      description: |
+        Public: no session needed. The token comes from the digest's unsubscribe link and
+        its `List-Unsubscribe` header; mail clients POST here with the body
+        `List-Unsubscribe=One-Click` (RFC 8058), which is ignored. The token never
+        expires and only ever turns the digest off; turning it on again needs Settings.
+        Turning it off twice succeeds, and a valid token of an account that no longer
+        exists changes nothing and also gets 204.
+      tags: [messaging]
+      security: []
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+            maxLength: 200
+      responses:
+        "204":
+          description: The digest is off.
+        "400":
+          description: The token is missing, malformed or not signed by this server (`invalid_token`, with `field` `token`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /profiles/me:
     get:
       operationId: getMyProfile
@@ -6021,6 +6108,22 @@ components:
         requests:
           type: integer
           description: Pending message requests to the caller.
+
+    UserSettings:
+      type: object
+      required: [unreadMessageDigest]
+      properties:
+        unreadMessageDigest:
+          type: boolean
+          description: |
+            Email a digest of messages left unread for 24 hours, at most once a day
+            (FR-16.11). On by default.
+
+    UserSettingsUpdate:
+      type: object
+      properties:
+        unreadMessageDigest:
+          type: boolean
 
     MessageSearchMatch:
       type: string

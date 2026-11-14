@@ -1,0 +1,14 @@
+Hello {{.FullName}},
+
+You have {{.Headline}} on ResearchSphere that you haven't read for a day:
+{{range .Lines}}
+- {{.Name}} ({{.Count}}){{end}}{{if .More}}
+- {{.More}}{{end}}
+{{if .Requests}}
+{{.Requests}}
+{{end}}
+Read them: {{.MessagingURL}}
+
+We send this at most once a day, and never include what the messages say.
+To stop these emails, open: {{.UnsubscribeURL}}
+You can turn them back on in Settings.

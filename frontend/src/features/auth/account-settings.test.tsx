@@ -3,6 +3,10 @@ import { render, screen, within } from "@testing-library/react";
 import { AccountSettings } from "./account-settings";
 
 jest.mock("./api");
+jest.mock("@/features/messaging/api", () => ({
+  getMySettings: jest.fn(async () => ({ ok: true, data: { unreadMessageDigest: true } })),
+  setUnreadMessageDigest: jest.fn(),
+}));
 jest.mock("@/features/social/api", () => ({
   listBlockedPeople: jest.fn(async () => ({ ok: true, data: { items: [], page: 1, pageSize: 20, total: 0 } })),
 }));
@@ -34,9 +38,12 @@ describe("AccountSettings", () => {
     }
   });
 
-  it("hides the digest toggle, which has no API yet (FR-16.11)", async () => {
+  it("shows the unread message digest switch in Messaging & email (FR-16.11)", async () => {
     render(<AccountSettings />);
     await screen.findByText("You haven't blocked anyone.");
-    expect(screen.queryByText("Email me unread messages")).toBeNull();
+    const card = screen.getByRole("heading", { name: "Messaging & email" }).closest("section");
+    expect(card).not.toBeNull();
+    const toggle = await within(card as HTMLElement).findByRole("switch", { name: "Email me about unread messages" });
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
   });
 });

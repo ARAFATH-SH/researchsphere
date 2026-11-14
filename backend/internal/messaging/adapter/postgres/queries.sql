@@ -723,3 +723,102 @@ SELECT c.id, COALESCE(c.name, '')::text AS name
 FROM conversations c
 JOIN conversation_members m ON m.conversation_id = c.id AND m.user_id = @viewer_id
 WHERE c.id = ANY(@ids::uuid[]) AND c.kind = 'group';
+
+-- name: GetUserSettings :one
+SELECT unread_message_digest FROM user_settings WHERE user_id = @user_id;
+
+-- name: UpsertUserSettings :one
+-- A null leaves the setting as it is (or at its default for a new row).
+INSERT INTO user_settings (user_id, unread_message_digest)
+VALUES (@user_id, COALESCE(sqlc.narg('unread_message_digest')::boolean, true))
+ON CONFLICT (user_id) DO UPDATE
+SET unread_message_digest = COALESCE(sqlc.narg('unread_message_digest')::boolean, user_settings.unread_message_digest),
+    updated_at = now()
+RETURNING unread_message_digest;
+
+-- name: TurnOffDigest :exec
+-- Selecting from users makes an unknown user a no-op instead of a foreign key error.
+INSERT INTO user_settings (user_id, unread_message_digest)
+SELECT id, false FROM users WHERE id = @user_id
+ON CONFLICT (user_id) DO UPDATE SET unread_message_digest = false, updated_at = now()
+WHERE user_settings.unread_message_digest;
+
+-- name: ListDigestCandidates :many
+-- FR-16.11. The message rules are DigestConversations' (keep them the same).
+SELECT u.id
+FROM users u
+LEFT JOIN user_settings s ON s.user_id = u.id
+LEFT JOIN message_digest_state d ON d.user_id = u.id
+WHERE u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL
+  AND COALESCE(s.unread_message_digest, true)
+  AND (d.last_digest_at IS NULL OR d.last_digest_at <= @cutoff::timestamptz)
+  AND EXISTS (
+      SELECT 1
+      FROM conversation_members me
+      JOIN conversations c ON c.id = me.conversation_id AND c.state = 'active'
+      JOIN messages m ON m.conversation_id = c.id AND m.kind = 'text' AND m.deleted_at IS NULL
+          AND m.sender_id <> me.user_id
+          AND m.created_at >= me.joined_at
+          AND (me.last_read_message_id IS NULL OR m.id > me.last_read_message_id)
+          AND m.created_at <= @cutoff::timestamptz
+          AND (d.covered_until IS NULL OR m.created_at > d.covered_until)
+      WHERE me.user_id = u.id
+        AND NOT EXISTS (
+            SELECT 1 FROM blocks b
+            WHERE (b.blocker_id = me.user_id AND b.blocked_id = m.sender_id)
+               OR (b.blocker_id = m.sender_id AND b.blocked_id = me.user_id)))
+ORDER BY d.last_digest_at NULLS FIRST, u.id
+LIMIT @lim;
+
+-- name: EnsureDigestStates :exec
+-- Run on its own, before any worker's transaction: an INSERT that meets a row another
+-- transaction inserted and has not committed waits for it, where SKIP LOCKED would not.
+INSERT INTO message_digest_state (user_id)
+SELECT id FROM users WHERE id = ANY(@user_ids::uuid[])
+ON CONFLICT (user_id) DO NOTHING;
+
+-- name: ClaimDigest :one
+-- SKIP LOCKED: a row another worker holds is skipped, never waited for. The checks are
+-- repeated here because another worker may have sent a digest since the candidates were read.
+SELECT u.email::text AS email, COALESCE(p.full_name, '')::text AS full_name, d.covered_until
+FROM message_digest_state d
+JOIN users u ON u.id = d.user_id
+LEFT JOIN profiles p ON p.user_id = u.id
+LEFT JOIN user_settings s ON s.user_id = u.id
+WHERE d.user_id = @user_id
+  AND u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL
+  AND COALESCE(s.unread_message_digest, true)
+  AND (d.last_digest_at IS NULL OR d.last_digest_at <= @cutoff::timestamptz)
+FOR UPDATE OF d SKIP LOCKED;
+
+-- name: DigestConversations :many
+-- FR-16.11, NFR-13: names and counts only; the message text is never read. The message rules
+-- are ListDigestCandidates' (keep them the same).
+SELECT (CASE WHEN c.kind = 'group' THEN COALESCE(c.name, '') ELSE COALESCE(op.full_name, '') END)::text AS name,
+       (c.kind = 'group')::boolean AS is_group,
+       count(*)::integer AS unread
+FROM conversation_members me
+JOIN conversations c ON c.id = me.conversation_id AND c.state = 'active'
+JOIN messages m ON m.conversation_id = c.id AND m.kind = 'text' AND m.deleted_at IS NULL
+    AND m.sender_id <> me.user_id
+    AND m.created_at >= me.joined_at
+    AND (me.last_read_message_id IS NULL OR m.id > me.last_read_message_id)
+    AND m.created_at <= @cutoff::timestamptz
+    AND (sqlc.narg('covered_until')::timestamptz IS NULL OR m.created_at > sqlc.narg('covered_until')::timestamptz)
+LEFT JOIN profiles op ON c.kind = 'direct'
+    AND op.user_id = (CASE WHEN c.user_low = me.user_id THEN c.user_high ELSE c.user_low END)
+WHERE me.user_id = @user_id
+  AND NOT EXISTS (
+      SELECT 1 FROM blocks b
+      WHERE (b.blocker_id = me.user_id AND b.blocked_id = m.sender_id)
+         OR (b.blocker_id = m.sender_id AND b.blocked_id = me.user_id))
+GROUP BY c.id, c.kind, c.name, op.full_name
+ORDER BY unread DESC, max(m.created_at) DESC, c.id;
+
+-- name: RecordDigest :exec
+WITH state AS (
+    UPDATE message_digest_state SET last_digest_at = @sent_at, covered_until = @covered_until
+    WHERE user_id = @user_id
+)
+INSERT INTO message_digests (user_id, sent_at, covered_until, unread_count, conversation_count, request_count)
+VALUES (@user_id, @sent_at, @covered_until, @unread_count, @conversation_count, @request_count);

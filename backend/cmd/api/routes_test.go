@@ -15,8 +15,8 @@ import (
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpx"
 )
 
-// publicRoutes are the only operations reachable without a session: FR-3.1's list plus
-// the health check (docs/decisions.md). The contract marks them `security: []`; changing
+// publicRoutes are the only operations reachable without a session: FR-3.1's list, the
+// health check (docs/decisions.md) and the digest's one-click unsubscribe (FR-16.11, RFC 8058). The contract marks them `security: []`; changing
 // this set means changing docs/openapi.yaml and this list together.
 var publicRoutes = map[string]bool{
 	"GET /api/v1/health":                       true,
@@ -28,6 +28,7 @@ var publicRoutes = map[string]bool{
 	"POST /api/v1/auth/logout":                 true,
 	"POST /api/v1/auth/password-reset/request": true,
 	"POST /api/v1/auth/password-reset/confirm": true,
+	"POST /api/v1/unsubscribe":                 true,
 }
 
 var pathParam = regexp.MustCompile(`\{[^}]+\}`)

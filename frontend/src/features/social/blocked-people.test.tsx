@@ -6,6 +6,11 @@ import { type BlockedPerson, type BlockedPersonPage, listBlockedPeople, unblockU
 import { BlockedPeople } from "./blocked-people";
 
 jest.mock("./api");
+// The card's digest switch has its own tests (features/messaging/digest-toggle.test.tsx).
+jest.mock("@/features/messaging/api", () => ({
+  getMySettings: async () => ({ ok: true, data: { unreadMessageDigest: true } }),
+  setUnreadMessageDigest: async () => ({ ok: true, data: { unreadMessageDigest: true } }),
+}));
 const mockList = jest.mocked(listBlockedPeople);
 afterEach(() => jest.resetAllMocks());
 

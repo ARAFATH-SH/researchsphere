@@ -231,3 +231,27 @@ export async function getMessageUnreadCount(): Promise<Result<MessageUnreadCount
   if (!res.ok) return res;
   return res.data ? { ok: true, data: res.data } : { ok: false, ...unexpectedError };
 }
+
+export type UserSettings = components["schemas"]["UserSettings"];
+
+// getMySettings returns the caller's settings (FR-16.11); a user who never changed one gets the
+// defaults.
+export async function getMySettings(): Promise<Result<UserSettings>> {
+  const res = await call(() => api.GET("/me/settings"));
+  if (!res.ok) return res;
+  return res.data ? { ok: true, data: res.data } : { ok: false, ...unexpectedError };
+}
+
+// setUnreadMessageDigest turns the unread message digest on or off (FR-16.11).
+export async function setUnreadMessageDigest(on: boolean): Promise<Result<UserSettings>> {
+  const res = await call(() => api.PATCH("/me/settings", { body: { unreadMessageDigest: on } }));
+  if (!res.ok) return res;
+  return res.data ? { ok: true, data: res.data } : { ok: false, ...unexpectedError };
+}
+
+// unsubscribeDigest turns the digest off with the token from its email; it needs no session and
+// never turns the digest on (FR-16.11).
+export async function unsubscribeDigest(token: string): Promise<Result<undefined>> {
+  const res = await call(() => api.POST("/unsubscribe", { params: { query: { token } } }));
+  return res.ok ? { ok: true, data: undefined } : res;
+}
