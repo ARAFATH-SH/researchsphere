@@ -20,7 +20,7 @@ recommendations. One developer builds it in 30 slices over 12 weeks.
 | --- | --- | --- |
 | `frontend/` | Web client | Next.js, React, TypeScript, Tailwind CSS |
 | `backend/` | API server; migrations in `backend/db/migrations` | Go 1.25+, sqlc, oapi-codegen, golang-migrate |
-| `ai/` | Embeddings, matching, search, venue ranking, writing assistant | Python 3.12 with uv, FastAPI, Sentence Transformers |
+| `ai/` | Internal AI service: embeddings now (`POST /embed`, and `POST /embed-document`, which splits a long text by real tokens and averages; intfloat/multilingual-e5-base, CPU), later matching, search, venue ranking and the writing assistant. Never public: the API calls it with `AI_SERVICE_TOKEN` (`internal/platform/aiclient`) | Python 3.12 with uv, FastAPI, Sentence Transformers |
 | `sync/` | Real-time editing server (slice 22) | Node.js, Hocuspocus, Yjs |
 | `compile/` | LaTeX compile service (slice 23) | TeX Live in a Docker sandbox |
 | `docs/` | SRS, API contract, decisions | Markdown, OpenAPI 3 |
@@ -28,7 +28,9 @@ recommendations. One developer builds it in 30 slices over 12 weeks.
 
 Data stores: PostgreSQL 16 with pgvector, Redis, and S3-compatible object storage (MinIO
 locally, console at http://localhost:9001). All run in Docker, with Mailpit for local email
-and ClamAV (clamd), which scans message attachments for malware.
+and ClamAV (clamd), which scans message attachments for malware. The AI service (`ai/`) runs
+in Docker too; its model (about 1.1 GB) is downloaded into the `aimodels` volume on the first
+start, not baked into the image.
 
 ## Commands
 
@@ -36,8 +38,8 @@ Run these from the repository root. `make help` prints the current list.
 
 | Command | What it does |
 | --- | --- |
-| `make up` / `make down` | Start or stop PostgreSQL, Redis, Mailpit (local email inbox at http://localhost:8025), MinIO and ClamAV; `make up` also creates the private bucket, and starts ClamAV last without waiting for it (clamd takes 30 to 90 seconds and 1.5 to 3 GB of memory to load its signatures; attachments stay pending until it answers). `make up CLAMAV=0` leaves ClamAV out, as the CI stack job does |
-| `make check` | Confirm that PostgreSQL, pgvector, Redis and storage respond, and that the bucket refuses anonymous access; show whether ClamAV answers yet (not a failure) |
+| `make up` / `make down` | Start or stop PostgreSQL, Redis, Mailpit (local email inbox at http://localhost:8025), MinIO and ClamAV; `make up` also creates the private bucket, and starts ClamAV last without waiting for it (clamd takes 30 to 90 seconds and 1.5 to 3 GB of memory to load its signatures; attachments stay pending until it answers). `make up CLAMAV=0` leaves ClamAV out, as the CI stack job does. It also starts the AI service without waiting (building its image the first time; the first start downloads the model, and `GET /health` says `degraded` until it is loaded); `AI=0` leaves it out |
+| `make check` | Confirm that PostgreSQL, pgvector, Redis and storage respond, and that the bucket refuses anonymous access; show whether ClamAV and the AI service answer yet (not a failure) |
 | `make psql` | Open a psql prompt in the database |
 | `make migrate` / `make migrate-down` | Apply all migrations, or undo the latest one |
 | `make migrate-new name=add_users` | Create a new migration pair |
@@ -47,23 +49,30 @@ Run these from the repository root. `make help` prints the current list.
 | `make seed-dev` | Create or repair the development accounts `test1@example.com` to `test4@example.com` (researchers) and `admin@example.com` (administrator), all verified, with the password `DEV_SEED_PASSWORD` from `.env`. Running it again resets their password, role and suspension and touches no other account. Needs `make migrate`. Refuses a database name ending in `_test`, `APP_ENV=production` and any host but this machine. The API accepts these addresses only while `TEST_EMAIL_DOMAINS` names `example.com` |
 | `make purge-unverified` | Run the FR-17.4 purge once now, with the `.env` settings: delete the accounts still unverified `UNVERIFIED_ACCOUNT_DAYS` (7) after sign-up, except those at `TEST_EMAIL_DOMAINS` outside production, and log what it deleted. The API also runs it every hour |
 | `make send-digests` | Run the FR-16.11 unread message digest once now, with the `.env` settings: email each verified, not suspended user with the digest on who has messages unread for 24 hours that no digest counted yet and got no digest in the last 24 hours (at most 200 users a run), and log how many it sent. The API also runs it every hour. Mail goes to Mailpit locally (test-domain accounts included); needs `make migrate` and `UNSUBSCRIBE_SECRET` |
+| `make embed-backfill` | Queue every verified, not suspended profile for its AI embedding once (AI-1.5), at low priority, then exit; the running API's worker embeds them, skipping a profile whose text and model have not changed. Run it once after migration 000028 on a database with existing profiles. Needs `make migrate`; the API needs the AI service (`AI_SERVICE_TOKEN`) to embed |
 | `make update-disposable-domains` | Download the latest list of disposable email domains (FR-17.2, CC0) into `backend/internal/auth/adapter/emaildomain/disposable_domains.txt`; review and commit the result |
 | `make api` | Run the API server (needs `make up`; settings from `.env`) |
 | `make web` | Run the web client dev server on port 3000; it forwards `/api/v1` to `API_URL` |
 | `make stop` | Stop this project's dev servers: the API on `API_PORT` (8080) and the Next.js dev server on ports 3000-3002. Stops only your own processes running inside this repository, prints what it stopped, and removes a stale `frontend/.next/dev/lock` when no dev server is left. Leaves the Docker containers running (use `make down` for those) |
 | `make web-clean` | Delete the web client build cache (`frontend/.next`). Stop `make web` first (`make stop`); run it after switching branches if styles look broken |
+| `make ai-build` | Build the AI service image (CPU only, about 2 GB, without the model) |
+| `make ai-up` | Start the AI service and wait until its model is loaded. The first start downloads the model at its pinned revision (about 1.1 GB) into the `aimodels` volume; later starts and rebuilds reuse it. Needs `AI_SERVICE_TOKEN` in `.env` |
+| `make ai-fetch-model` | Download the model into the `aimodels` volume ahead of time, then exit |
+| `make ai-logs` | Follow the AI service's log |
 | `make generate` | Regenerate Go code in `backend/internal/api` and TypeScript types in `frontend/src/lib/api` from `docs/openapi.yaml`, and the sqlc query code in `backend/internal/*/adapter/postgres/sqlcgen` |
 | `make check-generated` | Regenerate and fail if the generated code differs from what is committed |
-| `make test` | Run all tests: `test-prepare`, `test-db`, `test-go`, `test-integration` and `test-web` (needs `make up`) |
+| `make test` | Run all tests: `test-prepare`, `test-db`, `test-go`, `test-integration`, `test-web` and `test-ai` (needs `make up`) |
 | `make test-prepare` | Create the test database `researchsphere_test` (`TEST_POSTGRES_DB`) in the same container if it is missing and apply all migrations to it. Refuses a name that does not end in `_test` |
 | `make test-db` | Run the database constraint tests on the test database (runs `test-prepare` first; needs `make up`) |
 | `make test-go` | Run the backend Go tests (`go test -race`); needs no database |
 | `make test-integration` | Run the Go repository tests and the end-to-end tests in `cmd/api` (build tag `integration`) against the test database (`TEST_DATABASE_URL`), Redis DB 15 (`TEST_REDIS_URL`) and MinIO, one package at a time (`-p 1`). Runs `test-prepare` first; needs `make up` |
 | `make test-one pkg=./internal/x/ run=TestName [count=1]` | Run one integration test, or the tests `run` matches (a `go test -run` pattern), with the same settings as `test-integration`: `-race`, `-p 1`, the build tag and the test environment. `pkg` is relative to `backend/`; `count` repeats it to find a flaky test. Runs `test-prepare` first; needs `make up` |
 | `make test-web` | Run the frontend tests (Jest) |
-| `make lint` | Run all linters: `lint-go` and `lint-web` |
+| `make test-ai` | Run the AI service tests (pytest) with a stub model: no torch, no model download (needs uv) |
+| `make lint` | Run all linters: `lint-go`, `lint-web` and `lint-ai` |
 | `make lint-go` | Run golangci-lint for the backend |
 | `make lint-web` | Run ESLint and the TypeScript type check for the frontend |
+| `make lint-ai` | Run ruff (lint and format check) for the AI service |
 
 The frontend targets need its packages: run `cd frontend && npm ci` once, and again after
 `package-lock.json` changes. When a slice adds a command to the Makefile, add it to this
@@ -77,12 +86,14 @@ skipped. Next, in parallel, the fast checks lint and test each of `backend/`, `f
 backend job also fails when the code generated from `docs/openapi.yaml` is not up to date; the
 frontend job runs `npm ci`, checks that the generated API types are up to date, then runs lint,
 type check, tests and a production build. Only when they pass does the stack job start
-PostgreSQL, Redis, Mailpit and MinIO (`make up CLAMAV=0`), run `make check`, apply all
+PostgreSQL, Redis, Mailpit and MinIO (`make up CLAMAV=0 AI=0`), run `make check`, apply all
 migrations, undo them, check that nothing is left, apply them again, prepare the test database
 (`make test-prepare`) and run `make test-db` and the Go repository tests (`make test-integration`).
 The `clamav` job scans the EICAR string with a real clamd only on push to `main`, nightly and
-by hand. The job names (`Detect`, `Backend (Go)`, `Frontend (Node.js)`, `AI (Python, uv)`,
-`Stack (integration)`, `ClamAV (EICAR)`) are the status check names branch protection uses:
+by hand. The `ai` job tests the AI service with a stub model; the `ai-model` job builds its
+image, downloads the real model and runs `ai/scripts/smoke.py` only nightly and by hand. The
+job names (`Detect`, `Backend (Go)`, `Frontend (Node.js)`, `AI (Python, uv)`,
+`Stack (integration)`, `ClamAV (EICAR)`, `AI model (e5)`) are the status check names branch protection uses:
 do not rename them.
 
 ## Rules
@@ -104,7 +115,8 @@ do not rename them.
 ## Conventions
 
 - **Go:** one application (modular monolith). Modules live in `backend/internal/<module>`: health,
-  then auth, profile, media, social, project, event, notification, messaging, moderation and realtime. Return errors, do not panic.
+  then auth, profile, media, social, project, event, notification, messaging, moderation, realtime and
+  embedding (AI-1: the queue, the worker and the stored vectors). Return errors, do not panic.
   Table-driven tests beside the code they test. Each module is split into layers (clean
   architecture); `backend/internal/health` is the example to copy:
 

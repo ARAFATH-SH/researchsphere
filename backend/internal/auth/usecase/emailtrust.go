@@ -82,14 +82,45 @@ func (s *Service) PurgeUnverified(ctx context.Context) (int, error) {
 	return len(deleted), nil
 }
 
-// RunUnverifiedPurge runs PurgeUnverified now and then every interval until ctx ends. A
-// failed pass is logged and tried again at the next tick.
+// ClearEndedSuspensions clears every timed suspension whose end has passed but that no login
+// or refresh has cleared yet, through the same query a login uses, PurgeBatch at a time. The
+// embedding trigger then queues the user's profile, so the user is back in recommendations
+// within the hour (AI-1). It returns how many it cleared.
+func (s *Service) ClearEndedSuspensions(ctx context.Context) (int, error) {
+	cleared := 0
+	for {
+		now := s.now()
+		ids, err := s.store.ListEndedSuspensions(ctx, now, PurgeBatch)
+		if err != nil {
+			return cleared, err
+		}
+		for _, id := range ids {
+			if err := s.store.ClearExpiredSuspension(ctx, id, now); err != nil {
+				return cleared, err
+			}
+		}
+		cleared += len(ids)
+		if len(ids) < PurgeBatch {
+			if cleared > 0 {
+				s.logger.InfoContext(ctx, "ended suspensions cleared", slog.Int("cleared", cleared))
+			}
+			return cleared, nil
+		}
+	}
+}
+
+// RunUnverifiedPurge runs the hourly account upkeep now and then every interval until ctx
+// ends: PurgeUnverified, then ClearEndedSuspensions. A failed step is logged and tried again
+// at the next tick.
 func (s *Service) RunUnverifiedPurge(ctx context.Context, interval time.Duration) {
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {
 		if _, err := s.PurgeUnverified(ctx); err != nil && ctx.Err() == nil {
 			s.logger.ErrorContext(ctx, "purge unverified accounts", slog.Any("error", err))
+		}
+		if _, err := s.ClearEndedSuspensions(ctx); err != nil && ctx.Err() == nil {
+			s.logger.ErrorContext(ctx, "clear ended suspensions", slog.Any("error", err))
 		}
 		select {
 		case <-ctx.Done():

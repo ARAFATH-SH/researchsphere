@@ -32,6 +32,8 @@ import (
 	authredis "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/adapter/redis"
 	authdomain "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/domain"
 	authusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/usecase"
+	embeddinghttp "github.com/ARAFATH-SH/researchsphere/backend/internal/embedding/adapter/http"
+	embeddingusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/embedding/usecase"
 	mediahttp "github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/http"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/imaging"
 	mediapg "github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/postgres"
@@ -48,6 +50,7 @@ import (
 	notificationpg "github.com/ARAFATH-SH/researchsphere/backend/internal/notification/adapter/postgres"
 	notificationusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/notification/usecase"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/accesstoken"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/aiclient"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/config"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpx"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/postgres"
@@ -87,6 +90,9 @@ type mediaEnv struct {
 	// records every digest instead of sending it.
 	digests    *messagingusecase.Digests
 	digestMail *recordedMail
+	// embeddings serves the admin embedding operations (AI-1.6) with opt.ai, or a Fake AI
+	// service when it is nil; no worker runs unless a test starts one.
+	embeddings *embeddingusecase.Service
 }
 
 func newMediaEnv(t *testing.T) mediaEnv {
@@ -123,6 +129,8 @@ type envOptions struct {
 	mail textMailer
 	// realAuth serves the auth operations from the real usecase instead of okAuth.
 	realAuth bool
+	// ai, when set, is the AI service of the embedding module.
+	ai aiclient.Embedder
 }
 
 // newMediaEnvOnPool is newMediaEnvWithSources on a given pool to the test database, such
@@ -248,7 +256,12 @@ func wireEnv(t *testing.T, pool *pgxpool.Pool, rdb *goredis.Client, files *stora
 	digestMail := &recordedMail{}
 	digests := newDigests(messagingpg.NewStore(pool), postgres.NewTransactor(pool), digestMail,
 		config.Config{AppBaseURL: testAppBaseURL, UnsubscribeSecret: []byte(testUnsubscribeSecret)}, logger)
-	router := newRouter(logger, up, up, up, authAPI,
+	ai := opt.ai
+	if ai == nil {
+		ai = &aiclient.Fake{}
+	}
+	embeddings, _ := newEmbeddings(pool, ai, logger)
+	router := newRouter(logger, up, up, up, up, authAPI,
 		profilehttp.NewHandler(profileusecase.New(profileStore, profileOpts...)),
 		mediahttp.NewHandler(images),
 		socialhttp.NewHandler(social),
@@ -256,8 +269,9 @@ func wireEnv(t *testing.T, pool *pgxpool.Pool, rdb *goredis.Client, files *stora
 		messaginghttp.NewHandler(messaging, messaginghttp.WithDigests(digests)),
 		moderationhttp.NewHandler(moderation),
 		realtimehttp.NewHandler(realtime.hub, testOrigin, logger),
+		embeddinghttp.NewHandler(embeddings),
 		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
-	return mediaEnv{router: router, pool: pool, files: files, rdb: rdb, auth: auth, moderation: moderation, standings: standings, hub: realtime.hub, events: realtime.events, opt: opt,
+	return mediaEnv{embeddings: embeddings, router: router, pool: pool, files: files, rdb: rdb, auth: auth, moderation: moderation, standings: standings, hub: realtime.hub, events: realtime.events, opt: opt,
 		messaging: messaging, notifier: notifications, digests: digests, digestMail: digestMail}
 }
 

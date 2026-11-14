@@ -29,20 +29,23 @@ paths:
   /health:
     get:
       operationId: getHealth
-      summary: Report whether the database, Redis and object storage respond
-      description: Public, needs no session. Returns no user data.
+      summary: Report whether the database, Redis, object storage and the AI service respond
+      description: |
+        Public, needs no session. Returns no user data. The AI service (embeddings, AI-1) is
+        optional (NFR-10.2): when only it does not answer, the response is still 200, with
+        `status: degraded` and `ai: unavailable`, because every other feature keeps working.
       tags: [health]
       # Public for deployment and uptime checks, though not in FR-3.1's list (docs/decisions.md).
       security: []
       responses:
         "200":
-          description: The database, Redis and object storage all respond.
+          description: The database, Redis and object storage all respond; `ai` says whether the AI service does too.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Health"
         "503":
-          description: The database, Redis, object storage or several of them do not respond.
+          description: The database, Redis, object storage or several of them do not respond. The message names only those; the AI service never makes this response.
           content:
             application/json:
               schema:
@@ -540,6 +543,57 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /admin/ai/embeddings:
+    get:
+      operationId: getEmbeddingStats
+      summary: The state of the AI embeddings, for the admin page's "AI matching model" card (AI-1.6)
+      description: |
+        Needs the access cookie and the platform action "Manage the AI matching model", which
+        only an administrator has; a researcher gets 403 with the one refusal body. `model` is
+        the model the AI service has loaded, as `name@revision`, or null when the service does
+        not answer within 2 seconds. For each owner type: the stored embeddings, how many of
+        them the current model made, the jobs waiting in the queue and the jobs that failed 5
+        times. Nothing here names a user.
+      tags: [admin]
+      responses:
+        "200":
+          description: The current model and the counts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmbeddingStats"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /admin/ai/embeddings/rebuild:
+    post:
+      operationId: rebuildEmbeddings
+      summary: Queue every embedding to be made again (AI-1.6)
+      description: |
+        Needs the access cookie and the platform action "Manage the AI matching model".
+        Queues every verified, not suspended owner at low priority, forced, so each embedding
+        is made again even when its text and model have not changed; changes users make go
+        first. The work happens in the background; the answer comes at once. Asking again
+        leaves one job per owner. Each call is recorded with the administrator and the count.
+      tags: [admin]
+      responses:
+        "202":
+          description: The owners are queued.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmbeddingRebuild"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -4416,11 +4470,12 @@ components:
 
     Health:
       type: object
-      required: [status, database, redis, storage]
+      required: [status, database, redis, storage, ai]
       properties:
         status:
           type: string
-          enum: [ok]
+          description: ok when everything responds; degraded when only the AI service does not.
+          enum: [ok, degraded]
         database:
           type: string
           enum: [ok]
@@ -4430,6 +4485,10 @@ components:
         storage:
           type: string
           enum: [ok]
+        ai:
+          type: string
+          description: Whether the AI service answers GET /ready (its model is loaded).
+          enum: [ok, unavailable]
 
     RegisterRequest:
       type: object
@@ -4646,6 +4705,49 @@ components:
         total:
           type: integer
           description: The number of users on all pages.
+
+    EmbeddingStats:
+      type: object
+      required: [model, ownerTypes]
+      properties:
+        model:
+          type: string
+          nullable: true
+          description: The AI service's model as `name@revision`; null when it does not answer.
+          example: intfloat/multilingual-e5-base@d128750597153bb5987e10b1c3493a34e5a4502a
+        ownerTypes:
+          type: array
+          items:
+            $ref: "#/components/schemas/EmbeddingOwnerStats"
+
+    EmbeddingOwnerStats:
+      type: object
+      required: [ownerType, total, currentModel, queued, failed]
+      properties:
+        ownerType:
+          type: string
+          description: What the embeddings belong to. Later slices add project, post and venue.
+          enum: [profile]
+        total:
+          type: integer
+          description: Stored embeddings.
+        currentModel:
+          type: integer
+          description: Of them, those the current model made; 0 when the model is unknown.
+        queued:
+          type: integer
+          description: Owners waiting to be embedded, failed ones not counted.
+        failed:
+          type: integer
+          description: Owners whose text failed 5 times; they wait for their next change or a rebuild.
+
+    EmbeddingRebuild:
+      type: object
+      required: [queued]
+      properties:
+        queued:
+          type: integer
+          description: How many owners were queued.
 
     Profile:
       type: object

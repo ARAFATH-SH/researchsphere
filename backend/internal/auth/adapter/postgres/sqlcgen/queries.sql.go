@@ -457,6 +457,42 @@ func (q *Queries) InsertRetiredToken(ctx context.Context, arg InsertRetiredToken
 	return err
 }
 
+const listEndedSuspensions = `-- name: ListEndedSuspensions :many
+SELECT id
+FROM users
+WHERE suspended_until <= $1
+ORDER BY suspended_until, id
+LIMIT $2
+`
+
+type ListEndedSuspensionsParams struct {
+	Now      pgtype.Timestamptz
+	MaxUsers int32
+}
+
+// Timed suspensions whose end has passed but that no login or refresh has cleared yet. The
+// hourly upkeep clears them with ClearExpiredSuspension, as a login would, so the user is
+// back in recommendations within an hour (the embedding trigger queues the profile).
+func (q *Queries) ListEndedSuspensions(ctx context.Context, arg ListEndedSuspensionsParams) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, listEndedSuspensions, arg.Now, arg.MaxUsers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var id pgtype.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUnverifiedUsersBefore = `-- name: ListUnverifiedUsersBefore :many
 
 SELECT id

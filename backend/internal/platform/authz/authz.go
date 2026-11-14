@@ -43,6 +43,9 @@ const (
 	ModerateUser Action = "moderate_user"
 	// ReviewMessageReports is the row "Review reported conversations".
 	ReviewMessageReports Action = "review_message_reports"
+	// ManageAI is "Manage the AI matching model": read the embedding statistics and queue a
+	// rebuild (AI-1.6). Administrators only.
+	ManageAI Action = "manage_ai"
 )
 
 // platform is the "Platform level" table. A missing entry means No.
@@ -61,6 +64,7 @@ var platform = map[Role]map[Action]bool{
 		SuspendUser:            true,
 		ModerateUser:           true,
 		ReviewMessageReports:   true,
+		ManageAI:               true,
 	},
 }
 

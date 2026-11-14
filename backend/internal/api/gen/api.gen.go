@@ -138,6 +138,21 @@ func (e ConversationState) Valid() bool {
 	}
 }
 
+// Defines values for EmbeddingOwnerStatsOwnerType.
+const (
+	EmbeddingOwnerStatsOwnerTypeProfile EmbeddingOwnerStatsOwnerType = "profile"
+)
+
+// Valid indicates whether the value is a known member of the EmbeddingOwnerStatsOwnerType enum.
+func (e EmbeddingOwnerStatsOwnerType) Valid() bool {
+	switch e {
+	case EmbeddingOwnerStatsOwnerTypeProfile:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for EmploymentType.
 const (
 	Contract          EmploymentType = "contract"
@@ -198,6 +213,24 @@ func (e GroupRole) Valid() bool {
 	}
 }
 
+// Defines values for HealthAi.
+const (
+	HealthAiOk          HealthAi = "ok"
+	HealthAiUnavailable HealthAi = "unavailable"
+)
+
+// Valid indicates whether the value is a known member of the HealthAi enum.
+func (e HealthAi) Valid() bool {
+	switch e {
+	case HealthAiOk:
+		return true
+	case HealthAiUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for HealthDatabase.
 const (
 	HealthDatabaseOk HealthDatabase = "ok"
@@ -230,12 +263,15 @@ func (e HealthRedis) Valid() bool {
 
 // Defines values for HealthStatus.
 const (
-	HealthStatusOk HealthStatus = "ok"
+	HealthStatusDegraded HealthStatus = "degraded"
+	HealthStatusOk       HealthStatus = "ok"
 )
 
 // Valid indicates whether the value is a known member of the HealthStatus enum.
 func (e HealthStatus) Valid() bool {
 	switch e {
+	case HealthStatusDegraded:
+		return true
 	case HealthStatusOk:
 		return true
 	default:
@@ -1274,6 +1310,42 @@ type EducationUpdate struct {
 	StartYear    nullable.Nullable[int]    `json:"startYear,omitempty"`
 }
 
+// EmbeddingOwnerStats defines model for EmbeddingOwnerStats.
+type EmbeddingOwnerStats struct {
+	// CurrentModel Of them, those the current model made; 0 when the model is unknown.
+	CurrentModel int `json:"currentModel"`
+
+	// Failed Owners whose text failed 5 times; they wait for their next change or a rebuild.
+	Failed int `json:"failed"`
+
+	// OwnerType What the embeddings belong to. Later slices add project, post and venue.
+	OwnerType EmbeddingOwnerStatsOwnerType `json:"ownerType"`
+
+	// Queued Owners waiting to be embedded, failed ones not counted.
+	Queued int `json:"queued"`
+
+	// Total Stored embeddings.
+	Total int `json:"total"`
+}
+
+// EmbeddingOwnerStatsOwnerType What the embeddings belong to. Later slices add project, post and venue.
+type EmbeddingOwnerStatsOwnerType string
+
+// EmbeddingRebuild defines model for EmbeddingRebuild.
+type EmbeddingRebuild struct {
+	// Queued How many owners were queued.
+	Queued int `json:"queued"`
+}
+
+// EmbeddingStats defines model for EmbeddingStats.
+type EmbeddingStats struct {
+	// Model The AI service's model as `name@revision`; null when it does not answer.
+	//
+	// Example: intfloat/multilingual-e5-base@d128750597153bb5987e10b1c3493a34e5a4502a
+	Model      *string               `json:"model"`
+	OwnerTypes []EmbeddingOwnerStats `json:"ownerTypes"`
+}
+
 // EmploymentType defines model for EmploymentType.
 type EmploymentType string
 
@@ -1414,11 +1486,18 @@ type GroupRole string
 
 // Health defines model for Health.
 type Health struct {
+	// Ai Whether the AI service answers GET /ready (its model is loaded).
+	Ai       HealthAi       `json:"ai"`
 	Database HealthDatabase `json:"database"`
 	Redis    HealthRedis    `json:"redis"`
-	Status   HealthStatus   `json:"status"`
-	Storage  HealthStorage  `json:"storage"`
+
+	// Status ok when everything responds; degraded when only the AI service does not.
+	Status  HealthStatus  `json:"status"`
+	Storage HealthStorage `json:"storage"`
 }
+
+// HealthAi Whether the AI service answers GET /ready (its model is loaded).
+type HealthAi string
 
 // HealthDatabase defines model for Health.Database.
 type HealthDatabase string
@@ -1426,7 +1505,7 @@ type HealthDatabase string
 // HealthRedis defines model for Health.Redis.
 type HealthRedis string
 
-// HealthStatus defines model for Health.Status.
+// HealthStatus ok when everything responds; degraded when only the AI service does not.
 type HealthStatus string
 
 // HealthStorage defines model for Health.Storage.
@@ -3401,6 +3480,12 @@ type ServerInterface interface {
 	// DeleteAccount Delete the logged-in user's account after entering the password (FR-2.8, FR-2.9)
 	// (POST /account/delete)
 	DeleteAccount(w http.ResponseWriter, r *http.Request)
+	// GetEmbeddingStats The state of the AI embeddings, for the admin page's "AI matching model" card (AI-1.6)
+	// (GET /admin/ai/embeddings)
+	GetEmbeddingStats(w http.ResponseWriter, r *http.Request)
+	// RebuildEmbeddings Queue every embedding to be made again (AI-1.6)
+	// (POST /admin/ai/embeddings/rebuild)
+	RebuildEmbeddings(w http.ResponseWriter, r *http.Request)
 	// ListMessageReports List reports of conversations for an administrator (FR-16.9, NFR-13)
 	// (GET /admin/message-reports)
 	ListMessageReports(w http.ResponseWriter, r *http.Request, params ListMessageReportsParams)
@@ -3548,7 +3633,7 @@ type ServerInterface interface {
 	// ReportConversation Report a conversation or one of its messages (FR-16.9, NFR-13)
 	// (POST /conversations/{conversationId}/reports)
 	ReportConversation(w http.ResponseWriter, r *http.Request, conversationId ConversationId)
-	// GetHealth Report whether the database, Redis and object storage respond
+	// GetHealth Report whether the database, Redis, object storage and the AI service respond
 	// (GET /health)
 	GetHealth(w http.ResponseWriter, r *http.Request)
 	// GetMySettings Return the caller's account settings (FR-16.11)
@@ -3735,6 +3820,46 @@ func (siw *ServerInterfaceWrapper) DeleteAccount(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.DeleteAccount(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetEmbeddingStats operation middleware
+func (siw *ServerInterfaceWrapper) GetEmbeddingStats(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetEmbeddingStats(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RebuildEmbeddings operation middleware
+func (siw *ServerInterfaceWrapper) RebuildEmbeddings(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RebuildEmbeddings(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7230,6 +7355,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/auth/me", wrapper.GetCurrentUser)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/account/delete", wrapper.DeleteAccount)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/admin/users", wrapper.ListUsers)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/admin/ai/embeddings", wrapper.GetEmbeddingStats)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/admin/ai/embeddings/rebuild", wrapper.RebuildEmbeddings)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/admin/message-reports", wrapper.ListMessageReports)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/admin/message-reports/{reportId}", wrapper.GetMessageReport)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/admin/message-reports/{reportId}/attachments/{attachmentId}", wrapper.GetReportedAttachment)
@@ -7566,6 +7693,132 @@ func (response DeleteAccount429JSONResponse) VisitDeleteAccountResponse(w http.R
 type DeleteAccount500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response DeleteAccount500JSONResponse) VisitDeleteAccountResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEmbeddingStatsRequestObject struct {
+}
+
+type GetEmbeddingStatsResponseObject interface {
+	VisitGetEmbeddingStatsResponse(w http.ResponseWriter) error
+}
+
+type GetEmbeddingStats200JSONResponse EmbeddingStats
+
+func (response GetEmbeddingStats200JSONResponse) VisitGetEmbeddingStatsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEmbeddingStats401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetEmbeddingStats401JSONResponse) VisitGetEmbeddingStatsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEmbeddingStats403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetEmbeddingStats403JSONResponse) VisitGetEmbeddingStatsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEmbeddingStats500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response GetEmbeddingStats500JSONResponse) VisitGetEmbeddingStatsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RebuildEmbeddingsRequestObject struct {
+}
+
+type RebuildEmbeddingsResponseObject interface {
+	VisitRebuildEmbeddingsResponse(w http.ResponseWriter) error
+}
+
+type RebuildEmbeddings202JSONResponse EmbeddingRebuild
+
+func (response RebuildEmbeddings202JSONResponse) VisitRebuildEmbeddingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RebuildEmbeddings401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RebuildEmbeddings401JSONResponse) VisitRebuildEmbeddingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RebuildEmbeddings403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response RebuildEmbeddings403JSONResponse) VisitRebuildEmbeddingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RebuildEmbeddings500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RebuildEmbeddings500JSONResponse) VisitRebuildEmbeddingsResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -16572,6 +16825,12 @@ type StrictServerInterface interface {
 	// DeleteAccount Delete the logged-in user's account after entering the password (FR-2.8, FR-2.9)
 	// (POST /account/delete)
 	DeleteAccount(ctx context.Context, request DeleteAccountRequestObject) (DeleteAccountResponseObject, error)
+	// GetEmbeddingStats The state of the AI embeddings, for the admin page's "AI matching model" card (AI-1.6)
+	// (GET /admin/ai/embeddings)
+	GetEmbeddingStats(ctx context.Context, request GetEmbeddingStatsRequestObject) (GetEmbeddingStatsResponseObject, error)
+	// RebuildEmbeddings Queue every embedding to be made again (AI-1.6)
+	// (POST /admin/ai/embeddings/rebuild)
+	RebuildEmbeddings(ctx context.Context, request RebuildEmbeddingsRequestObject) (RebuildEmbeddingsResponseObject, error)
 	// ListMessageReports List reports of conversations for an administrator (FR-16.9, NFR-13)
 	// (GET /admin/message-reports)
 	ListMessageReports(ctx context.Context, request ListMessageReportsRequestObject) (ListMessageReportsResponseObject, error)
@@ -16719,7 +16978,7 @@ type StrictServerInterface interface {
 	// ReportConversation Report a conversation or one of its messages (FR-16.9, NFR-13)
 	// (POST /conversations/{conversationId}/reports)
 	ReportConversation(ctx context.Context, request ReportConversationRequestObject) (ReportConversationResponseObject, error)
-	// GetHealth Report whether the database, Redis and object storage respond
+	// GetHealth Report whether the database, Redis, object storage and the AI service respond
 	// (GET /health)
 	GetHealth(ctx context.Context, request GetHealthRequestObject) (GetHealthResponseObject, error)
 	// GetMySettings Return the caller's account settings (FR-16.11)
@@ -16949,6 +17208,54 @@ func (sh *strictHandler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(DeleteAccountResponseObject); ok {
 		if err := validResponse.VisitDeleteAccountResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetEmbeddingStats operation middleware
+func (sh *strictHandler) GetEmbeddingStats(w http.ResponseWriter, r *http.Request) {
+	var request GetEmbeddingStatsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetEmbeddingStats(ctx, request.(GetEmbeddingStatsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetEmbeddingStats")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetEmbeddingStatsResponseObject); ok {
+		if err := validResponse.VisitGetEmbeddingStatsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RebuildEmbeddings operation middleware
+func (sh *strictHandler) RebuildEmbeddings(w http.ResponseWriter, r *http.Request) {
+	var request RebuildEmbeddingsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RebuildEmbeddings(ctx, request.(RebuildEmbeddingsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RebuildEmbeddings")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RebuildEmbeddingsResponseObject); ok {
+		if err := validResponse.VisitRebuildEmbeddingsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

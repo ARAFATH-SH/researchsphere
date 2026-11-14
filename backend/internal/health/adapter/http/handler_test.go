@@ -41,13 +41,30 @@ func TestGetHealth(t *testing.T) {
 		name       string
 		db, redis  domain.Pinger
 		storage    domain.Pinger
+		ai         domain.Pinger // nil means up
 		wantStatus int
 		wantBody   map[string]string
 	}{
 		{
 			name: "all up", db: up, redis: up, storage: up,
 			wantStatus: http.StatusOK,
-			wantBody:   map[string]string{"status": "ok", "database": "ok", "redis": "ok", "storage": "ok"},
+			wantBody:   map[string]string{"status": "ok", "database": "ok", "redis": "ok", "storage": "ok", "ai": "ok"},
+		},
+		{
+			// NFR-10.2: the AI service is optional, so the API is degraded, not down.
+			name: "ai down", db: up, redis: up, storage: up, ai: down,
+			wantStatus: http.StatusOK,
+			wantBody:   map[string]string{"status": "degraded", "database": "ok", "redis": "ok", "storage": "ok", "ai": "unavailable"},
+		},
+		{
+			name: "ai hangs past the timeout", db: up, redis: up, storage: up, ai: hung,
+			wantStatus: http.StatusOK,
+			wantBody:   map[string]string{"status": "degraded", "database": "ok", "redis": "ok", "storage": "ok", "ai": "unavailable"},
+		},
+		{
+			name: "database and ai down: 503 names the database only", db: down, redis: up, storage: up, ai: down,
+			wantStatus: http.StatusServiceUnavailable,
+			wantBody:   map[string]string{"code": "service_unavailable", "message": "database is not responding"},
 		},
 		{
 			name: "database down", db: down, redis: up, storage: up,
@@ -93,10 +110,15 @@ func TestGetHealth(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			ai := tt.ai
+			if ai == nil {
+				ai = up
+			}
 			checker := usecase.New(50*time.Millisecond,
 				domain.Dependency{Name: "database", Pinger: tt.db},
 				domain.Dependency{Name: "redis", Pinger: tt.redis},
 				domain.Dependency{Name: "storage", Pinger: tt.storage},
+				domain.Dependency{Name: AIDependency, Pinger: ai, Optional: true},
 			)
 			h := NewHandler(checker, slog.New(slog.DiscardHandler))
 			mux := http.NewServeMux()

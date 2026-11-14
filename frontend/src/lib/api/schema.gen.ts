@@ -12,8 +12,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Report whether the database, Redis and object storage respond
-         * @description Public, needs no session. Returns no user data.
+         * Report whether the database, Redis, object storage and the AI service respond
+         * @description Public, needs no session. Returns no user data. The AI service (embeddings, AI-1) is
+         *     optional (NFR-10.2): when only it does not answer, the response is still 200, with
+         *     `status: degraded` and `ai: unavailable`, because every other feature keeps working.
          */
         get: operations["getHealth"];
         put?: never;
@@ -306,6 +308,55 @@ export interface paths {
         get: operations["listUsers"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/ai/embeddings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The state of the AI embeddings, for the admin page's "AI matching model" card (AI-1.6)
+         * @description Needs the access cookie and the platform action "Manage the AI matching model", which
+         *     only an administrator has; a researcher gets 403 with the one refusal body. `model` is
+         *     the model the AI service has loaded, as `name@revision`, or null when the service does
+         *     not answer within 2 seconds. For each owner type: the stored embeddings, how many of
+         *     them the current model made, the jobs waiting in the queue and the jobs that failed 5
+         *     times. Nothing here names a user.
+         */
+        get: operations["getEmbeddingStats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/ai/embeddings/rebuild": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Queue every embedding to be made again (AI-1.6)
+         * @description Needs the access cookie and the platform action "Manage the AI matching model".
+         *     Queues every verified, not suspended owner at low priority, forced, so each embedding
+         *     is made again even when its text and model have not changed; changes users make go
+         *     first. The work happens in the background; the answer comes at once. Asking again
+         *     leaves one job per owner. Each call is recorded with the administrator and the count.
+         */
+        post: operations["rebuildEmbeddings"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2457,14 +2508,22 @@ export interface components {
             userIds?: string[];
         };
         Health: {
-            /** @enum {string} */
-            status: "ok";
+            /**
+             * @description ok when everything responds; degraded when only the AI service does not.
+             * @enum {string}
+             */
+            status: "ok" | "degraded";
             /** @enum {string} */
             database: "ok";
             /** @enum {string} */
             redis: "ok";
             /** @enum {string} */
             storage: "ok";
+            /**
+             * @description Whether the AI service answers GET /ready (its model is loaded).
+             * @enum {string}
+             */
+            ai: "ok" | "unavailable";
         };
         RegisterRequest: {
             /**
@@ -2590,6 +2649,33 @@ export interface components {
             pageSize: number;
             /** @description The number of users on all pages. */
             total: number;
+        };
+        EmbeddingStats: {
+            /**
+             * @description The AI service's model as `name@revision`; null when it does not answer.
+             * @example intfloat/multilingual-e5-base@d128750597153bb5987e10b1c3493a34e5a4502a
+             */
+            model: string | null;
+            ownerTypes: components["schemas"]["EmbeddingOwnerStats"][];
+        };
+        EmbeddingOwnerStats: {
+            /**
+             * @description What the embeddings belong to. Later slices add project, post and venue.
+             * @enum {string}
+             */
+            ownerType: "profile";
+            /** @description Stored embeddings. */
+            total: number;
+            /** @description Of them, those the current model made; 0 when the model is unknown. */
+            currentModel: number;
+            /** @description Owners waiting to be embedded, failed ones not counted. */
+            queued: number;
+            /** @description Owners whose text failed 5 times; they wait for their next change or a rebuild. */
+            failed: number;
+        };
+        EmbeddingRebuild: {
+            /** @description How many owners were queued. */
+            queued: number;
         };
         /**
          * @description A researcher's profile (FR-4.1, FR-4.2, FR-4.4, FR-4.5, FR-4.6, FR-4.7, FR-5.5, FR-7). The optional text fields are
@@ -4852,7 +4938,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The database, Redis and object storage all respond. */
+            /** @description The database, Redis and object storage all respond; `ai` says whether the AI service does too. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -4862,7 +4948,7 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description The database, Redis, object storage or several of them do not respond. */
+            /** @description The database, Redis, object storage or several of them do not respond. The message names only those; the AI service never makes this response. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -5386,6 +5472,52 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getEmbeddingStats: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The current model and the counts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmbeddingStats"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    rebuildEmbeddings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The owners are queued. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmbeddingRebuild"];
                 };
             };
             401: components["responses"]["Unauthorized"];

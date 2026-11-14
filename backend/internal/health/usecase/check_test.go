@@ -100,3 +100,45 @@ func TestNewDefaultsTheTimeout(t *testing.T) {
 		t.Errorf("timeout = %v, want %v", c.timeout, DefaultTimeout)
 	}
 }
+
+// An optional dependency (the AI service) that does not respond leaves the report healthy
+// and degraded (NFR-10.2); a required one still makes it unhealthy.
+func TestCheckOptionalDependency(t *testing.T) {
+	tests := []struct {
+		name         string
+		db, ai       *fakePinger
+		wantHealthy  bool
+		wantDown     []string
+		wantDegraded []string
+		wantAI       bool
+	}{
+		{"all up", &fakePinger{}, &fakePinger{}, true, nil, nil, true},
+		{"ai down", &fakePinger{}, &fakePinger{err: errRefused}, true, nil, []string{"ai"}, false},
+		{"ai hangs past the timeout", &fakePinger{}, &fakePinger{hang: true}, true, nil, []string{"ai"}, false},
+		{"database and ai down", &fakePinger{err: errRefused}, &fakePinger{err: errRefused}, false, []string{"database"}, []string{"ai"}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			report := New(50*time.Millisecond,
+				domain.Dependency{Name: "database", Pinger: tt.db},
+				domain.Dependency{Name: "ai", Pinger: tt.ai, Optional: true},
+			).Check(t.Context())
+
+			if got := report.Healthy(); got != tt.wantHealthy {
+				t.Errorf("Healthy() = %v, want %v", got, tt.wantHealthy)
+			}
+			if got := report.Down(); !slices.Equal(got, tt.wantDown) {
+				t.Errorf("Down() = %v, want %v", got, tt.wantDown)
+			}
+			if got := report.Degraded(); !slices.Equal(got, tt.wantDegraded) {
+				t.Errorf("Degraded() = %v, want %v", got, tt.wantDegraded)
+			}
+			if got := report.Responded("ai"); got != tt.wantAI {
+				t.Errorf("Responded(ai) = %v, want %v", got, tt.wantAI)
+			}
+			if report.Responded("missing") {
+				t.Error("Responded(missing) = true, want false for a name the report does not hold")
+			}
+		})
+	}
+}

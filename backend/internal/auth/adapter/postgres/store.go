@@ -622,6 +622,22 @@ func timePtr(t pgtype.Timestamptz) *time.Time {
 	return &t.Time
 }
 
+// ListEndedSuspensions returns the IDs of at most limit users whose timed suspension ended at
+// or before now and is not cleared yet, the longest ended first.
+func (s *Store) ListEndedSuspensions(ctx context.Context, now time.Time, limit int) ([]string, error) {
+	rows, err := s.q.ListEndedSuspensions(ctx, sqlcgen.ListEndedSuspensionsParams{
+		Now: timestamptz(now), MaxUsers: int32(min(max(limit, 0), 10_000)), //nolint:gosec // capped
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list ended suspensions: %w", err)
+	}
+	ids := make([]string, len(rows))
+	for i, id := range rows {
+		ids[i] = uuidString(id)
+	}
+	return ids, nil
+}
+
 // ListUnverifiedBefore returns the IDs of at most limit accounts still unverified that
 // signed up before cutoff, oldest first, leaving out addresses at skipDomains (FR-17.4).
 func (s *Store) ListUnverifiedBefore(ctx context.Context, cutoff time.Time, skipDomains []string, limit int) ([]string, error) {

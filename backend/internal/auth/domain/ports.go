@@ -36,6 +36,9 @@ type Store interface {
 	Suspend(ctx context.Context, userID string, at time.Time, until *time.Time, reason string) error
 	// Restore ends the user's suspension, in the transaction the context carries (FR-15.3).
 	Restore(ctx context.Context, userID string) error
+	// ListEndedSuspensions returns the IDs of at most limit users whose timed suspension ended
+	// at or before now but is not cleared yet, the longest ended first.
+	ListEndedSuspensions(ctx context.Context, now time.Time, limit int) ([]string, error)
 	// ListUnverifiedBefore returns the IDs of at most limit accounts whose email address is
 	// still unverified and that signed up before cutoff, oldest first, leaving out the
 	// addresses at skipDomains (FR-17.4, FR-17.9).
