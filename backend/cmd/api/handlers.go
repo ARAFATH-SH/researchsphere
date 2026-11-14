@@ -70,6 +70,10 @@ var platformGuards = map[string]authz.Action{
 	"GET /api/v1/me/warnings/pending":                      authz.ViewContent,
 	"GET /api/v1/me/warnings/{warningId}":                  authz.ViewContent,
 	"POST /api/v1/me/warnings/{warningId}/acknowledge":     authz.ViewContent,
+	// Account settings (FR-16.11) stay open during a restriction, so a user can always stop
+	// emails. The digest's unsubscribe is public (no session) and so has no guard.
+	"GET /api/v1/me/settings":   authz.ViewContent,
+	"PATCH /api/v1/me/settings": authz.ViewContent,
 
 	// Reported conversations (FR-16.9, NFR-13): the only way an administrator reads messages.
 	"GET /api/v1/admin/message-reports":                                       authz.ReviewMessageReports,

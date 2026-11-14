@@ -78,14 +78,22 @@ const unverifiedPurgeInterval = time.Hour
 
 func main() {
 	purgeOnce := flag.Bool("purge-unverified", false, "delete the accounts still unverified after UNVERIFIED_ACCOUNT_DAYS once (FR-17.4), then exit; make purge-unverified runs it")
+	digestsOnce := flag.Bool("send-digests", false, "send the unread message digests now due once (FR-16.11), then exit; make send-digests runs it")
 	flag.Parse()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	runner := run
-	if *purgeOnce {
+	switch {
+	case *purgeOnce && *digestsOnce:
+		fmt.Fprintln(os.Stderr, "api: use -purge-unverified or -send-digests, not both")
+		stop()
+		os.Exit(2)
+	case *purgeOnce:
 		runner = runPurgeOnce
+	case *digestsOnce:
+		runner = runDigestsOnce
 	}
 	if err := runner(ctx, os.Getenv, os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, "api:", err)
@@ -196,6 +204,9 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 
 	tokens := accesstoken.New(cfg.JWTSecret, accessTTL)
 	mailer := newMailer(cfg)
+	// The unread message digest (FR-16.11): hourly, batched, safe with several instances.
+	digests := newDigests(messagingpg.NewStore(pool), postgres.NewTransactor(pool), mailer, cfg, logger)
+	go digests.RunDigests(ctx, digestInterval)
 	authCfg := authConfig(cfg, logger)
 	authCfg.Sessions, authCfg.Restrictions = realtime.events, standings
 	auth := authusecase.New(authpg.NewStore(pool), argon2.New(argon2.DefaultParams), mailer, tokens, attempts, authCfg, time.Now, logger)
@@ -209,7 +220,7 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 		mediahttp.NewHandler(images),
 		socialhttp.NewHandler(social),
 		notificationhttp.NewHandler(notifications),
-		messaginghttp.NewHandler(messaging),
+		messaginghttp.NewHandler(messaging, messaginghttp.WithDigests(digests)),
 		moderationhttp.NewHandler(moderation),
 		realtimehttp.NewHandler(realtime.hub, cfg.AppBaseURL, logger),
 		httpx.RequireAuth(tokens, time.Now))

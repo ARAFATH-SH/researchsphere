@@ -103,6 +103,10 @@ type Config struct {
 	JWTSecret    []byte
 	CookieSecure bool
 
+	// UnsubscribeSecret signs the unread message digest's unsubscribe links (FR-16.11). The
+	// links never expire, so changing it breaks every link already sent. A key: never log it.
+	UnsubscribeSecret []byte
+
 	// Object storage (FR-4.6, NFR-13): an S3-compatible bucket, MinIO locally.
 	Storage storage.Config
 
@@ -129,9 +133,10 @@ type Config struct {
 // variable but never include its value.
 func Load(getenv func(string) string) (Config, error) {
 	cfg := Config{
-		DatabaseURL: strings.TrimSpace(getenv("DATABASE_URL")),
-		RedisURL:    strings.TrimSpace(getenv("REDIS_URL")),
-		JWTSecret:   []byte(strings.TrimSpace(getenv("JWT_SECRET"))),
+		DatabaseURL:       strings.TrimSpace(getenv("DATABASE_URL")),
+		RedisURL:          strings.TrimSpace(getenv("REDIS_URL")),
+		JWTSecret:         []byte(strings.TrimSpace(getenv("JWT_SECRET"))),
+		UnsubscribeSecret: []byte(strings.TrimSpace(getenv("UNSUBSCRIBE_SECRET"))),
 		Storage: storage.Config{
 			Endpoint:  strings.TrimSpace(getenv("S3_ENDPOINT")),
 			Region:    orDefault(getenv("S3_REGION"), DefaultS3Region),
@@ -150,6 +155,9 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	if len(cfg.JWTSecret) == 0 {
 		missing = append(missing, "JWT_SECRET")
+	}
+	if len(cfg.UnsubscribeSecret) == 0 {
+		missing = append(missing, "UNSUBSCRIBE_SECRET")
 	}
 	for _, v := range []struct{ name, value string }{
 		{"S3_ENDPOINT", cfg.Storage.Endpoint},
@@ -174,6 +182,11 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	if len(cfg.JWTSecret) < MinJWTSecretLen {
 		errs = append(errs, fmt.Errorf("JWT_SECRET must be at least %d bytes; generate one with: openssl rand -base64 48", MinJWTSecretLen))
+	}
+	if len(cfg.UnsubscribeSecret) < MinJWTSecretLen {
+		errs = append(errs, fmt.Errorf("UNSUBSCRIBE_SECRET must be at least %d bytes; generate one with: openssl rand -base64 48", MinJWTSecretLen))
+	} else if string(cfg.UnsubscribeSecret) == string(cfg.JWTSecret) {
+		errs = append(errs, errors.New("UNSUBSCRIBE_SECRET must differ from JWT_SECRET"))
 	}
 
 	port, err := parsePort("API_PORT", getenv("API_PORT"), DefaultPort)
@@ -295,8 +308,8 @@ func Load(getenv func(string) string) (Config, error) {
 	return cfg, nil
 }
 
-// LogValue keeps the database and Redis URLs, and so any password in them, the JWT
-// secret, the SMTP password and the storage keys out of the logs. The mail, cookie, storage location,
+// LogValue keeps the database and Redis URLs, and so any password in them, the JWT and
+// unsubscribe secrets, the SMTP password and the storage keys out of the logs. The mail, cookie, storage location,
 // OpenAlex and ORCID address settings hold no secrets; the OpenAlex contact address is
 // left out as personal data.
 func (c Config) LogValue() slog.Value {

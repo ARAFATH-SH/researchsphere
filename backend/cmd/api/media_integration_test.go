@@ -48,6 +48,7 @@ import (
 	notificationpg "github.com/ARAFATH-SH/researchsphere/backend/internal/notification/adapter/postgres"
 	notificationusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/notification/usecase"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/accesstoken"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/config"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpx"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/postgres"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/storage"
@@ -82,6 +83,10 @@ type mediaEnv struct {
 	// built per test with a fake scanner.
 	messaging *messagingusecase.Service
 	notifier  *notificationusecase.Service
+	// digests and digestMail serve the unread message digest tests (FR-16.11): digestMail
+	// records every digest instead of sending it.
+	digests    *messagingusecase.Digests
+	digestMail *recordedMail
 }
 
 func newMediaEnv(t *testing.T) mediaEnv {
@@ -240,17 +245,20 @@ func wireEnv(t *testing.T, pool *pgxpool.Pool, rdb *goredis.Client, files *stora
 	if opt.realAuth {
 		authAPI = authhttp.NewHandler(auth, authhttp.CookieConfig{})
 	}
+	digestMail := &recordedMail{}
+	digests := newDigests(messagingpg.NewStore(pool), postgres.NewTransactor(pool), digestMail,
+		config.Config{AppBaseURL: testAppBaseURL, UnsubscribeSecret: []byte(testUnsubscribeSecret)}, logger)
 	router := newRouter(logger, up, up, up, authAPI,
 		profilehttp.NewHandler(profileusecase.New(profileStore, profileOpts...)),
 		mediahttp.NewHandler(images),
 		socialhttp.NewHandler(social),
 		notificationhttp.NewHandler(notifications),
-		messaginghttp.NewHandler(messaging),
+		messaginghttp.NewHandler(messaging, messaginghttp.WithDigests(digests)),
 		moderationhttp.NewHandler(moderation),
 		realtimehttp.NewHandler(realtime.hub, testOrigin, logger),
 		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
 	return mediaEnv{router: router, pool: pool, files: files, rdb: rdb, auth: auth, moderation: moderation, standings: standings, hub: realtime.hub, events: realtime.events, opt: opt,
-		messaging: messaging, notifier: notifications}
+		messaging: messaging, notifier: notifications, digests: digests, digestMail: digestMail}
 }
 
 // noAuthMail and noText send nothing.

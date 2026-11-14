@@ -2772,6 +2772,18 @@ type UserPage struct {
 	Total int `json:"total"`
 }
 
+// UserSettings defines model for UserSettings.
+type UserSettings struct {
+	// UnreadMessageDigest Email a digest of messages left unread for 24 hours, at most once a day
+	// (FR-16.11). On by default.
+	UnreadMessageDigest bool `json:"unreadMessageDigest"`
+}
+
+// UserSettingsUpdate defines model for UserSettingsUpdate.
+type UserSettingsUpdate struct {
+	UnreadMessageDigest *bool `json:"unreadMessageDigest,omitempty"`
+}
+
 // VerifyEmailRequest defines model for VerifyEmailRequest.
 type VerifyEmailRequest struct {
 	// Token The token from the verification link.
@@ -3247,6 +3259,11 @@ type SuggestSkillTagsParams struct {
 	Limit *TagLimit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// UnsubscribeDigestParams defines parameters for UnsubscribeDigest.
+type UnsubscribeDigestParams struct {
+	Token string `form:"token" json:"token"`
+}
+
 // DeleteAccountJSONRequestBody defines body for DeleteAccount for application/json ContentType.
 type DeleteAccountJSONRequestBody = DeleteAccountRequest
 
@@ -3318,6 +3335,9 @@ type MarkConversationReadJSONRequestBody = MarkConversationReadRequest
 
 // ReportConversationJSONRequestBody defines body for ReportConversation for application/json ContentType.
 type ReportConversationJSONRequestBody = ReportConversationRequest
+
+// UpdateMySettingsJSONRequestBody defines body for UpdateMySettings for application/json ContentType.
+type UpdateMySettingsJSONRequestBody = UserSettingsUpdate
 
 // SendDirectMessageJSONRequestBody defines body for SendDirectMessage for application/json ContentType.
 type SendDirectMessageJSONRequestBody = SendDirectMessageRequest
@@ -3531,6 +3551,12 @@ type ServerInterface interface {
 	// GetHealth Report whether the database, Redis and object storage respond
 	// (GET /health)
 	GetHealth(w http.ResponseWriter, r *http.Request)
+	// GetMySettings Return the caller's account settings (FR-16.11)
+	// (GET /me/settings)
+	GetMySettings(w http.ResponseWriter, r *http.Request)
+	// UpdateMySettings Change some of the caller's account settings (FR-16.11)
+	// (PATCH /me/settings)
+	UpdateMySettings(w http.ResponseWriter, r *http.Request)
 	// ListPendingWarnings The caller's warnings not yet acknowledged, newest first (FR-15.5)
 	// (GET /me/warnings/pending)
 	ListPendingWarnings(w http.ResponseWriter, r *http.Request)
@@ -3681,6 +3707,9 @@ type ServerInterface interface {
 	// SuggestSkillTags Suggest existing skill tags while the user types (FR-4.3)
 	// (GET /tags/skills)
 	SuggestSkillTags(w http.ResponseWriter, r *http.Request, params SuggestSkillTagsParams)
+	// UnsubscribeDigest Turn off the unread message digest with the token from its email (FR-16.11)
+	// (POST /unsubscribe)
+	UnsubscribeDigest(w http.ResponseWriter, r *http.Request, params UnsubscribeDigestParams)
 	// OpenWebSocket Open the real-time connection (FR-16.1, FR-16.3, FR-16.4, FR-9.4)
 	// (GET /ws)
 	OpenWebSocket(w http.ResponseWriter, r *http.Request)
@@ -5393,6 +5422,46 @@ func (siw *ServerInterfaceWrapper) GetHealth(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
+// GetMySettings operation middleware
+func (siw *ServerInterfaceWrapper) GetMySettings(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMySettings(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateMySettings operation middleware
+func (siw *ServerInterfaceWrapper) UpdateMySettings(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateMySettings(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListPendingWarnings operation middleware
 func (siw *ServerInterfaceWrapper) ListPendingWarnings(w http.ResponseWriter, r *http.Request) {
 
@@ -6975,6 +7044,39 @@ func (siw *ServerInterfaceWrapper) SuggestSkillTags(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// UnsubscribeDigest operation middleware
+func (siw *ServerInterfaceWrapper) UnsubscribeDigest(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UnsubscribeDigestParams
+
+	// ------------- Required query parameter "token" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "token", r.URL.Query(), &params.Token, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "token"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "token", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UnsubscribeDigest(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // OpenWebSocket operation middleware
 func (siw *ServerInterfaceWrapper) OpenWebSocket(w http.ResponseWriter, r *http.Request) {
 
@@ -7141,6 +7243,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/me/warnings/pending", wrapper.ListPendingWarnings)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/me/warnings/{warningId}", wrapper.GetMyWarning)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/me/warnings/{warningId}/acknowledge", wrapper.AcknowledgeWarning)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/me/settings", wrapper.GetMySettings)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/me/settings", wrapper.UpdateMySettings)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/unsubscribe", wrapper.UnsubscribeDigest)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles/me", wrapper.GetMyProfile)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/profiles/me", wrapper.UpdateMyProfile)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles/{userId}", wrapper.GetProfile)
@@ -11792,6 +11897,147 @@ func (response GetHealth503JSONResponse) VisitGetHealthResponse(w http.ResponseW
 	return err
 }
 
+type GetMySettingsRequestObject struct {
+}
+
+type GetMySettingsResponseObject interface {
+	VisitGetMySettingsResponse(w http.ResponseWriter) error
+}
+
+type GetMySettings200JSONResponse UserSettings
+
+func (response GetMySettings200JSONResponse) VisitGetMySettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMySettings401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetMySettings401JSONResponse) VisitGetMySettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMySettings403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetMySettings403JSONResponse) VisitGetMySettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMySettings500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response GetMySettings500JSONResponse) VisitGetMySettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMySettingsRequestObject struct {
+	Body *UpdateMySettingsJSONRequestBody
+}
+
+type UpdateMySettingsResponseObject interface {
+	VisitUpdateMySettingsResponse(w http.ResponseWriter) error
+}
+
+type UpdateMySettings200JSONResponse UserSettings
+
+func (response UpdateMySettings200JSONResponse) VisitUpdateMySettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMySettings400JSONResponse Error
+
+func (response UpdateMySettings400JSONResponse) VisitUpdateMySettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMySettings401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response UpdateMySettings401JSONResponse) VisitUpdateMySettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMySettings403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response UpdateMySettings403JSONResponse) VisitUpdateMySettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMySettings500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response UpdateMySettings500JSONResponse) VisitUpdateMySettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListPendingWarningsRequestObject struct {
 }
 
@@ -16192,6 +16438,50 @@ func (response SuggestSkillTags500JSONResponse) VisitSuggestSkillTagsResponse(w 
 	return err
 }
 
+type UnsubscribeDigestRequestObject struct {
+	Params UnsubscribeDigestParams
+}
+
+type UnsubscribeDigestResponseObject interface {
+	VisitUnsubscribeDigestResponse(w http.ResponseWriter) error
+}
+
+type UnsubscribeDigest204Response struct {
+}
+
+func (response UnsubscribeDigest204Response) VisitUnsubscribeDigestResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type UnsubscribeDigest400JSONResponse Error
+
+func (response UnsubscribeDigest400JSONResponse) VisitUnsubscribeDigestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UnsubscribeDigest500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response UnsubscribeDigest500JSONResponse) VisitUnsubscribeDigestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type OpenWebSocketRequestObject struct {
 }
 
@@ -16432,6 +16722,12 @@ type StrictServerInterface interface {
 	// GetHealth Report whether the database, Redis and object storage respond
 	// (GET /health)
 	GetHealth(ctx context.Context, request GetHealthRequestObject) (GetHealthResponseObject, error)
+	// GetMySettings Return the caller's account settings (FR-16.11)
+	// (GET /me/settings)
+	GetMySettings(ctx context.Context, request GetMySettingsRequestObject) (GetMySettingsResponseObject, error)
+	// UpdateMySettings Change some of the caller's account settings (FR-16.11)
+	// (PATCH /me/settings)
+	UpdateMySettings(ctx context.Context, request UpdateMySettingsRequestObject) (UpdateMySettingsResponseObject, error)
 	// ListPendingWarnings The caller's warnings not yet acknowledged, newest first (FR-15.5)
 	// (GET /me/warnings/pending)
 	ListPendingWarnings(ctx context.Context, request ListPendingWarningsRequestObject) (ListPendingWarningsResponseObject, error)
@@ -16582,6 +16878,9 @@ type StrictServerInterface interface {
 	// SuggestSkillTags Suggest existing skill tags while the user types (FR-4.3)
 	// (GET /tags/skills)
 	SuggestSkillTags(ctx context.Context, request SuggestSkillTagsRequestObject) (SuggestSkillTagsResponseObject, error)
+	// UnsubscribeDigest Turn off the unread message digest with the token from its email (FR-16.11)
+	// (POST /unsubscribe)
+	UnsubscribeDigest(ctx context.Context, request UnsubscribeDigestRequestObject) (UnsubscribeDigestResponseObject, error)
 	// OpenWebSocket Open the real-time connection (FR-16.1, FR-16.3, FR-16.4, FR-9.4)
 	// (GET /ws)
 	OpenWebSocket(ctx context.Context, request OpenWebSocketRequestObject) (OpenWebSocketResponseObject, error)
@@ -18103,6 +18402,61 @@ func (sh *strictHandler) GetHealth(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// GetMySettings operation middleware
+func (sh *strictHandler) GetMySettings(w http.ResponseWriter, r *http.Request) {
+	var request GetMySettingsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetMySettings(ctx, request.(GetMySettingsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetMySettings")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetMySettingsResponseObject); ok {
+		if err := validResponse.VisitGetMySettingsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateMySettings operation middleware
+func (sh *strictHandler) UpdateMySettings(w http.ResponseWriter, r *http.Request) {
+	var request UpdateMySettingsRequestObject
+
+	var body UpdateMySettingsJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateMySettings(ctx, request.(UpdateMySettingsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateMySettings")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateMySettingsResponseObject); ok {
+		if err := validResponse.VisitUpdateMySettingsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListPendingWarnings operation middleware
 func (sh *strictHandler) ListPendingWarnings(w http.ResponseWriter, r *http.Request) {
 	var request ListPendingWarningsRequestObject
@@ -19483,6 +19837,32 @@ func (sh *strictHandler) SuggestSkillTags(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SuggestSkillTagsResponseObject); ok {
 		if err := validResponse.VisitSuggestSkillTagsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UnsubscribeDigest operation middleware
+func (sh *strictHandler) UnsubscribeDigest(w http.ResponseWriter, r *http.Request, params UnsubscribeDigestParams) {
+	var request UnsubscribeDigestRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UnsubscribeDigest(ctx, request.(UnsubscribeDigestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UnsubscribeDigest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UnsubscribeDigestResponseObject); ok {
+		if err := validResponse.VisitUnsubscribeDigestResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

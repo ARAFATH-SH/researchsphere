@@ -65,14 +65,15 @@ func TestRunShutsDownWhenContextIsCancelled(t *testing.T) {
 	port := strconv.Itoa(freePort(t))
 	vars := map[string]string{
 		// Nothing listens on these ports; the clients connect lazily, so run starts anyway.
-		"DATABASE_URL":  "postgres://u:" + password + "@127.0.0.1:1/db?sslmode=disable",
-		"REDIS_URL":     "redis://:" + password + "@127.0.0.1:1/0",
-		"API_PORT":      port,
-		"JWT_SECRET":    testSecret,
-		"S3_ENDPOINT":   "127.0.0.1:1",
-		"S3_BUCKET":     "researchsphere",
-		"S3_ACCESS_KEY": "researchsphere",
-		"S3_SECRET_KEY": password,
+		"DATABASE_URL":       "postgres://u:" + password + "@127.0.0.1:1/db?sslmode=disable",
+		"REDIS_URL":          "redis://:" + password + "@127.0.0.1:1/0",
+		"API_PORT":           port,
+		"JWT_SECRET":         testSecret,
+		"UNSUBSCRIBE_SECRET": testUnsubscribeSecret,
+		"S3_ENDPOINT":        "127.0.0.1:1",
+		"S3_BUCKET":          "researchsphere",
+		"S3_ACCESS_KEY":      "researchsphere",
+		"S3_SECRET_KEY":      password,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	var logs syncBuffer
@@ -122,7 +123,7 @@ func TestRunShutsDownWhenContextIsCancelled(t *testing.T) {
 
 func TestRunStopsOnMissingSettings(t *testing.T) {
 	err := run(context.Background(), func(string) string { return "" }, &bytes.Buffer{})
-	for _, name := range []string{"DATABASE_URL", "REDIS_URL", "JWT_SECRET", "S3_ENDPOINT", "S3_BUCKET", "S3_ACCESS_KEY", "S3_SECRET_KEY"} {
+	for _, name := range []string{"DATABASE_URL", "REDIS_URL", "JWT_SECRET", "UNSUBSCRIBE_SECRET", "S3_ENDPOINT", "S3_BUCKET", "S3_ACCESS_KEY", "S3_SECRET_KEY"} {
 		if err == nil || !strings.Contains(err.Error(), name) {
 			t.Fatalf("run() error = %v, want one naming %s", err, name)
 		}
@@ -130,6 +131,9 @@ func TestRunStopsOnMissingSettings(t *testing.T) {
 }
 
 const testSecret = "test-jwt-secret-0123456789abcdefghij"
+
+// testUnsubscribeSecret signs unsubscribe tokens in tests (UNSUBSCRIBE_SECRET).
+const testUnsubscribeSecret = "test-unsubscribe-secret-0123456789ab" //nolint:gosec // test value, not a credential
 
 // testRouter wires the real router and auth middleware to fakes.
 func testRouter() http.Handler {

@@ -168,6 +168,39 @@ func (q *Queries) ClaimAttachments(ctx context.Context, arg ClaimAttachmentsPara
 	return items, nil
 }
 
+const claimDigest = `-- name: ClaimDigest :one
+SELECT u.email::text AS email, COALESCE(p.full_name, '')::text AS full_name, d.covered_until
+FROM message_digest_state d
+JOIN users u ON u.id = d.user_id
+LEFT JOIN profiles p ON p.user_id = u.id
+LEFT JOIN user_settings s ON s.user_id = u.id
+WHERE d.user_id = $1
+  AND u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL
+  AND COALESCE(s.unread_message_digest, true)
+  AND (d.last_digest_at IS NULL OR d.last_digest_at <= $2::timestamptz)
+FOR UPDATE OF d SKIP LOCKED
+`
+
+type ClaimDigestParams struct {
+	UserID pgtype.UUID
+	Cutoff pgtype.Timestamptz
+}
+
+type ClaimDigestRow struct {
+	Email        string
+	FullName     string
+	CoveredUntil pgtype.Timestamptz
+}
+
+// SKIP LOCKED: a row another worker holds is skipped, never waited for. The checks are
+// repeated here because another worker may have sent a digest since the candidates were read.
+func (q *Queries) ClaimDigest(ctx context.Context, arg ClaimDigestParams) (ClaimDigestRow, error) {
+	row := q.db.QueryRow(ctx, claimDigest, arg.UserID, arg.Cutoff)
+	var i ClaimDigestRow
+	err := row.Scan(&i.Email, &i.FullName, &i.CoveredUntil)
+	return i, err
+}
+
 const countPendingRequests = `-- name: CountPendingRequests :one
 SELECT count(*)
 FROM conversation_members me
@@ -330,6 +363,63 @@ func (q *Queries) DeleteMessage(ctx context.Context, id pgtype.UUID) (Message, e
 	return i, err
 }
 
+const digestConversations = `-- name: DigestConversations :many
+SELECT (CASE WHEN c.kind = 'group' THEN COALESCE(c.name, '') ELSE COALESCE(op.full_name, '') END)::text AS name,
+       (c.kind = 'group')::boolean AS is_group,
+       count(*)::integer AS unread
+FROM conversation_members me
+JOIN conversations c ON c.id = me.conversation_id AND c.state = 'active'
+JOIN messages m ON m.conversation_id = c.id AND m.kind = 'text' AND m.deleted_at IS NULL
+    AND m.sender_id <> me.user_id
+    AND m.created_at >= me.joined_at
+    AND (me.last_read_message_id IS NULL OR m.id > me.last_read_message_id)
+    AND m.created_at <= $1::timestamptz
+    AND ($2::timestamptz IS NULL OR m.created_at > $2::timestamptz)
+LEFT JOIN profiles op ON c.kind = 'direct'
+    AND op.user_id = (CASE WHEN c.user_low = me.user_id THEN c.user_high ELSE c.user_low END)
+WHERE me.user_id = $3
+  AND NOT EXISTS (
+      SELECT 1 FROM blocks b
+      WHERE (b.blocker_id = me.user_id AND b.blocked_id = m.sender_id)
+         OR (b.blocker_id = m.sender_id AND b.blocked_id = me.user_id))
+GROUP BY c.id, c.kind, c.name, op.full_name
+ORDER BY unread DESC, max(m.created_at) DESC, c.id
+`
+
+type DigestConversationsParams struct {
+	Cutoff       pgtype.Timestamptz
+	CoveredUntil pgtype.Timestamptz
+	UserID       pgtype.UUID
+}
+
+type DigestConversationsRow struct {
+	Name    string
+	IsGroup bool
+	Unread  int32
+}
+
+// FR-16.11, NFR-13: names and counts only; the message text is never read. The message rules
+// are ListDigestCandidates' (keep them the same).
+func (q *Queries) DigestConversations(ctx context.Context, arg DigestConversationsParams) ([]DigestConversationsRow, error) {
+	rows, err := q.db.Query(ctx, digestConversations, arg.Cutoff, arg.CoveredUntil, arg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DigestConversationsRow
+	for rows.Next() {
+		var i DigestConversationsRow
+		if err := rows.Scan(&i.Name, &i.IsGroup, &i.Unread); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const directExists = `-- name: DirectExists :one
 SELECT EXISTS (
     SELECT 1 FROM conversations c
@@ -410,6 +500,19 @@ func (q *Queries) EditMessage(ctx context.Context, arg EditMessageParams) (Messa
 		&i.HasAttachments,
 	)
 	return i, err
+}
+
+const ensureDigestStates = `-- name: EnsureDigestStates :exec
+INSERT INTO message_digest_state (user_id)
+SELECT id FROM users WHERE id = ANY($1::uuid[])
+ON CONFLICT (user_id) DO NOTHING
+`
+
+// Run on its own, before any worker's transaction: an INSERT that meets a row another
+// transaction inserted and has not committed waits for it, where SKIP LOCKED would not.
+func (q *Queries) EnsureDigestStates(ctx context.Context, userIds []pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, ensureDigestStates, userIds)
+	return err
 }
 
 const findAttachment = `-- name: FindAttachment :one
@@ -927,6 +1030,17 @@ func (q *Queries) FindVisibleMessage(ctx context.Context, arg FindVisibleMessage
 	return i, err
 }
 
+const getUserSettings = `-- name: GetUserSettings :one
+SELECT unread_message_digest FROM user_settings WHERE user_id = $1
+`
+
+func (q *Queries) GetUserSettings(ctx context.Context, userID pgtype.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, getUserSettings, userID)
+	var unread_message_digest bool
+	err := row.Scan(&unread_message_digest)
+	return unread_message_digest, err
+}
+
 const groupAvatars = `-- name: GroupAvatars :many
 SELECT a.conversation_id, a.user_id, a.full_name, a.headline, a.photo_file_id, a.available
 FROM (
@@ -1282,6 +1396,59 @@ func (q *Queries) InsertSystemMessage(ctx context.Context, arg InsertSystemMessa
 		&i.HasAttachments,
 	)
 	return i, err
+}
+
+const listDigestCandidates = `-- name: ListDigestCandidates :many
+SELECT u.id
+FROM users u
+LEFT JOIN user_settings s ON s.user_id = u.id
+LEFT JOIN message_digest_state d ON d.user_id = u.id
+WHERE u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL
+  AND COALESCE(s.unread_message_digest, true)
+  AND (d.last_digest_at IS NULL OR d.last_digest_at <= $1::timestamptz)
+  AND EXISTS (
+      SELECT 1
+      FROM conversation_members me
+      JOIN conversations c ON c.id = me.conversation_id AND c.state = 'active'
+      JOIN messages m ON m.conversation_id = c.id AND m.kind = 'text' AND m.deleted_at IS NULL
+          AND m.sender_id <> me.user_id
+          AND m.created_at >= me.joined_at
+          AND (me.last_read_message_id IS NULL OR m.id > me.last_read_message_id)
+          AND m.created_at <= $1::timestamptz
+          AND (d.covered_until IS NULL OR m.created_at > d.covered_until)
+      WHERE me.user_id = u.id
+        AND NOT EXISTS (
+            SELECT 1 FROM blocks b
+            WHERE (b.blocker_id = me.user_id AND b.blocked_id = m.sender_id)
+               OR (b.blocker_id = m.sender_id AND b.blocked_id = me.user_id)))
+ORDER BY d.last_digest_at NULLS FIRST, u.id
+LIMIT $2
+`
+
+type ListDigestCandidatesParams struct {
+	Cutoff pgtype.Timestamptz
+	Lim    int32
+}
+
+// FR-16.11. The message rules are DigestConversations' (keep them the same).
+func (q *Queries) ListDigestCandidates(ctx context.Context, arg ListDigestCandidatesParams) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, listDigestCandidates, arg.Cutoff, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var id pgtype.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listGroupMembers = `-- name: ListGroupMembers :many
@@ -2329,6 +2496,36 @@ func (q *Queries) PrepareSearch(ctx context.Context, threshold string) error {
 	return err
 }
 
+const recordDigest = `-- name: RecordDigest :exec
+WITH state AS (
+    UPDATE message_digest_state SET last_digest_at = $2, covered_until = $3
+    WHERE user_id = $1
+)
+INSERT INTO message_digests (user_id, sent_at, covered_until, unread_count, conversation_count, request_count)
+VALUES ($1, $2, $3, $4, $5, $6)
+`
+
+type RecordDigestParams struct {
+	UserID            pgtype.UUID
+	SentAt            pgtype.Timestamptz
+	CoveredUntil      pgtype.Timestamptz
+	UnreadCount       int32
+	ConversationCount int32
+	RequestCount      int32
+}
+
+func (q *Queries) RecordDigest(ctx context.Context, arg RecordDigestParams) error {
+	_, err := q.db.Exec(ctx, recordDigest,
+		arg.UserID,
+		arg.SentAt,
+		arg.CoveredUntil,
+		arg.UnreadCount,
+		arg.ConversationCount,
+		arg.RequestCount,
+	)
+	return err
+}
+
 const removeGroupMember = `-- name: RemoveGroupMember :execrows
 DELETE FROM conversation_members WHERE conversation_id = $1 AND user_id = $2
 `
@@ -2591,6 +2788,41 @@ type TouchConversationParams struct {
 func (q *Queries) TouchConversation(ctx context.Context, arg TouchConversationParams) error {
 	_, err := q.db.Exec(ctx, touchConversation, arg.LastMessageAt, arg.ID)
 	return err
+}
+
+const turnOffDigest = `-- name: TurnOffDigest :exec
+INSERT INTO user_settings (user_id, unread_message_digest)
+SELECT id, false FROM users WHERE id = $1
+ON CONFLICT (user_id) DO UPDATE SET unread_message_digest = false, updated_at = now()
+WHERE user_settings.unread_message_digest
+`
+
+// Selecting from users makes an unknown user a no-op instead of a foreign key error.
+func (q *Queries) TurnOffDigest(ctx context.Context, userID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, turnOffDigest, userID)
+	return err
+}
+
+const upsertUserSettings = `-- name: UpsertUserSettings :one
+INSERT INTO user_settings (user_id, unread_message_digest)
+VALUES ($1, COALESCE($2::boolean, true))
+ON CONFLICT (user_id) DO UPDATE
+SET unread_message_digest = COALESCE($2::boolean, user_settings.unread_message_digest),
+    updated_at = now()
+RETURNING unread_message_digest
+`
+
+type UpsertUserSettingsParams struct {
+	UserID              pgtype.UUID
+	UnreadMessageDigest pgtype.Bool
+}
+
+// A null leaves the setting as it is (or at its default for a new row).
+func (q *Queries) UpsertUserSettings(ctx context.Context, arg UpsertUserSettingsParams) (bool, error) {
+	row := q.db.QueryRow(ctx, upsertUserSettings, arg.UserID, arg.UnreadMessageDigest)
+	var unread_message_digest bool
+	err := row.Scan(&unread_message_digest)
+	return unread_message_digest, err
 }
 
 const userVisible = `-- name: UserVisible :one

@@ -15,17 +15,19 @@ const (
 	testDBURL    = "postgres://user:" + testPassword + "@localhost:5433/db?sslmode=disable"
 	testRedisURL = "redis://:" + testPassword + "@localhost:6379/0"
 	testSecret   = "test-jwt-secret-0123456789abcdefghij"
-	testS3Secret = "test-s3-secret-key"     //nolint:gosec // test value, not a credential
-	testSMTPPass = "smtp-secret-do-not-log" //nolint:gosec // test value, not a credential
+	testUnsubKey = "test-unsubscribe-secret-0123456789ab" //nolint:gosec // test value, not a credential
+	testS3Secret = "test-s3-secret-key"                   //nolint:gosec // test value, not a credential
+	testSMTPPass = "smtp-secret-do-not-log"               //nolint:gosec // test value, not a credential
 )
 
 // validDefaults are served for these settings unless vars sets them (even to "").
 var validDefaults = map[string]string{
-	"JWT_SECRET":    testSecret,
-	"S3_ENDPOINT":   "localhost:9000",
-	"S3_BUCKET":     "researchsphere",
-	"S3_ACCESS_KEY": "researchsphere",
-	"S3_SECRET_KEY": testS3Secret,
+	"JWT_SECRET":         testSecret,
+	"UNSUBSCRIBE_SECRET": testUnsubKey,
+	"S3_ENDPOINT":        "localhost:9000",
+	"S3_BUCKET":          "researchsphere",
+	"S3_ACCESS_KEY":      "researchsphere",
+	"S3_SECRET_KEY":      testS3Secret,
 }
 
 // env serves vars, with valid JWT and storage settings unless vars sets them.
@@ -145,6 +147,21 @@ func TestLoad(t *testing.T) {
 			wantErr: []string{"JWT_SECRET must be at least 32 bytes"},
 		},
 		{
+			name:    "unsubscribe secret missing",
+			vars:    map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL, "UNSUBSCRIBE_SECRET": ""},
+			wantErr: []string{"UNSUBSCRIBE_SECRET"},
+		},
+		{
+			name:    "unsubscribe secret too short",
+			vars:    map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL, "UNSUBSCRIBE_SECRET": testPassword},
+			wantErr: []string{"UNSUBSCRIBE_SECRET must be at least 32 bytes"},
+		},
+		{
+			name:    "unsubscribe secret the same as the jwt secret",
+			vars:    map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL, "UNSUBSCRIBE_SECRET": testSecret},
+			wantErr: []string{"UNSUBSCRIBE_SECRET must differ from JWT_SECRET"},
+		},
+		{
 			name:    "several errors reported together",
 			vars:    map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL, "API_PORT": "x", "LOG_LEVEL": "y"},
 			wantErr: []string{"API_PORT", "LOG_LEVEL"},
@@ -244,6 +261,9 @@ func TestLoadLoginSettings(t *testing.T) {
 			if string(cfg.JWTSecret) != testSecret {
 				t.Error("JWTSecret is not the value of JWT_SECRET")
 			}
+			if string(cfg.UnsubscribeSecret) != testUnsubKey {
+				t.Error("UnsubscribeSecret is not the value of UNSUBSCRIBE_SECRET")
+			}
 		})
 	}
 }
@@ -258,7 +278,7 @@ func TestLogValueHidesSecrets(t *testing.T) {
 	slog.New(slog.NewJSONHandler(&buf, nil)).Info("config loaded", "config", cfg)
 
 	out := buf.String()
-	for _, secret := range []string{testPassword, testDBURL, testRedisURL, "postgres://", "redis://", testSecret, testS3Secret, testSMTPPass} {
+	for _, secret := range []string{testPassword, testDBURL, testRedisURL, "postgres://", "redis://", testSecret, testUnsubKey, testS3Secret, testSMTPPass} {
 		if strings.Contains(out, secret) {
 			t.Errorf("log line contains %q: %s", secret, out)
 		}

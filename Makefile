@@ -20,7 +20,7 @@ TEST_REDIS_URL    ?= redis://localhost:6379/15
 MIGRATIONS_DIR := backend/db/migrations
 
 .DEFAULT_GOAL := help
-.PHONY: help up down logs ps psql check migrate migrate-down migrate-new admin unadmin seed-ui-compare seed-dev purge-unverified update-disposable-domains api web stop web-clean generate check-generated test test-prepare test-db test-go test-integration test-one test-web lint lint-go lint-web
+.PHONY: help up down logs ps psql check migrate migrate-down migrate-new admin unadmin seed-ui-compare seed-dev purge-unverified send-digests update-disposable-domains api web stop web-clean generate check-generated test test-prepare test-db test-go test-integration test-one test-web lint lint-go lint-web
 
 help: ## List the available commands
 	@grep -hE '^[a-zA-Z_-]+:.*## ' $(firstword $(MAKEFILE_LIST)) | awk 'BEGIN {FS = ":.*## "} {printf "  make %-16s %s\n", $$1, $$2}'
@@ -82,6 +82,9 @@ seed-dev: ## Create or repair the dev accounts test1..test4@example.com and admi
 
 purge-unverified: ## Run the FR-17.4 purge of old unverified accounts once, now (settings from .env), then exit
 	cd backend && go run ./cmd/api -purge-unverified
+
+send-digests: ## Send the FR-16.11 unread message digests now due once (settings from .env), then exit
+	cd backend && go run ./cmd/api -send-digests
 
 # The list of disposable email domains (FR-17.2), CC0, from github.com/disposable-email-domains.
 # The download goes to a .download file and replaces the list only when it looks whole.

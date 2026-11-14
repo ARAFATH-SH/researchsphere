@@ -1314,6 +1314,30 @@ SELECT pg_temp.expect_ok('Moderation action: a permanent suspension, its report 
     $s$INSERT INTO moderation_actions (user_id, action, reason, report_id)
        VALUES ('00000000-0000-4000-8000-0000000000a1', 'suspension', 'A reason of ten or more', gen_random_uuid())$s$);
 
+SELECT pg_temp.expect_error('Digest state: sent time and watermark go together',
+    $s$INSERT INTO message_digest_state (user_id, last_digest_at)
+       VALUES ('00000000-0000-4000-8000-0000000000a1', now())$s$, '23514');
+SELECT pg_temp.expect_error('Digest state: the watermark is not after the send',
+    $s$INSERT INTO message_digest_state (user_id, last_digest_at, covered_until)
+       VALUES ('00000000-0000-4000-8000-0000000000a1', now() - interval '1 day', now())$s$, '23514');
+SELECT pg_temp.expect_ok('Digest state: a user never sent a digest',
+    $s$INSERT INTO message_digest_state (user_id) VALUES ('00000000-0000-4000-8000-0000000000a1')$s$);
+SELECT pg_temp.expect_error('Digest: at least one unread message',
+    $s$INSERT INTO message_digests (user_id, sent_at, covered_until, unread_count, conversation_count, request_count)
+       VALUES ('00000000-0000-4000-8000-0000000000a1', now(), now() - interval '1 day', 0, 1, 0)$s$, '23514');
+SELECT pg_temp.expect_error('Digest: no more conversations than messages',
+    $s$INSERT INTO message_digests (user_id, sent_at, covered_until, unread_count, conversation_count, request_count)
+       VALUES ('00000000-0000-4000-8000-0000000000a1', now(), now() - interval '1 day', 2, 3, 0)$s$, '23514');
+SELECT pg_temp.expect_error('Digest: covers nothing after its send',
+    $s$INSERT INTO message_digests (user_id, sent_at, covered_until, unread_count, conversation_count, request_count)
+       VALUES ('00000000-0000-4000-8000-0000000000a1', now(), now() + interval '1 hour', 2, 1, 0)$s$, '23514');
+SELECT pg_temp.expect_error('Digest: no negative request count',
+    $s$INSERT INTO message_digests (user_id, sent_at, covered_until, unread_count, conversation_count, request_count)
+       VALUES ('00000000-0000-4000-8000-0000000000a1', now(), now() - interval '1 day', 2, 1, -1)$s$, '23514');
+SELECT pg_temp.expect_ok('Digest: a valid record',
+    $s$INSERT INTO message_digests (user_id, sent_at, covered_until, unread_count, conversation_count, request_count)
+       VALUES ('00000000-0000-4000-8000-0000000000a1', now(), now() - interval '1 day', 2, 1, 0)$s$);
+
 ROLLBACK;
 
 \echo 'All database constraint tests passed.'

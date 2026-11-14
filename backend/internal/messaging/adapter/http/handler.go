@@ -61,12 +61,26 @@ type Service interface {
 
 // Handler implements the messaging operations of gen.StrictServerInterface.
 type Handler struct {
-	svc Service
+	svc     Service
+	digests DigestService
+}
+
+// Option configures a Handler.
+type Option func(*Handler)
+
+// WithDigests serves the settings and the digest's unsubscribe (FR-16.11) with d. Without it
+// those operations fail with 500.
+func WithDigests(d DigestService) Option {
+	return func(h *Handler) { h.digests = d }
 }
 
 // NewHandler returns a Handler that uses svc.
-func NewHandler(svc Service) *Handler {
-	return &Handler{svc: svc}
+func NewHandler(svc Service, opts ...Option) *Handler {
+	h := &Handler{svc: svc}
+	for _, o := range opts {
+		o(h)
+	}
+	return h
 }
 
 var (

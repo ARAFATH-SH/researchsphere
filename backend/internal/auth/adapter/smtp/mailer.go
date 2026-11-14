@@ -12,11 +12,14 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"io"
 	"mime"
+	"mime/multipart"
 	"mime/quotedprintable"
 	"net"
 	"net/mail"
 	"net/smtp"
+	"net/textproto"
 	"strconv"
 	"strings"
 	"time"
@@ -125,7 +128,35 @@ func (m *Mailer) send(ctx context.Context, to mail.Address, subject, body string
 	if err != nil {
 		return err
 	}
+	return m.deliver(ctx, to, data)
+}
 
+// Message is an email with a plain-text and an HTML version (multipart/alternative).
+type Message struct {
+	To     string
+	ToName string
+	// Subject is put on one line.
+	Subject string
+	Text    string
+	HTML    string
+	// ListUnsubscribeURL, when set, is an https (or local http) URL that turns the mail off
+	// with one POST, sent as List-Unsubscribe with List-Unsubscribe-Post (RFC 8058).
+	ListUnsubscribeURL string
+}
+
+// SendMultipart sends msg with both versions (FR-16.11). Errors never contain the message.
+func (m *Mailer) SendMultipart(ctx context.Context, msg Message) error {
+	to := mail.Address{Name: oneLine(msg.ToName), Address: msg.To}
+	data, err := m.multipartMessage(to, msg)
+	if err != nil {
+		return err
+	}
+	return m.deliver(ctx, to, data)
+}
+
+// deliver sends the encoded message data to one recipient.
+func (m *Mailer) deliver(ctx context.Context, to mail.Address, data []byte) error {
+	var err error
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, DefaultTimeout)
@@ -221,15 +252,70 @@ func (m *Mailer) message(to mail.Address, subject, body string) ([]byte, error) 
 	header("Content-Type", "text/plain; charset=utf-8")
 	header("Content-Transfer-Encoding", "quoted-printable")
 	buf.WriteString("\r\n")
-
-	qp := quotedprintable.NewWriter(&buf)
-	if _, err := qp.Write([]byte(strings.ReplaceAll(body, "\n", "\r\n"))); err != nil {
-		return nil, fmt.Errorf("smtp: encode body: %w", err)
-	}
-	if err := qp.Close(); err != nil {
-		return nil, fmt.Errorf("smtp: encode body: %w", err)
+	if err := writeQP(&buf, body); err != nil {
+		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// multipartMessage builds the headers and a multipart/alternative body: the plain text first,
+// then the HTML (RFC 2046: the preferred version last), each quoted-printable UTF-8.
+func (m *Mailer) multipartMessage(to mail.Address, msg Message) ([]byte, error) {
+	if strings.ContainsAny(to.Address, "\r\n") {
+		return nil, fmt.Errorf("smtp: recipient address contains a line break")
+	}
+	if strings.ContainsAny(msg.ListUnsubscribeURL, "\r\n<> ") {
+		return nil, fmt.Errorf("smtp: unsubscribe URL contains a forbidden character")
+	}
+	var parts bytes.Buffer
+	w := multipart.NewWriter(&parts)
+	for _, p := range []struct{ typ, body string }{
+		{"text/plain; charset=utf-8", msg.Text},
+		{"text/html; charset=utf-8", msg.HTML},
+	} {
+		pw, err := w.CreatePart(textproto.MIMEHeader{
+			"Content-Type":              {p.typ},
+			"Content-Transfer-Encoding": {"quoted-printable"},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("smtp: create part: %w", err)
+		}
+		if err := writeQP(pw, p.body); err != nil {
+			return nil, err
+		}
+	}
+	if err := w.Close(); err != nil {
+		return nil, fmt.Errorf("smtp: end parts: %w", err)
+	}
+
+	var buf bytes.Buffer
+	header := func(k, v string) { buf.WriteString(k + ": " + v + "\r\n") }
+	header("From", m.from.String())
+	header("To", to.String())
+	header("Subject", mime.QEncoding.Encode("utf-8", oneLine(msg.Subject)))
+	header("Date", m.now().Format(time.RFC1123Z))
+	header("Message-ID", m.messageID())
+	header("MIME-Version", "1.0")
+	if msg.ListUnsubscribeURL != "" {
+		header("List-Unsubscribe", "<"+msg.ListUnsubscribeURL+">")
+		header("List-Unsubscribe-Post", "List-Unsubscribe=One-Click")
+	}
+	header("Content-Type", `multipart/alternative; boundary="`+w.Boundary()+`"`)
+	buf.WriteString("\r\n")
+	buf.Write(parts.Bytes())
+	return buf.Bytes(), nil
+}
+
+// writeQP writes body quoted-printable with CRLF line ends.
+func writeQP(w io.Writer, body string) error {
+	qp := quotedprintable.NewWriter(w)
+	if _, err := qp.Write([]byte(strings.ReplaceAll(body, "\n", "\r\n"))); err != nil {
+		return fmt.Errorf("smtp: encode body: %w", err)
+	}
+	if err := qp.Close(); err != nil {
+		return fmt.Errorf("smtp: encode body: %w", err)
+	}
+	return nil
 }
 
 // oneLine removes line breaks so a name stays on one line.
