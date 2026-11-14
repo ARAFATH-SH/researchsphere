@@ -18,6 +18,7 @@ const (
 	testUnsubKey = "test-unsubscribe-secret-0123456789ab" //nolint:gosec // test value, not a credential
 	testS3Secret = "test-s3-secret-key"                   //nolint:gosec // test value, not a credential
 	testSMTPPass = "smtp-secret-do-not-log"               //nolint:gosec // test value, not a credential
+	testAIToken  = "test-ai-service-token-0123456789abcd" //nolint:gosec // test value, not a credential
 )
 
 // validDefaults are served for these settings unless vars sets them (even to "").
@@ -270,7 +271,7 @@ func TestLoadLoginSettings(t *testing.T) {
 
 func TestLogValueHidesSecrets(t *testing.T) {
 	cfg, err := Load(env(map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL,
-		"SMTP_USERNAME": "apikey", "SMTP_PASSWORD": testSMTPPass}))
+		"SMTP_USERNAME": "apikey", "SMTP_PASSWORD": testSMTPPass, "AI_SERVICE_TOKEN": testAIToken}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -278,10 +279,13 @@ func TestLogValueHidesSecrets(t *testing.T) {
 	slog.New(slog.NewJSONHandler(&buf, nil)).Info("config loaded", "config", cfg)
 
 	out := buf.String()
-	for _, secret := range []string{testPassword, testDBURL, testRedisURL, "postgres://", "redis://", testSecret, testUnsubKey, testS3Secret, testSMTPPass} {
+	for _, secret := range []string{testPassword, testDBURL, testRedisURL, "postgres://", "redis://", testSecret, testUnsubKey, testS3Secret, testSMTPPass, testAIToken} {
 		if strings.Contains(out, secret) {
 			t.Errorf("log line contains %q: %s", secret, out)
 		}
+	}
+	if !strings.Contains(out, `"ai_service_configured":true`) {
+		t.Errorf("log line lacks whether the AI service is configured: %s", out)
 	}
 	if !strings.Contains(out, `"port":8080`) {
 		t.Errorf("log line lacks the port: %s", out)
@@ -518,6 +522,7 @@ var prodMail = map[string]string{
 	"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL, "APP_ENV": "production",
 	"SMTP_HOST": "smtp-relay.brevo.com", "SMTP_PORT": "587", "SMTP_TLS": "starttls",
 	"SMTP_USERNAME": "apikey", "SMTP_PASSWORD": "provider-key",
+	"AI_SERVICE_TOKEN": testAIToken,
 }
 
 // with returns a copy of base with the key and value pairs in kv set.
@@ -625,5 +630,59 @@ func TestLoadEmailTrustSettings(t *testing.T) {
 		if _, err := Load(env(bad)); err == nil {
 			t.Errorf("Load(%v) succeeded, want an error", bad)
 		}
+	}
+}
+
+// The AI service (AI-1): optional in development, required in production, and its token
+// is long enough and not another secret.
+func TestLoadAIService(t *testing.T) {
+	dev := map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL}
+
+	t.Run("development defaults: local URL, no token (AI off)", func(t *testing.T) {
+		cfg, err := Load(env(dev))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.AIServiceURL != DefaultAIServiceURL || cfg.AIServiceToken != "" {
+			t.Errorf("cfg = %q, token set %v", cfg.AIServiceURL, cfg.AIServiceToken != "")
+		}
+	})
+	t.Run("set", func(t *testing.T) {
+		cfg, err := Load(env(with(dev, "AI_SERVICE_URL", " http://ai:8000/ ", "AI_SERVICE_TOKEN", " "+testAIToken+" ")))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.AIServiceURL != "http://ai:8000" || cfg.AIServiceToken != testAIToken {
+			t.Errorf("cfg = %q, token %v", cfg.AIServiceURL, cfg.AIServiceToken == testAIToken)
+		}
+	})
+	t.Run("production with a token loads", func(t *testing.T) {
+		if _, err := Load(env(prodMail)); err != nil {
+			t.Error(err)
+		}
+	})
+
+	refusals := []struct {
+		name string
+		vars map[string]string
+		want string
+	}{
+		{"production without a token", with(prodMail, "AI_SERVICE_TOKEN", ""), "AI_SERVICE_TOKEN is required"},
+		{"short token", with(dev, "AI_SERVICE_TOKEN", "short"), "AI_SERVICE_TOKEN must be at least 32"},
+		{"token equal to JWT_SECRET", with(dev, "AI_SERVICE_TOKEN", testSecret), "AI_SERVICE_TOKEN must differ"},
+		{"token equal to UNSUBSCRIBE_SECRET", with(dev, "AI_SERVICE_TOKEN", testUnsubKey), "AI_SERVICE_TOKEN must differ"},
+		{"URL without a scheme", with(dev, "AI_SERVICE_URL", "ai:8000"), "AI_SERVICE_URL must be"},
+		{"URL with a query", with(dev, "AI_SERVICE_URL", "http://ai:8000/?x=1"), "AI_SERVICE_URL must be"},
+	}
+	for _, tt := range refusals {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Load(env(tt.vars))
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("error = %v, want %q", err, tt.want)
+			}
+			if err != nil && strings.Contains(err.Error(), testSecret) {
+				t.Errorf("error repeats a secret: %v", err)
+			}
+		})
 	}
 }

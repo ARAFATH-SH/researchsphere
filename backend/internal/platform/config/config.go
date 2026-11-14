@@ -45,7 +45,13 @@ const (
 	DefaultClamAVAddr = "127.0.0.1:3310"
 	// Days after sign-up an account that never verified its email address is deleted (FR-17.4).
 	DefaultUnverifiedAccountDays = 7
+	// The AI service (AI-1), as docker-compose.yml publishes it on this machine.
+	DefaultAIServiceURL = "http://127.0.0.1:8090"
 )
+
+// MinAIServiceTokenLen is the shortest AI_SERVICE_TOKEN accepted; the AI service refuses a
+// shorter one too.
+const MinAIServiceTokenLen = 32
 
 // Environments (APP_ENV). Production turns on the checks that keep development settings
 // out of it (FR-17.1) and turns off the test email domains (FR-17.9).
@@ -127,6 +133,11 @@ type Config struct {
 	MessageEditWindow time.Duration
 	// ClamAVAddr is clamd's TCP address (host:port) for the malware scan (FR-16.7).
 	ClamAVAddr string
+
+	// The internal AI service (AI-1). AIServiceToken is the shared secret it requires: never
+	// log it. Empty (development only) leaves the AI service off.
+	AIServiceURL   string
+	AIServiceToken string
 }
 
 // Load reads the settings through getenv (os.Getenv in main). Errors name the
@@ -289,6 +300,20 @@ func Load(getenv func(string) string) (Config, error) {
 		errs = append(errs, err)
 	}
 
+	cfg.AIServiceURL = strings.TrimRight(orDefault(getenv("AI_SERVICE_URL"), DefaultAIServiceURL), "/")
+	if err := checkBaseURL("AI_SERVICE_URL", cfg.AIServiceURL); err != nil {
+		errs = append(errs, err)
+	}
+	cfg.AIServiceToken = strings.TrimSpace(getenv("AI_SERVICE_TOKEN"))
+	switch {
+	case cfg.AIServiceToken == "" && production:
+		errs = append(errs, errors.New("AI_SERVICE_TOKEN is required when APP_ENV=production"))
+	case cfg.AIServiceToken != "" && len(cfg.AIServiceToken) < MinAIServiceTokenLen:
+		errs = append(errs, fmt.Errorf("AI_SERVICE_TOKEN must be at least %d characters; generate one with: openssl rand -base64 48", MinAIServiceTokenLen))
+	case cfg.AIServiceToken != "" && (cfg.AIServiceToken == string(cfg.JWTSecret) || cfg.AIServiceToken == string(cfg.UnsubscribeSecret)):
+		errs = append(errs, errors.New("AI_SERVICE_TOKEN must differ from JWT_SECRET and UNSUBSCRIBE_SECRET"))
+	}
+
 	domains, err := parseDomains("TEST_EMAIL_DOMAINS", getenv("TEST_EMAIL_DOMAINS"))
 	if err != nil {
 		errs = append(errs, err)
@@ -309,7 +334,7 @@ func Load(getenv func(string) string) (Config, error) {
 }
 
 // LogValue keeps the database and Redis URLs, and so any password in them, the JWT and
-// unsubscribe secrets, the SMTP password and the storage keys out of the logs. The mail, cookie, storage location,
+// unsubscribe secrets, the AI service token, the SMTP password and the storage keys out of the logs. The mail, cookie, storage location,
 // OpenAlex and ORCID address settings hold no secrets; the OpenAlex contact address is
 // left out as personal data.
 func (c Config) LogValue() slog.Value {
@@ -331,6 +356,8 @@ func (c Config) LogValue() slog.Value {
 		slog.String("openalex_base_url", c.OpenAlexBaseURL),
 		slog.String("orcid_base_url", c.ORCIDBaseURL),
 		slog.String("clamav_addr", c.ClamAVAddr),
+		slog.String("ai_service_url", c.AIServiceURL),
+		slog.Bool("ai_service_configured", c.AIServiceToken != ""),
 		slog.Any("test_email_domains", c.TestEmailDomains),
 		slog.Int("unverified_account_days", c.UnverifiedAccountDays),
 	)

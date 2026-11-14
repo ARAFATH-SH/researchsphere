@@ -29,20 +29,23 @@ paths:
   /health:
     get:
       operationId: getHealth
-      summary: Report whether the database, Redis and object storage respond
-      description: Public, needs no session. Returns no user data.
+      summary: Report whether the database, Redis, object storage and the AI service respond
+      description: |
+        Public, needs no session. Returns no user data. The AI service (embeddings, AI-1) is
+        optional (NFR-10.2): when only it does not answer, the response is still 200, with
+        `status: degraded` and `ai: unavailable`, because every other feature keeps working.
       tags: [health]
       # Public for deployment and uptime checks, though not in FR-3.1's list (docs/decisions.md).
       security: []
       responses:
         "200":
-          description: The database, Redis and object storage all respond.
+          description: The database, Redis and object storage all respond; `ai` says whether the AI service does too.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Health"
         "503":
-          description: The database, Redis, object storage or several of them do not respond.
+          description: The database, Redis, object storage or several of them do not respond. The message names only those; the AI service never makes this response.
           content:
             application/json:
               schema:
@@ -4416,11 +4419,12 @@ components:
 
     Health:
       type: object
-      required: [status, database, redis, storage]
+      required: [status, database, redis, storage, ai]
       properties:
         status:
           type: string
-          enum: [ok]
+          description: ok when everything responds; degraded when only the AI service does not.
+          enum: [ok, degraded]
         database:
           type: string
           enum: [ok]
@@ -4430,6 +4434,10 @@ components:
         storage:
           type: string
           enum: [ok]
+        ai:
+          type: string
+          description: Whether the AI service answers GET /ready (its model is loaded).
+          enum: [ok, unavailable]
 
     RegisterRequest:
       type: object

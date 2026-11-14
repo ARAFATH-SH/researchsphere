@@ -12,8 +12,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Report whether the database, Redis and object storage respond
-         * @description Public, needs no session. Returns no user data.
+         * Report whether the database, Redis, object storage and the AI service respond
+         * @description Public, needs no session. Returns no user data. The AI service (embeddings, AI-1) is
+         *     optional (NFR-10.2): when only it does not answer, the response is still 200, with
+         *     `status: degraded` and `ai: unavailable`, because every other feature keeps working.
          */
         get: operations["getHealth"];
         put?: never;
@@ -2457,14 +2459,22 @@ export interface components {
             userIds?: string[];
         };
         Health: {
-            /** @enum {string} */
-            status: "ok";
+            /**
+             * @description ok when everything responds; degraded when only the AI service does not.
+             * @enum {string}
+             */
+            status: "ok" | "degraded";
             /** @enum {string} */
             database: "ok";
             /** @enum {string} */
             redis: "ok";
             /** @enum {string} */
             storage: "ok";
+            /**
+             * @description Whether the AI service answers GET /ready (its model is loaded).
+             * @enum {string}
+             */
+            ai: "ok" | "unavailable";
         };
         RegisterRequest: {
             /**
@@ -4852,7 +4862,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The database, Redis and object storage all respond. */
+            /** @description The database, Redis and object storage all respond; `ai` says whether the AI service does too. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -4862,7 +4872,7 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
-            /** @description The database, Redis, object storage or several of them do not respond. */
+            /** @description The database, Redis, object storage or several of them do not respond. The message names only those; the AI service never makes this response. */
             503: {
                 headers: {
                     [name: string]: unknown;

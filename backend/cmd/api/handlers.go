@@ -317,14 +317,16 @@ func guardPlatform(next http.Handler) http.Handler {
 }
 
 // newRouter wires the modules to their dependencies and returns the API's root handler.
-// Tests pass fakes; run passes the real PostgreSQL, Redis and SMTP adapters. requireAuth
+// Tests pass fakes; run passes the real PostgreSQL, Redis, SMTP and AI service adapters. requireAuth
 // guards the operations the contract secures (httpx.RequireAuth); guardPlatform runs
 // inside it, and limitBody inside that.
-func newRouter(logger *slog.Logger, db, redis, storage healthdomain.Pinger, auth *authhttp.Handler, profile *profilehttp.Handler, media *mediahttp.Handler, social *socialhttp.Handler, notifications *notificationhttp.Handler, messaging *messaginghttp.Handler, moderation *moderationhttp.Handler, realtime *realtimehttp.Handler, requireAuth func(http.Handler) http.Handler) http.Handler {
+func newRouter(logger *slog.Logger, db, redis, storage, ai healthdomain.Pinger, auth *authhttp.Handler, profile *profilehttp.Handler, media *mediahttp.Handler, social *socialhttp.Handler, notifications *notificationhttp.Handler, messaging *messaginghttp.Handler, moderation *moderationhttp.Handler, realtime *realtimehttp.Handler, requireAuth func(http.Handler) http.Handler) http.Handler {
 	checker := healthusecase.New(healthusecase.DefaultTimeout,
 		healthdomain.Dependency{Name: "database", Pinger: db},
 		healthdomain.Dependency{Name: "redis", Pinger: redis},
 		healthdomain.Dependency{Name: "storage", Pinger: storage},
+		// Optional (NFR-10.2): without it the API is degraded, not down.
+		healthdomain.Dependency{Name: healthhttp.AIDependency, Pinger: ai, Optional: true},
 	)
 	return httpserver.NewRouter(logger, handlers{
 		healthHandler:       healthhttp.NewHandler(checker, logger),

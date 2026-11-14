@@ -1,0 +1,62 @@
+[project]
+name = "researchsphere-ai"
+version = "0.1.0"
+description = "ResearchSphere AI service: text embeddings (AI-1). Internal only."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi==0.162.0",
+    "uvicorn==0.54.0",
+]
+
+[project.optional-dependencies]
+# The real model. Only the Docker image installs it (uv sync --extra model); CI and the
+# unit tests use a stub encoder, so they never download torch or the model.
+model = [
+    "sentence-transformers==6.2.0",
+    "torch==2.15.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx==0.28.1",
+    "pytest==9.2.0",
+    "ruff==0.17.3",
+]
+
+[tool.uv]
+# An application, not a library: nothing is built or installed; code runs from src/.
+package = false
+# Reproducible lock: transitive packages are resolved as of this date too. Move it forward
+# on purpose when upgrading (versions at least two weeks old, docs/decisions.md).
+exclude-newer = "2026-10-31T00:00:00Z"
+
+# CPU-only torch (no CUDA): several GB smaller.
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106"]
+"scripts/**" = ["S101", "S310"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra --strict-markers"
+filterwarnings = [
+    "error",
+    # Starlette 1.x suggests httpx2 for its TestClient; httpx 0.28 still works (approved
+    # dependency). Revisit when FastAPI's TestClient moves.
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated",
+]

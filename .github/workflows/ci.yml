@@ -1,9 +1,12 @@
 # ResearchSphere CI (NFR-7): runs on every pull request to main and every push to main, and
-# nightly for the real-ClamAV test (docs/decisions.md, 2026-11-12).
+# nightly for the real-ClamAV test and the real AI model (docs/decisions.md, 2026-11-12 and
+# 2026-11-14).
 #
 # Order: detect, then the fast checks (backend, frontend, ai) in parallel, then the stack job
 # (PostgreSQL, Redis, MinIO, migrations, database and repository tests) once they pass. The
-# clamav job (EICAR with a real clamd) runs only on push to main, nightly and by hand.
+# clamav job (EICAR with a real clamd) runs only on push to main, nightly and by hand. The
+# ai-model job (the real embedding model, about 1.1 GB to download) runs only nightly and by
+# hand; on pull requests the ai job tests the service with a stub model.
 #
 # A change that touches only docs/**, design/** or Markdown files (never docs/openapi.yaml,
 # never testdata) skips every job but detect. The jobs then show as skipped, which branch
@@ -250,7 +253,7 @@ jobs:
       # CLAMAV=0 leaves clamd out (1.5 to 3 GB and up to 90 s); make check then shows it as
       # not ready, which is not a failure.
       - name: Start PostgreSQL, Redis, Mailpit and MinIO
-        run: make up CLAMAV=0
+        run: make up CLAMAV=0 AI=0
 
       - name: Check services
         run: make check
@@ -365,6 +368,46 @@ jobs:
       - name: Show container logs
         if: failure()
         run: docker compose logs --no-color
+
+      - name: Stop services
+        if: always()
+        run: docker compose down
+
+  # The AI service with the real model (AI-1): builds the image, downloads the model at its
+  # pinned revision, and checks dimensions, normalisation, the e5 prefixes and that a Bangla
+  # translation lands near its English text. Nightly and by hand only, never on a pull
+  # request or a push (CI minutes, docs/decisions.md 2026-11-14). Not a required check.
+  ai-model:
+    name: AI model (e5)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Create .env from .env.example
+        run: cp .env.example .env
+
+      - name: Build the image
+        run: docker compose build ai
+
+      - name: Start the service (downloads the model)
+        run: docker compose up -d --wait --wait-timeout 900 ai
+
+      - name: Smoke test with the real model
+        run: |
+          set -a; source .env; set +a
+          python3 ai/scripts/smoke.py "http://127.0.0.1:${AI_SERVICE_PORT}"
+
+      - name: Image size and memory after loading
+        if: always()
+        run: |
+          docker image ls researchsphere-ai:local --format 'image {{.Repository}}:{{.Tag}} {{.Size}}'
+          docker stats --no-stream --format 'memory {{.Name}} {{.MemUsage}}' $(docker compose ps -q ai)
+
+      - name: Show container logs
+        if: failure()
+        run: docker compose logs --no-color ai
 
       - name: Stop services
         if: always()

@@ -248,7 +248,7 @@ func wireEnv(t *testing.T, pool *pgxpool.Pool, rdb *goredis.Client, files *stora
 	digestMail := &recordedMail{}
 	digests := newDigests(messagingpg.NewStore(pool), postgres.NewTransactor(pool), digestMail,
 		config.Config{AppBaseURL: testAppBaseURL, UnsubscribeSecret: []byte(testUnsubscribeSecret)}, logger)
-	router := newRouter(logger, up, up, up, authAPI,
+	router := newRouter(logger, up, up, up, up, authAPI,
 		profilehttp.NewHandler(profileusecase.New(profileStore, profileOpts...)),
 		mediahttp.NewHandler(images),
 		socialhttp.NewHandler(social),

@@ -36,7 +36,7 @@ func (c *Checker) Check(ctx context.Context) domain.Report {
 		wg.Go(func() {
 			pctx, cancel := context.WithTimeout(ctx, c.timeout)
 			defer cancel()
-			results[i] = domain.Result{Name: d.Name, Err: d.Pinger.Ping(pctx)}
+			results[i] = domain.Result{Name: d.Name, Optional: d.Optional, Err: d.Pinger.Ping(pctx)}
 		})
 	}
 	wg.Wait()

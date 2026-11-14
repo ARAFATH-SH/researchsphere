@@ -1,4 +1,4 @@
-# ResearchSphere: local development services (PostgreSQL, Redis, Mailpit, MinIO, ClamAV).
+# ResearchSphere: local development services (PostgreSQL, Redis, Mailpit, MinIO, ClamAV, AI).
 # Start with `make up`, stop with `make down`. Values come from .env (see .env.example).
 name: researchsphere
 
@@ -100,7 +100,27 @@ services:
       retries: 30
       start_period: 120s
 
+  # AI service (AI-1): text embeddings with intfloat/multilingual-e5-base, CPU only. Internal:
+  # only the API calls it, with the AI_SERVICE_TOKEN header; it is published on this machine
+  # only, for `make api` and local testing, never on a public port. The model is not in the
+  # image: the first start downloads it (about 1.1 GB, pinned revision) into the aimodels
+  # volume, which keeps it across rebuilds; `make ai-fetch-model` does it ahead of time.
+  # Loaded, it needs about 1.5 GB of memory. `make up` starts it without waiting, and the
+  # API reports it as degraded, not down, until /ready answers (docs/decisions.md, 2026-11-14).
+  ai:
+    build: ./ai
+    image: researchsphere-ai:local
+    environment:
+      # Empty or shorter than 32 characters: the service exits with a message saying so.
+      AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:-}
+    ports:
+      - "127.0.0.1:${AI_SERVICE_PORT:-8090}:8000"
+    volumes:
+      - aimodels:/models
+    mem_limit: 3g
+
 volumes:
   pgdata:
   miniodata:
   clamavdb:
+  aimodels:

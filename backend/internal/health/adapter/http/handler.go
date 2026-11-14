@@ -28,24 +28,38 @@ func NewHandler(c checker, logger *slog.Logger) *Handler {
 	return &Handler{checker: c, logger: logger}
 }
 
-// GetHealth returns 200 when every dependency responds, and 503 in the error shape
-// naming those that do not. The underlying errors are logged, not returned.
+// AIDependency is the name the AI service is registered under. It is optional: when it
+// does not respond the API is degraded, not down (NFR-10.2).
+const AIDependency = "ai"
+
+// GetHealth returns 200 when every required dependency responds, with status degraded and
+// ai unavailable when only the AI service does not, and 503 in the error shape naming the
+// required dependencies that do not. The underlying errors are logged, not returned.
 func (h *Handler) GetHealth(ctx context.Context, _ gen.GetHealthRequestObject) (gen.GetHealthResponseObject, error) {
 	report := h.checker.Check(ctx)
+	for _, res := range report.Results {
+		if res.Err != nil {
+			h.logger.WarnContext(ctx, "health check failed", slog.String("service", res.Name),
+				slog.Bool("optional", res.Optional), slog.Any("error", res.Err))
+		}
+	}
 	if report.Healthy() {
-		return gen.GetHealth200JSONResponse{
+		body := gen.GetHealth200JSONResponse{
 			Status:   gen.HealthStatusOk,
 			Database: gen.HealthDatabaseOk,
 			Redis:    gen.HealthRedisOk,
 			Storage:  gen.HealthStorageOk,
-		}, nil
+			Ai:       gen.HealthAiOk,
+		}
+		if !report.Responded(AIDependency) {
+			body.Ai = gen.HealthAiUnavailable
+		}
+		if len(report.Degraded()) > 0 {
+			body.Status = gen.HealthStatusDegraded
+		}
+		return body, nil
 	}
 
-	for _, res := range report.Results {
-		if res.Err != nil {
-			h.logger.WarnContext(ctx, "health check failed", slog.String("service", res.Name), slog.Any("error", res.Err))
-		}
-	}
 	down := report.Down()
 	verb := "is"
 	if len(down) > 1 {

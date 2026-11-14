@@ -17,19 +17,23 @@ DATABASE_URL  ?= postgres://researchsphere:devpassword@localhost:5433/researchsp
 TEST_POSTGRES_DB  ?= researchsphere_test
 TEST_DATABASE_URL ?= postgres://researchsphere:devpassword@localhost:5433/researchsphere_test?sslmode=disable
 TEST_REDIS_URL    ?= redis://localhost:6379/15
+AI_SERVICE_PORT   ?= 8090
 MIGRATIONS_DIR := backend/db/migrations
 
 .DEFAULT_GOAL := help
-.PHONY: help up down logs ps psql check migrate migrate-down migrate-new admin unadmin seed-ui-compare seed-dev purge-unverified send-digests update-disposable-domains api web stop web-clean generate check-generated test test-prepare test-db test-go test-integration test-one test-web lint lint-go lint-web
+.PHONY: help up down logs ps psql check migrate migrate-down migrate-new admin unadmin seed-ui-compare seed-dev purge-unverified send-digests update-disposable-domains api web stop web-clean ai-build ai-up ai-fetch-model ai-logs generate check-generated test test-prepare test-db test-go test-integration test-one test-web test-ai lint lint-go lint-web lint-ai
 
 help: ## List the available commands
 	@grep -hE '^[a-zA-Z_-]+:.*## ' $(firstword $(MAKEFILE_LIST)) | awk 'BEGIN {FS = ":.*## "} {printf "  make %-16s %s\n", $$1, $$2}'
 
-up: ## Start PostgreSQL, Redis, Mailpit and MinIO, wait until healthy, create the bucket; start ClamAV without waiting (CLAMAV=0 leaves it out)
+up: ## Start PostgreSQL, Redis, Mailpit and MinIO, wait until healthy, create the bucket; start ClamAV and the AI service without waiting (CLAMAV=0, AI=0 leave them out)
 	docker compose up -d --wait postgres redis mailpit minio
 	docker compose run --rm minio-init
 ifneq ($(CLAMAV),0)
 	docker compose up -d clamav
+endif
+ifneq ($(AI),0)
+	docker compose up -d ai
 endif
 
 down: ## Stop the containers (data, including stored files, is kept)
@@ -53,6 +57,7 @@ check: ## Check that PostgreSQL, pgvector, Redis and storage respond, and the bu
 	if [[ "$$status" != 403 ]]; then echo "storage: anonymous listing of $(S3_BUCKET) returned $$status, want 403 (bucket must be private)"; exit 1; fi
 	@echo "storage ok (bucket $(S3_BUCKET) is private)"
 	@echo "clamav: $$(docker compose exec -T clamav clamdscan --ping 1 >/dev/null 2>&1 && echo ready || echo 'not ready yet (attachments stay pending until it answers)')"
+	@echo "ai: $$(curl -fsS -o /dev/null "http://127.0.0.1:$(AI_SERVICE_PORT)/ready" 2>/dev/null && echo ready || echo 'not ready yet (loading or downloading its model, or not started; GET /health says degraded)')"
 
 migrate: ## Apply all database migrations
 	migrate -path $(MIGRATIONS_DIR) -database "$(DATABASE_URL)" up
@@ -110,6 +115,20 @@ stop: ## Stop this project's API (port 8080) and Next.js dev servers (3000-3002)
 web-clean: ## Delete the web client build cache (frontend/.next); stop make web first
 	rm -rf frontend/.next
 
+# The AI service (ai/, AI-1). The image holds no model: the first start downloads it into the
+# aimodels volume (about 1.1 GB, pinned revision), or ai-fetch-model does it ahead of time.
+ai-build: ## Build the AI service image (CPU only, without the model)
+	docker compose build ai
+
+ai-up: ## Start the AI service and wait until its model is loaded (the first start downloads it)
+	docker compose up -d --wait --wait-timeout 900 ai
+
+ai-fetch-model: ## Download the AI model at its pinned revision into the aimodels volume, then exit
+	docker compose run --rm --no-deps ai python -m ai_service fetch
+
+ai-logs: ## Follow the AI service's log (Ctrl+C to stop)
+	docker compose logs -f ai
+
 generate: ## Regenerate Go code (oapi-codegen, sqlc) and TypeScript types
 	cd backend && go generate ./...
 	cd frontend && npm run generate
@@ -123,7 +142,7 @@ check-generated: generate ## Fail if generated code is out of date
 		exit 1; \
 	fi
 
-test: test-prepare test-db test-go test-integration test-web ## Run all tests (needs make up)
+test: test-prepare test-db test-go test-integration test-web test-ai ## Run all tests (needs make up)
 
 # The database name reaches psql as a variable (:'db'), never pasted into the SQL.
 test-prepare: ## Create the test database (TEST_POSTGRES_DB) if missing and apply all migrations to it
@@ -157,10 +176,17 @@ test-one: test-prepare ## Run one integration test: make test-one pkg=./internal
 test-web: ## Run the frontend tests (Jest)
 	cd frontend && npm test
 
-lint: lint-go lint-web ## Run all linters and the frontend type check
+lint: lint-go lint-web lint-ai ## Run all linters and the frontend type check
 
 lint-go: ## Run golangci-lint for the backend
 	cd backend && golangci-lint run ./...
 
 lint-web: ## Run ESLint and the TypeScript type check for the frontend
 	cd frontend && npm run lint && npm run typecheck
+
+# The AI targets use the stub model: they install neither torch nor the model (needs uv).
+test-ai: ## Run the AI service tests with a stub model (no download)
+	cd ai && uv sync --locked && uv run pytest
+
+lint-ai: ## Run ruff (lint and format check) for the AI service
+	cd ai && uv sync --locked && uv run ruff check . && uv run ruff format --check .

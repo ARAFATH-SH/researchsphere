@@ -198,6 +198,24 @@ func (e GroupRole) Valid() bool {
 	}
 }
 
+// Defines values for HealthAi.
+const (
+	HealthAiOk          HealthAi = "ok"
+	HealthAiUnavailable HealthAi = "unavailable"
+)
+
+// Valid indicates whether the value is a known member of the HealthAi enum.
+func (e HealthAi) Valid() bool {
+	switch e {
+	case HealthAiOk:
+		return true
+	case HealthAiUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for HealthDatabase.
 const (
 	HealthDatabaseOk HealthDatabase = "ok"
@@ -230,12 +248,15 @@ func (e HealthRedis) Valid() bool {
 
 // Defines values for HealthStatus.
 const (
-	HealthStatusOk HealthStatus = "ok"
+	HealthStatusDegraded HealthStatus = "degraded"
+	HealthStatusOk       HealthStatus = "ok"
 )
 
 // Valid indicates whether the value is a known member of the HealthStatus enum.
 func (e HealthStatus) Valid() bool {
 	switch e {
+	case HealthStatusDegraded:
+		return true
 	case HealthStatusOk:
 		return true
 	default:
@@ -1414,11 +1435,18 @@ type GroupRole string
 
 // Health defines model for Health.
 type Health struct {
+	// Ai Whether the AI service answers GET /ready (its model is loaded).
+	Ai       HealthAi       `json:"ai"`
 	Database HealthDatabase `json:"database"`
 	Redis    HealthRedis    `json:"redis"`
-	Status   HealthStatus   `json:"status"`
-	Storage  HealthStorage  `json:"storage"`
+
+	// Status ok when everything responds; degraded when only the AI service does not.
+	Status  HealthStatus  `json:"status"`
+	Storage HealthStorage `json:"storage"`
 }
+
+// HealthAi Whether the AI service answers GET /ready (its model is loaded).
+type HealthAi string
 
 // HealthDatabase defines model for Health.Database.
 type HealthDatabase string
@@ -1426,7 +1454,7 @@ type HealthDatabase string
 // HealthRedis defines model for Health.Redis.
 type HealthRedis string
 
-// HealthStatus defines model for Health.Status.
+// HealthStatus ok when everything responds; degraded when only the AI service does not.
 type HealthStatus string
 
 // HealthStorage defines model for Health.Storage.
@@ -3548,7 +3576,7 @@ type ServerInterface interface {
 	// ReportConversation Report a conversation or one of its messages (FR-16.9, NFR-13)
 	// (POST /conversations/{conversationId}/reports)
 	ReportConversation(w http.ResponseWriter, r *http.Request, conversationId ConversationId)
-	// GetHealth Report whether the database, Redis and object storage respond
+	// GetHealth Report whether the database, Redis, object storage and the AI service respond
 	// (GET /health)
 	GetHealth(w http.ResponseWriter, r *http.Request)
 	// GetMySettings Return the caller's account settings (FR-16.11)
@@ -16719,7 +16747,7 @@ type StrictServerInterface interface {
 	// ReportConversation Report a conversation or one of its messages (FR-16.9, NFR-13)
 	// (POST /conversations/{conversationId}/reports)
 	ReportConversation(ctx context.Context, request ReportConversationRequestObject) (ReportConversationResponseObject, error)
-	// GetHealth Report whether the database, Redis and object storage respond
+	// GetHealth Report whether the database, Redis, object storage and the AI service respond
 	// (GET /health)
 	GetHealth(ctx context.Context, request GetHealthRequestObject) (GetHealthResponseObject, error)
 	// GetMySettings Return the caller's account settings (FR-16.11)

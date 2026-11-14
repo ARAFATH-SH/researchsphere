@@ -42,6 +42,7 @@ import (
 	notificationpg "github.com/ARAFATH-SH/researchsphere/backend/internal/notification/adapter/postgres"
 	notificationusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/notification/usecase"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/accesstoken"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/aiclient"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/config"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpserver"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpx"
@@ -214,7 +215,9 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 	moderation := moderationusecase.New(moderationStore, postgres.NewTransactor(pool), moderationAccounts{auth: auth, events: realtime.events},
 		moderationReports{messaging: messaging}, moderationNotifier{notifications: notifications},
 		moderationMailer{mailer: mailer}, time.Now, logger)
-	handler := newRouter(logger, healthpg.NewPinger(pool), healthredis.NewPinger(rdb), files,
+	// The AI service (AI-1). No caller embeds yet (slice 15.2); the health check reports it.
+	ai := aiclient.New(aiclient.Config{BaseURL: cfg.AIServiceURL, Token: cfg.AIServiceToken})
+	handler := newRouter(logger, healthpg.NewPinger(pool), healthredis.NewPinger(rdb), files, ai,
 		authhttp.NewHandler(auth, authhttp.CookieConfig{Secure: cfg.CookieSecure}),
 		profilehttp.NewHandler(profiles),
 		mediahttp.NewHandler(images),

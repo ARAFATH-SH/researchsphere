@@ -16,11 +16,13 @@ import (
 	authhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/adapter/http"
 	authdomain "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/domain"
 	authusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/usecase"
+	healthdomain "github.com/ARAFATH-SH/researchsphere/backend/internal/health/domain"
 	mediahttp "github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/http"
 	messaginghttp "github.com/ARAFATH-SH/researchsphere/backend/internal/messaging/adapter/http"
 	moderationhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/moderation/adapter/http"
 	notificationhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/notification/adapter/http"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/accesstoken"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/aiclient"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpx"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/storage"
 	profilehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/http"
@@ -138,7 +140,7 @@ const testUnsubscribeSecret = "test-unsubscribe-secret-0123456789ab" //nolint:go
 // testRouter wires the real router and auth middleware to fakes.
 func testRouter() http.Handler {
 	up := pingerFunc(func(context.Context) error { return nil })
-	return newRouter(slog.New(slog.DiscardHandler), up, up, up, authhttp.NewHandler(okAuth{}, authhttp.CookieConfig{}),
+	return newRouter(slog.New(slog.DiscardHandler), up, up, up, up, authhttp.NewHandler(okAuth{}, authhttp.CookieConfig{}),
 		profilehttp.NewHandler(profileusecase.New(okProfiles{}, profileusecase.WithDOILookup(profileusecase.DOILookup{
 			Source: okWorks{}, Cache: okWorks{}, Limiter: okWorks{},
 		}), profileusecase.WithORCIDImport(profileusecase.ORCIDImport{
@@ -163,6 +165,68 @@ func TestHealthThroughRouter(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body %s", rec.Code, rec.Body)
 	}
+	if body := rec.Body.String(); !strings.Contains(body, `"status":"ok"`) || !strings.Contains(body, `"ai":"ok"`) {
+		t.Errorf("body = %s, want status ok and ai ok", body)
+	}
+}
+
+// healthRouter is the router with the given storage and AI service pingers, the database
+// and Redis up.
+func healthRouter(storage, ai healthdomain.Pinger) http.Handler {
+	up := pingerFunc(func(context.Context) error { return nil })
+	return newRouter(slog.New(slog.DiscardHandler), up, up, storage, ai, authhttp.NewHandler(okAuth{}, authhttp.CookieConfig{}),
+		profilehttp.NewHandler(profileusecase.New(okProfiles{})),
+		mediahttp.NewHandler(okMedia{}),
+		socialhttp.NewHandler(okSocial{}),
+		notificationhttp.NewHandler(okNotifications{}),
+		messaginghttp.NewHandler(okMessaging{}),
+		moderationhttp.NewHandler(okModeration{}),
+		realtimehttp.NewHandler(okRealtime{}, "http://localhost:3000", slog.New(slog.DiscardHandler)),
+		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
+}
+
+// The AI service is optional (NFR-10.2): through the real client, GET /health says ok when
+// it is ready and degraded, still 200, when it is loading, stopped or not configured.
+func TestHealthReportsTheAIService(t *testing.T) {
+	const token = "test-ai-service-token-0123456789abcd" //nolint:gosec // test value, not a credential
+	service := func(status int) string {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/ready" {
+				t.Errorf("health check called %s, want /ready", r.URL.Path)
+			}
+			w.WriteHeader(status)
+		}))
+		t.Cleanup(srv.Close)
+		return srv.URL
+	}
+	stopped := httptest.NewServer(http.NotFoundHandler())
+	stopped.Close()
+
+	tests := []struct {
+		name       string
+		client     *aiclient.Client
+		wantStatus string
+		wantAI     string
+	}{
+		{"ready", aiclient.New(aiclient.Config{BaseURL: service(http.StatusOK), Token: token}), "ok", "ok"},
+		{"loading its model", aiclient.New(aiclient.Config{BaseURL: service(http.StatusServiceUnavailable), Token: token}), "degraded", "unavailable"},
+		{"stopped", aiclient.New(aiclient.Config{BaseURL: stopped.URL, Token: token}), "degraded", "unavailable"},
+		{"not configured", aiclient.New(aiclient.Config{BaseURL: service(http.StatusOK)}), "degraded", "unavailable"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			up := pingerFunc(func(context.Context) error { return nil })
+			healthRouter(up, tt.client).ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/health", nil))
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200; body %s", rec.Code, rec.Body)
+			}
+			body := rec.Body.String()
+			if !strings.Contains(body, `"status":"`+tt.wantStatus+`"`) || !strings.Contains(body, `"ai":"`+tt.wantAI+`"`) {
+				t.Errorf("body = %s, want status %s and ai %s", body, tt.wantStatus, tt.wantAI)
+			}
+		})
+	}
 }
 
 // Storage that is not running (MinIO stopped) turns the health check into a 503 naming
@@ -174,15 +238,7 @@ func TestHealthReportsStorageDown(t *testing.T) {
 		t.Fatal(err)
 	}
 	up := pingerFunc(func(context.Context) error { return nil })
-	router := newRouter(slog.New(slog.DiscardHandler), up, up, files, authhttp.NewHandler(okAuth{}, authhttp.CookieConfig{}),
-		profilehttp.NewHandler(profileusecase.New(okProfiles{})),
-		mediahttp.NewHandler(okMedia{}),
-		socialhttp.NewHandler(okSocial{}),
-		notificationhttp.NewHandler(okNotifications{}),
-		messaginghttp.NewHandler(okMessaging{}),
-		moderationhttp.NewHandler(okModeration{}),
-		realtimehttp.NewHandler(okRealtime{}, "http://localhost:3000", slog.New(slog.DiscardHandler)),
-		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
+	router := healthRouter(files, up)
 
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/health", nil))
