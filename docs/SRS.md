@@ -570,4 +570,4 @@ Each question blocks the requirement named beside it and needs an answer before 
 - [ ] Which call-for-papers listing will venues come from, and do its terms allow automated import? (FR-14.5)
 - [x] Decided 18 October 2026: photos, figures, PDFs and message attachments are stored in S3-compatible object storage (MinIO for local development; docs/decisions.md, 2026-10-18 and 2026-10-20). (FR-4.6, FR-12.2, FR-13.1, FR-16.7)
 - [ ] What server will host the deployment, and does it have enough memory to run the embedding model and TeX Live together? (NFR-1, NFR-3)
-- [ ] Which public data will the AI evaluation use as its test set? (NFR-6)
+- [ ] Which public data will the AI evaluation use as its test set? (NFR-6) Partly decided 15 November 2026: collaborator matching uses the held-out 20% split of the synthetic sample profiles (relevant = same main research cluster), noting that recall on template text will be higher than on real profiles. Still open for venue top-5
