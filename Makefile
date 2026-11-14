@@ -21,7 +21,7 @@ AI_SERVICE_PORT   ?= 8090
 MIGRATIONS_DIR := backend/db/migrations
 
 .DEFAULT_GOAL := help
-.PHONY: help up down logs ps psql check migrate migrate-down migrate-new admin unadmin seed-ui-compare seed-dev purge-unverified send-digests embed-backfill update-disposable-domains api web stop web-clean ai-build ai-up ai-fetch-model ai-logs generate check-generated test test-prepare test-db test-go test-integration test-one test-web test-ai lint lint-go lint-web lint-ai
+.PHONY: help up down logs ps psql check migrate migrate-down migrate-new admin unadmin seed-ui-compare seed-dev sample-data sample-purge purge-unverified send-digests embed-backfill update-disposable-domains api web stop web-clean ai-build ai-up ai-fetch-model ai-logs generate check-generated test test-prepare test-db test-go test-integration test-one test-web test-ai lint lint-go lint-web lint-ai
 
 help: ## List the available commands
 	@grep -hE '^[a-zA-Z_-]+:.*## ' $(firstword $(MAKEFILE_LIST)) | awk 'BEGIN {FS = ":.*## "} {printf "  make %-16s %s\n", $$1, $$2}'
@@ -84,6 +84,14 @@ seed-ui-compare: ## Fill the local dev database with the fake accounts ui:compar
 
 seed-dev: ## Create or repair the dev accounts test1..test4@example.com and admin@example.com (needs make migrate and DEV_SEED_PASSWORD)
 	@cd backend && go run ./cmd/seeddev
+
+# Sample profiles for development (slice 16): n is how many there should be (default 1000; a
+# second run tops up), wait=1 waits until the running API has embedded them. Never in production.
+sample-data: ## Load deterministic sample profiles into the dev database: make sample-data [n=10000] [wait=1] (needs make migrate and SAMPLE_PASSWORD)
+	@cd backend && go run ./cmd/seedsample -n "$(or $(n),1000)" $(if $(filter 1 true yes,$(wait)),-wait)
+
+sample-purge: ## Delete every sample account (@sample.researchsphere.local) through the account deletion
+	@cd backend && go run ./cmd/seedsample -purge
 
 purge-unverified: ## Run the FR-17.4 purge of old unverified accounts once, now (settings from .env), then exit
 	cd backend && go run ./cmd/api -purge-unverified

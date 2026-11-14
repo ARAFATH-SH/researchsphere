@@ -62,6 +62,26 @@ func (s *Service) DeleteAccount(ctx context.Context, in DeleteAccountInput) erro
 	return nil
 }
 
+// DeleteAccountByID deletes the account userID through the same transaction as DeleteAccount
+// (FR-2.8, FR-2.9), without a password and without touching the failed-login counter. It is
+// for maintenance commands only, never a route: cmd/seedsample's sample purge calls it with
+// by "sample_purge". TestNoRouteDeletesAccountsByID (cmd/api) fails when anything under
+// internal/ or cmd/api calls it. A user who owns a project with other members returns a
+// *domain.SharedProjectsError and keeps everything; a missing user returns ErrNotFound.
+func (s *Service) DeleteAccountByID(ctx context.Context, userID, by string) error {
+	var d deletion
+	err := s.store.RunInTx(ctx, func(tx domain.Tx) error {
+		var err error
+		d, err = deleteUserTx(ctx, tx, userID)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	s.accountDeleted(ctx, userID, d, by)
+	return nil
+}
+
 // deletion counts what deleteUserTx removed besides the user.
 type deletion struct{ projects, publications int64 }
 
@@ -94,7 +114,7 @@ func deleteUserTx(ctx context.Context, tx domain.Tx, userID string) (deletion, e
 }
 
 // accountDeleted logs a deletion after its commit and ends the user's sessions. by says who
-// deleted it: the user, or the purge of unverified accounts.
+// deleted it: the user, the purge of unverified accounts or a maintenance command.
 func (s *Service) accountDeleted(ctx context.Context, userID string, d deletion, by string) {
 	s.logger.InfoContext(ctx, "account deleted", slog.String("user_id", userID), slog.String("by", by),
 		slog.Int64("projects_deleted", d.projects), slog.Int64("publications_deleted", d.publications))

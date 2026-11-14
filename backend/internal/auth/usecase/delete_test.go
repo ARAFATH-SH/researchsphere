@@ -226,3 +226,62 @@ func TestDeleteAccountWhenCounterFails(t *testing.T) {
 		t.Errorf("right password: error = %v, want nil: the counter must not fail a deletion", err)
 	}
 }
+
+// DeleteAccountByID runs the same deletion as DeleteAccount, for maintenance commands.
+func TestDeleteAccountByID(t *testing.T) {
+	e := newEnv()
+	ada := verifiedUser(t, e, "ada@example.org")
+	grace := verifiedUser(t, e, "grace@example.org")
+	adaSession := loggedIn(t, e, "ada@example.org")
+	solo := e.store.addProject("Ada's notes", ada)
+	e.store.pubs["solo-pub"] = []string{ada}
+	e.store.pubs["shared-pub"] = []string{ada, grace}
+
+	if err := e.svc.DeleteAccountByID(context.Background(), ada, "sample_purge"); err != nil {
+		t.Fatalf("DeleteAccountByID() error = %v, want nil", err)
+	}
+	if _, err := e.store.FindUserByID(context.Background(), ada); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("find the deleted user: error = %v, want ErrNotFound", err)
+	}
+	if _, ok := e.store.projects[solo]; ok {
+		t.Error("the project where Ada was the only member was not deleted")
+	}
+	if _, ok := e.store.pubs["solo-pub"]; ok {
+		t.Error("a publication with no author left was not deleted")
+	}
+	if got := e.store.pubs["shared-pub"]; !slices.Equal(got, []string{grace}) {
+		t.Errorf("shared publication authors = %v, want only Grace", got)
+	}
+	if _, err := e.svc.Refresh(context.Background(), adaSession); !errors.Is(err, domain.ErrSessionInvalid) {
+		t.Errorf("refresh with the deleted user's session: error = %v, want ErrSessionInvalid", err)
+	}
+	if !strings.Contains(e.logs.String(), "sample_purge") {
+		t.Error("the log does not say who deleted the account")
+	}
+	if _, err := e.store.FindUserByID(context.Background(), grace); err != nil {
+		t.Errorf("another user was deleted: %v", err)
+	}
+}
+
+func TestDeleteAccountByIDRefusedForOwnerOfSharedProject(t *testing.T) {
+	e := newEnv()
+	ada := verifiedUser(t, e, "ada@example.org")
+	grace := verifiedUser(t, e, "grace@example.org")
+	e.store.addProject("Beta survey", ada, grace)
+
+	err := e.svc.DeleteAccountByID(context.Background(), ada, "sample_purge")
+	var shared *domain.SharedProjectsError
+	if !errors.As(err, &shared) {
+		t.Fatalf("DeleteAccountByID() error = %v, want a SharedProjectsError", err)
+	}
+	if _, err := e.store.FindUserByID(context.Background(), ada); err != nil {
+		t.Errorf("the user was deleted: %v", err)
+	}
+}
+
+func TestDeleteAccountByIDOfMissingUser(t *testing.T) {
+	e := newEnv()
+	if err := e.svc.DeleteAccountByID(context.Background(), "no-such-user", "sample_purge"); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("DeleteAccountByID() error = %v, want ErrNotFound", err)
+	}
+}

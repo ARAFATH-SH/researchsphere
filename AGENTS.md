@@ -47,6 +47,8 @@ Run these from the repository root. `make help` prints the current list.
 | `make unadmin email=...` | Set that account back to the researcher role |
 | `make seed-ui-compare` | Create or refresh the fake accounts `npm run ui:compare` signs in with: Compare Alpha and Compare Beta, connected, with about 40 messages over several days and Beta's open report of a message from Alpha, Compare Gamma's pending message request to Alpha, and Compare Admin, an administrator (`@compare.researchsphere.local`). Needs `make migrate` and `UI_COMPARE_PASSWORD`. Refuses a database name ending in `_test`, `APP_ENV=production` and any host but this machine |
 | `make seed-dev` | Create or repair the development accounts `test1@example.com` to `test4@example.com` (researchers) and `admin@example.com` (administrator), all verified, with the password `DEV_SEED_PASSWORD` from `.env`. Running it again resets their password, role and suspension and touches no other account. Needs `make migrate`. Refuses a database name ending in `_test`, `APP_ENV=production` and any host but this machine. The API accepts these addresses only while `TEST_EMAIL_DOMAINS` names `example.com` |
+| `make sample-data` | Load deterministic sample profiles into the development database (slice 16): `n=10000` sets how many there should be (default 1,000), `wait=1` then waits until the running API (`make api`, AI service up) has embedded them all, printing progress. The same command makes the same data (seed 16); a second run tops up to `n` and never duplicates. Accounts are `sample-NNNNN@sample.researchsphere.local`, verified, with the one password `SAMPLE_PASSWORD` from `.env`; their research clusters and tuning/test split are in `sample_profiles`. Needs `make migrate`. Refuses unless `APP_ENV=development`, and refuses a database name ending in `_test` and any host but this machine. Never in production |
+| `make sample-purge` | Delete every sample account (a `sample_profiles` row and an address at `sample.researchsphere.local`, both) through the account deletion of FR-2.8, one transaction each; touches no other account |
 | `make purge-unverified` | Run the FR-17.4 purge once now, with the `.env` settings: delete the accounts still unverified `UNVERIFIED_ACCOUNT_DAYS` (7) after sign-up, except those at `TEST_EMAIL_DOMAINS` outside production, and log what it deleted. The API also runs it every hour |
 | `make send-digests` | Run the FR-16.11 unread message digest once now, with the `.env` settings: email each verified, not suspended user with the digest on who has messages unread for 24 hours that no digest counted yet and got no digest in the last 24 hours (at most 200 users a run), and log how many it sent. The API also runs it every hour. Mail goes to Mailpit locally (test-domain accounts included); needs `make migrate` and `UNSUBSCRIBE_SECRET` |
 | `make embed-backfill` | Queue every verified, not suspended profile for its AI embedding once (AI-1.5), at low priority, then exit; the running API's worker embeds them, skipping a profile whose text and model have not changed. Run it once after migration 000028 on a database with existing profiles. Needs `make migrate`; the API needs the AI service (`AI_SERVICE_TOKEN`) to embed |
@@ -200,6 +202,14 @@ do not rename them.
   tests, and do not add row or key cleanups: the next test starts empty. Only objects written
   to MinIO need cleaning up. Use `testenv.Word`, `testenv.Email` and `testenv.ORCIDiD` for
   names, addresses and ORCID iDs rather than fixed values.
+- **Sample data (slice 16) stays out of the application and out of production.** The
+  sample accounts of `make sample-data` are at `@sample.researchsphere.local`, which
+  `TEST_EMAIL_DOMAINS` lists outside production. `sample_profiles` is their marker and the
+  NFR-6 ground truth: no code under `internal/` reads it, and only `cmd/seedsample` writes it.
+  For the NFR-6 collaborator matching evaluation (slice 17), a candidate is relevant to a query
+  profile from the `test` split when it has the same `main_cluster`. The auth usecase's
+  `DeleteAccountByID` (deletion without a password) is for commands such as the sample purge;
+  `TestNoRouteDeletesAccountsByID` fails when `internal/` or `cmd/api` calls it.
 - **Database:** snake_case names, plural table names, uuid primary keys, `timestamptz` for
   times. Rules that must always hold are constraints in the database.
 - **Git:** one branch per slice, named `slice-NN-short-name`. Small commits with messages in
