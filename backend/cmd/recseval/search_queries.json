@@ -1,0 +1,202 @@
+[
+ {
+  "cluster": "medical_imaging",
+  "lang": "en",
+  "text": "software that spots disease in pictures taken inside the body"
+ },
+ {
+  "cluster": "medical_imaging",
+  "lang": "bn",
+  "text": "শরীরের ভেতরের ছবি দেখে অসুখ ধরতে পারে এমন যন্ত্র"
+ },
+ {
+  "cluster": "explainable_ai",
+  "lang": "en",
+  "text": "why did the program choose that, told plainly to ordinary folks"
+ },
+ {
+  "cluster": "explainable_ai",
+  "lang": "bn",
+  "text": "যন্ত্র কেন এমন রায় দিল সেটা সহজে বুঝিয়ে বলা"
+ },
+ {
+  "cluster": "bangla_nlp",
+  "lang": "en",
+  "text": "getting software to grasp everyday talk and essays in our mother tongue"
+ },
+ {
+  "cluster": "bangla_nlp",
+  "lang": "bn",
+  "text": "কম্পিউটারকে মাতৃভাষায় বই পড়তে ও বুঝতে শেখানো"
+ },
+ {
+  "cluster": "climate_modelling",
+  "lang": "en",
+  "text": "how hot and wet summers get in coming decades"
+ },
+ {
+  "cluster": "climate_modelling",
+  "lang": "bn",
+  "text": "আগামী দশকগুলোতে গরম আর বর্ষা কেমন বদলাবে"
+ },
+ {
+  "cluster": "public_health_epidemiology",
+  "lang": "en",
+  "text": "tracking how sickness spreads among villages and towns"
+ },
+ {
+  "cluster": "public_health_epidemiology",
+  "lang": "bn",
+  "text": "পাড়া মহল্লায় ছোঁয়াচে অসুখ কীভাবে ছড়ায়"
+ },
+ {
+  "cluster": "materials_science",
+  "lang": "en",
+  "text": "inventing stronger lighter substances at atomic scale"
+ },
+ {
+  "cluster": "materials_science",
+  "lang": "bn",
+  "text": "পরমাণু স্তরে মজবুত হালকা বস্তু বানানো"
+ },
+ {
+  "cluster": "robotics",
+  "lang": "en",
+  "text": "machines that walk, grab objects and move around by themselves"
+ },
+ {
+  "cluster": "robotics",
+  "lang": "bn",
+  "text": "নিজে নিজে চলাফেরা করা যান্ত্রিক মানুষ বানানো"
+ },
+ {
+  "cluster": "agri_remote_sensing",
+  "lang": "en",
+  "text": "watching paddies from orbit to guess how much grain grows"
+ },
+ {
+  "cluster": "agri_remote_sensing",
+  "lang": "bn",
+  "text": "মহাকাশ থেকে তোলা ছবিতে খেতের শস্য আন্দাজ"
+ },
+ {
+  "cluster": "renewable_energy",
+  "lang": "en",
+  "text": "current from sunlight and breeze for hamlets"
+ },
+ {
+  "cluster": "renewable_energy",
+  "lang": "bn",
+  "text": "সূর্যের আলো আর বাতাস থেকে কারেন্ট"
+ },
+ {
+  "cluster": "water_resources",
+  "lang": "en",
+  "text": "alerting towns before creeks burst their banks, and wells safe to drink"
+ },
+ {
+  "cluster": "water_resources",
+  "lang": "bn",
+  "text": "বানের খবর আগে জানানো ও নিরাপদ খাবার জল"
+ },
+ {
+  "cluster": "cybersecurity",
+  "lang": "en",
+  "text": "stopping hackers from breaking into laptops and stealing passwords"
+ },
+ {
+  "cluster": "cybersecurity",
+  "lang": "bn",
+  "text": "হ্যাকারদের হাত থেকে কম্পিউটার আর পাসওয়ার্ড রক্ষা"
+ },
+ {
+  "cluster": "genomics_bioinformatics",
+  "lang": "en",
+  "text": "reading DNA letters by software to understand germs and heredity"
+ },
+ {
+  "cluster": "genomics_bioinformatics",
+  "lang": "bn",
+  "text": "ডিএনএ পড়ে জীবাণু ও বংশগতি বোঝার কম্পিউটার কৌশল"
+ },
+ {
+  "cluster": "development_economics",
+  "lang": "en",
+  "text": "lifting poor families out of want with tiny credit"
+ },
+ {
+  "cluster": "development_economics",
+  "lang": "bn",
+  "text": "গরিব সংসারের রোজগার বাড়ানো ও ছোট ঋণ"
+ },
+ {
+  "cluster": "education_technology",
+  "lang": "en",
+  "text": "websites that let pupils do lessons at home on tablets"
+ },
+ {
+  "cluster": "education_technology",
+  "lang": "bn",
+  "text": "ছাত্রছাত্রীদের ঘরে বসে পড়াশোনার সফটওয়্যার"
+ },
+ {
+  "cluster": "structural_engineering",
+  "lang": "en",
+  "text": "keeping homes and towers upright when the ground shakes"
+ },
+ {
+  "cluster": "structural_engineering",
+  "lang": "bn",
+  "text": "মাটি কাঁপলে দালান যেন ভেঙে না পড়ে"
+ },
+ {
+  "cluster": "urban_transport",
+  "lang": "en",
+  "text": "easing jams downtown so getting to offices takes less time"
+ },
+ {
+  "cluster": "urban_transport",
+  "lang": "bn",
+  "text": "নগরের রাস্তায় গাড়ির জট কমিয়ে অফিসে তাড়াতাড়ি পৌঁছানো"
+ },
+ {
+  "cluster": "marine_fisheries",
+  "lang": "en",
+  "text": "keeping the sea alive so nets can still bring in a good catch"
+ },
+ {
+  "cluster": "marine_fisheries",
+  "lang": "bn",
+  "text": "সাগরের প্রাণ বাঁচিয়ে মাঝিমাল্লার জীবিকা টিকিয়ে রাখা"
+ },
+ {
+  "cluster": "wireless_networks",
+  "lang": "en",
+  "text": "quicker phone reception and gadgets talking to each other"
+ },
+ {
+  "cluster": "wireless_networks",
+  "lang": "bn",
+  "text": "মোবাইল ফোনের দ্রুত সংকেত ও যন্ত্রে যন্ত্রে কথা বলা"
+ },
+ {
+  "cluster": "drug_discovery",
+  "lang": "en",
+  "text": "inventing pills and tablets that cure sick patients"
+ },
+ {
+  "cluster": "drug_discovery",
+  "lang": "bn",
+  "text": "অসুখ সারানোর বড়ি ও ট্যাবলেট বানানো"
+ },
+ {
+  "cluster": "mental_health",
+  "lang": "en",
+  "text": "comforting folks who feel sad, worried or hopeless"
+ },
+ {
+  "cluster": "mental_health",
+  "lang": "bn",
+  "text": "দুশ্চিন্তা আর হতাশায় থাকা মানুষের পাশে দাঁড়ানো"
+ }
+]

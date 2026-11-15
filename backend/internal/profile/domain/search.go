@@ -15,12 +15,34 @@ const (
 	MatchInstitution MatchField = "institution"
 	MatchInterest    MatchField = "interest"
 	MatchHeadline    MatchField = "headline"
+	// MatchMeaning is a hybrid result that only the search by meaning found (AI-5.2).
+	MatchMeaning MatchField = "meaning"
+)
+
+// SearchMode is the search a caller asks for.
+type SearchMode string
+
+// Search modes. Auto is keyword and meaning together (AI-5.1); keyword is FR-6 alone.
+const (
+	SearchAuto    SearchMode = "auto"
+	SearchKeyword SearchMode = "keyword"
+)
+
+// ResultMode says how a search's results were found.
+type ResultMode string
+
+// Result modes. KeywordFallback is a keyword search run because the AI service did not
+// answer (AI-5.4).
+const (
+	ResultHybrid          ResultMode = "hybrid"
+	ResultKeyword         ResultMode = "keyword"
+	ResultKeywordFallback ResultMode = "keyword_fallback"
 )
 
 // PeopleQuery is a validated researcher search (FR-6.1, FR-6.3).
 type PeopleQuery struct {
 	ViewerID    string   // the searcher: nobody finds a person who has blocked them (FR-16.9)
-	Q           string   // trimmed, 2 to 100 characters
+	Q           string   // trimmed: 2 to 100 characters in keyword mode, 2 to 300 in auto mode
 	Institution *string  // keep only this institution, ignoring letter case; nil for any
 	Interests   []string // normalized tag names the result must all have, no duplicates
 	Page        int      // from 1
@@ -48,6 +70,7 @@ type Facet struct {
 
 // PeopleResults is one page of a researcher search.
 type PeopleResults struct {
+	Mode  ResultMode // the usecase sets it
 	Hits  []PersonHit
 	Total int // results on all pages, every filter applied
 	// Fuzzy is true when no visible name contains the text and the name results are
@@ -65,6 +88,31 @@ type PeopleSearcher interface {
 	// SearchPeople returns the page of results, the total and the facets of q, with at
 	// most maxFacets options in each facet besides the selected interests.
 	SearchPeople(ctx context.Context, q PeopleQuery, maxFacets int) (PeopleResults, error)
+	// SearchPeopleHybrid merges the keyword search of q with the profiles closest in meaning
+	// to v (AI-5.1, AI-5.2) as FusePeople does, and returns the page, the total and the
+	// facets of the merged list.
+	SearchPeopleHybrid(ctx context.Context, q PeopleQuery, v QueryVector, maxFacets int) (PeopleResults, error)
+}
+
+// QueryVector is the embedding of a search text and the model that made it. Only stored
+// embeddings of the same model are compared with it.
+type QueryVector struct {
+	Model  string
+	Values []float32
+}
+
+// QueryEmbedder embeds a search text as a query (e5's "query: " prefix, AI-1). It returns
+// an error when the AI service is not configured, does not answer or answers with an error.
+type QueryEmbedder interface {
+	EmbedQuery(ctx context.Context, text string) (QueryVector, error)
+}
+
+// QueryVectorCache keeps query vectors by model and normalized search text.
+type QueryVectorCache interface {
+	// Get returns the vector kept for text under model; false when there is none.
+	Get(ctx context.Context, model, text string) ([]float32, bool, error)
+	// Set keeps v for text under v.Model for ttl.
+	Set(ctx context.Context, text string, v QueryVector, ttl time.Duration) error
 }
 
 // SearchLimiter counts a user's searches in a fixed window.
@@ -78,6 +126,7 @@ type SearchLimiter interface {
 
 // Errors of researcher search. A used-up search window gives *RateLimitedError.
 var (
-	ErrInvalidQuery        = errors.New("search text is not 2 to 100 characters")
+	ErrInvalidQuery        = errors.New("search text is too short or too long")
+	ErrInvalidSearchMode   = errors.New("search mode is not auto or keyword")
 	ErrInvalidSearchFilter = errors.New("search filter is not valid")
 )

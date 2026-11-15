@@ -136,7 +136,7 @@ type envOptions struct {
 	mail textMailer
 	// realAuth serves the auth operations from the real usecase instead of okAuth.
 	realAuth bool
-	// ai, when set, is the AI service of the embedding module.
+	// ai, when set, is the AI service of the embedding module and of researcher search.
 	ai aiclient.Embedder
 }
 
@@ -225,9 +225,16 @@ func wireEnv(t *testing.T, pool *pgxpool.Pool, rdb *goredis.Client, files *stora
 	social := socialusecase.New(socialpg.NewStore(pool), postgres.NewTransactor(pool), connectLimiter, notifier, socialActors{standings: standings}, logger)
 	connected.social = social
 	profileStore := profilepg.NewStore(pool)
-	profileOpts := []profileusecase.Option{profileusecase.WithPeopleSearch(profileusecase.PeopleSearch{
-		Searcher: profileStore, Limiter: lookups.SearchLimiter(), Logger: logger,
-	}), profileusecase.WithConnections(connectionLookup{social: social}),
+	// Researcher search embeds its queries only when the test gives an AI service; without
+	// one, auto searches fall back to keywords (AI-5.4).
+	peopleSearch := profileusecase.PeopleSearch{
+		Searcher: profileStore, Limiter: lookups.SearchLimiter(), Cache: lookups.QueryVectors(), Logger: logger,
+	}
+	if opt.ai != nil {
+		peopleSearch.Embedder = queryEmbedder{ai: opt.ai}
+	}
+	profileOpts := []profileusecase.Option{profileusecase.WithPeopleSearch(peopleSearch),
+		profileusecase.WithConnections(connectionLookup{social: social}),
 		profileusecase.WithConversations(conversationLookup{messaging: messaging})}
 	if orcidURL != "" {
 		profileOpts = append(profileOpts, profileusecase.WithORCIDImport(profileusecase.ORCIDImport{

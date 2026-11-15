@@ -613,6 +613,10 @@ func (okWorks) SearchPeople(context.Context, profiledomain.PeopleQuery, int) (pr
 	return profiledomain.PeopleResults{}, nil
 }
 
+func (okWorks) SearchPeopleHybrid(context.Context, profiledomain.PeopleQuery, profiledomain.QueryVector, int) (profiledomain.PeopleResults, error) {
+	return profiledomain.PeopleResults{}, nil
+}
+
 func (okWorks) ListWorks(context.Context, string) ([]profiledomain.ORCIDWork, error) {
 	return []profiledomain.ORCIDWork{{PutCode: "1", Title: "Notes"}}, nil
 }

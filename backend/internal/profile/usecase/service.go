@@ -16,13 +16,14 @@ import (
 
 // Service reads and edits profiles.
 type Service struct {
-	store  domain.Store
-	now    func() time.Time // the clock for the education years and experience dates
-	lookup DOILookup
-	orcid  ORCIDImport
-	search PeopleSearch
-	conns  domain.ConnectionLookup   // nil until WithConnections
-	chats  domain.ConversationLookup // nil until WithConversations
+	store    domain.Store
+	now      func() time.Time // the clock for the education years and experience dates
+	lookup   DOILookup
+	orcid    ORCIDImport
+	search   PeopleSearch
+	searchAI *searchAI                 // made by WithPeopleSearch
+	conns    domain.ConnectionLookup   // nil until WithConnections
+	chats    domain.ConversationLookup // nil until WithConversations
 }
 
 // Option configures a Service.

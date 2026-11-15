@@ -192,6 +192,9 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 
 	lookups := profileredis.New(rdb)
 	defer func() { _ = lookups.Close() }()
+	// The AI service (AI-1): the health check reports it, the embedding worker makes
+	// profile embeddings with it and researcher search embeds its queries (AI-5.1).
+	ai := aiclient.New(aiclient.Config{BaseURL: cfg.AIServiceURL, Token: cfg.AIServiceToken})
 	profileStore := profilepg.NewStore(pool)
 	profiles := profileusecase.New(profileStore,
 		profileusecase.WithDOILookup(profileusecase.DOILookup{
@@ -207,9 +210,12 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 			Logger:  logger,
 		}),
 		profileusecase.WithPeopleSearch(profileusecase.PeopleSearch{
-			Searcher: profileStore,
-			Limiter:  lookups.SearchLimiter(),
-			Logger:   logger,
+			Searcher:  profileStore,
+			Limiter:   lookups.SearchLimiter(),
+			Embedder:  queryEmbedder{ai: ai},
+			Cache:     lookups.QueryVectors(),
+			AITimeout: cfg.SearchAITimeout,
+			Logger:    logger,
 		}),
 		profileusecase.WithConnections(connectionLookup{social: social}),
 		profileusecase.WithConversations(conversationLookup{messaging: messaging}),
@@ -227,9 +233,8 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 	moderation := moderationusecase.New(moderationStore, postgres.NewTransactor(pool), moderationAccounts{auth: auth, events: realtime.events},
 		moderationReports{messaging: messaging}, moderationNotifier{notifications: notifications},
 		moderationMailer{mailer: mailer}, time.Now, logger)
-	// The AI service (AI-1): the health check reports it, and the embedding worker makes
-	// profile embeddings from the queue the database triggers fill (AI-1.5), every 5 s.
-	ai := aiclient.New(aiclient.Config{BaseURL: cfg.AIServiceURL, Token: cfg.AIServiceToken})
+	// The embedding worker makes profile embeddings from the queue the database triggers
+	// fill (AI-1.5), every 5 s.
 	embeddings, embedWorker := newEmbeddings(pool, ai, logger)
 	go embedWorker.Run(ctx)
 	// Collaborator recommendations (AI-2.1): social clears both users' kept lists on every

@@ -727,3 +727,19 @@ func TestLoadRecsScoreMap(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadSearchAITimeout(t *testing.T) {
+	cfg, err := Load(env(map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL}))
+	if err != nil || cfg.SearchAITimeout != 1500*time.Millisecond {
+		t.Errorf("default = %v (%v)", cfg.SearchAITimeout, err)
+	}
+	cfg, err = Load(env(map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL, "SEARCH_AI_TIMEOUT": "800ms"}))
+	if err != nil || cfg.SearchAITimeout != 800*time.Millisecond {
+		t.Errorf("set = %v (%v)", cfg.SearchAITimeout, err)
+	}
+	for _, bad := range []string{"0s", "-1s", "soon", "11s"} {
+		if _, err := Load(env(map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL, "SEARCH_AI_TIMEOUT": bad})); err == nil || !strings.Contains(err.Error(), "SEARCH_AI_TIMEOUT") {
+			t.Errorf("%q: err = %v", bad, err)
+		}
+	}
+}

@@ -1,8 +1,9 @@
-# Evaluation: collaborator matching (NFR-6, AI-2.2) and recommendation speed (NFR-1)
+# Evaluation: collaborator matching (NFR-6, AI-2.2), semantic search (AI-5.2) and speed (NFR-1)
 
-What is measured, how, and the results. Run on 2026-11-15 (slice 17, chunk 17.1). Each
-section says which `make` command reproduces it. All three commands run `cmd/recseval`, read the
-development database only and refuse anything else. They need `APP_ENV=development`, which you
+What is measured, how, and the results. Run on 2026-11-15 (slice 17, chunk 17.1) and
+2026-11-16 (slice 18, chunk 18.1: the last two sections). Each section says which `make`
+command reproduces it. All five commands run `cmd/recseval`, read the development database only
+and refuse anything else. They need `APP_ENV=development`, which you
 can pass on the command line: `make eval-recs APP_ENV=development`.
 
 ## Setup
@@ -273,4 +274,221 @@ Planning:
   Buffers: shared hit=14
 Planning Time: 0.407 ms
 Execution Time: 0.739 ms
+```
+
+## Semantic researcher search quality (AI-5.2), `make eval-search`
+
+**Question.** Does `GET /search/people` in its default `auto` (hybrid) mode find researchers
+whose profiles match a query in meaning when they share none of its words (AI-5.2)?
+
+**Queries.** 40 plain-language queries in `backend/cmd/recseval/search_queries.json`, one
+English and one Bangla for each of the 20 sample clusters, written by hand for slice 18 and
+fixed before the first run. None was changed after seeing a result: that would be fitting
+to the test split.
+
+**No shared words, checked automatically.** `TestSearchQueriesShareNoWords`
+(`cmd/recseval`) splits each query and its cluster's whole vocabulary into words. The
+vocabulary covers every field of `cmd/seedsample/content/clusters.json`, English and Bangla,
+and every word `common.json` adds to all profiles. The test fails when the two share a word.
+- **Splitting:** lower case; letters, combining marks and digits form words, so a Bangla
+  vowel sign stays in its word. Template placeholders such as `{interest}` are dropped.
+- **Shared:** two words count as one when they are equal, when one starts the other and both
+  have at least 4 letters ("computer" and "computers"), or when they have the same first 5
+  letters ("electricity" and "electrical").
+- **Exempt:** a fixed list of English and Bangla function words ("the", "of", "and", "ও",
+  "এবং", "জন্য", ...), listed in the test.
+- **Still allowed:** a shorter common stem ("imaging" against "images") is not caught; the
+  queries were also read by hand for that.
+
+**Candidates.** Only the 1,988 TEST split sample profiles. Each candidate query
+(`StrongNameMatches`, `SearchPeoplePage`, `SemanticPeopleCandidates` and
+`AnyVisibleNameContains`) is the product's own text (`profilepg.QueryText`). One join to
+`sample_profiles` with `split = 'test'` is added after a fixed anchor line, and the command
+stops if the anchor ever moves. Each query also runs under the endpoint's transaction
+settings, and the lists are merged with the endpoint's `domain.FusePeople`. There are no
+filters, and the viewer blocks nobody.
+
+**Measure.** Precision@10 against the NFR-6 rule: relevant means the same `main_cluster`,
+computed as hits in the top 10 divided by 10, so an empty or short list scores low. It is
+reported for hybrid mode, keyword mode (`mode=keyword`, the slice 12 search alone) and, for
+reference, the meaning side alone. Nothing is tuned: k = 60 is the original RRF paper's value,
+and 50 candidates per side is the chunk's design.
+
+**Results (2026-11-16), per query:**
+
+| Cluster | Lang | Query | Hybrid P@10 | Keyword P@10 (results) | Meaning only P@10 |
+| --- | --- | --- | ---: | ---: | ---: |
+| medical_imaging | en | software that spots disease in pictures taken inside the body | 1.0 | 0.0 (0) | 1.0 |
+| medical_imaging | bn | শরীরের ভেতরের ছবি দেখে অসুখ ধরতে পারে এমন যন্ত্র | 0.8 | 0.0 (0) | 0.8 |
+| explainable_ai | en | why did the program choose that, told plainly to ordinary folks | 1.0 | 0.0 (0) | 1.0 |
+| explainable_ai | bn | যন্ত্র কেন এমন রায় দিল সেটা সহজে বুঝিয়ে বলা | 0.9 | 0.0 (0) | 0.9 |
+| bangla_nlp | en | getting software to grasp everyday talk and essays in our mother tongue | 1.0 | 0.0 (0) | 1.0 |
+| bangla_nlp | bn | কম্পিউটারকে মাতৃভাষায় বই পড়তে ও বুঝতে শেখানো | 0.8 | 0.0 (0) | 0.8 |
+| climate_modelling | en | how hot and wet summers get in coming decades | 1.0 | 0.0 (0) | 1.0 |
+| climate_modelling | bn | আগামী দশকগুলোতে গরম আর বর্ষা কেমন বদলাবে | 1.0 | 0.0 (0) | 1.0 |
+| public_health_epidemiology | en | tracking how sickness spreads among villages and towns | 1.0 | 0.0 (0) | 1.0 |
+| public_health_epidemiology | bn | পাড়া মহল্লায় ছোঁয়াচে অসুখ কীভাবে ছড়ায় | 0.5 | 0.0 (0) | 0.5 |
+| materials_science | en | inventing stronger lighter substances at atomic scale | 1.0 | 0.0 (0) | 1.0 |
+| materials_science | bn | পরমাণু স্তরে মজবুত হালকা বস্তু বানানো | 0.9 | 0.0 (0) | 0.9 |
+| robotics | en | machines that walk, grab objects and move around by themselves | 1.0 | 0.0 (0) | 1.0 |
+| robotics | bn | নিজে নিজে চলাফেরা করা যান্ত্রিক মানুষ বানানো | 0.7 | 0.0 (0) | 0.7 |
+| agri_remote_sensing | en | watching paddies from orbit to guess how much grain grows | 1.0 | 0.0 (0) | 1.0 |
+| agri_remote_sensing | bn | মহাকাশ থেকে তোলা ছবিতে খেতের শস্য আন্দাজ | 0.9 | 0.0 (0) | 0.9 |
+| renewable_energy | en | current from sunlight and breeze for hamlets | 0.7 | 0.0 (0) | 0.7 |
+| renewable_energy | bn | সূর্যের আলো আর বাতাস থেকে কারেন্ট | 0.1 | 0.0 (0) | 0.1 |
+| water_resources | en | alerting towns before creeks burst their banks, and wells safe to drink | 0.6 | 0.0 (0) | 0.6 |
+| water_resources | bn | বানের খবর আগে জানানো ও নিরাপদ খাবার জল | 0.5 | 0.0 (0) | 0.5 |
+| cybersecurity | en | stopping hackers from breaking into laptops and stealing passwords | 1.0 | 0.0 (0) | 1.0 |
+| cybersecurity | bn | হ্যাকারদের হাত থেকে কম্পিউটার আর পাসওয়ার্ড রক্ষা | 0.9 | 0.0 (0) | 0.9 |
+| genomics_bioinformatics | en | reading DNA letters by software to understand germs and heredity | 1.0 | 0.0 (0) | 1.0 |
+| genomics_bioinformatics | bn | ডিএনএ পড়ে জীবাণু ও বংশগতি বোঝার কম্পিউটার কৌশল | 0.3 | 0.0 (0) | 0.3 |
+| development_economics | en | lifting poor families out of want with tiny credit | 1.0 | 0.0 (0) | 1.0 |
+| development_economics | bn | গরিব সংসারের রোজগার বাড়ানো ও ছোট ঋণ | 0.8 | 0.0 (0) | 0.8 |
+| education_technology | en | websites that let pupils do lessons at home on tablets | 1.0 | 0.0 (0) | 1.0 |
+| education_technology | bn | ছাত্রছাত্রীদের ঘরে বসে পড়াশোনার সফটওয়্যার | 0.8 | 0.0 (0) | 0.8 |
+| structural_engineering | en | keeping homes and towers upright when the ground shakes | 1.0 | 0.0 (0) | 1.0 |
+| structural_engineering | bn | মাটি কাঁপলে দালান যেন ভেঙে না পড়ে | 0.1 | 0.0 (0) | 0.1 |
+| urban_transport | en | easing jams downtown so getting to offices takes less time | 0.3 | 0.0 (0) | 0.3 |
+| urban_transport | bn | নগরের রাস্তায় গাড়ির জট কমিয়ে অফিসে তাড়াতাড়ি পৌঁছানো | 0.8 | 0.0 (0) | 0.8 |
+| marine_fisheries | en | keeping the sea alive so nets can still bring in a good catch | 1.0 | 0.0 (0) | 1.0 |
+| marine_fisheries | bn | সাগরের প্রাণ বাঁচিয়ে মাঝিমাল্লার জীবিকা টিকিয়ে রাখা | 0.7 | 0.0 (0) | 0.7 |
+| wireless_networks | en | quicker phone reception and gadgets talking to each other | 0.9 | 0.0 (0) | 0.9 |
+| wireless_networks | bn | মোবাইল ফোনের দ্রুত সংকেত ও যন্ত্রে যন্ত্রে কথা বলা | 0.2 | 0.0 (0) | 0.2 |
+| drug_discovery | en | inventing pills and tablets that cure sick patients | 1.0 | 0.0 (0) | 1.0 |
+| drug_discovery | bn | অসুখ সারানোর বড়ি ও ট্যাবলেট বানানো | 0.8 | 0.0 (0) | 0.8 |
+| mental_health | en | comforting folks who feel sad, worried or hopeless | 0.9 | 0.0 (0) | 0.9 |
+| mental_health | bn | দুশ্চিন্তা আর হতাশায় থাকা মানুষের পাশে দাঁড়ানো | 0.6 | 0.0 (0) | 0.6 |
+
+**Summary:**
+
+| Queries | Hybrid P@10 | Keyword P@10 | Meaning only P@10 |
+| --- | ---: | ---: | ---: |
+| en (20) | 0.920 | 0.000 | 0.920 |
+| bn (20) | 0.655 | 0.000 | 0.655 |
+| all (40) | 0.787 | 0.000 | 0.787 |
+
+**Reading the results.**
+- Keyword mode finds nothing for any of these queries: they share no word with the profiles
+  by construction. Every hybrid hit is therefore a meaning-only match (AI-5.2), and hybrid
+  equals the meaning side alone.
+- English queries reach 0.92.
+- Bangla queries reach 0.655, with a wide spread. Several are 0.8 to 1.0. The weak ones
+  (renewable energy 0.1, structural engineering 0.1, wireless networks 0.2, genomics 0.3)
+  use everyday words such as "কারেন্ট" (current), "মাটি কাঁপলে" (when the ground shakes)
+  and "কথা বলা" (talking) that are far from the formal vocabulary of the 85% English sample
+  text.
+- English urban transport (0.3) and water resources (0.6) mix in neighbouring clusters
+  (offices and commuting; towns and drinking water).
+- As with NFR-6, the profiles come from templates, so real profiles will score differently.
+
+**The Bangla gap (0.655 against 0.920).** This is the clearest finding. The most likely cause
+is language bias in the multilingual model. A Bangla query sits close to Bangla-language
+profiles of any field, so they crowd out the English profiles of the right cluster. Only
+about 15% of the sample profiles have Bangla text (5% Bangla only, 10% mixed), so most of
+the right answers are English. This is an explanation, not yet measured: no count was taken
+of how many of the wrong top-10 hits have Bangla text.
+
+Possible fixes to try later, each measured with this same `make eval-search` and the same
+fixed queries:
+- **A stronger multilingual embedding model.** This is a model change (AI-1.6): a full
+  re-embed, a new score calibration (`make calibrate-recs`) and a re-run of every
+  evaluation.
+- **A Bangla query also embedded as an English translation.** The two candidate lists would
+  be merged, for example as a third RRF list. This needs a translation step in the AI
+  service and adds to the query time (NFR-1).
+- **Per-language score normalisation.** Cosines would be rescaled per query language and
+  profile language before ranking. Any scale must be fitted on the tuning split only.
+
+This is an open item in `docs/decisions.md` (2026-11-16) for a later AI-quality slice. Nothing
+changes in this chunk.
+
+## Semantic researcher search speed (NFR-1), `make bench-search`
+
+**Method.**
+- 200 search texts: the 40 evaluation queries, then names of research interests that sample
+  profiles hold, drawn with seed 17. Each searcher is a sample user drawn at random.
+- 10 warm-up searches with other texts come first and are not counted.
+- Each search does the usecase's whole hybrid work against the 10,000-profile development
+  database:
+  1. the query vector, embedded by the running AI service (CPU, in Docker);
+  2. the strong name, keyword and meaning candidates in one read-only snapshot;
+  3. fusion, the facets (both institution and interest), the page and its interests.
+- Each text runs twice:
+  - **cold:** the vector cache is empty, so every text is embedded;
+  - **cached:** every vector is kept (an in-memory cache standing in for Redis).
+- Searches run one after another.
+- HTTP, the session check, the rate limit, Redis and the connection statuses are not
+  included; together they add a few milliseconds.
+
+**Results (2026-11-16):**
+
+| Measure | Cold query vector | Cached query vector |
+| --- | ---: | ---: |
+| Searches | 200 | 200 |
+| p50 | 52.06ms | 18.23ms |
+| p95 | 62.99ms | 20.61ms |
+| max | 71.94ms | 25.63ms |
+
+**NFR-1 target:** p95 under 2 s with 10,000 profiles, the query embedding included. **Met**:
+the cold p95 is about 3% of the budget. Embedding one short query takes about 35 ms on this CPU
+(the difference of the two columns); the rest is the database work (the cached column).
+
+**Caveats.**
+- The database and the model were warm.
+- One client and no concurrent load: the AI service embeds one request at a time, so many
+  simultaneous cold searches queue there. The 1.5 s `SEARCH_AI_TIMEOUT` then falls back to
+  keyword results (AI-5.4) rather than wait.
+- No filters were set. A selective institution or interest filter makes the HNSW iterative
+  scan read further, at most every embedding at this size (`hnsw.max_scan_tuples` is 20,000).
+
+**Query plan.** This is EXPLAIN (ANALYZE, BUFFERS) of the endpoint's own
+`SemanticPeopleCandidates` text, for the first query and a sample searcher, under the
+endpoint's settings. The 768 numbers of the vector are left out. It shows:
+- the HNSW index scan (`profile_embeddings_hnsw_idx`) ordered by `<=>`, with the model test
+  as a filter;
+- the anti-join on `blocks_blocked_idx`;
+- primary-key lookups for the verification, suspension and profile checks;
+- no sequential scan.
+
+```text
+Sort  (cost=845.44..845.57 rows=50 width=145) (actual time=1.491..1.495 rows=50 loops=1)
+  Sort Key: cand.distance, cand.user_id
+  Sort Method: quicksort  Memory: 32kB
+  Buffers: shared hit=1421
+  CTE cand
+    ->  Limit  (cost=303.91..459.90 rows=50 width=24) (actual time=0.810..1.347 rows=50 loops=1)
+          Buffers: shared hit=1271
+          ->  Nested Loop  (cost=303.91..31518.79 rows=10005 width=24) (actual time=0.809..1.341 rows=50 loops=1)
+                Buffers: shared hit=1271
+                ->  Nested Loop  (cost=303.62..27908.51 rows=10005 width=50) (actual time=0.782..1.003 rows=50 loops=1)
+                      Buffers: shared hit=1020
+                      ->  Nested Loop Anti Join  (cost=303.34..23223.18 rows=10005 width=34) (actual time=0.775..0.862 rows=50 loops=1)
+                            Buffers: shared hit=870
+                            ->  Index Scan using profile_embeddings_hnsw_idx on profile_embeddings e  (cost=303.18..21448.22 rows=10011 width=34) (actual time=0.767..0.816 rows=50 loops=1)
+                                  Order By: (embedding <=> '[768 numbers]'::vector)
+                                  Filter: (model = 'intfloat/multilingual-e5-base@d128750597153bb5987e10b1c3493a34e5a4502a'::text)
+                                  Buffers: shared hit=820
+                            ->  Index Only Scan using blocks_blocked_idx on blocks x  (cost=0.15..0.18 rows=1 width=16) (actual time=0.001..0.001 rows=0 loops=50)
+                                  Index Cond: ((blocked_id = '526b6ee2-7ee1-40d1-912b-e17d2d0731f3'::uuid) AND (blocker_id = e.user_id))
+                                  Heap Fetches: 0
+                                  Buffers: shared hit=50
+                      ->  Index Scan using users_pkey on users u  (cost=0.29..0.47 rows=1 width=16) (actual time=0.002..0.002 rows=1 loops=50)
+                            Index Cond: (id = e.user_id)
+                            Filter: ((email_verified_at IS NOT NULL) AND (suspended_at IS NULL))
+                            Buffers: shared hit=150
+                ->  Index Only Scan using profiles_pkey on profiles p_1  (cost=0.29..0.36 rows=1 width=16) (actual time=0.002..0.002 rows=1 loops=50)
+                      Index Cond: (user_id = u.id)
+                      Heap Fetches: 0
+                      Buffers: shared hit=101
+  ->  Nested Loop  (cost=0.29..384.13 rows=50 width=145) (actual time=0.817..1.471 rows=50 loops=1)
+        Buffers: shared hit=1421
+        ->  CTE Scan on cand  (cost=0.00..1.00 rows=50 width=24) (actual time=0.812..1.361 rows=50 loops=1)
+              Buffers: shared hit=1271
+        ->  Index Scan using profiles_pkey on profiles p  (cost=0.29..7.66 rows=1 width=137) (actual time=0.002..0.002 rows=1 loops=50)
+              Index Cond: (user_id = cand.user_id)
+              Buffers: shared hit=150
+Planning:
+  Buffers: shared hit=38
+Planning Time: 0.827 ms
+Execution Time: 1.530 ms
 ```

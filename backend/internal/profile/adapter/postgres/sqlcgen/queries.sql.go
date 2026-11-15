@@ -904,6 +904,91 @@ func (q *Queries) InsertSkillIfMissing(ctx context.Context, name string) error {
 	return err
 }
 
+const institutionFacetsAmong = `-- name: InstitutionFacetsAmong :many
+SELECT (mode() WITHIN GROUP (ORDER BY p.institution))::text AS name, count(*)::int AS n
+FROM profiles p
+WHERE p.user_id = ANY ($1::uuid[])
+  AND btrim(coalesce(p.institution, '')) <> ''
+GROUP BY lower(p.institution)
+ORDER BY n DESC, lower(p.institution)
+LIMIT $2
+`
+
+type InstitutionFacetsAmongParams struct {
+	UserIds   []pgtype.UUID
+	MaxFacets int32
+}
+
+type InstitutionFacetsAmongRow struct {
+	Name string
+	N    int32
+}
+
+// The institution facet of a merged hybrid list: like SearchInstitutionFacets, over ids.
+func (q *Queries) InstitutionFacetsAmong(ctx context.Context, arg InstitutionFacetsAmongParams) ([]InstitutionFacetsAmongRow, error) {
+	rows, err := q.db.Query(ctx, institutionFacetsAmong, arg.UserIds, arg.MaxFacets)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []InstitutionFacetsAmongRow
+	for rows.Next() {
+		var i InstitutionFacetsAmongRow
+		if err := rows.Scan(&i.Name, &i.N); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const interestFacetsAmong = `-- name: InterestFacetsAmong :many
+SELECT t.name::text AS name, count(*)::int AS n,
+       (lower(t.name::text) = ANY ($1::text[]))::boolean AS selected
+FROM user_interests l
+JOIN research_interests t ON t.id = l.interest_id
+WHERE l.user_id = ANY ($2::uuid[])
+GROUP BY t.id, t.name
+ORDER BY selected DESC, n DESC, t.name, t.id
+LIMIT $3
+`
+
+type InterestFacetsAmongParams struct {
+	Interests  []string
+	UserIds    []pgtype.UUID
+	MaxResults int32
+}
+
+type InterestFacetsAmongRow struct {
+	Name     string
+	N        int32
+	Selected bool
+}
+
+// The interest facet of a merged hybrid list: like SearchInterestFacets, over ids.
+func (q *Queries) InterestFacetsAmong(ctx context.Context, arg InterestFacetsAmongParams) ([]InterestFacetsAmongRow, error) {
+	rows, err := q.db.Query(ctx, interestFacetsAmong, arg.Interests, arg.UserIds, arg.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []InterestFacetsAmongRow
+	for rows.Next() {
+		var i InterestFacetsAmongRow
+		if err := rows.Scan(&i.Name, &i.N, &i.Selected); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const languageNameTaken = `-- name: LanguageNameTaken :one
 SELECT EXISTS (
     SELECT 1 FROM profile_languages
@@ -1715,6 +1800,114 @@ func (q *Queries) SearchPeopleSummary(ctx context.Context, arg SearchPeopleSumma
 	return i, err
 }
 
+const semanticPeopleCandidates = `-- name: SemanticPeopleCandidates :many
+WITH cand AS MATERIALIZED (
+    SELECT e.user_id, (e.embedding <=> CAST($1::text AS vector))::float8 AS distance
+    FROM profile_embeddings e
+    JOIN users u ON u.id = e.user_id
+    JOIN profiles p ON p.user_id = e.user_id
+    WHERE e.model = $2::text
+      AND u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM blocks x WHERE x.blocker_id = e.user_id AND x.blocked_id = $3::uuid)
+      AND ($4::text IS NULL OR lower(p.institution) = lower($4::text))
+      AND (cardinality($5::text[]) = 0 OR cardinality($5::text[]) = (
+          SELECT count(*)
+          FROM user_interests l
+          WHERE l.user_id = e.user_id
+            AND l.interest_id IN (SELECT t.id FROM research_interests t WHERE lower(t.name::text) = ANY ($5::text[]))))
+    ORDER BY e.embedding <=> CAST($1::text AS vector)
+    LIMIT $6
+)
+SELECT cand.user_id, cand.distance, p.full_name, p.headline, p.institution, p.photo_file_id
+FROM cand
+JOIN profiles p ON p.user_id = cand.user_id
+ORDER BY cand.distance, cand.user_id
+`
+
+type SemanticPeopleCandidatesParams struct {
+	Embedding   string
+	Model       string
+	ViewerID    pgtype.UUID
+	Institution pgtype.Text
+	Interests   []string
+	Lim         int32
+}
+
+type SemanticPeopleCandidatesRow struct {
+	UserID      pgtype.UUID
+	Distance    float64
+	FullName    string
+	Headline    pgtype.Text
+	Institution pgtype.Text
+	PhotoFileID pgtype.UUID
+}
+
+// The lim profiles whose embedding is closest in cosine distance to the query vector
+// (AI-5.1), through profile_embeddings_hnsw_idx, among embeddings of the query's model
+// (others are not comparable). The order is the cosine distance and nothing else, then the
+// user ID for ties.
+func (q *Queries) SemanticPeopleCandidates(ctx context.Context, arg SemanticPeopleCandidatesParams) ([]SemanticPeopleCandidatesRow, error) {
+	rows, err := q.db.Query(ctx, semanticPeopleCandidates,
+		arg.Embedding,
+		arg.Model,
+		arg.ViewerID,
+		arg.Institution,
+		arg.Interests,
+		arg.Lim,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SemanticPeopleCandidatesRow
+	for rows.Next() {
+		var i SemanticPeopleCandidatesRow
+		if err := rows.Scan(
+			&i.UserID,
+			&i.Distance,
+			&i.FullName,
+			&i.Headline,
+			&i.Institution,
+			&i.PhotoFileID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const setHNSWEfSearch = `-- name: SetHNSWEfSearch :exec
+SELECT set_config('hnsw.ef_search', $1::text, true)
+`
+
+func (q *Queries) SetHNSWEfSearch(ctx context.Context, efSearch string) error {
+	_, err := q.db.Exec(ctx, setHNSWEfSearch, efSearch)
+	return err
+}
+
+const setHNSWIterativeScan = `-- name: SetHNSWIterativeScan :exec
+
+SELECT set_config('hnsw.iterative_scan', 'relaxed_order', true)
+`
+
+// Hybrid researcher search (AI-5.1, AI-5.2; slice 18). The keyword side is
+// SearchPeoplePage above; these add the strong name matches, the search by meaning and the
+// facets of the merged list. Every query applies the same visibility rule (verified, not
+// suspended, nobody who has blocked the searcher, FR-16.9) and the same filters as the
+// keyword queries. AI-2.4: nothing here reads publication, citation or connection counts or
+// any other popularity signal (TestHybridQueriesReadNoPopularity checks this section).
+// HNSW iterative scan (pgvector 0.8): when the filters drop rows the index returned, the
+// scan goes on until LIMIT rows pass. relaxed_order may return rows slightly out of order,
+// so SemanticPeopleCandidates sorts again. Local to the transaction.
+func (q *Queries) SetHNSWIterativeScan(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, setHNSWIterativeScan)
+	return err
+}
+
 const setOrcidID = `-- name: SetOrcidID :execrows
 UPDATE profiles SET orcid_id = $1 WHERE user_id = $2
 `
@@ -1765,6 +1958,83 @@ SELECT set_config('pg_trgm.word_similarity_threshold', $1::text, true)
 func (q *Queries) SetWordSimilarityThreshold(ctx context.Context, threshold string) error {
 	_, err := q.db.Exec(ctx, setWordSimilarityThreshold, threshold)
 	return err
+}
+
+const strongNameMatches = `-- name: StrongNameMatches :many
+SELECT p.user_id, p.full_name, p.headline, p.institution, p.photo_file_id,
+       (fold_name(p.full_name) = fold_name($1::text))::boolean AS exact
+FROM profiles p
+JOIN users u ON u.id = p.user_id
+WHERE (fold_name(p.full_name) = fold_name($1::text)
+       OR ($2::boolean AND fold_name(p.full_name) LIKE fold_name($3::text)))
+  AND u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL
+  AND NOT EXISTS (SELECT 1 FROM blocks x WHERE x.blocker_id = p.user_id AND x.blocked_id = $4::uuid)
+  AND ($5::text IS NULL OR lower(p.institution) = lower($5::text))
+  AND (cardinality($6::text[]) = 0 OR cardinality($6::text[]) = (
+      SELECT count(*)
+      FROM user_interests l
+      WHERE l.user_id = p.user_id
+        AND l.interest_id IN (SELECT t.id FROM research_interests t WHERE lower(t.name::text) = ANY ($6::text[]))))
+ORDER BY exact DESC, similarity(p.full_name, $1::text) DESC, p.full_name, p.user_id
+LIMIT $7
+`
+
+type StrongNameMatchesParams struct {
+	Q             string
+	PrefixOk      bool
+	PrefixPattern string
+	ViewerID      pgtype.UUID
+	Institution   pgtype.Text
+	Interests     []string
+	Lim           int32
+}
+
+type StrongNameMatchesRow struct {
+	UserID      pgtype.UUID
+	FullName    string
+	Headline    pgtype.Text
+	Institution pgtype.Text
+	PhotoFileID pgtype.UUID
+	Exact       bool
+}
+
+// Profiles whose full name equals q, or starts with q when prefix_ok, ignoring letter case
+// and accents (fold_name, migration 000030); profiles_folded_name_idx serves both tests.
+// prefix_pattern is the folded LIKE pattern of q followed by %, with \ % _ escaped. Exact
+// matches first, then the keyword order: whole-name similarity, name, user ID.
+func (q *Queries) StrongNameMatches(ctx context.Context, arg StrongNameMatchesParams) ([]StrongNameMatchesRow, error) {
+	rows, err := q.db.Query(ctx, strongNameMatches,
+		arg.Q,
+		arg.PrefixOk,
+		arg.PrefixPattern,
+		arg.ViewerID,
+		arg.Institution,
+		arg.Interests,
+		arg.Lim,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []StrongNameMatchesRow
+	for rows.Next() {
+		var i StrongNameMatchesRow
+		if err := rows.Scan(
+			&i.UserID,
+			&i.FullName,
+			&i.Headline,
+			&i.Institution,
+			&i.PhotoFileID,
+			&i.Exact,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const suggestInterests = `-- name: SuggestInterests :many
