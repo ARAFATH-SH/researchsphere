@@ -1,9 +1,10 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import type { FormEvent } from "react";
+import { type ChangeEvent, type FormEvent, useEffect } from "react";
 
 import { SearchIcon } from "./icons";
+import { setSearchDraftLength } from "./search-draft";
 
 const searchStyles = {
   // Up to 280px; between 641 and 760px only the icon shows until the field has the focus;
@@ -21,12 +22,26 @@ export type SearchBoxVariant = keyof typeof searchStyles;
 // minQueryLength is the shortest query the search API accepts (FR-6.1).
 export const minQueryLength = 2;
 
-type SearchBoxProps = { id: string; variant: SearchBoxVariant; value?: string };
+// maxQueryLength is the longest query the search API accepts: 300 characters for a search
+// by meaning (AI-5.1), 100 for keyword only (FR-6.1).
+export function maxQueryLength(keywordOnly: boolean): number {
+  return keywordOnly ? 100 : 300;
+}
+
+type SearchBoxProps = { id: string; variant: SearchBoxVariant; value?: string; maxLength?: number };
 
 // StaticSearchBox is the search box before the URL is known (prerender): a plain form that
 // still sends the query to /search.
-export function StaticSearchBox({ id, variant, value = "", onSubmit }: SearchBoxProps & {
+export function StaticSearchBox({
+  id,
+  variant,
+  value = "",
+  maxLength = maxQueryLength(false),
+  onSubmit,
+  onChange,
+}: SearchBoxProps & {
   onSubmit?: (event: FormEvent<HTMLFormElement>) => void;
+  onChange?: (event: ChangeEvent<HTMLInputElement>) => void;
 }) {
   const style = searchStyles[variant];
   return (
@@ -46,8 +61,9 @@ export function StaticSearchBox({ id, variant, value = "", onSubmit }: SearchBox
         id={id}
         name="q"
         type="search"
-        maxLength={100}
+        maxLength={maxLength}
         defaultValue={value}
+        onChange={onChange}
         placeholder={style.placeholder}
         className={`min-w-0 flex-1 bg-transparent text-rs-nav-text outline-none placeholder:text-rs-nav-muted ${style.input}`}
       />
@@ -55,20 +71,39 @@ export function StaticSearchBox({ id, variant, value = "", onSubmit }: SearchBox
   );
 }
 
-// SearchBox sends the trimmed query to the search page (FR-6.1); shorter than 2 characters
-// does nothing. On the search page it shows the current query.
-export function SearchBox({ id, variant }: Omit<SearchBoxProps, "value">) {
+// SearchBox sends the trimmed query to the search page (FR-6.1, AI-5.1); shorter than 2
+// characters does nothing. On the search page it shows the current query, keeps the search
+// mode (Keyword or By meaning) and shares the length of the text being typed, which the
+// page's counter shows.
+export function SearchBox({ id, variant }: Omit<SearchBoxProps, "value" | "maxLength">) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
-  const value = pathname === "/search" ? (params.get("q") ?? "") : "";
+  const onSearch = pathname === "/search";
+  const value = onSearch ? (params.get("q") ?? "") : "";
+  const keywordOnly = onSearch && params.get("mode") === "keyword";
+
+  useEffect(() => {
+    setSearchDraftLength(value.length);
+  }, [value]);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const q = String(new FormData(event.currentTarget).get("q") ?? "").trim();
     if (q.length < minQueryLength) return;
-    router.push(`/search?${new URLSearchParams({ q })}`);
+    const next = new URLSearchParams({ q });
+    if (keywordOnly) next.set("mode", "keyword");
+    router.push(`/search?${next}`);
   }
 
-  return <StaticSearchBox id={id} variant={variant} value={value} onSubmit={submit} />;
+  return (
+    <StaticSearchBox
+      id={id}
+      variant={variant}
+      value={value}
+      maxLength={maxQueryLength(keywordOnly)}
+      onSubmit={submit}
+      onChange={(event) => setSearchDraftLength(event.target.value.length)}
+    />
+  );
 }

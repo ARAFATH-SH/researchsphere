@@ -16,6 +16,28 @@ export function FuzzyNotice({ corrected, q }: { corrected: string; q: string }) 
   );
 }
 
+// HybridNote says the results were also found by meaning (AI-5.2).
+export function HybridNote() {
+  return (
+    <p className="text-rs-caption text-rs-text-muted">
+      Results include researchers whose work matches the meaning of your search.
+    </p>
+  );
+}
+
+// FallbackBanner says the search by meaning did not answer, so the results are keyword
+// matches only (AI-5.4). It offers no retry: the next search tries by meaning again.
+export function FallbackBanner() {
+  return (
+    <p
+      role="status"
+      className="rounded-rs-xs border border-rs-warning-line bg-rs-warning-soft px-3 py-2.5 text-rs-body text-rs-warning"
+    >
+      Smart search is unavailable right now. Showing keyword matches.
+    </p>
+  );
+}
+
 // lastPage is the number of pages the API can return for total results.
 function lastPage({ total, pageSize }: PeopleSearchPage): number {
   return Math.min(maxPage, Math.max(1, Math.ceil(total / pageSize)));
@@ -47,12 +69,19 @@ function PersonRow({ person }: { person: PersonSearchResult }) {
     <li className="flex items-start gap-3 border-b border-rs-divider px-4 py-3.5">
       <Avatar name={person.fullName} src={person.photoUrl} size="result" decorative />
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <Link
-          href={`/profile/${person.userId}`}
-          className="self-start rounded-rs-2xs text-rs-lead font-bold text-rs-text no-underline hover:text-rs-accent-hover hover:underline focus-visible:shadow-focus focus-visible:outline-none"
-        >
-          {person.fullName}
-        </Link>
+        <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <Link
+            href={`/profile/${person.userId}`}
+            className="rounded-rs-2xs text-rs-lead font-bold text-rs-text no-underline hover:text-rs-accent-hover hover:underline focus-visible:shadow-focus focus-visible:outline-none"
+          >
+            {person.fullName}
+          </Link>
+          {person.matchedOn === "meaning" && (
+            <span className="rounded-full bg-rs-accent-soft px-2.5 py-0.5 text-rs-caption font-medium text-rs-heading">
+              Related by meaning
+            </span>
+          )}
+        </span>
         {person.headline && <span className="text-rs-body text-rs-text">{person.headline}</span>}
         {person.institution && (
           <span className="text-rs-caption text-rs-text-muted">{person.institution}</span>
@@ -115,15 +144,29 @@ function Pages({ search, page, last }: { search: PeopleSearch; page: number; las
 }
 
 // NoResults is the empty state: a tip, and a link that clears the filters when any are on.
-export function NoResults({ search }: { search: PeopleSearch }) {
+// A search by meaning suggests other words; a keyword search, another spelling.
+export function NoResults({ search, mode }: { search: PeopleSearch; mode: PeopleSearchPage["mode"] }) {
   const filtered = search.institution !== "" || search.interests.length > 0;
   return (
     <div className={`${emptyCard} flex flex-col items-start gap-1.5 px-4 py-3.5`}>
-      <h2 className="text-rs-lead leading-rs-snug font-medium text-rs-text">No researchers match “{search.q}”.</h2>
-      <p className="text-rs-body text-rs-text-muted">Try a different spelling, or search by institution or interest.</p>
+      {mode === "hybrid" ? (
+        <>
+          <h2 className="text-rs-lead leading-rs-snug font-medium text-rs-text">No researchers found.</h2>
+          <p className="text-rs-body text-rs-text-muted">Try describing the research in different words.</p>
+        </>
+      ) : (
+        <>
+          <h2 className="text-rs-lead leading-rs-snug font-medium text-rs-text">
+            No researchers match “{search.q}”.
+          </h2>
+          <p className="text-rs-body text-rs-text-muted">
+            Try a different spelling, or search by institution or interest.
+          </p>
+        </>
+      )}
       {filtered && (
         <Link
-          href={searchHref({ q: search.q, institution: "", interests: [], page: 1 })}
+          href={searchHref({ ...search, institution: "", interests: [], page: 1 })}
           className="rounded-rs-2xs text-rs-body font-medium text-rs-accent-strong hover:text-rs-accent-hover hover:underline focus-visible:shadow-focus focus-visible:outline-none"
         >
           Reset filters

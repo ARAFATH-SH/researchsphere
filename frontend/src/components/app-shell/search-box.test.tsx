@@ -1,6 +1,7 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, renderHook, screen } from "@testing-library/react";
 
 import { SearchBox } from "./search-box";
+import { useSearchDraftLength } from "./search-draft";
 
 const mockPush = jest.fn();
 let mockPathname = "/home";
@@ -48,5 +49,32 @@ describe("SearchBox", () => {
     mockSearch = "q=ada";
     render(<SearchBox id="s" variant="top" />);
     expect(screen.getByLabelText<HTMLInputElement>("Search").value).toBe("");
+  });
+
+  it("accepts a 300-character plain-language query", () => {
+    render(<SearchBox id="s" variant="top" />);
+    expect(screen.getByLabelText<HTMLInputElement>("Search").maxLength).toBe(300);
+    const long = "robots that help older people live alone ".repeat(8).slice(0, 300);
+    submit(long);
+    expect(mockPush).toHaveBeenCalledWith(`/search?${new URLSearchParams({ q: long.trim() })}`);
+  });
+
+  it("takes up to 100 characters and keeps Keyword on the search page in keyword mode", () => {
+    mockPathname = "/search";
+    mockSearch = "q=ada&institution=BUET&mode=keyword";
+    render(<SearchBox id="s" variant="top" />);
+    expect(screen.getByLabelText<HTMLInputElement>("Search").maxLength).toBe(100);
+    submit("lovelace");
+    expect(mockPush).toHaveBeenCalledWith("/search?q=lovelace&mode=keyword");
+  });
+
+  it("shares the length of the text being typed", () => {
+    mockPathname = "/search";
+    mockSearch = "q=ada";
+    const { result } = renderHook(() => useSearchDraftLength());
+    render(<SearchBox id="s" variant="top" />);
+    expect(result.current).toBe(3);
+    fireEvent.change(screen.getByLabelText("Search"), { target: { value: "x".repeat(260) } });
+    expect(result.current).toBe(260);
   });
 });
