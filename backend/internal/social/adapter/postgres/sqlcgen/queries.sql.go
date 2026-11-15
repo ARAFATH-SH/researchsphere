@@ -146,9 +146,10 @@ func (q *Queries) BlockedAmong(ctx context.Context, arg BlockedAmongParams) ([]p
 	return items, nil
 }
 
-const cancelRequest = `-- name: CancelRequest :execrows
+const cancelRequest = `-- name: CancelRequest :one
 DELETE FROM connections
 WHERE id = $1 AND requester_id = $2 AND status = 'pending'
+RETURNING receiver_id
 `
 
 type CancelRequestParams struct {
@@ -157,13 +158,12 @@ type CancelRequestParams struct {
 }
 
 // A cancelled request is deleted: the enum has no cancelled state, and nothing else
-// refers to it.
-func (q *Queries) CancelRequest(ctx context.Context, arg CancelRequestParams) (int64, error) {
-	result, err := q.db.Exec(ctx, cancelRequest, arg.ID, arg.RequesterID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
+// refers to it. It returns the receiver, whose recommendations change with it.
+func (q *Queries) CancelRequest(ctx context.Context, arg CancelRequestParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, cancelRequest, arg.ID, arg.RequesterID)
+	var receiver_id pgtype.UUID
+	err := row.Scan(&receiver_id)
+	return receiver_id, err
 }
 
 const countBlocks = `-- name: CountBlocks :one

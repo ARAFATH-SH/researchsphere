@@ -153,9 +153,12 @@ func (s *Store) AcceptRequest(ctx context.Context, requestID, receiverID string)
 }
 
 // RejectRequest keeps the row as history; it no longer blocks a new request (FR-7.6).
-func (s *Store) RejectRequest(ctx context.Context, requestID, receiverID string) error {
-	_, err := s.answer(ctx, requestID, receiverID, sqlcgen.ConnectionStatusRejected)
-	return err
+func (s *Store) RejectRequest(ctx context.Context, requestID, receiverID string) (string, error) {
+	row, err := s.answer(ctx, requestID, receiverID, sqlcgen.ConnectionStatusRejected)
+	if err != nil {
+		return "", err
+	}
+	return row.RequesterID.String(), nil
 }
 
 func (s *Store) answer(ctx context.Context, requestID, receiverID string, status sqlcgen.ConnectionStatus) (sqlcgen.AnswerRequestRow, error) {
@@ -176,20 +179,20 @@ func (s *Store) answer(ctx context.Context, requestID, receiverID string, status
 
 // CancelRequest returns domain.ErrNotFound unless requesterID sent the request and it is
 // pending.
-func (s *Store) CancelRequest(ctx context.Context, requestID, requesterID string) error {
+func (s *Store) CancelRequest(ctx context.Context, requestID, requesterID string) (string, error) {
 	id, ok1 := parseUUID(requestID)
 	from, ok2 := parseUUID(requesterID)
 	if !ok1 || !ok2 {
-		return domain.ErrNotFound
+		return "", domain.ErrNotFound
 	}
-	n, err := s.q(ctx).CancelRequest(ctx, sqlcgen.CancelRequestParams{ID: id, RequesterID: from})
+	to, err := s.q(ctx).CancelRequest(ctx, sqlcgen.CancelRequestParams{ID: id, RequesterID: from})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", domain.ErrNotFound
+	}
 	if err != nil {
-		return fmt.Errorf("cancel connection request: %w", err)
+		return "", fmt.Errorf("cancel connection request: %w", err)
 	}
-	if n == 0 {
-		return domain.ErrNotFound
-	}
-	return nil
+	return to.String(), nil
 }
 
 // RemoveConnection returns domain.ErrNotFound when the two are not connected.

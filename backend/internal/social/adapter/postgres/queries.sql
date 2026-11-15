@@ -51,11 +51,12 @@ WHERE c.id = @id AND c.receiver_id = @receiver_id AND c.status = 'pending'
   AND s.id = c.requester_id AND s.email_verified_at IS NOT NULL AND s.suspended_at IS NULL
 RETURNING c.id, c.requester_id, c.receiver_id, c.created_at, c.responded_at;
 
--- name: CancelRequest :execrows
+-- name: CancelRequest :one
 -- A cancelled request is deleted: the enum has no cancelled state, and nothing else
--- refers to it.
+-- refers to it. It returns the receiver, whose recommendations change with it.
 DELETE FROM connections
-WHERE id = @id AND requester_id = @requester_id AND status = 'pending';
+WHERE id = @id AND requester_id = @requester_id AND status = 'pending'
+RETURNING receiver_id;
 
 -- name: RemoveConnection :execrows
 DELETE FROM connections

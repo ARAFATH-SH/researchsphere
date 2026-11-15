@@ -65,7 +65,7 @@ func TestRemoveLiveLink(t *testing.T) {
 	ada, bob, cy := newUser(t, pool, "Ada"), newUser(t, pool, "Bob"), newUser(t, pool, "Cy")
 	pending := create(t, s, ada, bob)
 	rejected := create(t, s, ada, cy)
-	if err := s.RejectRequest(ctx, rejected.ID, cy); err != nil {
+	if _, err := s.RejectRequest(ctx, rejected.ID, cy); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.RemoveLiveLink(ctx, bob, ada); err != nil {
