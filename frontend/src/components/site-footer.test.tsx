@@ -90,6 +90,7 @@ describe("SiteFooter compact", () => {
 describe("footerFor", () => {
   it.each([
     ["/home", "compact"],
+    ["/network/recommendations", "compact"],
     ["/messaging", "none"],
     ["/messaging/abc", "none"],
     ["/projects/123/workspace", "none"],
