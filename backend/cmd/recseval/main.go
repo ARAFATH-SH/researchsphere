@@ -6,7 +6,12 @@
 //   - eval (make eval-recs) measures NFR-6 on the held-out TEST split: precision@10 and
 //     recall@10 against "relevant = same main cluster";
 //   - bench (make bench-recs) measures NFR-1: the endpoint's work for 200 random sample users,
-//     p50, p95 and max, and EXPLAIN ANALYZE of the ranking query.
+//     p50, p95 and max, and EXPLAIN ANALYZE of the ranking query;
+//   - eval-search (make eval-search) measures AI-5.2 for hybrid researcher search (slice 18):
+//     precision@10 of plain-language queries that share no word with their cluster, among
+//     TEST split profiles, hybrid against keyword;
+//   - bench-search (make bench-search) measures NFR-1 for hybrid search: p50, p95 and max
+//     with a cold and a cached query vector, and EXPLAIN ANALYZE of the meaning query.
 //
 // Definitions and results are in docs/evaluation.md. It reads DATABASE_URL and APP_ENV and
 // refuses anything but a local development database (checkTarget). It only reads. The test
@@ -59,7 +64,7 @@ func parseFlags(args []string) (options, error) {
 		return o, err
 	}
 	if fs.NArg() != 1 {
-		return o, errors.New("usage: recseval [-seed N] [-n N] calibrate|eval|bench")
+		return o, errors.New("usage: recseval [-seed N] [-n N] calibrate|eval|bench|eval-search|bench-search")
 	}
 	o.mode = fs.Arg(0)
 	switch o.mode {
@@ -67,7 +72,7 @@ func parseFlags(args []string) (options, error) {
 		if o.queries == 0 {
 			o.queries = 2000
 		}
-	case "bench":
+	case "bench", "bench-search":
 		if o.queries == 0 {
 			o.queries = 200
 		}
@@ -75,8 +80,12 @@ func parseFlags(args []string) (options, error) {
 		if o.queries != 0 {
 			return o, errors.New("eval uses every test profile; -n does not apply")
 		}
+	case "eval-search":
+		if o.queries != 0 {
+			return o, errors.New("eval-search uses every evaluation query; -n does not apply")
+		}
 	default:
-		return o, fmt.Errorf("unknown mode %q: use calibrate, eval or bench", o.mode)
+		return o, fmt.Errorf("unknown mode %q: use calibrate, eval, bench, eval-search or bench-search", o.mode)
 	}
 	if o.queries < 0 || o.queries > 10_000 {
 		return o, errors.New("-n must be 1 to 10000")
@@ -108,6 +117,15 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	switch o.mode {
 	case "calibrate":
 		return calibrate(ctx, pool, s, o, out)
+	case "eval-search", "bench-search":
+		ai, err := newAI(getenv)
+		if err != nil {
+			return err
+		}
+		if o.mode == "eval-search" {
+			return evaluateSearch(ctx, pool, s, ai, out)
+		}
+		return benchSearch(ctx, pool, s, ai, o, out)
 	case "eval":
 		cfg, err := scoreMapFromEnv(getenv)
 		if err != nil {

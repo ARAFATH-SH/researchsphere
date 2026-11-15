@@ -353,19 +353,19 @@ func (e LinkKind) Valid() bool {
 
 // Defines values for LocationType.
 const (
-	Hybrid LocationType = "hybrid"
-	OnSite LocationType = "on_site"
-	Remote LocationType = "remote"
+	LocationTypeHybrid LocationType = "hybrid"
+	LocationTypeOnSite LocationType = "on_site"
+	LocationTypeRemote LocationType = "remote"
 )
 
 // Valid indicates whether the value is a known member of the LocationType enum.
 func (e LocationType) Valid() bool {
 	switch e {
-	case Hybrid:
+	case LocationTypeHybrid:
 		return true
-	case OnSite:
+	case LocationTypeOnSite:
 		return true
-	case Remote:
+	case LocationTypeRemote:
 		return true
 	default:
 		return false
@@ -612,11 +612,33 @@ func (e PeopleRecommendationsState) Valid() bool {
 	}
 }
 
+// Defines values for PeopleSearchPageMode.
+const (
+	PeopleSearchPageModeHybrid          PeopleSearchPageMode = "hybrid"
+	PeopleSearchPageModeKeyword         PeopleSearchPageMode = "keyword"
+	PeopleSearchPageModeKeywordFallback PeopleSearchPageMode = "keyword_fallback"
+)
+
+// Valid indicates whether the value is a known member of the PeopleSearchPageMode enum.
+func (e PeopleSearchPageMode) Valid() bool {
+	switch e {
+	case PeopleSearchPageModeHybrid:
+		return true
+	case PeopleSearchPageModeKeyword:
+		return true
+	case PeopleSearchPageModeKeywordFallback:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PersonSearchResultMatchedOn.
 const (
 	Headline    PersonSearchResultMatchedOn = "headline"
 	Institution PersonSearchResultMatchedOn = "institution"
 	Interest    PersonSearchResultMatchedOn = "interest"
+	Meaning     PersonSearchResultMatchedOn = "meaning"
 	Name        PersonSearchResultMatchedOn = "name"
 )
 
@@ -628,6 +650,8 @@ func (e PersonSearchResultMatchedOn) Valid() bool {
 	case Institution:
 		return true
 	case Interest:
+		return true
+	case Meaning:
 		return true
 	case Name:
 		return true
@@ -867,6 +891,24 @@ func (e Visibility) Valid() bool {
 	case LoggedIn:
 		return true
 	case OnlyMe:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SearchPeopleParamsMode.
+const (
+	SearchPeopleParamsModeAuto    SearchPeopleParamsMode = "auto"
+	SearchPeopleParamsModeKeyword SearchPeopleParamsMode = "keyword"
+)
+
+// Valid indicates whether the value is a known member of the SearchPeopleParamsMode enum.
+func (e SearchPeopleParamsMode) Valid() bool {
+	switch e {
+	case SearchPeopleParamsModeAuto:
+		return true
+	case SearchPeopleParamsModeKeyword:
 		return true
 	default:
 		return false
@@ -2185,7 +2227,12 @@ type PeopleSearchPage struct {
 	// (FR-6.2).
 	Fuzzy bool                 `json:"fuzzy"`
 	Items []PersonSearchResult `json:"items"`
-	Page  int                  `json:"page"`
+
+	// Mode How the results were found: `hybrid` by keyword and meaning, `keyword` because
+	// the request asked for it, `keyword_fallback` by keyword only because the AI
+	// service did not answer (AI-5.4).
+	Mode PeopleSearchPageMode `json:"mode"`
+	Page int                  `json:"page"`
 
 	// PageSize Always 20 (FR-6.1).
 	PageSize int `json:"pageSize"`
@@ -2193,6 +2240,11 @@ type PeopleSearchPage struct {
 	// Total The number of results on all pages, with every filter applied.
 	Total int `json:"total"`
 }
+
+// PeopleSearchPageMode How the results were found: `hybrid` by keyword and meaning, `keyword` because
+// the request asked for it, `keyword_fallback` by keyword only because the AI
+// service did not answer (AI-5.4).
+type PeopleSearchPageMode string
 
 // PersonRecommendation defines model for PersonRecommendation.
 type PersonRecommendation struct {
@@ -2243,7 +2295,8 @@ type PersonSearchResult struct {
 	// selected interest first, then by name.
 	Interests []string `json:"interests"`
 
-	// MatchedOn The field of the result's best match.
+	// MatchedOn The field of the result's best keyword match, or `meaning` when only the search by
+	// meaning found it (hybrid mode, AI-5.2).
 	MatchedOn PersonSearchResultMatchedOn `json:"matchedOn"`
 
 	// PhotoUrl The profile photo as `/api/v1/media/{fileId}`; null when not set.
@@ -2251,7 +2304,8 @@ type PersonSearchResult struct {
 	UserId   openapi_types.UUID `json:"userId"`
 }
 
-// PersonSearchResultMatchedOn The field of the result's best match.
+// PersonSearchResultMatchedOn The field of the result's best keyword match, or `meaning` when only the search by
+// meaning found it (hybrid mode, AI-5.2).
 type PersonSearchResultMatchedOn string
 
 // PresenceList defines model for PresenceList.
@@ -3399,10 +3453,15 @@ type RecommendPeopleParams struct {
 
 // SearchPeopleParams defines parameters for SearchPeople.
 type SearchPeopleParams struct {
-	// Q The search text, 2 to 100 characters after trimming. It is required: it is
-	// declared optional only so that a missing `q` gets 400 `invalid_query`, like a
-	// too short one, instead of the generic `bad_request`.
+	// Q The search text after trimming: 2 to 300 characters in `auto` mode (AI-5.1), 2 to
+	// 100 in `keyword` mode. It is required: it is declared optional only so that a
+	// missing `q` gets 400 `invalid_query`, like a too short one, instead of the generic
+	// `bad_request`.
 	Q *string `form:"q,omitempty" json:"q,omitempty"`
+
+	// Mode `auto` searches by keyword and by meaning (AI-5); `keyword` only by keyword, as
+	// before AI-5, and never calls the AI service. Any other value gets 400 `bad_request`.
+	Mode *SearchPeopleParamsMode `form:"mode,omitempty" json:"mode,omitempty"`
 
 	// Institution Keep only results whose institution equals this, ignoring letter case and
 	// spaces around it. Empty means no filter; more than 200 characters gets 400
@@ -3417,6 +3476,9 @@ type SearchPeopleParams struct {
 	// Page The page to return, 1 to 50, 20 results each (FR-6.1). Defaults to 1.
 	Page *int `form:"page,omitempty" json:"page,omitempty"`
 }
+
+// SearchPeopleParamsMode defines parameters for SearchPeople.
+type SearchPeopleParamsMode string
 
 // SuggestInterestTagsParams defines parameters for SuggestInterestTags.
 type SuggestInterestTagsParams struct {
@@ -3886,7 +3948,7 @@ type ServerInterface interface {
 	// RecommendPeople Researchers whose profiles are most similar to the caller's (AI-2.1, AI-2.2, AI-2.4, AI-4)
 	// (GET /recommendations/people)
 	RecommendPeople(w http.ResponseWriter, r *http.Request, params RecommendPeopleParams)
-	// SearchPeople Search researchers by name, institution, research interest or headline (FR-6.1 to FR-6.3)
+	// SearchPeople Search researchers by name, institution, research interest, headline or meaning (FR-6.1 to FR-6.3, AI-5.1, AI-5.2, AI-5.4)
 	// (GET /search/people)
 	SearchPeople(w http.ResponseWriter, r *http.Request, params SearchPeopleParams)
 	// SuggestInterestTags Suggest existing research interest tags while the user types (FR-4.3)
@@ -7153,6 +7215,19 @@ func (siw *ServerInterfaceWrapper) SearchPeople(w http.ResponseWriter, r *http.R
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "mode" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "mode", r.URL.Query(), &params.Mode, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "mode"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "mode", Err: err})
 		}
 		return
 	}
@@ -17352,7 +17427,7 @@ type StrictServerInterface interface {
 	// RecommendPeople Researchers whose profiles are most similar to the caller's (AI-2.1, AI-2.2, AI-2.4, AI-4)
 	// (GET /recommendations/people)
 	RecommendPeople(ctx context.Context, request RecommendPeopleRequestObject) (RecommendPeopleResponseObject, error)
-	// SearchPeople Search researchers by name, institution, research interest or headline (FR-6.1 to FR-6.3)
+	// SearchPeople Search researchers by name, institution, research interest, headline or meaning (FR-6.1 to FR-6.3, AI-5.1, AI-5.2, AI-5.4)
 	// (GET /search/people)
 	SearchPeople(ctx context.Context, request SearchPeopleRequestObject) (SearchPeopleResponseObject, error)
 	// SuggestInterestTags Suggest existing research interest tags while the user types (FR-4.3)

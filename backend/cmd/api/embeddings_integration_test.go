@@ -21,13 +21,16 @@ import (
 
 const fakeServiceModel = "intfloat/multilingual-e5-base@fake"
 
-// fakeAIService speaks the AI service's protocol (GET /ready, POST /embed-document) over
-// HTTP, so the real aiclient.Client is used. down makes it answer 503 model_loading.
+// fakeAIService speaks the AI service's protocol (GET /ready, POST /embed-document and
+// POST /embed) over HTTP, so the real aiclient.Client is used. down makes it answer 503
+// model_loading; slow makes /embed wait 5 s (or until the caller gives up).
 type fakeAIService struct {
-	down  atomic.Bool
-	mu    sync.Mutex
-	texts []string
-	url   string
+	down    atomic.Bool
+	slow    atomic.Bool
+	mu      sync.Mutex
+	texts   []string
+	queries []string // the texts of /embed calls of kind query
+	url     string
 }
 
 func newFakeAIService(t *testing.T) *fakeAIService {
@@ -59,6 +62,33 @@ func newFakeAIService(t *testing.T) *fakeAIService {
 				"model": fakeServiceModel, "dimensions": aiclient.Dimensions,
 				"vector": aiclient.FakeVector(aiclient.KindPassage, body.Text), "chunks": 1, "truncated": false,
 			})
+		case "/embed":
+			if f.slow.Load() {
+				select {
+				case <-r.Context().Done():
+				case <-time.After(5 * time.Second):
+				}
+				w.WriteHeader(http.StatusGatewayTimeout)
+				return
+			}
+			var body struct {
+				Kind  aiclient.Kind `json:"kind"`
+				Texts []string      `json:"texts"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Texts) == 0 {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			vectors := make([][]float32, len(body.Texts))
+			f.mu.Lock()
+			for i, text := range body.Texts {
+				vectors[i] = aiclient.FakeVector(body.Kind, text)
+				if body.Kind == aiclient.KindQuery {
+					f.queries = append(f.queries, text)
+				}
+			}
+			f.mu.Unlock()
+			_ = json.NewEncoder(w).Encode(map[string]any{"model": fakeServiceModel, "dimensions": aiclient.Dimensions, "vectors": vectors})
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -70,6 +100,12 @@ func newFakeAIService(t *testing.T) *fakeAIService {
 
 func (f *fakeAIService) client() *aiclient.Client {
 	return aiclient.New(aiclient.Config{BaseURL: f.url, Token: "test-ai-service-token-0123456789abcd", RetryDelay: time.Millisecond})
+}
+
+func (f *fakeAIService) queried() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.queries...)
 }
 
 func (f *fakeAIService) sent() []string {

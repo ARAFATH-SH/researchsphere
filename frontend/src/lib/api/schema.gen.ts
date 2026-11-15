@@ -2381,7 +2381,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Search researchers by name, institution, research interest or headline (FR-6.1 to FR-6.3)
+         * Search researchers by name, institution, research interest, headline or meaning (FR-6.1 to FR-6.3, AI-5.1, AI-5.2, AI-5.4)
          * @description Needs the access cookie and the platform action "View profiles, search, feed,
          *     events and recommendations" (SRS 2.3). Only verified accounts that are not
          *     suspended are found, as with `GET /profiles/{userId}`, and never anyone who has
@@ -2402,7 +2402,25 @@ export interface paths {
          *
          *     `institution` and `interest` narrow the results (FR-6.3). Each facet is counted
          *     with every filter except its own group, so selecting one option keeps the others
-         *     listed. Each user may search 60 times a minute.
+         *     listed. Each user may search 60 times a minute, in either mode.
+         *
+         *     **Modes.** `mode=keyword` is the search above, unchanged, and the answer's `mode` is
+         *     `keyword`. `mode=auto` (the default) also searches by meaning (AI-5.1, AI-5.2): the
+         *     text is embedded by the AI service and compared with every visible profile's
+         *     embedding. The 50 best keyword results (the order above) and the 50 profiles closest
+         *     in meaning, both with the same visibility rules and filters, are merged by reciprocal
+         *     rank fusion (k = 60), and the answer's `mode` is `hybrid`. Ranking never uses
+         *     citation, publication or connection counts (AI-2.4). A strong name match always
+         *     comes first, in keyword order: a full name equal to `q`, or a full name that starts
+         *     with `q` when `q` is at least 3 characters, both ignoring letter case and accents
+         *     ("jose" finds "José"; Bangla text is compared as written). A result found only by
+         *     meaning has `matchedOn: meaning`. In hybrid mode `total` is the size of the merged
+         *     list, cut at 100, so there are at most 5 pages and a later page is empty; facets are counted over the merged list, each without its own filter as
+         *     above; `fuzzy` and `correctedQuery` come from the keyword side.
+         *
+         *     When the AI service does not answer within a short time (1.5 s by default) or answers
+         *     with an error, the keyword search runs instead and `mode` is `keyword_fallback`
+         *     (AI-5.4), so the client can say so.
          */
         get: operations["searchPeople"];
         put?: never;
@@ -4136,6 +4154,13 @@ export interface components {
             total: number;
         };
         PeopleSearchPage: {
+            /**
+             * @description How the results were found: `hybrid` by keyword and meaning, `keyword` because
+             *     the request asked for it, `keyword_fallback` by keyword only because the AI
+             *     service did not answer (AI-5.4).
+             * @enum {string}
+             */
+            mode: "hybrid" | "keyword" | "keyword_fallback";
             items: components["schemas"]["PersonSearchResult"][];
             /** @description The number of results on all pages, with every filter applied. */
             total: number;
@@ -4168,10 +4193,11 @@ export interface components {
              */
             interests: string[];
             /**
-             * @description The field of the result's best match.
+             * @description The field of the result's best keyword match, or `meaning` when only the search by
+             *     meaning found it (hybrid mode, AI-5.2).
              * @enum {string}
              */
-            matchedOn: "name" | "institution" | "interest" | "headline";
+            matchedOn: "name" | "institution" | "interest" | "headline" | "meaning";
             connectionStatus: components["schemas"]["ConnectionStatus"];
             /**
              * Format: uuid
@@ -8934,12 +8960,18 @@ export interface operations {
         parameters: {
             query?: {
                 /**
-                 * @description The search text, 2 to 100 characters after trimming. It is required: it is
-                 *     declared optional only so that a missing `q` gets 400 `invalid_query`, like a
-                 *     too short one, instead of the generic `bad_request`.
+                 * @description The search text after trimming: 2 to 300 characters in `auto` mode (AI-5.1), 2 to
+                 *     100 in `keyword` mode. It is required: it is declared optional only so that a
+                 *     missing `q` gets 400 `invalid_query`, like a too short one, instead of the generic
+                 *     `bad_request`.
                  * @example Rahman
                  */
                 q?: string;
+                /**
+                 * @description `auto` searches by keyword and by meaning (AI-5); `keyword` only by keyword, as
+                 *     before AI-5, and never calls the AI service. Any other value gets 400 `bad_request`.
+                 */
+                mode?: "auto" | "keyword";
                 /**
                  * @description Keep only results whose institution equals this, ignoring letter case and
                  *     spaces around it. Empty means no filter; more than 200 characters gets 400
@@ -8971,8 +9003,9 @@ export interface operations {
                 };
             };
             /**
-             * @description `q` is missing or not 2 to 100 characters after trimming (`invalid_query`), or
-             *     `institution`, `interest` or `page` is not valid (`bad_request`).
+             * @description `q` is missing or, after trimming, not 2 to 300 characters in `auto` mode or 2 to
+             *     100 in `keyword` mode (`invalid_query`), or `mode`, `institution`, `interest` or
+             *     `page` is not valid (`bad_request`).
              */
             400: {
                 headers: {

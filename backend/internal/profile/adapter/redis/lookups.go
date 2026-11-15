@@ -1,5 +1,5 @@
 // Package redis implements the profile domain's WorkCache, ORCIDWorksCache,
-// LookupLimiter and SearchLimiter with Redis: fetched DOI metadata and ORCID works lists
+// LookupLimiter, SearchLimiter and QueryVectorCache with Redis: fetched DOI metadata and ORCID works lists
 // kept for a while, and counters per user that expire at the end of their window
 // (FR-5.2, FR-5.3, FR-6, docs/decisions.md).
 package redis

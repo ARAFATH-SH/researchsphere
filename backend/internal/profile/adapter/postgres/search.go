@@ -160,8 +160,6 @@ func page(ctx context.Context, q *sqlcgen.Queries, f filters, lim limits) ([]dom
 		return nil, fmt.Errorf("list results: %w", err)
 	}
 	hits := make([]domain.PersonHit, len(rows))
-	ids := make([]pgtype.UUID, len(rows))
-	byID := make(map[string]*domain.PersonHit, len(rows))
 	for i, r := range rows {
 		hits[i] = domain.PersonHit{
 			UserID:      r.UserID.String(),
@@ -172,22 +170,9 @@ func page(ctx context.Context, q *sqlcgen.Queries, f filters, lim limits) ([]dom
 			Interests:   []string{},
 			MatchedOn:   matchField(r.Rank),
 		}
-		ids[i] = r.UserID
-		byID[hits[i].UserID] = &hits[i]
 	}
-	if len(rows) == 0 {
-		return hits, nil
-	}
-	tags, err := q.ListSearchResultInterests(ctx, sqlcgen.ListSearchResultInterestsParams{
-		Pattern: f.pattern, Interests: f.interests, UserIds: ids,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("list result interests: %w", err)
-	}
-	for _, t := range tags {
-		if h := byID[t.UserID.String()]; h != nil && len(h.Interests) < resultInterests {
-			h.Interests = append(h.Interests, t.Name)
-		}
+	if err := addResultInterests(ctx, q, f, hits); err != nil {
+		return nil, err
 	}
 	return hits, nil
 }

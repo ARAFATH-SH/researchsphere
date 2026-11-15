@@ -18,7 +18,13 @@ const CodeInvalidQuery = "invalid_query"
 
 var (
 	invalidQuery = gen.SearchPeople400JSONResponse{
-		Code: CodeInvalidQuery, Message: "Enter 2 to 100 characters to search.",
+		Code: CodeInvalidQuery, Message: "Enter 2 to 300 characters to search.",
+	}
+	invalidKeywordQuery = gen.SearchPeople400JSONResponse{
+		Code: CodeInvalidQuery, Message: "Enter 2 to 100 characters to search by keyword.",
+	}
+	badSearchMode = gen.SearchPeople400JSONResponse{
+		Code: httpx.CodeBadRequest, Message: "The search mode must be auto or keyword.", Field: ptrTo("mode"),
 	}
 	badSearchFilter = gen.SearchPeople400JSONResponse{
 		Code: httpx.CodeBadRequest, Message: "The search filters are not valid.",
@@ -29,7 +35,8 @@ var (
 )
 
 // SearchPeople searches researchers by name, institution, research interest and headline
-// (FR-6.1, FR-6.2), narrowed by institution and research interests (FR-6.3).
+// (FR-6.1, FR-6.2), narrowed by institution and research interests (FR-6.3), and in auto
+// mode by meaning too (AI-5.1, AI-5.2, AI-5.4).
 func (h *Handler) SearchPeople(ctx context.Context, req gen.SearchPeopleRequestObject) (gen.SearchPeopleResponseObject, error) {
 	id, ok := httpx.UserID(ctx)
 	if !ok {
@@ -43,11 +50,18 @@ func (h *Handler) SearchPeople(ctx context.Context, req gen.SearchPeopleRequestO
 	if p.Page != nil {
 		in.Page = *p.Page
 	}
+	if p.Mode != nil {
+		in.Mode = string(*p.Mode)
+	}
 	res, err := h.svc.SearchPeople(ctx, id, in)
 	var limited *domain.RateLimitedError
 	switch {
+	case errors.Is(err, domain.ErrInvalidQuery) && in.Mode == string(domain.SearchKeyword):
+		return invalidKeywordQuery, nil
 	case errors.Is(err, domain.ErrInvalidQuery):
 		return invalidQuery, nil
+	case errors.Is(err, domain.ErrInvalidSearchMode):
+		return badSearchMode, nil
 	case errors.Is(err, domain.ErrInvalidSearchFilter):
 		return badSearchFilter, nil
 	case errors.Is(err, domain.ErrInvalidPage):
@@ -97,6 +111,7 @@ func searchPageBody(res domain.PeopleResults, page int) (gen.PeopleSearchPage, e
 		}
 	}
 	return gen.PeopleSearchPage{
+		Mode:           gen.PeopleSearchPageMode(res.Mode),
 		Items:          items,
 		Total:          res.Total,
 		Page:           page,
@@ -117,3 +132,5 @@ func facetBodies(fs []domain.Facet) []gen.SearchFacet {
 	}
 	return out
 }
+
+func ptrTo(s string) *string { return &s }

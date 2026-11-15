@@ -57,6 +57,8 @@ Run these from the repository root. `make help` prints the current list.
 | `make calibrate-recs` | Fit the AI-2.2 recommendation score map on the sample TUNING split only (2,000 queries, seed 17) and print `RECS_SCORE_MODEL`, `RECS_SCORE_SLOPE` and `RECS_SCORE_INTERCEPT` with a calibration table; put them into the config defaults and `.env.example`. Run it again whenever the embedding model changes (`docs/evaluation.md`). Needs the 10,000 embedded sample profiles and `APP_ENV=development`; reads only |
 | `make eval-recs` | Measure NFR-6 collaborator matching on the held-out sample TEST split: recall@10 (capped), precision@10 and standard recall@10 against "relevant = same main cluster" and, beside it, "shares the main or second cluster", ranked as the endpoint ranks, with the score percentiles of random and top-10 pairs per group. Write the results into `docs/evaluation.md`. Never tune on its output. Needs `APP_ENV=development`; reads only |
 | `make bench-recs` | Measure NFR-1: the recommendation endpoint's uncached work for 200 random sample users (seed 17), printing p50, p95 and max (target p95 under 2 s), and EXPLAIN ANALYZE of the ranking query. Needs `APP_ENV=development`; reads only |
+| `make eval-search` | Measure AI-5.2 semantic researcher search on the held-out sample TEST split: precision@10 ("relevant = same main cluster") of the 40 queries in `backend/cmd/recseval/search_queries.json` (one English, one Bangla per cluster, sharing no word with the cluster's vocabulary), hybrid against keyword mode. Write the results into `docs/evaluation.md`. Never change a query after seeing its result. Needs the 10,000 embedded sample profiles, `APP_ENV=development` and the AI service (`AI_SERVICE_TOKEN`); reads only |
+| `make bench-search` | Measure NFR-1 for hybrid researcher search: the usecase's work for 200 search texts (seed 17), p50, p95 and max with a cold and a cached query vector (target p95 under 2 s, embedding included), and EXPLAIN ANALYZE of the meaning query. Needs `APP_ENV=development` and the AI service; reads only |
 | `make update-disposable-domains` | Download the latest list of disposable email domains (FR-17.2, CC0) into `backend/internal/auth/adapter/emaildomain/disposable_domains.txt`; review and commit the result |
 | `make api` | Run the API server (needs `make up`; settings from `.env`) |
 | `make web` | Run the web client dev server on port 3000; it forwards `/api/v1` to `API_URL` |
@@ -213,7 +215,7 @@ do not rename them.
   `TEST_EMAIL_DOMAINS` lists outside production. `sample_profiles` is their marker and the
   NFR-6 ground truth: no code under `internal/` reads it, only `cmd/seedsample` writes it, and
   only `cmd/seedsample` and `cmd/recseval` (the AI-2.2 calibration on the `tuning` split, the
-  NFR-6 evaluation on the `test` split) read it. For the NFR-6 collaborator matching
+  NFR-6 and AI-5.2 evaluations on the `test` split) read it. For the NFR-6 collaborator matching
   evaluation (slice 17), a candidate is relevant to a query profile from the `test` split when
   it has the same `main_cluster`; nothing is ever fitted on the `test` split. The auth usecase's
   `DeleteAccountByID` (deletion without a password) is for commands such as the sample purge;

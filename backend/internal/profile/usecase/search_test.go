@@ -11,15 +11,25 @@ import (
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/profile/domain"
 )
 
-// fakeSearcher records the query it gets.
+// fakeSearcher records the query it gets and which search ran.
 type fakeSearcher struct {
 	got       *domain.PeopleQuery
 	maxFacets int
 	res       domain.PeopleResults
+	hybrid    int                // hybrid searches run
+	keyword   int                // keyword searches run
+	vector    domain.QueryVector // of the last hybrid search
 }
 
 func (f *fakeSearcher) SearchPeople(_ context.Context, q domain.PeopleQuery, maxFacets int) (domain.PeopleResults, error) {
 	f.got, f.maxFacets = &q, maxFacets
+	f.keyword++
+	return f.res, nil
+}
+
+func (f *fakeSearcher) SearchPeopleHybrid(_ context.Context, q domain.PeopleQuery, v domain.QueryVector, maxFacets int) (domain.PeopleResults, error) {
+	f.got, f.maxFacets, f.vector = &q, maxFacets, v
+	f.hybrid++
 	return f.res, nil
 }
 
@@ -48,7 +58,18 @@ func TestSearchPeopleValidation(t *testing.T) {
 		{"empty text", SearchInput{Q: sp(""), Page: 1}, domain.PeopleQuery{}, domain.ErrInvalidQuery},
 		{"one character after trimming", SearchInput{Q: sp("  a  "), Page: 1}, domain.PeopleQuery{}, domain.ErrInvalidQuery},
 		{"only spaces", SearchInput{Q: sp("     "), Page: 1}, domain.PeopleQuery{}, domain.ErrInvalidQuery},
-		{"101 characters", SearchInput{Q: sp(strings.Repeat("a", 101)), Page: 1}, domain.PeopleQuery{}, domain.ErrInvalidQuery},
+		{"101 characters in keyword mode", SearchInput{Q: sp(strings.Repeat("a", 101)), Mode: "keyword", Page: 1},
+			domain.PeopleQuery{}, domain.ErrInvalidQuery},
+		{"101 characters in auto mode", SearchInput{Q: sp(strings.Repeat("a", 101)), Page: 1},
+			domain.PeopleQuery{Q: strings.Repeat("a", 101), Page: 1, PageSize: 20}, nil},
+		{"300 characters in auto mode", SearchInput{Q: sp(strings.Repeat("ক", 300)), Mode: "auto", Page: 1},
+			domain.PeopleQuery{Q: strings.Repeat("ক", 300), Page: 1, PageSize: 20}, nil},
+		{"301 characters in auto mode", SearchInput{Q: sp(strings.Repeat("a", 301)), Page: 1},
+			domain.PeopleQuery{}, domain.ErrInvalidQuery},
+		{"300 characters after trimming", SearchInput{Q: sp("  " + strings.Repeat("a", 300) + "  "), Page: 1},
+			domain.PeopleQuery{Q: strings.Repeat("a", 300), Page: 1, PageSize: 20}, nil},
+		{"unknown mode", SearchInput{Q: sp("Ada"), Mode: "semantic", Page: 1}, domain.PeopleQuery{}, domain.ErrInvalidSearchMode},
+		{"mode in upper case", SearchInput{Q: sp("Ada"), Mode: "AUTO", Page: 1}, domain.PeopleQuery{}, domain.ErrInvalidSearchMode},
 		{"not UTF-8", SearchInput{Q: sp("a\xffb"), Page: 1}, domain.PeopleQuery{}, domain.ErrInvalidQuery},
 		{"page 0", SearchInput{Q: sp("Ada"), Page: 0}, domain.PeopleQuery{}, domain.ErrInvalidPage},
 		{"page 51", SearchInput{Q: sp("Ada"), Page: 51}, domain.PeopleQuery{}, domain.ErrInvalidPage},

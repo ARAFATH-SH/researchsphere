@@ -609,3 +609,89 @@ FROM (
 ) r
 WHERE r.n <= 3
 ORDER BY r.user_id, r.n;
+
+-- Hybrid researcher search (AI-5.1, AI-5.2; slice 18). The keyword side is
+-- SearchPeoplePage above; these add the strong name matches, the search by meaning and the
+-- facets of the merged list. Every query applies the same visibility rule (verified, not
+-- suspended, nobody who has blocked the searcher, FR-16.9) and the same filters as the
+-- keyword queries. AI-2.4: nothing here reads publication, citation or connection counts or
+-- any other popularity signal (TestHybridQueriesReadNoPopularity checks this section).
+
+-- name: SetHNSWIterativeScan :exec
+-- HNSW iterative scan (pgvector 0.8): when the filters drop rows the index returned, the
+-- scan goes on until LIMIT rows pass. relaxed_order may return rows slightly out of order,
+-- so SemanticPeopleCandidates sorts again. Local to the transaction.
+SELECT set_config('hnsw.iterative_scan', 'relaxed_order', true);
+
+-- name: SetHNSWEfSearch :exec
+SELECT set_config('hnsw.ef_search', @ef_search::text, true);
+
+-- name: StrongNameMatches :many
+-- Profiles whose full name equals q, or starts with q when prefix_ok, ignoring letter case
+-- and accents (fold_name, migration 000030); profiles_folded_name_idx serves both tests.
+-- prefix_pattern is the folded LIKE pattern of q followed by %, with \ % _ escaped. Exact
+-- matches first, then the keyword order: whole-name similarity, name, user ID.
+SELECT p.user_id, p.full_name, p.headline, p.institution, p.photo_file_id,
+       (fold_name(p.full_name) = fold_name(@q::text))::boolean AS exact
+FROM profiles p
+JOIN users u ON u.id = p.user_id
+WHERE (fold_name(p.full_name) = fold_name(@q::text)
+       OR (@prefix_ok::boolean AND fold_name(p.full_name) LIKE fold_name(@prefix_pattern::text)))
+  AND u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL
+  AND NOT EXISTS (SELECT 1 FROM blocks x WHERE x.blocker_id = p.user_id AND x.blocked_id = @viewer_id::uuid)
+  AND (sqlc.narg(institution)::text IS NULL OR lower(p.institution) = lower(sqlc.narg(institution)::text))
+  AND (cardinality(@interests::text[]) = 0 OR cardinality(@interests::text[]) = (
+      SELECT count(*)
+      FROM user_interests l
+      WHERE l.user_id = p.user_id
+        AND l.interest_id IN (SELECT t.id FROM research_interests t WHERE lower(t.name::text) = ANY (@interests::text[]))))
+ORDER BY exact DESC, similarity(p.full_name, @q::text) DESC, p.full_name, p.user_id
+LIMIT @lim;
+
+-- name: SemanticPeopleCandidates :many
+-- The lim profiles whose embedding is closest in cosine distance to the query vector
+-- (AI-5.1), through profile_embeddings_hnsw_idx, among embeddings of the query's model
+-- (others are not comparable). The order is the cosine distance and nothing else, then the
+-- user ID for ties.
+WITH cand AS MATERIALIZED (
+    SELECT e.user_id, (e.embedding <=> CAST(@embedding::text AS vector))::float8 AS distance
+    FROM profile_embeddings e
+    JOIN users u ON u.id = e.user_id
+    JOIN profiles p ON p.user_id = e.user_id
+    WHERE e.model = @model::text
+      AND u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM blocks x WHERE x.blocker_id = e.user_id AND x.blocked_id = @viewer_id::uuid)
+      AND (sqlc.narg(institution)::text IS NULL OR lower(p.institution) = lower(sqlc.narg(institution)::text))
+      AND (cardinality(@interests::text[]) = 0 OR cardinality(@interests::text[]) = (
+          SELECT count(*)
+          FROM user_interests l
+          WHERE l.user_id = e.user_id
+            AND l.interest_id IN (SELECT t.id FROM research_interests t WHERE lower(t.name::text) = ANY (@interests::text[]))))
+    ORDER BY e.embedding <=> CAST(@embedding::text AS vector)
+    LIMIT @lim
+)
+SELECT cand.user_id, cand.distance, p.full_name, p.headline, p.institution, p.photo_file_id
+FROM cand
+JOIN profiles p ON p.user_id = cand.user_id
+ORDER BY cand.distance, cand.user_id;
+
+-- name: InstitutionFacetsAmong :many
+-- The institution facet of a merged hybrid list: like SearchInstitutionFacets, over ids.
+SELECT (mode() WITHIN GROUP (ORDER BY p.institution))::text AS name, count(*)::int AS n
+FROM profiles p
+WHERE p.user_id = ANY (@user_ids::uuid[])
+  AND btrim(coalesce(p.institution, '')) <> ''
+GROUP BY lower(p.institution)
+ORDER BY n DESC, lower(p.institution)
+LIMIT @max_facets;
+
+-- name: InterestFacetsAmong :many
+-- The interest facet of a merged hybrid list: like SearchInterestFacets, over ids.
+SELECT t.name::text AS name, count(*)::int AS n,
+       (lower(t.name::text) = ANY (@interests::text[]))::boolean AS selected
+FROM user_interests l
+JOIN research_interests t ON t.id = l.interest_id
+WHERE l.user_id = ANY (@user_ids::uuid[])
+GROUP BY t.id, t.name
+ORDER BY selected DESC, n DESC, t.name, t.id
+LIMIT @max_results;

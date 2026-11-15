@@ -142,7 +142,13 @@ func TestParseFlags(t *testing.T) {
 	if o, err := parseFlags([]string{"-n", "50", "bench"}); err != nil || o.queries != 50 {
 		t.Errorf("bench -n 50: %+v %v", o, err)
 	}
-	for _, bad := range [][]string{{}, {"tune"}, {"-n", "5", "eval"}, {"eval", "extra"}, {"-n", "-1", "bench"}} {
+	if o, err := parseFlags([]string{"bench-search"}); err != nil || o.queries != 200 {
+		t.Errorf("bench-search: %+v %v", o, err)
+	}
+	if o, err := parseFlags([]string{"eval-search"}); err != nil || o.mode != "eval-search" {
+		t.Errorf("eval-search: %+v %v", o, err)
+	}
+	for _, bad := range [][]string{{}, {"tune"}, {"-n", "5", "eval"}, {"eval", "extra"}, {"-n", "-1", "bench"}, {"-n", "5", "eval-search"}} {
 		if _, err := parseFlags(bad); err == nil {
 			t.Errorf("parseFlags(%q): no error", bad)
 		}

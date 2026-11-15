@@ -31,6 +31,7 @@ const ada: PersonSearchResult = {
 
 function resultPage(over: Partial<PeopleSearchPage> = {}): PeopleSearchPage {
   return {
+    mode: "hybrid",
     items: [ada],
     total: 1,
     page: 1,

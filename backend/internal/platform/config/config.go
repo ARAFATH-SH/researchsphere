@@ -56,6 +56,11 @@ const (
 	DefaultRecsScoreModel     = "intfloat/multilingual-e5-base@d128750597153bb5987e10b1c3493a34e5a4502a"
 	DefaultRecsScoreSlope     = 78.7208
 	DefaultRecsScoreIntercept = -70.2827
+
+	// DefaultSearchAITimeout is how long a hybrid search waits for its query embedding
+	// before it searches by keyword instead (AI-5.4). MaxSearchAITimeout keeps it short.
+	DefaultSearchAITimeout = 1500 * time.Millisecond
+	MaxSearchAITimeout     = 10 * time.Second
 )
 
 // MinAIServiceTokenLen is the shortest AI_SERVICE_TOKEN accepted; the AI service refuses a
@@ -154,6 +159,10 @@ type Config struct {
 	RecsScoreModel     string
 	RecsScoreSlope     float64
 	RecsScoreIntercept float64
+
+	// SearchAITimeout bounds the query embedding of a hybrid researcher search; after it
+	// the search falls back to keywords (AI-5.4).
+	SearchAITimeout time.Duration
 }
 
 // Load reads the settings through getenv (os.Getenv in main). Errors name the
@@ -341,6 +350,11 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	if cfg.RecsScoreIntercept, err = parseFloat("RECS_SCORE_INTERCEPT", getenv("RECS_SCORE_INTERCEPT"), DefaultRecsScoreIntercept); err != nil {
 		errs = append(errs, err)
+	}
+	if cfg.SearchAITimeout, err = parseDuration("SEARCH_AI_TIMEOUT", getenv("SEARCH_AI_TIMEOUT"), DefaultSearchAITimeout); err != nil {
+		errs = append(errs, err)
+	} else if cfg.SearchAITimeout > MaxSearchAITimeout {
+		errs = append(errs, fmt.Errorf("SEARCH_AI_TIMEOUT must be at most %s, so a search falls back to keywords quickly", MaxSearchAITimeout))
 	}
 
 	domains, err := parseDomains("TEST_EMAIL_DOMAINS", getenv("TEST_EMAIL_DOMAINS"))

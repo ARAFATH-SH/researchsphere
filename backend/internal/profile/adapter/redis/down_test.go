@@ -43,6 +43,12 @@ func TestLookupsReturnErrorsWhenRedisIsDown(t *testing.T) {
 	if err := l.ORCIDLimiter().Record(t.Context(), "u1", time.Hour); err == nil {
 		t.Error("ORCIDLimiter().Record() error = nil")
 	}
+	if _, _, err := l.QueryVectors().Get(t.Context(), "m@r", "x"); err == nil {
+		t.Error("QueryVectors().Get() error = nil")
+	}
+	if err := l.QueryVectors().Set(t.Context(), "x", domain.QueryVector{Model: "m@r", Values: []float32{1}}, time.Hour); err == nil {
+		t.Error("QueryVectors().Set() error = nil")
+	}
 	if d := time.Since(start); d > 3*time.Second {
 		t.Errorf("calls took %s, want them to give up quickly", d)
 	}
