@@ -21,22 +21,24 @@ import (
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpx"
 	profilehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/http"
 	realtimehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/realtime/adapter/http"
+	recommendationhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/recommendation/adapter/http"
 	socialhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/social/adapter/http"
 )
 
 // Every module's adapter type is called Handler; the aliases give the embedded fields
 // different names.
 type (
-	healthHandler       = healthhttp.Handler
-	authHandler         = authhttp.Handler
-	profileHandler      = profilehttp.Handler
-	mediaHandler        = mediahttp.Handler
-	socialHandler       = socialhttp.Handler
-	notificationHandler = notificationhttp.Handler
-	messagingHandler    = messaginghttp.Handler
-	moderationHandler   = moderationhttp.Handler
-	realtimeHandler     = realtimehttp.Handler
-	embeddingHandler    = embeddinghttp.Handler
+	healthHandler         = healthhttp.Handler
+	authHandler           = authhttp.Handler
+	profileHandler        = profilehttp.Handler
+	mediaHandler          = mediahttp.Handler
+	socialHandler         = socialhttp.Handler
+	notificationHandler   = notificationhttp.Handler
+	messagingHandler      = messaginghttp.Handler
+	moderationHandler     = moderationhttp.Handler
+	realtimeHandler       = realtimehttp.Handler
+	embeddingHandler      = embeddinghttp.Handler
+	recommendationHandler = recommendationhttp.Handler
 )
 
 // handlers implements every operation in the contract by embedding each module's HTTP
@@ -52,6 +54,7 @@ type handlers struct {
 	*moderationHandler
 	*realtimeHandler
 	*embeddingHandler
+	*recommendationHandler
 }
 
 var _ gen.StrictServerInterface = handlers{}
@@ -152,6 +155,8 @@ var platformGuards = map[string]authz.Action{
 
 	// Researcher search (FR-6) is the row "View profiles, search, ...".
 	"GET /api/v1/search/people": authz.ViewContent,
+	// Collaborator recommendations (AI-2) are the same row ("... and recommendations").
+	"GET /api/v1/recommendations/people": authz.ViewContent,
 
 	// Connections (FR-7): sending and answering requests and removing a connection are
 	// the row "Edit own profile, connect, ..."; the lists are viewing content.
@@ -327,7 +332,7 @@ func guardPlatform(next http.Handler) http.Handler {
 // Tests pass fakes; run passes the real PostgreSQL, Redis, SMTP and AI service adapters. requireAuth
 // guards the operations the contract secures (httpx.RequireAuth); guardPlatform runs
 // inside it, and limitBody inside that.
-func newRouter(logger *slog.Logger, db, redis, storage, ai healthdomain.Pinger, auth *authhttp.Handler, profile *profilehttp.Handler, media *mediahttp.Handler, social *socialhttp.Handler, notifications *notificationhttp.Handler, messaging *messaginghttp.Handler, moderation *moderationhttp.Handler, realtime *realtimehttp.Handler, embedding *embeddinghttp.Handler, requireAuth func(http.Handler) http.Handler) http.Handler {
+func newRouter(logger *slog.Logger, db, redis, storage, ai healthdomain.Pinger, auth *authhttp.Handler, profile *profilehttp.Handler, media *mediahttp.Handler, social *socialhttp.Handler, notifications *notificationhttp.Handler, messaging *messaginghttp.Handler, moderation *moderationhttp.Handler, realtime *realtimehttp.Handler, embedding *embeddinghttp.Handler, recommendation *recommendationhttp.Handler, requireAuth func(http.Handler) http.Handler) http.Handler {
 	checker := healthusecase.New(healthusecase.DefaultTimeout,
 		healthdomain.Dependency{Name: "database", Pinger: db},
 		healthdomain.Dependency{Name: "redis", Pinger: redis},
@@ -336,15 +341,16 @@ func newRouter(logger *slog.Logger, db, redis, storage, ai healthdomain.Pinger, 
 		healthdomain.Dependency{Name: healthhttp.AIDependency, Pinger: ai, Optional: true},
 	)
 	return httpserver.NewRouter(logger, handlers{
-		healthHandler:       healthhttp.NewHandler(checker, logger),
-		authHandler:         auth,
-		profileHandler:      profile,
-		mediaHandler:        media,
-		socialHandler:       social,
-		notificationHandler: notifications,
-		messagingHandler:    messaging,
-		moderationHandler:   moderation,
-		realtimeHandler:     realtime,
-		embeddingHandler:    embedding,
+		healthHandler:         healthhttp.NewHandler(checker, logger),
+		authHandler:           auth,
+		profileHandler:        profile,
+		mediaHandler:          media,
+		socialHandler:         social,
+		notificationHandler:   notifications,
+		messagingHandler:      messaging,
+		moderationHandler:     moderation,
+		realtimeHandler:       realtime,
+		embeddingHandler:      embedding,
+		recommendationHandler: recommendation,
 	}, func(next http.Handler) http.Handler { return requireAuth(guardPlatform(limitBody(next))) })
 }

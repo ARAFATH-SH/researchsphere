@@ -64,6 +64,9 @@ import (
 	profileusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/usecase"
 	realtimehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/realtime/adapter/http"
 	realtimeusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/realtime/usecase"
+	recommendationhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/recommendation/adapter/http"
+	recommendationredis "github.com/ARAFATH-SH/researchsphere/backend/internal/recommendation/adapter/redis"
+	recommendationusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/recommendation/usecase"
 	socialhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/social/adapter/http"
 	socialpg "github.com/ARAFATH-SH/researchsphere/backend/internal/social/adapter/postgres"
 	socialredis "github.com/ARAFATH-SH/researchsphere/backend/internal/social/adapter/redis"
@@ -93,6 +96,10 @@ type mediaEnv struct {
 	// embeddings serves the admin embedding operations (AI-1.6) with opt.ai, or a Fake AI
 	// service when it is nil; no worker runs unless a test starts one.
 	embeddings *embeddingusecase.Service
+	// recommendations serves the collaborator recommendations (AI-2.1); recCache is its
+	// Redis cache, which social clears on every link change.
+	recommendations *recommendationusecase.Service
+	recCache        *recommendationredis.Cache
 }
 
 func newMediaEnv(t *testing.T) mediaEnv {
@@ -261,6 +268,14 @@ func wireEnv(t *testing.T, pool *pgxpool.Pool, rdb *goredis.Client, files *stora
 		ai = &aiclient.Fake{}
 	}
 	embeddings, _ := newEmbeddings(pool, ai, logger)
+	recommendations, recCache, err := newRecommendations(pool, rdb, config.Config{
+		RecsScoreModel: config.DefaultRecsScoreModel, RecsScoreSlope: config.DefaultRecsScoreSlope,
+		RecsScoreIntercept: config.DefaultRecsScoreIntercept,
+	}, social, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = recCache.Close() })
 	router := newRouter(logger, up, up, up, up, authAPI,
 		profilehttp.NewHandler(profileusecase.New(profileStore, profileOpts...)),
 		mediahttp.NewHandler(images),
@@ -270,8 +285,9 @@ func wireEnv(t *testing.T, pool *pgxpool.Pool, rdb *goredis.Client, files *stora
 		moderationhttp.NewHandler(moderation),
 		realtimehttp.NewHandler(realtime.hub, testOrigin, logger),
 		embeddinghttp.NewHandler(embeddings),
+		recommendationhttp.NewHandler(recommendations),
 		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
-	return mediaEnv{embeddings: embeddings, router: router, pool: pool, files: files, rdb: rdb, auth: auth, moderation: moderation, standings: standings, hub: realtime.hub, events: realtime.events, opt: opt,
+	return mediaEnv{embeddings: embeddings, recommendations: recommendations, recCache: recCache, router: router, pool: pool, files: files, rdb: rdb, auth: auth, moderation: moderation, standings: standings, hub: realtime.hub, events: realtime.events, opt: opt,
 		messaging: messaging, notifier: notifications, digests: digests, digestMail: digestMail}
 }
 

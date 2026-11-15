@@ -458,6 +458,10 @@ func (fakeAPI) LeaveGroup(context.Context, gen.LeaveGroupRequestObject) (gen.Lea
 	return gen.LeaveGroup204Response{}, nil
 }
 
+func (fakeAPI) RecommendPeople(context.Context, gen.RecommendPeopleRequestObject) (gen.RecommendPeopleResponseObject, error) {
+	return nil, nil
+}
+
 var _ gen.StrictServerInterface = fakeAPI{}
 
 var testSigner = accesstoken.New([]byte("test-secret-that-is-at-least-32-bytes-long"), 15*time.Minute)
@@ -832,8 +836,8 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 
 func TestRoutes(t *testing.T) {
 	got := Routes()
-	if len(got) != 107 {
-		t.Errorf("Routes() returned %d routes, want the 107 operations in the contract: %v", len(got), got)
+	if len(got) != 108 {
+		t.Errorf("Routes() returned %d routes, want the 108 operations in the contract: %v", len(got), got)
 	}
 	seen := map[string]bool{}
 	for _, p := range got {
