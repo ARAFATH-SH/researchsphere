@@ -686,3 +686,44 @@ func TestLoadAIService(t *testing.T) {
 		})
 	}
 }
+
+// The recommendation score map (AI-2.2): the fitted defaults, or values that keep the order
+// of similarity (slope above 0) and name a model.
+func TestLoadRecsScoreMap(t *testing.T) {
+	dev := map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL}
+
+	cfg, err := Load(env(dev))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.RecsScoreModel != DefaultRecsScoreModel || cfg.RecsScoreSlope != DefaultRecsScoreSlope || cfg.RecsScoreIntercept != DefaultRecsScoreIntercept {
+		t.Errorf("defaults = %q %v %v", cfg.RecsScoreModel, cfg.RecsScoreSlope, cfg.RecsScoreIntercept)
+	}
+	if !(DefaultRecsScoreSlope > 0) {
+		t.Error("the default slope must be above 0")
+	}
+	cfg, err = Load(env(with(dev, "RECS_SCORE_MODEL", " m@2 ", "RECS_SCORE_SLOPE", "30.5", "RECS_SCORE_INTERCEPT", "-25")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.RecsScoreModel != "m@2" || cfg.RecsScoreSlope != 30.5 || cfg.RecsScoreIntercept != -25 {
+		t.Errorf("set = %q %v %v", cfg.RecsScoreModel, cfg.RecsScoreSlope, cfg.RecsScoreIntercept)
+	}
+
+	for _, tt := range []struct{ name, key, value, want string }{
+		{"zero slope", "RECS_SCORE_SLOPE", "0", "RECS_SCORE_SLOPE must be more than 0"},
+		{"negative slope", "RECS_SCORE_SLOPE", "-3", "RECS_SCORE_SLOPE must be more than 0"},
+		{"slope not a number", "RECS_SCORE_SLOPE", "steep", "RECS_SCORE_SLOPE must be a finite number"},
+		{"infinite slope", "RECS_SCORE_SLOPE", "Inf", "RECS_SCORE_SLOPE must be a finite number"},
+		{"NaN intercept", "RECS_SCORE_INTERCEPT", "NaN", "RECS_SCORE_INTERCEPT must be a finite number"},
+		{"model without revision", "RECS_SCORE_MODEL", "e5", "RECS_SCORE_MODEL must be"},
+		{"model with a space", "RECS_SCORE_MODEL", "e5@a b", "RECS_SCORE_MODEL must be"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Load(env(with(dev, tt.key, tt.value)))
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}

@@ -123,13 +123,13 @@ func TestRejectThenSendAgain(t *testing.T) {
 	ada, bob := newUser(t, pool, "Ada"), newUser(t, pool, "Bob")
 
 	r := create(t, s, ada, bob)
-	if err := s.RejectRequest(ctx, r.ID, ada); !errors.Is(err, domain.ErrNotFound) {
+	if _, err := s.RejectRequest(ctx, r.ID, ada); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("reject by the sender: %v, want ErrNotFound", err)
 	}
-	if err := s.RejectRequest(ctx, r.ID, bob); err != nil {
-		t.Fatal(err)
+	if requester, err := s.RejectRequest(ctx, r.ID, bob); err != nil || requester != ada {
+		t.Fatalf("reject = %q, %v; want the sender %s", requester, err, ada)
 	}
-	if err := s.RejectRequest(ctx, r.ID, bob); !errors.Is(err, domain.ErrNotFound) {
+	if _, err := s.RejectRequest(ctx, r.ID, bob); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("second reject: %v, want ErrNotFound", err)
 	}
 	if _, _, err := s.AcceptRequest(ctx, r.ID, bob); !errors.Is(err, domain.ErrNotFound) {
@@ -160,17 +160,17 @@ func TestCancel(t *testing.T) {
 	ada, bob, cy := newUser(t, pool, "Ada"), newUser(t, pool, "Bob"), newUser(t, pool, "Cy")
 	r := create(t, s, ada, bob)
 	for _, who := range []string{bob, cy} {
-		if err := s.CancelRequest(ctx, r.ID, who); !errors.Is(err, domain.ErrNotFound) {
+		if _, err := s.CancelRequest(ctx, r.ID, who); !errors.Is(err, domain.ErrNotFound) {
 			t.Errorf("cancel by %s: %v, want ErrNotFound", who, err)
 		}
 	}
-	if err := s.CancelRequest(ctx, "not-a-uuid", ada); !errors.Is(err, domain.ErrNotFound) {
+	if _, err := s.CancelRequest(ctx, "not-a-uuid", ada); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("cancel of a malformed ID: %v, want ErrNotFound", err)
 	}
-	if err := s.CancelRequest(ctx, r.ID, ada); err != nil {
-		t.Fatal(err)
+	if receiver, err := s.CancelRequest(ctx, r.ID, ada); err != nil || receiver != bob {
+		t.Fatalf("cancel = %q, %v; want the receiver %s", receiver, err, bob)
 	}
-	if err := s.CancelRequest(ctx, r.ID, ada); !errors.Is(err, domain.ErrNotFound) {
+	if _, err := s.CancelRequest(ctx, r.ID, ada); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("second cancel: %v, want ErrNotFound", err)
 	}
 	if _, total, _ := s.ListReceived(ctx, bob, 20, 0); total != 0 {
@@ -183,7 +183,7 @@ func TestCancel(t *testing.T) {
 	if _, _, err := s.AcceptRequest(ctx, r2.ID, cy); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.CancelRequest(ctx, r2.ID, ada); !errors.Is(err, domain.ErrNotFound) {
+	if _, err := s.CancelRequest(ctx, r2.ID, ada); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("cancel of a connection: %v, want ErrNotFound", err)
 	}
 }
@@ -414,7 +414,7 @@ func TestListLiveLinks(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := create(t, s, ada, rejected)
-	if err := s.RejectRequest(ctx, r.ID, rejected); err != nil {
+	if _, err := s.RejectRequest(ctx, r.ID, rejected); err != nil {
 		t.Fatal(err)
 	}
 	create(t, s, stranger, other)

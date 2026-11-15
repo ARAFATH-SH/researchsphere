@@ -570,6 +570,48 @@ func (e OrcidImportOutcome) Valid() bool {
 	}
 }
 
+// Defines values for PeopleRecommendationsMissing.
+const (
+	Bio       PeopleRecommendationsMissing = "bio"
+	Interests PeopleRecommendationsMissing = "interests"
+	Skills    PeopleRecommendationsMissing = "skills"
+)
+
+// Valid indicates whether the value is a known member of the PeopleRecommendationsMissing enum.
+func (e PeopleRecommendationsMissing) Valid() bool {
+	switch e {
+	case Bio:
+		return true
+	case Interests:
+		return true
+	case Skills:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PeopleRecommendationsState.
+const (
+	NeedsProfile PeopleRecommendationsState = "needs_profile"
+	Processing   PeopleRecommendationsState = "processing"
+	Ready        PeopleRecommendationsState = "ready"
+)
+
+// Valid indicates whether the value is a known member of the PeopleRecommendationsState enum.
+func (e PeopleRecommendationsState) Valid() bool {
+	switch e {
+	case NeedsProfile:
+		return true
+	case Processing:
+		return true
+	case Ready:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PersonSearchResultMatchedOn.
 const (
 	Headline    PersonSearchResultMatchedOn = "headline"
@@ -2096,6 +2138,29 @@ type PasswordResetRequest struct {
 	Email string `json:"email"`
 }
 
+// PeopleRecommendations defines model for PeopleRecommendations.
+type PeopleRecommendations struct {
+	// Items Most similar first. Empty unless `state` is `ready`.
+	Items []PersonRecommendation `json:"items"`
+
+	// Missing With `needs_profile`, the profile fields to fill in, in this order: `interests`,
+	// `skills`, `bio`. Empty in the other states.
+	Missing []PeopleRecommendationsMissing `json:"missing"`
+
+	// State `ready`: `items` holds the recommendations (possibly none). `needs_profile`: the
+	// profile has no interests, skills or bio (AI-4.2). `processing`: the profile's
+	// embedding is not made yet.
+	State PeopleRecommendationsState `json:"state"`
+}
+
+// PeopleRecommendationsMissing defines model for PeopleRecommendations.Missing.
+type PeopleRecommendationsMissing string
+
+// PeopleRecommendationsState `ready`: `items` holds the recommendations (possibly none). `needs_profile`: the
+// profile has no interests, skills or bio (AI-4.2). `processing`: the profile's
+// embedding is not made yet.
+type PeopleRecommendationsState string
+
 // PeopleSearchFacets defines model for PeopleSearchFacets.
 type PeopleSearchFacets struct {
 	// Institutions Up to 20 institutions of the results with `q` and the interest filters applied
@@ -2127,6 +2192,34 @@ type PeopleSearchPage struct {
 
 	// Total The number of results on all pages, with every filter applied.
 	Total int `json:"total"`
+}
+
+// PersonRecommendation defines model for PersonRecommendation.
+type PersonRecommendation struct {
+	// ConnectionStatus The connection between the caller and another user (FR-4.5, FR-7), the owner of
+	// a profile or the person of a search result or connections list item: `none`,
+	// `pending_sent` (the caller sent a request that is still pending),
+	// `pending_received` (the other user sent the caller one), `connected`, or `self`
+	// when the other user is the caller. A rejected request reads as `none` to both
+	// sides (FR-7.6).
+	ConnectionStatus ConnectionStatus `json:"connectionStatus"`
+	FullName         string           `json:"fullName"`
+	Headline         *string          `json:"headline"`
+	Institution      *string          `json:"institution"`
+
+	// PhotoUrl The profile photo as `/api/v1/media/{fileId}`; null when not set.
+	PhotoUrl *string `json:"photoUrl"`
+
+	// Score How similar the two profiles are, as a percentage (AI-2.2). It is the cosine
+	// similarity of the embeddings put through a fixed increasing mapping fitted on
+	// sample data (docs/evaluation.md), not the raw cosine.
+	Score int `json:"score"`
+
+	// Shared Up to 3 research interests or skills both users have (the same name, ignoring
+	// letter case): interests first, then skills, each in the caller's order. May be
+	// empty.
+	Shared []string           `json:"shared"`
+	UserId openapi_types.UUID `json:"userId"`
 }
 
 // PersonSearchResult defines model for PersonSearchResult.
@@ -3297,6 +3390,13 @@ type LookupPublicationByDOIParams struct {
 	Doi *string `form:"doi,omitempty" json:"doi,omitempty"`
 }
 
+// RecommendPeopleParams defines parameters for RecommendPeople.
+type RecommendPeopleParams struct {
+	// Limit Items to return, from 1. Defaults to 10. A larger value than 10 is reduced to
+	// 10; a value below 1 gets 400 `bad_request`.
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // SearchPeopleParams defines parameters for SearchPeople.
 type SearchPeopleParams struct {
 	// Q The search text, 2 to 100 characters after trimming. It is required: it is
@@ -3783,6 +3883,9 @@ type ServerInterface interface {
 	// LookupPublicationByDOI Preview the metadata of a publication by its DOI (FR-5.2, FR-5.6)
 	// (GET /publications/lookup)
 	LookupPublicationByDOI(w http.ResponseWriter, r *http.Request, params LookupPublicationByDOIParams)
+	// RecommendPeople Researchers whose profiles are most similar to the caller's (AI-2.1, AI-2.2, AI-2.4, AI-4)
+	// (GET /recommendations/people)
+	RecommendPeople(w http.ResponseWriter, r *http.Request, params RecommendPeopleParams)
 	// SearchPeople Search researchers by name, institution, research interest or headline (FR-6.1 to FR-6.3)
 	// (GET /search/people)
 	SearchPeople(w http.ResponseWriter, r *http.Request, params SearchPeopleParams)
@@ -6987,6 +7090,45 @@ func (siw *ServerInterfaceWrapper) LookupPublicationByDOI(w http.ResponseWriter,
 	handler.ServeHTTP(w, r)
 }
 
+// RecommendPeople operation middleware
+func (siw *ServerInterfaceWrapper) RecommendPeople(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RecommendPeopleParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RecommendPeople(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // SearchPeople operation middleware
 func (siw *ServerInterfaceWrapper) SearchPeople(w http.ResponseWriter, r *http.Request) {
 
@@ -7447,6 +7589,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/conversations/{conversationId}/decline", wrapper.DeclineMessageRequest)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/conversations/{conversationId}/reports", wrapper.ReportConversation)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/search/people", wrapper.SearchPeople)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/recommendations/people", wrapper.RecommendPeople)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/ws", wrapper.OpenWebSocket)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/presence", wrapper.GetPresence)
 
@@ -16442,6 +16585,84 @@ func (response LookupPublicationByDOI503JSONResponse) VisitLookupPublicationByDO
 	return err
 }
 
+type RecommendPeopleRequestObject struct {
+	Params RecommendPeopleParams
+}
+
+type RecommendPeopleResponseObject interface {
+	VisitRecommendPeopleResponse(w http.ResponseWriter) error
+}
+
+type RecommendPeople200JSONResponse PeopleRecommendations
+
+func (response RecommendPeople200JSONResponse) VisitRecommendPeopleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RecommendPeople400JSONResponse Error
+
+func (response RecommendPeople400JSONResponse) VisitRecommendPeopleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RecommendPeople401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RecommendPeople401JSONResponse) VisitRecommendPeopleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RecommendPeople403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response RecommendPeople403JSONResponse) VisitRecommendPeopleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RecommendPeople500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RecommendPeople500JSONResponse) VisitRecommendPeopleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type SearchPeopleRequestObject struct {
 	Params SearchPeopleParams
 }
@@ -17128,6 +17349,9 @@ type StrictServerInterface interface {
 	// LookupPublicationByDOI Preview the metadata of a publication by its DOI (FR-5.2, FR-5.6)
 	// (GET /publications/lookup)
 	LookupPublicationByDOI(ctx context.Context, request LookupPublicationByDOIRequestObject) (LookupPublicationByDOIResponseObject, error)
+	// RecommendPeople Researchers whose profiles are most similar to the caller's (AI-2.1, AI-2.2, AI-2.4, AI-4)
+	// (GET /recommendations/people)
+	RecommendPeople(ctx context.Context, request RecommendPeopleRequestObject) (RecommendPeopleResponseObject, error)
 	// SearchPeople Search researchers by name, institution, research interest or headline (FR-6.1 to FR-6.3)
 	// (GET /search/people)
 	SearchPeople(ctx context.Context, request SearchPeopleRequestObject) (SearchPeopleResponseObject, error)
@@ -20066,6 +20290,32 @@ func (sh *strictHandler) LookupPublicationByDOI(w http.ResponseWriter, r *http.R
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(LookupPublicationByDOIResponseObject); ok {
 		if err := validResponse.VisitLookupPublicationByDOIResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RecommendPeople operation middleware
+func (sh *strictHandler) RecommendPeople(w http.ResponseWriter, r *http.Request, params RecommendPeopleParams) {
+	var request RecommendPeopleRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RecommendPeople(ctx, request.(RecommendPeopleRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RecommendPeople")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RecommendPeopleResponseObject); ok {
+		if err := validResponse.VisitRecommendPeopleResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net"
 	"net/mail"
 	"net/url"
@@ -47,6 +48,14 @@ const (
 	DefaultUnverifiedAccountDays = 7
 	// The AI service (AI-1), as docker-compose.yml publishes it on this machine.
 	DefaultAIServiceURL = "http://127.0.0.1:8090"
+
+	// The recommendation score map (AI-2.2): 100 / (1 + exp(-(slope*cos + intercept))),
+	// fitted with make calibrate-recs on 2026-11-15 for this model only: the sample tuning
+	// split (seed 16), 2,000 tuning queries (seed 17), 200,000 pairs (each query's 50 nearest
+	// and 50 random tuning profiles). A score of 50 is at cosine 0.893. docs/evaluation.md.
+	DefaultRecsScoreModel     = "intfloat/multilingual-e5-base@d128750597153bb5987e10b1c3493a34e5a4502a"
+	DefaultRecsScoreSlope     = 78.7208
+	DefaultRecsScoreIntercept = -70.2827
 )
 
 // MinAIServiceTokenLen is the shortest AI_SERVICE_TOKEN accepted; the AI service refuses a
@@ -138,6 +147,13 @@ type Config struct {
 	// log it. Empty (development only) leaves the AI service off.
 	AIServiceURL   string
 	AIServiceToken string
+
+	// The recommendation score map (AI-2.2): the embedding model it was fitted for
+	// ("name@revision") and its slope (> 0) and intercept. A model change needs a refit
+	// (make calibrate-recs); the API logs a warning while they differ.
+	RecsScoreModel     string
+	RecsScoreSlope     float64
+	RecsScoreIntercept float64
 }
 
 // Load reads the settings through getenv (os.Getenv in main). Errors name the
@@ -314,6 +330,19 @@ func Load(getenv func(string) string) (Config, error) {
 		errs = append(errs, errors.New("AI_SERVICE_TOKEN must differ from JWT_SECRET and UNSUBSCRIBE_SECRET"))
 	}
 
+	cfg.RecsScoreModel = strings.TrimSpace(orDefault(getenv("RECS_SCORE_MODEL"), DefaultRecsScoreModel))
+	if !strings.Contains(cfg.RecsScoreModel, "@") || strings.ContainsAny(cfg.RecsScoreModel, " \t") {
+		errs = append(errs, errors.New("RECS_SCORE_MODEL must be the embedding model as name@revision"))
+	}
+	if cfg.RecsScoreSlope, err = parseFloat("RECS_SCORE_SLOPE", getenv("RECS_SCORE_SLOPE"), DefaultRecsScoreSlope); err != nil {
+		errs = append(errs, err)
+	} else if cfg.RecsScoreSlope <= 0 {
+		errs = append(errs, errors.New("RECS_SCORE_SLOPE must be more than 0, so a more similar profile never scores lower"))
+	}
+	if cfg.RecsScoreIntercept, err = parseFloat("RECS_SCORE_INTERCEPT", getenv("RECS_SCORE_INTERCEPT"), DefaultRecsScoreIntercept); err != nil {
+		errs = append(errs, err)
+	}
+
 	domains, err := parseDomains("TEST_EMAIL_DOMAINS", getenv("TEST_EMAIL_DOMAINS"))
 	if err != nil {
 		errs = append(errs, err)
@@ -357,6 +386,7 @@ func (c Config) LogValue() slog.Value {
 		slog.String("orcid_base_url", c.ORCIDBaseURL),
 		slog.String("clamav_addr", c.ClamAVAddr),
 		slog.String("ai_service_url", c.AIServiceURL),
+		slog.String("recs_score_model", c.RecsScoreModel),
 		slog.Bool("ai_service_configured", c.AIServiceToken != ""),
 		slog.Any("test_email_domains", c.TestEmailDomains),
 		slog.Int("unverified_account_days", c.UnverifiedAccountDays),
@@ -432,6 +462,19 @@ func parsePositive(name, raw string, def int) (int, error) {
 		return 0, fmt.Errorf("%s must be a whole number of at least 1, got %q", name, raw)
 	}
 	return n, nil
+}
+
+// parseFloat reads a finite number; empty means def.
+func parseFloat(name, raw string, def float64) (float64, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return def, nil
+	}
+	f, err := strconv.ParseFloat(raw, 64)
+	if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
+		return 0, fmt.Errorf("%s must be a finite number, got %q", name, raw)
+	}
+	return f, nil
 }
 
 // parseDuration reads a Go duration such as 15m that is more than zero; empty means def.

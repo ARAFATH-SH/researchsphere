@@ -11,6 +11,8 @@ recommendations. One developer builds it in 30 slices over 12 weeks.
 - `docs/openapi.yaml` is the API contract (added in slice 4). Change it before a handler.
 - `docs/decisions.md` lists decisions already made. Do not reopen one without asking.
 - `docs/email-delivery.md` says how mail is sent and how to switch provider (FR-17.1).
+- `docs/evaluation.md` defines the AI quality and speed measurements (NFR-1, NFR-6), the
+  recommendation score calibration (AI-2.2) and their latest results.
 - `docs/realtime.md` is the WebSocket contract: events, payloads, close codes and what a client
   must do after a reconnect. OpenAPI covers only the upgrade.
 
@@ -52,6 +54,9 @@ Run these from the repository root. `make help` prints the current list.
 | `make purge-unverified` | Run the FR-17.4 purge once now, with the `.env` settings: delete the accounts still unverified `UNVERIFIED_ACCOUNT_DAYS` (7) after sign-up, except those at `TEST_EMAIL_DOMAINS` outside production, and log what it deleted. The API also runs it every hour |
 | `make send-digests` | Run the FR-16.11 unread message digest once now, with the `.env` settings: email each verified, not suspended user with the digest on who has messages unread for 24 hours that no digest counted yet and got no digest in the last 24 hours (at most 200 users a run), and log how many it sent. The API also runs it every hour. Mail goes to Mailpit locally (test-domain accounts included); needs `make migrate` and `UNSUBSCRIBE_SECRET` |
 | `make embed-backfill` | Queue every verified, not suspended profile for its AI embedding once (AI-1.5), at low priority, then exit; the running API's worker embeds them, skipping a profile whose text and model have not changed. Run it once after migration 000028 on a database with existing profiles. Needs `make migrate`; the API needs the AI service (`AI_SERVICE_TOKEN`) to embed |
+| `make calibrate-recs` | Fit the AI-2.2 recommendation score map on the sample TUNING split only (2,000 queries, seed 17) and print `RECS_SCORE_MODEL`, `RECS_SCORE_SLOPE` and `RECS_SCORE_INTERCEPT` with a calibration table; put them into the config defaults and `.env.example`. Run it again whenever the embedding model changes (`docs/evaluation.md`). Needs the 10,000 embedded sample profiles and `APP_ENV=development`; reads only |
+| `make eval-recs` | Measure NFR-6 collaborator matching on the held-out sample TEST split: recall@10 (capped), precision@10 and standard recall@10 against "relevant = same main cluster" and, beside it, "shares the main or second cluster", ranked as the endpoint ranks, with the score percentiles of random and top-10 pairs per group. Write the results into `docs/evaluation.md`. Never tune on its output. Needs `APP_ENV=development`; reads only |
+| `make bench-recs` | Measure NFR-1: the recommendation endpoint's uncached work for 200 random sample users (seed 17), printing p50, p95 and max (target p95 under 2 s), and EXPLAIN ANALYZE of the ranking query. Needs `APP_ENV=development`; reads only |
 | `make update-disposable-domains` | Download the latest list of disposable email domains (FR-17.2, CC0) into `backend/internal/auth/adapter/emaildomain/disposable_domains.txt`; review and commit the result |
 | `make api` | Run the API server (needs `make up`; settings from `.env`) |
 | `make web` | Run the web client dev server on port 3000; it forwards `/api/v1` to `API_URL` |
@@ -117,8 +122,9 @@ do not rename them.
 ## Conventions
 
 - **Go:** one application (modular monolith). Modules live in `backend/internal/<module>`: health,
-  then auth, profile, media, social, project, event, notification, messaging, moderation, realtime and
-  embedding (AI-1: the queue, the worker and the stored vectors). Return errors, do not panic.
+  then auth, profile, media, social, project, event, notification, messaging, moderation, realtime,
+  embedding (AI-1: the queue, the worker and the stored vectors) and recommendation (AI-2:
+  collaborator recommendations from the embeddings). Return errors, do not panic.
   Table-driven tests beside the code they test. Each module is split into layers (clean
   architecture); `backend/internal/health` is the example to copy:
 
@@ -205,9 +211,11 @@ do not rename them.
 - **Sample data (slice 16) stays out of the application and out of production.** The
   sample accounts of `make sample-data` are at `@sample.researchsphere.local`, which
   `TEST_EMAIL_DOMAINS` lists outside production. `sample_profiles` is their marker and the
-  NFR-6 ground truth: no code under `internal/` reads it, and only `cmd/seedsample` writes it.
-  For the NFR-6 collaborator matching evaluation (slice 17), a candidate is relevant to a query
-  profile from the `test` split when it has the same `main_cluster`. The auth usecase's
+  NFR-6 ground truth: no code under `internal/` reads it, only `cmd/seedsample` writes it, and
+  only `cmd/seedsample` and `cmd/recseval` (the AI-2.2 calibration on the `tuning` split, the
+  NFR-6 evaluation on the `test` split) read it. For the NFR-6 collaborator matching
+  evaluation (slice 17), a candidate is relevant to a query profile from the `test` split when
+  it has the same `main_cluster`; nothing is ever fitted on the `test` split. The auth usecase's
   `DeleteAccountByID` (deletion without a password) is for commands such as the sample purge;
   `TestNoRouteDeletesAccountsByID` fails when `internal/` or `cmd/api` calls it.
 - **Database:** snake_case names, plural table names, uuid primary keys, `timestamptz` for

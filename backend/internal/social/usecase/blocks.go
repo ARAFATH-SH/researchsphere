@@ -37,6 +37,7 @@ func (s *Service) Block(ctx context.Context, blockerID, blockedID string) error 
 		if err := s.notifier.Blocked(ctx, blockerID, blockedID); err != nil {
 			return fmt.Errorf("apply block of %s: %w", blockedID, err)
 		}
+		s.links.LinkChanged(ctx, blockerID, blockedID)
 		return nil
 	})
 }
@@ -48,6 +49,7 @@ func (s *Service) Unblock(ctx context.Context, blockerID, blockedID string) erro
 		return err
 	}
 	s.notifier.Unblocked(ctx, blockerID, blockedID)
+	s.links.LinkChanged(ctx, blockerID, blockedID)
 	return nil
 }
 

@@ -160,28 +160,28 @@ func (s *fakeStore) AcceptRequest(_ context.Context, requestID, receiverID strin
 	return domain.Request{ID: r.id, RequesterID: r.requester, ReceiverID: r.receiver, CreatedAt: r.createdAt}, r.respondedAt, nil
 }
 
-func (s *fakeStore) RejectRequest(_ context.Context, requestID, receiverID string) error {
+func (s *fakeStore) RejectRequest(_ context.Context, requestID, receiverID string) (string, error) {
 	if s.err != nil {
-		return s.err
+		return "", s.err
 	}
 	r := s.answerable(requestID, receiverID)
 	if r == nil {
-		return domain.ErrNotFound
+		return "", domain.ErrNotFound
 	}
 	r.status, r.respondedAt = "rejected", s.tick()
-	return nil
+	return r.requester, nil
 }
 
-func (s *fakeStore) CancelRequest(_ context.Context, requestID, requesterID string) error {
+func (s *fakeStore) CancelRequest(_ context.Context, requestID, requesterID string) (string, error) {
 	if s.err != nil {
-		return s.err
+		return "", s.err
 	}
 	r := s.byID(requestID)
 	if r == nil || r.requester != requesterID || r.status != "pending" {
-		return domain.ErrNotFound
+		return "", domain.ErrNotFound
 	}
 	s.rows = slices.DeleteFunc(s.rows, func(x *fakeRow) bool { return x == r })
-	return nil
+	return r.receiver, nil
 }
 
 func (s *fakeStore) RemoveConnection(_ context.Context, userID, otherID string) error {

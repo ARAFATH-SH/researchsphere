@@ -59,6 +59,7 @@ import (
 	profileusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/usecase"
 	realtimehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/realtime/adapter/http"
 	realtimeusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/realtime/usecase"
+	recommendationhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/recommendation/adapter/http"
 	socialhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/social/adapter/http"
 	socialpg "github.com/ARAFATH-SH/researchsphere/backend/internal/social/adapter/postgres"
 	socialredis "github.com/ARAFATH-SH/researchsphere/backend/internal/social/adapter/redis"
@@ -231,6 +232,13 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 	ai := aiclient.New(aiclient.Config{BaseURL: cfg.AIServiceURL, Token: cfg.AIServiceToken})
 	embeddings, embedWorker := newEmbeddings(pool, ai, logger)
 	go embedWorker.Run(ctx)
+	// Collaborator recommendations (AI-2.1): social clears both users' kept lists on every
+	// link change.
+	recommendations, recCache, err := newRecommendations(pool, rdb, cfg, social, logger)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = recCache.Close() }()
 	handler := newRouter(logger, healthpg.NewPinger(pool), healthredis.NewPinger(rdb), files, ai,
 		authhttp.NewHandler(auth, authhttp.CookieConfig{Secure: cfg.CookieSecure}),
 		profilehttp.NewHandler(profiles),
@@ -241,6 +249,7 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 		moderationhttp.NewHandler(moderation),
 		realtimehttp.NewHandler(realtime.hub, cfg.AppBaseURL, logger),
 		embeddinghttp.NewHandler(embeddings),
+		recommendationhttp.NewHandler(recommendations),
 		httpx.RequireAuth(tokens, time.Now))
 
 	var lc net.ListenConfig

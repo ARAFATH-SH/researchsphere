@@ -1,6 +1,8 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 
 import { useSession } from "@/features/auth/session";
+import { getPeopleRecommendations } from "@/features/recommendation/api";
+import { people, ready } from "@/features/recommendation/test-recommendations";
 
 import {
   acceptConnectionRequest,
@@ -22,8 +24,9 @@ jest.mock("./api");
 jest.mock("./pending-invitations");
 jest.mock("@/features/notification/badges");
 jest.mock("@/features/auth/session");
-jest.mock("@/features/home/recommendations", () => ({
-  Recommendations: () => <p>Recommendations are coming soon.</p>,
+jest.mock("@/features/recommendation/api", () => ({
+  ...jest.requireActual("@/features/recommendation/api"),
+  getPeopleRecommendations: jest.fn(),
 }));
 jest.mock("next/navigation", () => ({ usePathname: () => "/network" }));
 
@@ -37,6 +40,7 @@ const mockReject = jest.mocked(rejectConnectionRequest);
 const mockCancel = jest.mocked(cancelConnectionRequest);
 const mockRemove = jest.mocked(removeConnection);
 const mockSetPending = jest.mocked(setPendingInvitations);
+const mockGetRecs = jest.mocked(getPeopleRecommendations);
 
 function person(n: number) {
   return {
@@ -76,6 +80,7 @@ beforeEach(() => {
   mockReceived.mockResolvedValue({ ok: true, data: requests([request(1), request(2)]) });
   mockSent.mockResolvedValue({ ok: true, data: requests([request(3)]) });
   mockConnections.mockResolvedValue({ ok: true, data: connections([connection(4)]) });
+  mockGetRecs.mockResolvedValue(ready(people(1, 2, 3, 4, 5)));
 });
 afterEach(() => jest.resetAllMocks());
 
@@ -110,10 +115,18 @@ describe("NetworkPage", () => {
     const conns = card("1 connection");
     expect(within(conns).getByText("Headline 4")).toBeTruthy();
     expect(within(conns).getByText("Connected 3 Oct 2026")).toBeTruthy();
-    // The right column keeps the home page's placeholder card and the compact footer.
+    // The right column: the AI-recommended network, its top 3 from one request, the link to
+    // all of them, and the compact footer.
     const aside = screen.getByRole("complementary", { name: "Recommendations" });
-    expect(within(aside).getByText("Recommendations are coming soon.")).toBeTruthy();
+    expect(within(aside).getByRole("heading", { level: 2, name: "AI-recommended network" })).toBeTruthy();
+    expect(within(aside).getByRole("heading", { level: 3, name: "Researchers to work with" })).toBeTruthy();
+    const recs = await within(aside).findByRole("list", { name: "Recommended researchers" });
+    expect(within(recs).getAllByRole("button", { name: /^Connect with/ })).toHaveLength(3);
+    expect(within(aside).getByRole("link", { name: "See all 5 recommendations" }).getAttribute("href")).toBe(
+      "/network/recommendations",
+    );
     expect(within(aside).getByRole("contentinfo", { name: "Site footer" })).toBeTruthy();
+    expect(mockGetRecs).toHaveBeenCalledTimes(1);
     expect(screen.queryByText(/AI matches/)).toBeNull();
     expect(mockSetPending).toHaveBeenLastCalledWith(adaID, 2);
   });

@@ -34,6 +34,7 @@ type Service struct {
 	limiter  domain.RequestLimiter
 	notifier domain.Notifier
 	actors   domain.Actors
+	links    domain.LinkWatcher
 	logger   *slog.Logger
 }
 
@@ -41,8 +42,18 @@ type Service struct {
 // requests inside the transaction tx opens for each change, so the change and its
 // notification are stored together or not at all (FR-9.1).
 func New(store domain.Store, tx domain.Transactor, limiter domain.RequestLimiter, notifier domain.Notifier, actors domain.Actors, logger *slog.Logger) *Service {
-	return &Service{store: store, tx: tx, limiter: limiter, notifier: notifier, actors: actors, logger: logger}
+	return &Service{store: store, tx: tx, limiter: limiter, notifier: notifier, actors: actors, links: noLinkWatcher{}, logger: logger}
 }
+
+// WatchLinks makes w hear about every change to the link between two users (AI-2.1: the
+// recommendation lists). Call it before the Service is used; without it nobody hears.
+func (s *Service) WatchLinks(w domain.LinkWatcher) {
+	s.links = w
+}
+
+type noLinkWatcher struct{}
+
+func (noLinkWatcher) LinkChanged(context.Context, string, string) {}
 
 // Send sends a connection request from requesterID to receiverID (FR-7.1). Checks run in
 // this order: ErrSelf, *SuspendedError, *RateLimitedError, ErrNotFound for a receiver who is unknown,
@@ -119,6 +130,7 @@ func (s *Service) create(ctx context.Context, requesterID, receiverID string) (d
 			if err := s.notifier.RequestSent(ctx, req); err != nil {
 				return fmt.Errorf("notify connection request %s: %w", req.ID, err)
 			}
+			s.links.LinkChanged(ctx, requesterID, receiverID)
 			return nil
 		})
 		if err != nil {
@@ -177,6 +189,7 @@ func (s *Service) Accept(ctx context.Context, receiverID, requestID string) (dom
 		if err := s.notifier.RequestAccepted(ctx, req); err != nil {
 			return fmt.Errorf("notify accepted connection request %s: %w", req.ID, err)
 		}
+		s.links.LinkChanged(ctx, req.RequesterID, req.ReceiverID)
 		return nil
 	})
 	if err != nil {
@@ -193,35 +206,44 @@ func (s *Service) Accept(ctx context.Context, receiverID, requestID string) (dom
 // told: the request leaves their sent list and they may send another (FR-7.6).
 // Its notification is withdrawn in the same transaction.
 func (s *Service) Reject(ctx context.Context, receiverID, requestID string) error {
-	return s.withdraw(ctx, requestID, func(ctx context.Context) error {
-		return s.store.RejectRequest(ctx, requestID, receiverID)
+	return s.withdraw(ctx, requestID, func(ctx context.Context) (string, string, error) {
+		requesterID, err := s.store.RejectRequest(ctx, requestID, receiverID)
+		return receiverID, requesterID, err
 	})
 }
 
 // Cancel withdraws a pending request that requesterID sent (FR-7.3), and its
 // notification in the same transaction.
 func (s *Service) Cancel(ctx context.Context, requesterID, requestID string) error {
-	return s.withdraw(ctx, requestID, func(ctx context.Context) error {
-		return s.store.CancelRequest(ctx, requestID, requesterID)
+	return s.withdraw(ctx, requestID, func(ctx context.Context) (string, string, error) {
+		receiverID, err := s.store.CancelRequest(ctx, requestID, requesterID)
+		return requesterID, receiverID, err
 	})
 }
 
-// withdraw runs change and, when it succeeds, tells the notifier, in one transaction.
-func (s *Service) withdraw(ctx context.Context, requestID string, change func(context.Context) error) error {
+// withdraw runs change, which returns the request's two users, and, when it succeeds,
+// tells the notifier and the link watcher, in one transaction.
+func (s *Service) withdraw(ctx context.Context, requestID string, change func(context.Context) (string, string, error)) error {
 	return s.tx.InTx(ctx, func(ctx context.Context) error {
-		if err := change(ctx); err != nil {
+		a, b, err := change(ctx)
+		if err != nil {
 			return err
 		}
 		if err := s.notifier.RequestWithdrawn(ctx, requestID); err != nil {
 			return fmt.Errorf("withdraw notification of connection request %s: %w", requestID, err)
 		}
+		s.links.LinkChanged(ctx, a, b)
 		return nil
 	})
 }
 
 // Remove ends the connection between userID and otherID; either side may (FR-7.5).
 func (s *Service) Remove(ctx context.Context, userID, otherID string) error {
-	return s.store.RemoveConnection(ctx, userID, otherID)
+	if err := s.store.RemoveConnection(ctx, userID, otherID); err != nil {
+		return err
+	}
+	s.links.LinkChanged(ctx, userID, otherID)
+	return nil
 }
 
 // ListConnections returns one page of userID's connections (FR-7.4). userID is the

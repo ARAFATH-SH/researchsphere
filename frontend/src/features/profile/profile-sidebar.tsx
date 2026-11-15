@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+import { RecommendationList } from "@/features/recommendation/recommendation-list";
+
 import type { Profile } from "./api";
 import { ContactCard } from "./contact-card";
 import { editHref } from "./edit-button";
@@ -7,9 +9,10 @@ import { SectionCard } from "./profile-sections";
 import { profileStrength } from "./strength";
 
 // ProfileSidebar is the aside of design/screens/Profile.html: the contact info card, then,
-// on the owner's profile, the profile strength. The design's "Connect with researchers" and
-// "People also viewed" wait for AI matching (slice 17) and are not shown. onEditContact,
-// given on the owner's profile, opens the contact dialog.
+// on the owner's profile, the profile strength, then on every profile "Connect with
+// researchers": the viewer's top 3 recommendations (AI-2), hidden when they have none. The
+// design's "People also viewed" is not built. onEditContact, given on the owner's profile,
+// opens the contact dialog.
 export function ProfileSidebar({
   profile,
   onEditContact,
@@ -21,6 +24,7 @@ export function ProfileSidebar({
     <>
       <ContactCard contact={profile.contact} onEdit={onEditContact} />
       {onEditContact && <StrengthCard profile={profile} />}
+      <RecommendationList limit={3} variant="profile" />
     </>
   );
 }

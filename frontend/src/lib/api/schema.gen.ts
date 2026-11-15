@@ -2413,6 +2413,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/recommendations/people": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Researchers whose profiles are most similar to the caller's (AI-2.1, AI-2.2, AI-2.4, AI-4)
+         * @description Needs the access cookie, a verified email and the platform action "View profiles,
+         *     search, feed, events and recommendations" (SRS 2.3).
+         *
+         *     `state` says what the caller sees, checked in this order:
+         *     `needs_profile` when the caller's profile has no research interests, no skills and no
+         *     bio (AI-4.2): `missing` names them and `items` is empty, so the client asks for them
+         *     in place of an empty list. `processing` when the profile has text but its embedding
+         *     is not made yet (it is made in the background within a minute, AI-1.4): `items` is
+         *     empty. Otherwise `ready`. A user with one interest or skill and no publications gets
+         *     recommendations (AI-4.1).
+         *
+         *     Ranking uses only the cosine similarity between the caller's profile embedding and
+         *     each other user's, never citation, publication or connection counts or any other
+         *     popularity signal (AI-2.4). Left out: the caller, users connected to the caller, users
+         *     with a pending request either way, users blocked by or blocking the caller (FR-16.9),
+         *     unverified and suspended users, and users without an embedding (AI-2.1).
+         *
+         *     The list is kept for up to 10 minutes; it is made again at once when the caller's
+         *     embedding changes or when a connection, request or block between the caller and
+         *     anyone changes. A user who becomes suspended, blocked or connected meanwhile is
+         *     dropped from a kept list, which may then have fewer than `limit` items.
+         */
+        get: operations["recommendPeople"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ws": {
         parameters: {
             query?: never;
@@ -4139,6 +4179,44 @@ export interface components {
              *     is `pending_sent` or `pending_received`; null otherwise.
              */
             connectionRequestId: string | null;
+        };
+        PeopleRecommendations: {
+            /**
+             * @description `ready`: `items` holds the recommendations (possibly none). `needs_profile`: the
+             *     profile has no interests, skills or bio (AI-4.2). `processing`: the profile's
+             *     embedding is not made yet.
+             * @enum {string}
+             */
+            state: "ready" | "needs_profile" | "processing";
+            /**
+             * @description With `needs_profile`, the profile fields to fill in, in this order: `interests`,
+             *     `skills`, `bio`. Empty in the other states.
+             */
+            missing: ("interests" | "skills" | "bio")[];
+            /** @description Most similar first. Empty unless `state` is `ready`. */
+            items: components["schemas"]["PersonRecommendation"][];
+        };
+        PersonRecommendation: {
+            /** Format: uuid */
+            userId: string;
+            fullName: string;
+            headline: string | null;
+            institution: string | null;
+            /** @description The profile photo as `/api/v1/media/{fileId}`; null when not set. */
+            photoUrl: string | null;
+            connectionStatus: components["schemas"]["ConnectionStatus"];
+            /**
+             * @description How similar the two profiles are, as a percentage (AI-2.2). It is the cosine
+             *     similarity of the embeddings put through a fixed increasing mapping fitted on
+             *     sample data (docs/evaluation.md), not the raw cosine.
+             */
+            score: number;
+            /**
+             * @description Up to 3 research interests or skills both users have (the same name, ignoring
+             *     letter case): interests first, then skills, each in the caller's order. May be
+             *     empty.
+             */
+            shared: string[];
         };
         PeopleSearchFacets: {
             /**
@@ -8907,6 +8985,44 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             429: components["responses"]["SearchRateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    recommendPeople: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Items to return, from 1. Defaults to 10. A larger value than 10 is reduced to
+                 *     10; a value below 1 gets 400 `bad_request`.
+                 */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's recommendations, or why there are none yet. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PeopleRecommendations"];
+                };
+            };
+            /** @description `limit` is below 1 (`bad_request`, `field: limit`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             500: components["responses"]["InternalError"];
         };
     };

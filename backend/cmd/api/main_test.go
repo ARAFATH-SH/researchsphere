@@ -30,6 +30,7 @@ import (
 	profiledomain "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/domain"
 	profileusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/usecase"
 	realtimehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/realtime/adapter/http"
+	recommendationhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/recommendation/adapter/http"
 	socialhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/social/adapter/http"
 )
 
@@ -156,6 +157,7 @@ func testRouter() http.Handler {
 		moderationhttp.NewHandler(okModeration{}),
 		realtimehttp.NewHandler(okRealtime{}, "http://localhost:3000", slog.New(slog.DiscardHandler)),
 		embeddinghttp.NewHandler(okEmbeddings{}),
+		recommendationhttp.NewHandler(okRecommendations{}),
 		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
 }
 
@@ -185,6 +187,7 @@ func healthRouter(storage, ai healthdomain.Pinger) http.Handler {
 		moderationhttp.NewHandler(okModeration{}),
 		realtimehttp.NewHandler(okRealtime{}, "http://localhost:3000", slog.New(slog.DiscardHandler)),
 		embeddinghttp.NewHandler(okEmbeddings{}),
+		recommendationhttp.NewHandler(okRecommendations{}),
 		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
 }
 

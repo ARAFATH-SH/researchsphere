@@ -5,7 +5,8 @@ import { useEffect } from "react";
 import { SiteFooter } from "@/components/site-footer";
 import { useSession } from "@/features/auth/session";
 import { homeCard } from "@/features/home/cards";
-import { Recommendations } from "@/features/home/recommendations";
+import { AITag, RecommendationList } from "@/features/recommendation/recommendation-list";
+import { RecommendationsProvider } from "@/features/recommendation/recommendations-provider";
 
 import { type Connection, type ConnectionRequest, listMyConnections, listReceivedRequests, listSentRequests } from "./api";
 import {
@@ -25,8 +26,8 @@ const connectionId = (c: Connection) => c.userId;
 // NetworkPage is My Network (design/screens/Network.html and Network_m.html): a summary
 // strip with the counts, then two columns that wrap under each other when narrow. The left
 // one holds the invitations received and sent and the connections (FR-7.3 to FR-7.5). The
-// right one holds the home page's recommendations card, until AI recommendations (AI-2)
-// replace it, and the compact footer. The received list's total also drives the My
+// right one holds the AI-recommended network (AI-2): the top 3 collaborators, with a link to
+// all of them, and the compact footer. The received list's total also drives the My
 // Network badge, so accepting or ignoring here updates it at once.
 export function NetworkPage() {
   const session = useSession();
@@ -42,24 +43,31 @@ export function NetworkPage() {
   }, [me, receivedTotal]);
 
   return (
-    <div className="flex flex-col gap-5 max-[640px]:gap-4">
-      <Summary received={received} sent={sent} connections={connections} />
-      <div className="flex flex-wrap items-start gap-5 max-[640px]:gap-4">
-        <div className="flex min-w-0 flex-[1_1_480px] flex-col gap-4">
-          <div className="flex items-center gap-2">
-            <span aria-hidden="true" className="h-[22px] w-1.5 rounded-[3px] bg-rs-accent-strong" />
-            <h2 className="text-rs-lead leading-rs-snug font-medium text-rs-text">Your network</h2>
+    <RecommendationsProvider>
+      <div className="flex flex-col gap-5 max-[640px]:gap-4">
+        <Summary received={received} sent={sent} connections={connections} />
+        <div className="flex flex-wrap items-start gap-5 max-[640px]:gap-4">
+          <div className="flex min-w-0 flex-[1_1_480px] flex-col gap-4">
+            <div className="flex items-center gap-2">
+              <span aria-hidden="true" className="h-[22px] w-1.5 rounded-[3px] bg-rs-accent-strong" />
+              <h2 className="text-rs-lead leading-rs-snug font-medium text-rs-text">Your network</h2>
+            </div>
+            <InvitationsCard list={received} onAccepted={connections.prepend} />
+            <SentCard list={sent} />
+            <ConnectionsCard list={connections} />
           </div>
-          <InvitationsCard list={received} onAccepted={connections.prepend} />
-          <SentCard list={sent} />
-          <ConnectionsCard list={connections} />
+          <aside aria-label="Recommendations" className="flex min-w-0 flex-[1_1_480px] flex-col gap-4">
+            <div className="flex items-center gap-2">
+              <span aria-hidden="true" className="h-[22px] w-1.5 rounded-[3px] bg-rs-violet" />
+              <h2 className="text-rs-lead leading-rs-snug font-medium text-rs-text">AI-recommended network</h2>
+              <AITag />
+            </div>
+            <RecommendationList limit={3} variant="network" />
+            <SiteFooter variant="compact" />
+          </aside>
         </div>
-        <aside aria-label="Recommendations" className="flex min-w-0 flex-[1_1_480px] flex-col gap-4">
-          <Recommendations />
-          <SiteFooter variant="compact" />
-        </aside>
       </div>
-    </div>
+    </RecommendationsProvider>
   );
 }
 

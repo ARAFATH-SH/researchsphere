@@ -133,11 +133,12 @@ type Store interface {
 	// and its sender is verified and not suspended; otherwise ErrNotFound. It returns the
 	// request and when it was accepted.
 	AcceptRequest(ctx context.Context, requestID, receiverID string) (Request, time.Time, error)
-	// RejectRequest marks the request rejected, under the same conditions as AcceptRequest.
-	RejectRequest(ctx context.Context, requestID, receiverID string) error
-	// CancelRequest deletes the request when requesterID sent it and it is pending;
-	// otherwise ErrNotFound.
-	CancelRequest(ctx context.Context, requestID, requesterID string) error
+	// RejectRequest marks the request rejected, under the same conditions as AcceptRequest,
+	// and returns its sender.
+	RejectRequest(ctx context.Context, requestID, receiverID string) (requesterID string, err error)
+	// CancelRequest deletes the request when requesterID sent it and it is pending, and
+	// returns its receiver; otherwise ErrNotFound.
+	CancelRequest(ctx context.Context, requestID, requesterID string) (receiverID string, err error)
 	// RemoveConnection deletes the connection between userID and otherID; ErrNotFound when
 	// they are not connected.
 	RemoveConnection(ctx context.Context, userID, otherID string) error
@@ -216,6 +217,15 @@ type Notifier interface {
 	// Unblocked is called, after the block has gone, when blockerID ended a block of
 	// blockedID. It runs in no transaction and returns nothing to roll back.
 	Unblocked(ctx context.Context, blockerID, blockedID string)
+}
+
+// LinkWatcher hears about every change to the link between two users: a request sent,
+// accepted, rejected or cancelled, a connection removed, a block added or ended. The
+// recommendation lists of both users depend on it (AI-2.1). It is called inside the
+// change's transaction when there is one, and cannot fail the change: an implementation
+// acts only after the commit.
+type LinkWatcher interface {
+	LinkChanged(ctx context.Context, a, b string)
 }
 
 // Transactor runs fn in one database transaction that the Store and the Notifier both

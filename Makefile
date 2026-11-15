@@ -21,7 +21,7 @@ AI_SERVICE_PORT   ?= 8090
 MIGRATIONS_DIR := backend/db/migrations
 
 .DEFAULT_GOAL := help
-.PHONY: help up down logs ps psql check migrate migrate-down migrate-new admin unadmin seed-ui-compare seed-dev sample-data sample-purge purge-unverified send-digests embed-backfill update-disposable-domains api web stop web-clean ai-build ai-up ai-fetch-model ai-logs generate check-generated test test-prepare test-db test-go test-integration test-one test-web test-ai lint lint-go lint-web lint-ai
+.PHONY: help up down logs ps psql check migrate migrate-down migrate-new admin unadmin seed-ui-compare seed-dev sample-data sample-purge purge-unverified send-digests calibrate-recs eval-recs bench-recs embed-backfill update-disposable-domains api web stop web-clean ai-build ai-up ai-fetch-model ai-logs generate check-generated test test-prepare test-db test-go test-integration test-one test-web test-ai lint lint-go lint-web lint-ai
 
 help: ## List the available commands
 	@grep -hE '^[a-zA-Z_-]+:.*## ' $(firstword $(MAKEFILE_LIST)) | awk 'BEGIN {FS = ":.*## "} {printf "  make %-16s %s\n", $$1, $$2}'
@@ -98,6 +98,15 @@ purge-unverified: ## Run the FR-17.4 purge of old unverified accounts once, now 
 
 send-digests: ## Send the FR-16.11 unread message digests now due once (settings from .env), then exit
 	cd backend && go run ./cmd/api -send-digests
+
+calibrate-recs: ## Fit the AI-2.2 recommendation score map on the sample TUNING split and print RECS_SCORE_* (dev sample data)
+	@cd backend && go run ./cmd/recseval calibrate
+
+eval-recs: ## Measure NFR-6 collaborator matching (recall@10, precision@10) on the held-out sample TEST split
+	@cd backend && go run ./cmd/recseval eval
+
+bench-recs: ## Measure NFR-1: the recommendation query for 200 random sample users (p50, p95, max) and its EXPLAIN ANALYZE
+	@cd backend && go run ./cmd/recseval bench
 
 embed-backfill: ## Queue every verified, not suspended profile for its AI embedding once (AI-1.5); the running API embeds them
 	cd backend && go run ./cmd/api -embed-backfill
