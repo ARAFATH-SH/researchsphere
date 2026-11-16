@@ -68,6 +68,14 @@ describe("SearchBox", () => {
     expect(mockPush).toHaveBeenCalledWith("/search?q=lovelace&mode=keyword");
   });
 
+  it("keeps the Projects tab on the search page", () => {
+    mockPathname = "/search";
+    mockSearch = "q=graph&type=projects&mode=keyword&page=3";
+    render(<SearchBox id="s" variant="top" />);
+    submit("graph models");
+    expect(mockPush).toHaveBeenCalledWith("/search?q=graph+models&type=projects&mode=keyword");
+  });
+
   it("shares the length of the text being typed", () => {
     mockPathname = "/search";
     mockSearch = "q=ada";

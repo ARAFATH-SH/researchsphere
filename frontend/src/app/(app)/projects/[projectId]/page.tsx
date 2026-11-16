@@ -1,11 +1,7 @@
-import { ComingSoon } from "@/components/coming-soon";
+import { ProjectPage } from "@/features/project/project-page";
 
-export default function Page() {
-  return (
-    <ComingSoon
-      title="Project"
-      purpose="See details and members, handle requests, and see recommended researchers and venues."
-      requirements={["FR-10", "FR-11", "AI-2.3", "AI-6"]}
-    />
-  );
+// A project's page (FR-10, FR-15.11, AI-2.3).
+export default async function Page({ params }: PageProps<"/projects/[projectId]">) {
+  const { projectId } = await params;
+  return <ProjectPage projectId={projectId} />;
 }

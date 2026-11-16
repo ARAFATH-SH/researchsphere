@@ -137,10 +137,12 @@ describe("SearchPage", () => {
     expect(mockSearchPeople).toHaveBeenCalledTimes(1);
   });
 
-  it("has only the People tab", async () => {
+  it("has the People and Projects tabs, People selected", async () => {
     renderAt("q=ada");
     await screen.findByRole("link", { name: "Ada Rahman" });
-    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["People"]);
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs.map((t) => t.textContent)).toEqual(["People", "Projects"]);
+    expect(tabs.map((t) => t.getAttribute("aria-selected"))).toEqual(["true", "false"]);
   });
 
   it("says which name the results are for when the search was fuzzy", async () => {

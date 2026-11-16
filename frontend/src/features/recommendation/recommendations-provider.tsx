@@ -3,8 +3,15 @@
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 import type { Link } from "@/features/social/connect-button";
+import type { Result } from "@/lib/api/call";
 
-import { getPeopleRecommendations, type MissingField, maxRecommendations, type PersonRecommendation } from "./api";
+import {
+  getPeopleRecommendations,
+  type MissingField,
+  maxRecommendations,
+  type PeopleRecommendations,
+  type PersonRecommendation,
+} from "./api";
 
 // processingRetryMs is how long a page waits before asking once more while the caller's
 // profile embedding is being made (AI-1.4 makes it within a minute).
@@ -34,8 +41,17 @@ const RecommendationsContext = createContext<Recommendations | null>(null);
 // so every card on the page shares one request. While the answer is "processing" it asks once
 // more after a minute, quietly. A row the user connects with stays where it is, showing its
 // new state, until the page is left; the list is then fetched again (the API made it again
-// at once) and fills the other places, without showing anyone twice.
-export function RecommendationsProvider({ children }: { children: ReactNode }) {
+// at once) and fills the other places, without showing anyone twice. load reads the list:
+// the caller's recommendations by default, or another list of researchers such as a
+// project's (AI-2.3); it is read once, when the provider mounts.
+export function RecommendationsProvider({
+  children,
+  load: loadList = getPeopleRecommendations,
+}: {
+  children: ReactNode;
+  load?: () => Promise<Result<PeopleRecommendations>>;
+}) {
+  const loadListRef = useRef(loadList);
   const [state, setState] = useState<RecommendationsState>({ status: "loading" });
   const [links, setLinks] = useState<Record<string, Link>>({});
   // kept are the users whose row stays in place after a connection change.
@@ -51,7 +67,7 @@ export function RecommendationsProvider({ children }: { children: ReactNode }) {
   const load = useCallback(async (mode: "show" | "loading" | "refetch") => {
     const mine = ++generation.current;
     if (mode === "loading") setState({ status: "loading" });
-    const res = await getPeopleRecommendations();
+    const res = await loadListRef.current();
     if (mine !== generation.current) return;
     if (mode === "refetch") {
       if (!res.ok || res.data.state !== "ready") return;

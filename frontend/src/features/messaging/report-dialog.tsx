@@ -9,10 +9,13 @@ import { FormError, SelectField, TextAreaField } from "@/components/ui/field";
 import { type ReportReason, reportConversation } from "./api";
 import { bodyLength, waitText } from "./format";
 
-// maxDetails is the longest details, in characters after trimming, as the server counts them.
-const maxDetails = 1000;
+// maxReportDetails is the longest details, in characters after trimming, as the server counts
+// them; the same for message and project reports (FR-15.11).
+export const maxReportDetails = 1000;
+const maxDetails = maxReportDetails;
 
-const reasons: { value: ReportReason; label: string }[] = [
+// reportReasons is the reason picker of every report dialog.
+export const reportReasons: { value: ReportReason; label: string }[] = [
   { value: "spam", label: "Spam" },
   { value: "harassment", label: "Harassment" },
   { value: "inappropriate", label: "Inappropriate" },
@@ -104,7 +107,7 @@ export function ReportDialog({ conversationId, messageId, name, canBlock, title:
           onChange={(e) => setReason(e.target.value as ReportReason | "")}
         >
           <option value="">Choose a reason</option>
-          {reasons.map((r) => (
+          {reportReasons.map((r) => (
             <option key={r.value} value={r.value}>
               {r.label}
             </option>

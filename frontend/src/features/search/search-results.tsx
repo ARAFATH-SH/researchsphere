@@ -4,8 +4,8 @@ import { Avatar } from "@/components/avatar";
 import { emptyCard, homeCard } from "@/features/home/cards";
 import { ConnectButton } from "@/features/social/connect-button";
 
-import type { PeopleSearch, PeopleSearchPage, PersonSearchResult } from "./api";
-import { maxPage, searchHref } from "./search-params";
+import type { PeopleSearchPage, PersonSearchResult } from "./api";
+import { maxPage, type SearchState, searchHref } from "./search-params";
 
 // FuzzyNotice says the results are for a name similar to the query (FR-6.2).
 export function FuzzyNotice({ corrected, q }: { corrected: string; q: string }) {
@@ -16,11 +16,11 @@ export function FuzzyNotice({ corrected, q }: { corrected: string; q: string }) 
   );
 }
 
-// HybridNote says the results were also found by meaning (AI-5.2).
-export function HybridNote() {
+// HybridNote says the results were also found by meaning (AI-5.1, AI-5.2).
+export function HybridNote({ what = "researchers whose work matches" }: { what?: string }) {
   return (
     <p className="text-rs-caption text-rs-text-muted">
-      Results include researchers whose work matches the meaning of your search.
+      Results include {what} the meaning of your search.
     </p>
   );
 }
@@ -39,14 +39,14 @@ export function FallbackBanner() {
 }
 
 // lastPage is the number of pages the API can return for total results.
-function lastPage({ total, pageSize }: PeopleSearchPage): number {
+export function lastPage({ total, pageSize }: { total: number; pageSize: number }): number {
   return Math.min(maxPage, Math.max(1, Math.ceil(total / pageSize)));
 }
 
 // SearchResults is the card of one page of people (FR-6.1): a count line, a row per
 // person with its connect button (FR-7.1, from the result's connectionStatus, so a page
 // needs no request per row) and the page links.
-export function SearchResults({ search, result }: { search: PeopleSearch; result: PeopleSearchPage }) {
+export function SearchResults({ search, result }: { search: SearchState; result: PeopleSearchPage }) {
   const last = lastPage(result);
   const people = result.total === 1 ? "1 person" : `${result.total} people`;
   return (
@@ -107,7 +107,7 @@ const pageLink =
   "flex h-10 items-center justify-center rounded-full text-rs-body font-medium no-underline focus-visible:shadow-focus focus-visible:outline-none";
 
 // Pages links to the previous page, up to five page numbers around this one and the next.
-function Pages({ search, page, last }: { search: PeopleSearch; page: number; last: number }) {
+export function Pages({ search, page, last }: { search: SearchState; page: number; last: number }) {
   const first = Math.max(1, Math.min(page - 2, last - 4));
   const numbers = Array.from({ length: Math.min(5, last - first + 1) }, (_, i) => first + i);
   const href = (n: number) => searchHref({ ...search, page: n });
@@ -145,7 +145,7 @@ function Pages({ search, page, last }: { search: PeopleSearch; page: number; las
 
 // NoResults is the empty state: a tip, and a link that clears the filters when any are on.
 // A search by meaning suggests other words; a keyword search, another spelling.
-export function NoResults({ search, mode }: { search: PeopleSearch; mode: PeopleSearchPage["mode"] }) {
+export function NoResults({ search, mode }: { search: SearchState; mode: PeopleSearchPage["mode"] }) {
   const filtered = search.institution !== "" || search.interests.length > 0;
   return (
     <div className={`${emptyCard} flex flex-col items-start gap-1.5 px-4 py-3.5`}>

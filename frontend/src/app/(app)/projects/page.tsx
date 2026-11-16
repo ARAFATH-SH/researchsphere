@@ -1,11 +1,6 @@
-import { ComingSoon } from "@/components/coming-soon";
+import { ProjectsPage } from "@/features/project/projects-page";
 
+// The caller's projects and the Create a project card (FR-10.1, FR-11.6).
 export default function Page() {
-  return (
-    <ComingSoon
-      title="Projects"
-      purpose="List your projects and create a project."
-      requirements={["FR-10", "FR-11.6"]}
-    />
-  );
+  return <ProjectsPage />;
 }
