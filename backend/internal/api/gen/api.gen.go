@@ -141,12 +141,15 @@ func (e ConversationState) Valid() bool {
 // Defines values for EmbeddingOwnerStatsOwnerType.
 const (
 	EmbeddingOwnerStatsOwnerTypeProfile EmbeddingOwnerStatsOwnerType = "profile"
+	EmbeddingOwnerStatsOwnerTypeProject EmbeddingOwnerStatsOwnerType = "project"
 )
 
 // Valid indicates whether the value is a known member of the EmbeddingOwnerStatsOwnerType enum.
 func (e EmbeddingOwnerStatsOwnerType) Valid() bool {
 	switch e {
 	case EmbeddingOwnerStatsOwnerTypeProfile:
+		return true
+	case EmbeddingOwnerStatsOwnerTypeProject:
 		return true
 	default:
 		return false
@@ -197,16 +200,16 @@ func (e EmploymentType) Valid() bool {
 
 // Defines values for GroupRole.
 const (
-	Member GroupRole = "member"
-	Owner  GroupRole = "owner"
+	GroupRoleMember GroupRole = "member"
+	GroupRoleOwner  GroupRole = "owner"
 )
 
 // Valid indicates whether the value is a known member of the GroupRole enum.
 func (e GroupRole) Valid() bool {
 	switch e {
-	case Member:
+	case GroupRoleMember:
 		return true
-	case Owner:
+	case GroupRoleOwner:
 		return true
 	default:
 		return false
@@ -410,16 +413,16 @@ func (e MessageReportOutcome) Valid() bool {
 
 // Defines values for MessageReportStatus.
 const (
-	Open     MessageReportStatus = "open"
-	Resolved MessageReportStatus = "resolved"
+	MessageReportStatusOpen     MessageReportStatus = "open"
+	MessageReportStatusResolved MessageReportStatus = "resolved"
 )
 
 // Valid indicates whether the value is a known member of the MessageReportStatus enum.
 func (e MessageReportStatus) Valid() bool {
 	switch e {
-	case Open:
+	case MessageReportStatusOpen:
 		return true
-	case Resolved:
+	case MessageReportStatusResolved:
 		return true
 	default:
 		return false
@@ -572,19 +575,19 @@ func (e OrcidImportOutcome) Valid() bool {
 
 // Defines values for PeopleRecommendationsMissing.
 const (
-	Bio       PeopleRecommendationsMissing = "bio"
-	Interests PeopleRecommendationsMissing = "interests"
-	Skills    PeopleRecommendationsMissing = "skills"
+	PeopleRecommendationsMissingBio       PeopleRecommendationsMissing = "bio"
+	PeopleRecommendationsMissingInterests PeopleRecommendationsMissing = "interests"
+	PeopleRecommendationsMissingSkills    PeopleRecommendationsMissing = "skills"
 )
 
 // Valid indicates whether the value is a known member of the PeopleRecommendationsMissing enum.
 func (e PeopleRecommendationsMissing) Valid() bool {
 	switch e {
-	case Bio:
+	case PeopleRecommendationsMissingBio:
 		return true
-	case Interests:
+	case PeopleRecommendationsMissingInterests:
 		return true
-	case Skills:
+	case PeopleRecommendationsMissingSkills:
 		return true
 	default:
 		return false
@@ -593,19 +596,19 @@ func (e PeopleRecommendationsMissing) Valid() bool {
 
 // Defines values for PeopleRecommendationsState.
 const (
-	NeedsProfile PeopleRecommendationsState = "needs_profile"
-	Processing   PeopleRecommendationsState = "processing"
-	Ready        PeopleRecommendationsState = "ready"
+	PeopleRecommendationsStateNeedsProfile PeopleRecommendationsState = "needs_profile"
+	PeopleRecommendationsStateProcessing   PeopleRecommendationsState = "processing"
+	PeopleRecommendationsStateReady        PeopleRecommendationsState = "ready"
 )
 
 // Valid indicates whether the value is a known member of the PeopleRecommendationsState enum.
 func (e PeopleRecommendationsState) Valid() bool {
 	switch e {
-	case NeedsProfile:
+	case PeopleRecommendationsStateNeedsProfile:
 		return true
-	case Processing:
+	case PeopleRecommendationsStateProcessing:
 		return true
-	case Ready:
+	case PeopleRecommendationsStateReady:
 		return true
 	default:
 		return false
@@ -635,25 +638,190 @@ func (e PeopleSearchPageMode) Valid() bool {
 
 // Defines values for PersonSearchResultMatchedOn.
 const (
-	Headline    PersonSearchResultMatchedOn = "headline"
-	Institution PersonSearchResultMatchedOn = "institution"
-	Interest    PersonSearchResultMatchedOn = "interest"
-	Meaning     PersonSearchResultMatchedOn = "meaning"
-	Name        PersonSearchResultMatchedOn = "name"
+	PersonSearchResultMatchedOnHeadline    PersonSearchResultMatchedOn = "headline"
+	PersonSearchResultMatchedOnInstitution PersonSearchResultMatchedOn = "institution"
+	PersonSearchResultMatchedOnInterest    PersonSearchResultMatchedOn = "interest"
+	PersonSearchResultMatchedOnMeaning     PersonSearchResultMatchedOn = "meaning"
+	PersonSearchResultMatchedOnName        PersonSearchResultMatchedOn = "name"
 )
 
 // Valid indicates whether the value is a known member of the PersonSearchResultMatchedOn enum.
 func (e PersonSearchResultMatchedOn) Valid() bool {
 	switch e {
-	case Headline:
+	case PersonSearchResultMatchedOnHeadline:
 		return true
-	case Institution:
+	case PersonSearchResultMatchedOnInstitution:
 		return true
-	case Interest:
+	case PersonSearchResultMatchedOnInterest:
 		return true
-	case Meaning:
+	case PersonSearchResultMatchedOnMeaning:
 		return true
-	case Name:
+	case PersonSearchResultMatchedOnName:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProjectRecommendationsMissing.
+const (
+	ProjectRecommendationsMissingBio       ProjectRecommendationsMissing = "bio"
+	ProjectRecommendationsMissingInterests ProjectRecommendationsMissing = "interests"
+	ProjectRecommendationsMissingSkills    ProjectRecommendationsMissing = "skills"
+)
+
+// Valid indicates whether the value is a known member of the ProjectRecommendationsMissing enum.
+func (e ProjectRecommendationsMissing) Valid() bool {
+	switch e {
+	case ProjectRecommendationsMissingBio:
+		return true
+	case ProjectRecommendationsMissingInterests:
+		return true
+	case ProjectRecommendationsMissingSkills:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProjectRecommendationsState.
+const (
+	ProjectRecommendationsStateNeedsProfile ProjectRecommendationsState = "needs_profile"
+	ProjectRecommendationsStateProcessing   ProjectRecommendationsState = "processing"
+	ProjectRecommendationsStateReady        ProjectRecommendationsState = "ready"
+)
+
+// Valid indicates whether the value is a known member of the ProjectRecommendationsState enum.
+func (e ProjectRecommendationsState) Valid() bool {
+	switch e {
+	case ProjectRecommendationsStateNeedsProfile:
+		return true
+	case ProjectRecommendationsStateProcessing:
+		return true
+	case ProjectRecommendationsStateReady:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProjectReportOutcome.
+const (
+	ProjectReportOutcomeActionTaken ProjectReportOutcome = "action_taken"
+	ProjectReportOutcomeDismissed   ProjectReportOutcome = "dismissed"
+)
+
+// Valid indicates whether the value is a known member of the ProjectReportOutcome enum.
+func (e ProjectReportOutcome) Valid() bool {
+	switch e {
+	case ProjectReportOutcomeActionTaken:
+		return true
+	case ProjectReportOutcomeDismissed:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProjectReportStatus.
+const (
+	ProjectReportStatusOpen     ProjectReportStatus = "open"
+	ProjectReportStatusResolved ProjectReportStatus = "resolved"
+)
+
+// Valid indicates whether the value is a known member of the ProjectReportStatus enum.
+func (e ProjectReportStatus) Valid() bool {
+	switch e {
+	case ProjectReportStatusOpen:
+		return true
+	case ProjectReportStatusResolved:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProjectRole.
+const (
+	ProjectRoleEditor ProjectRole = "editor"
+	ProjectRoleOwner  ProjectRole = "owner"
+	ProjectRoleViewer ProjectRole = "viewer"
+)
+
+// Valid indicates whether the value is a known member of the ProjectRole enum.
+func (e ProjectRole) Valid() bool {
+	switch e {
+	case ProjectRoleEditor:
+		return true
+	case ProjectRoleOwner:
+		return true
+	case ProjectRoleViewer:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProjectSearchPageMode.
+const (
+	ProjectSearchPageModeHybrid          ProjectSearchPageMode = "hybrid"
+	ProjectSearchPageModeKeyword         ProjectSearchPageMode = "keyword"
+	ProjectSearchPageModeKeywordFallback ProjectSearchPageMode = "keyword_fallback"
+)
+
+// Valid indicates whether the value is a known member of the ProjectSearchPageMode enum.
+func (e ProjectSearchPageMode) Valid() bool {
+	switch e {
+	case ProjectSearchPageModeHybrid:
+		return true
+	case ProjectSearchPageModeKeyword:
+		return true
+	case ProjectSearchPageModeKeywordFallback:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProjectSearchResultMatchedOn.
+const (
+	ProjectSearchResultMatchedOnDescription ProjectSearchResultMatchedOn = "description"
+	ProjectSearchResultMatchedOnMeaning     ProjectSearchResultMatchedOn = "meaning"
+	ProjectSearchResultMatchedOnSkill       ProjectSearchResultMatchedOn = "skill"
+	ProjectSearchResultMatchedOnTitle       ProjectSearchResultMatchedOn = "title"
+)
+
+// Valid indicates whether the value is a known member of the ProjectSearchResultMatchedOn enum.
+func (e ProjectSearchResultMatchedOn) Valid() bool {
+	switch e {
+	case ProjectSearchResultMatchedOnDescription:
+		return true
+	case ProjectSearchResultMatchedOnMeaning:
+		return true
+	case ProjectSearchResultMatchedOnSkill:
+		return true
+	case ProjectSearchResultMatchedOnTitle:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProjectStatus.
+const (
+	ProjectStatusArchived ProjectStatus = "archived"
+	ProjectStatusClosed   ProjectStatus = "closed"
+	ProjectStatusOpen     ProjectStatus = "open"
+)
+
+// Valid indicates whether the value is a known member of the ProjectStatus enum.
+func (e ProjectStatus) Valid() bool {
+	switch e {
+	case ProjectStatusArchived:
+		return true
+	case ProjectStatusClosed:
+		return true
+	case ProjectStatusOpen:
 		return true
 	default:
 		return false
@@ -816,6 +984,24 @@ func (e ResolveMessageReportRequestOutcome) Valid() bool {
 	}
 }
 
+// Defines values for ResolveProjectReportRequestOutcome.
+const (
+	ResolveProjectReportRequestOutcomeActionTaken ResolveProjectReportRequestOutcome = "action_taken"
+	ResolveProjectReportRequestOutcomeDismissed   ResolveProjectReportRequestOutcome = "dismissed"
+)
+
+// Valid indicates whether the value is a known member of the ResolveProjectReportRequestOutcome enum.
+func (e ResolveProjectReportRequestOutcome) Valid() bool {
+	switch e {
+	case ResolveProjectReportRequestOutcomeActionTaken:
+		return true
+	case ResolveProjectReportRequestOutcomeDismissed:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RestrictUserRequestKind.
 const (
 	Messaging RestrictUserRequestKind = "messaging"
@@ -909,6 +1095,24 @@ func (e SearchPeopleParamsMode) Valid() bool {
 	case SearchPeopleParamsModeAuto:
 		return true
 	case SearchPeopleParamsModeKeyword:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SearchProjectsParamsMode.
+const (
+	SearchProjectsParamsModeAuto    SearchProjectsParamsMode = "auto"
+	SearchProjectsParamsModeKeyword SearchProjectsParamsMode = "keyword"
+)
+
+// Valid indicates whether the value is a known member of the SearchProjectsParamsMode enum.
+func (e SearchProjectsParamsMode) Valid() bool {
+	switch e {
+	case SearchProjectsParamsModeAuto:
+		return true
+	case SearchProjectsParamsModeKeyword:
 		return true
 	default:
 		return false
@@ -1402,7 +1606,7 @@ type EmbeddingOwnerStats struct {
 	// Failed Owners whose text failed 5 times; they wait for their next change or a rebuild.
 	Failed int `json:"failed"`
 
-	// OwnerType What the embeddings belong to. Later slices add project, post and venue.
+	// OwnerType What the embeddings belong to. Later slices add post and venue.
 	OwnerType EmbeddingOwnerStatsOwnerType `json:"ownerType"`
 
 	// Queued Owners waiting to be embedded, failed ones not counted.
@@ -1412,7 +1616,7 @@ type EmbeddingOwnerStats struct {
 	Total int `json:"total"`
 }
 
-// EmbeddingOwnerStatsOwnerType What the embeddings belong to. Later slices add project, post and venue.
+// EmbeddingOwnerStatsOwnerType What the embeddings belong to. Later slices add post and venue.
 type EmbeddingOwnerStatsOwnerType string
 
 // EmbeddingRebuild defines model for EmbeddingRebuild.
@@ -2267,9 +2471,10 @@ type PersonRecommendation struct {
 	// sample data (docs/evaluation.md), not the raw cosine.
 	Score int `json:"score"`
 
-	// Shared Up to 3 research interests or skills both users have (the same name, ignoring
-	// letter case): interests first, then skills, each in the caller's order. May be
-	// empty.
+	// Shared In `recommendPeople`: up to 3 research interests or skills both users have (the
+	// same name, ignoring letter case), interests first, then skills, each in the
+	// caller's order. In `recommendProjectResearchers`: up to 3 of the project's
+	// required skills the researcher has, in the project's order. May be empty.
 	Shared []string           `json:"shared"`
 	UserId openapi_types.UUID `json:"userId"`
 }
@@ -2478,10 +2683,247 @@ type ProfileUpdate struct {
 	JobTitle *string `json:"jobTitle,omitempty"`
 }
 
+// Project A research project's page (FR-10.1, SRS 2.3).
+type Project struct {
+	// Abstract The paper's abstract; null when there is none, and always null for a caller who is not a member.
+	Abstract    *string            `json:"abstract"`
+	CreatedAt   time.Time          `json:"createdAt"`
+	Description string             `json:"description"`
+	Id          openapi_types.UUID `json:"id"`
+	MemberCount int                `json:"memberCount"`
+
+	// MyRole The caller's role in the project; null when the caller is not a member.
+	MyRole *ProjectRole  `json:"myRole"`
+	Owner  ProjectPerson `json:"owner"`
+
+	// RequiredSkills Sorted by name, ignoring letter case.
+	RequiredSkills []Tag `json:"requiredSkills"`
+
+	// Status `open` projects are found by search (FR-10.3); `archived` projects are seen by members only.
+	Status    ProjectStatus `json:"status"`
+	Title     string        `json:"title"`
+	UpdatedAt time.Time     `json:"updatedAt"`
+}
+
+// ProjectCreate defines model for ProjectCreate.
+type ProjectCreate struct {
+	// Abstract At most 3,000 characters after trimming; empty or null means none.
+	Abstract *string `json:"abstract,omitempty"`
+
+	// Description 1 to 5,000 characters after trimming.
+	Description string `json:"description"`
+
+	// RequiredSkills Skill names (FR-4.2); duplicates ignoring letter case are dropped, at most 20 remain.
+	RequiredSkills *[]string `json:"requiredSkills,omitempty"`
+
+	// Title 3 to 150 characters after trimming.
+	Title string `json:"title"`
+}
+
+// ProjectPage defines model for ProjectPage.
+type ProjectPage struct {
+	Items    []ProjectSummary `json:"items"`
+	Page     int              `json:"page"`
+	PageSize int              `json:"pageSize"`
+
+	// Total Projects on all pages.
+	Total int `json:"total"`
+}
+
+// ProjectPerson defines model for ProjectPerson.
+type ProjectPerson struct {
+	FullName string  `json:"fullName"`
+	Headline *string `json:"headline"`
+
+	// PhotoUrl The profile photo as `/api/v1/media/{fileId}`; null when not set.
+	PhotoUrl *string            `json:"photoUrl"`
+	UserId   openapi_types.UUID `json:"userId"`
+}
+
+// ProjectRecommendation defines model for ProjectRecommendation.
+type ProjectRecommendation struct {
+	// Project A recommended project's summary.
+	Project RecommendedProject `json:"project"`
+
+	// Score How similar the project is to the caller's profile, as a percentage. It is the
+	// cosine similarity of the embeddings put through a fixed increasing mapping fitted
+	// on sample data (docs/evaluation.md), not the raw cosine.
+	Score int `json:"score"`
+
+	// Shared Up to 3 of the project's required skills the caller has (the same name, ignoring
+	// letter case), in the project's order. May be empty.
+	Shared []string `json:"shared"`
+}
+
+// ProjectRecommendations defines model for ProjectRecommendations.
+type ProjectRecommendations struct {
+	// Items Most similar first. Empty unless `state` is `ready`.
+	Items []ProjectRecommendation `json:"items"`
+
+	// Missing With `needs_profile`, the profile fields to fill in, in this order: `interests`,
+	// `skills`, `bio`. Empty in the other states.
+	Missing []ProjectRecommendationsMissing `json:"missing"`
+
+	// State As in `PeopleRecommendations`.
+	State ProjectRecommendationsState `json:"state"`
+}
+
+// ProjectRecommendationsMissing defines model for ProjectRecommendations.Missing.
+type ProjectRecommendationsMissing string
+
+// ProjectRecommendationsState As in `PeopleRecommendations`.
+type ProjectRecommendationsState string
+
 // ProjectRef defines model for ProjectRef.
 type ProjectRef struct {
 	Id    openapi_types.UUID `json:"id"`
 	Title string             `json:"title"`
+}
+
+// ProjectReport defines model for ProjectReport.
+type ProjectReport struct {
+	CreatedAt time.Time `json:"createdAt"`
+
+	// Details The reporter's own words.
+	Details *string               `json:"details"`
+	Id      openapi_types.UUID    `json:"id"`
+	Note    *string               `json:"note"`
+	Outcome *ProjectReportOutcome `json:"outcome"`
+
+	// Owner The project's owner now, whom a moderation action would name.
+	Owner     MessageReportPerson `json:"owner"`
+	ProjectId openapi_types.UUID  `json:"projectId"`
+
+	// ProjectTitle The project's title now.
+	ProjectTitle string              `json:"projectTitle"`
+	Reason       ReportReason        `json:"reason"`
+	Reporter     MessageReportPerson `json:"reporter"`
+	ResolvedAt   *time.Time          `json:"resolvedAt"`
+	Status       ProjectReportStatus `json:"status"`
+}
+
+// ProjectReportOutcome defines model for ProjectReport.Outcome.
+type ProjectReportOutcome string
+
+// ProjectReportStatus defines model for ProjectReport.Status.
+type ProjectReportStatus string
+
+// ProjectReportDetail defines model for ProjectReportDetail.
+type ProjectReportDetail struct {
+	// Project The reported project as it is now, whatever its status.
+	Project ReportedProject `json:"project"`
+	Report  ProjectReport   `json:"report"`
+}
+
+// ProjectReportPage defines model for ProjectReportPage.
+type ProjectReportPage struct {
+	Items    []ProjectReport `json:"items"`
+	Page     int             `json:"page"`
+	PageSize int             `json:"pageSize"`
+
+	// Total Reports with this status on all pages.
+	Total int `json:"total"`
+}
+
+// ProjectReportReceipt defines model for ProjectReportReceipt.
+type ProjectReportReceipt struct {
+	CreatedAt time.Time          `json:"createdAt"`
+	Id        openapi_types.UUID `json:"id"`
+}
+
+// ProjectRole A member's role in one project (SRS 2.3).
+type ProjectRole string
+
+// ProjectSearchPage defines model for ProjectSearchPage.
+type ProjectSearchPage struct {
+	// CorrectedQuery When `fuzzy` is true, the result title most similar to `q`; otherwise null.
+	CorrectedQuery *string `json:"correctedQuery"`
+
+	// Fuzzy True when no title contains `q` and the title results are titles similar to it.
+	Fuzzy bool                  `json:"fuzzy"`
+	Items []ProjectSearchResult `json:"items"`
+
+	// Mode How the results were found: `hybrid` by keyword and meaning, `keyword` because
+	// the request asked for it, `keyword_fallback` by keyword only because the AI
+	// service did not answer (AI-5.4).
+	Mode ProjectSearchPageMode `json:"mode"`
+	Page int                   `json:"page"`
+
+	// PageSize Always 20 (FR-10.3).
+	PageSize int `json:"pageSize"`
+
+	// Total The number of results on all pages.
+	Total int `json:"total"`
+}
+
+// ProjectSearchPageMode How the results were found: `hybrid` by keyword and meaning, `keyword` because
+// the request asked for it, `keyword_fallback` by keyword only because the AI
+// service did not answer (AI-5.4).
+type ProjectSearchPageMode string
+
+// ProjectSearchResult defines model for ProjectSearchResult.
+type ProjectSearchResult struct {
+	CreatedAt time.Time `json:"createdAt"`
+
+	// Description The first 300 characters of the description.
+	Description string             `json:"description"`
+	Id          openapi_types.UUID `json:"id"`
+
+	// MatchedOn The field of the result's best match; `meaning` when only the meaning search
+	// found it (hybrid mode).
+	MatchedOn ProjectSearchResultMatchedOn `json:"matchedOn"`
+
+	// MyRole The caller's role in the project; null when the caller is not a member.
+	MyRole *ProjectRole  `json:"myRole"`
+	Owner  ProjectPerson `json:"owner"`
+
+	// RequiredSkills Up to 5 required skill names, by name ignoring letter case.
+	RequiredSkills []string `json:"requiredSkills"`
+
+	// Status `open` projects are found by search (FR-10.3); `archived` projects are seen by members only.
+	Status    ProjectStatus `json:"status"`
+	Title     string        `json:"title"`
+	UpdatedAt time.Time     `json:"updatedAt"`
+}
+
+// ProjectSearchResultMatchedOn The field of the result's best match; `meaning` when only the meaning search
+// found it (hybrid mode).
+type ProjectSearchResultMatchedOn string
+
+// ProjectStatus `open` projects are found by search (FR-10.3); `archived` projects are seen by members only.
+type ProjectStatus string
+
+// ProjectSummary A project in a list.
+type ProjectSummary struct {
+	CreatedAt time.Time `json:"createdAt"`
+
+	// Description The first 300 characters of the description.
+	Description string             `json:"description"`
+	Id          openapi_types.UUID `json:"id"`
+
+	// MyRole The caller's role in the project; null when the caller is not a member.
+	MyRole *ProjectRole  `json:"myRole"`
+	Owner  ProjectPerson `json:"owner"`
+
+	// RequiredSkills Up to 5 required skill names, by name ignoring letter case.
+	RequiredSkills []string `json:"requiredSkills"`
+
+	// Status `open` projects are found by search (FR-10.3); `archived` projects are seen by members only.
+	Status    ProjectStatus `json:"status"`
+	Title     string        `json:"title"`
+	UpdatedAt time.Time     `json:"updatedAt"`
+}
+
+// ProjectUpdate The fields to change (FR-10.2). A missing field keeps its value. `null` clears
+// `abstract`; `null` for any other field is refused (`bad_request`).
+type ProjectUpdate struct {
+	Abstract    nullable.Nullable[string] `json:"abstract,omitempty"`
+	Description nullable.Nullable[string] `json:"description,omitempty"`
+
+	// RequiredSkills Replaces the whole list.
+	RequiredSkills nullable.Nullable[[]string] `json:"requiredSkills,omitempty"`
+	Status         nullable.Nullable[string]   `json:"status,omitempty"`
+	Title          nullable.Nullable[string]   `json:"title,omitempty"`
 }
 
 // PublicContact The contact info the viewer of a profile may see (FR-4.7). An item that is hidden
@@ -2748,6 +3190,21 @@ type RealtimeTyping struct {
 	UserId         openapi_types.UUID `json:"userId"`
 }
 
+// RecommendedProject A recommended project's summary.
+type RecommendedProject struct {
+	// Description The first 300 characters of the description.
+	Description string             `json:"description"`
+	Id          openapi_types.UUID `json:"id"`
+
+	// MemberCount Shown only; it never affects the order (AI-2.4).
+	MemberCount int           `json:"memberCount"`
+	Owner       ProjectPerson `json:"owner"`
+
+	// RequiredSkills Up to 5 required skill names, by name ignoring letter case.
+	RequiredSkills []string `json:"requiredSkills"`
+	Title          string   `json:"title"`
+}
+
 // RegisterRequest defines model for RegisterRequest.
 type RegisterRequest struct {
 	// Email Example: ada@example.org
@@ -2782,6 +3239,13 @@ type ReportConversationRequest struct {
 	// MessageId The message being reported, when it is one message. It must be in this conversation and not the caller's.
 	MessageId *openapi_types.UUID `json:"messageId,omitempty"`
 	Reason    ReportReason        `json:"reason"`
+}
+
+// ReportProjectRequest defines model for ReportProjectRequest.
+type ReportProjectRequest struct {
+	// Details At most 1,000 characters after trimming; empty means none.
+	Details *string      `json:"details,omitempty"`
+	Reason  ReportReason `json:"reason"`
 }
 
 // ReportReason defines model for ReportReason.
@@ -2826,6 +3290,21 @@ type ReportedMessage struct {
 	Versions []MessageVersion `json:"versions"`
 }
 
+// ReportedProject The reported project as it is now, whatever its status.
+type ReportedProject struct {
+	Abstract       *string            `json:"abstract"`
+	CreatedAt      time.Time          `json:"createdAt"`
+	Description    string             `json:"description"`
+	Id             openapi_types.UUID `json:"id"`
+	MemberCount    int                `json:"memberCount"`
+	RequiredSkills []Tag              `json:"requiredSkills"`
+
+	// Status `open` projects are found by search (FR-10.3); `archived` projects are seen by members only.
+	Status    ProjectStatus `json:"status"`
+	Title     string        `json:"title"`
+	UpdatedAt time.Time     `json:"updatedAt"`
+}
+
 // ResendVerificationRequest defines model for ResendVerificationRequest.
 type ResendVerificationRequest struct {
 	Email string `json:"email"`
@@ -2840,6 +3319,16 @@ type ResolveMessageReportRequest struct {
 
 // ResolveMessageReportRequestOutcome defines model for ResolveMessageReportRequest.Outcome.
 type ResolveMessageReportRequestOutcome string
+
+// ResolveProjectReportRequest defines model for ResolveProjectReportRequest.
+type ResolveProjectReportRequest struct {
+	// Note At most 1,000 characters after trimming; empty means none.
+	Note    *string                            `json:"note,omitempty"`
+	Outcome ResolveProjectReportRequestOutcome `json:"outcome"`
+}
+
+// ResolveProjectReportRequestOutcome defines model for ResolveProjectReportRequest.Outcome.
+type ResolveProjectReportRequestOutcome string
 
 // RestrictUserRequest defines model for RestrictUserRequest.
 type RestrictUserRequest struct {
@@ -3082,6 +3571,9 @@ type ModeratedUserId = string
 // PageFromOne defines model for PageFromOne.
 type PageFromOne = int
 
+// ProjectId defines model for ProjectId.
+type ProjectId = string
+
 // PublicationID defines model for PublicationID.
 type PublicationID = string
 
@@ -3162,6 +3654,9 @@ type InvalidLanguage = Error
 
 // InvalidMessage The shape of every error response (SRS 5.3).
 type InvalidMessage = Error
+
+// InvalidProject The shape of every error response (SRS 5.3).
+type InvalidProject = Error
 
 // InvalidPublication The shape of every error response (SRS 5.3).
 type InvalidPublication = Error
@@ -3249,6 +3744,15 @@ type GetMessageReportParams struct {
 	// Before `nextBefore` from the previous page; leave it out for the most recent messages. A
 	// value that is not a UUID gets 400 `bad_request`.
 	Before *string `form:"before,omitempty" json:"before,omitempty"`
+}
+
+// ListProjectReportsParams defines parameters for ListProjectReports.
+type ListProjectReportsParams struct {
+	// Status `open` or `resolved`; `open` when left out. Any other value gets 400 `bad_request`.
+	Status *string `form:"status,omitempty" json:"status,omitempty"`
+
+	// Page The page to return, from 1. Defaults to 1. A value below 1 gets 400 `bad_request`.
+	Page *PageFromOne `form:"page,omitempty" json:"page,omitempty"`
 }
 
 // ListUsersParams defines parameters for ListUsers.
@@ -3351,6 +3855,15 @@ type ListMessagesParams struct {
 	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// ListMyProjectsParams defines parameters for ListMyProjects.
+type ListMyProjectsParams struct {
+	// Page The page to return, from 1. Defaults to 1. A value below 1 gets 400 `bad_request`.
+	Page *PageFromOne `form:"page,omitempty" json:"page,omitempty"`
+
+	// PageSize Projects per page, from 1; a larger value than 50 is reduced to 50. Defaults to 20. Below 1 gets 400 `bad_request`.
+	PageSize *int `form:"pageSize,omitempty" json:"pageSize,omitempty"`
+}
+
 // SearchMessagesParams defines parameters for SearchMessages.
 type SearchMessagesParams struct {
 	// Q The search text, 2 to 100 characters after trimming, else 400 `bad_request` with
@@ -3436,6 +3949,14 @@ type ListPublicationsParams struct {
 	PageSize *PublicationListPageSize `form:"pageSize,omitempty" json:"pageSize,omitempty"`
 }
 
+// DeleteProjectParams defines parameters for DeleteProject.
+type DeleteProjectParams struct {
+	// Confirm The project's title, typed by the owner to confirm. It is declared optional only
+	// so that a missing value gets 400 `confirmation_mismatch` instead of the generic
+	// `bad_request`.
+	Confirm *string `form:"confirm,omitempty" json:"confirm,omitempty"`
+}
+
 // LookupPublicationByDOIParams defines parameters for LookupPublicationByDOI.
 type LookupPublicationByDOIParams struct {
 	// Doi A DOI such as `10.1145/3292500.3330701`, optionally as a `https://doi.org/` link
@@ -3446,6 +3967,13 @@ type LookupPublicationByDOIParams struct {
 
 // RecommendPeopleParams defines parameters for RecommendPeople.
 type RecommendPeopleParams struct {
+	// Limit Items to return, from 1. Defaults to 10. A larger value than 10 is reduced to
+	// 10; a value below 1 gets 400 `bad_request`.
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// RecommendProjectsParams defines parameters for RecommendProjects.
+type RecommendProjectsParams struct {
 	// Limit Items to return, from 1. Defaults to 10. A larger value than 10 is reduced to
 	// 10; a value below 1 gets 400 `bad_request`.
 	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
@@ -3480,6 +4008,25 @@ type SearchPeopleParams struct {
 // SearchPeopleParamsMode defines parameters for SearchPeople.
 type SearchPeopleParamsMode string
 
+// SearchProjectsParams defines parameters for SearchProjects.
+type SearchProjectsParams struct {
+	// Q The search text after trimming: 2 to 300 characters in `auto` mode (AI-5.1), 2 to
+	// 100 in `keyword` mode. It is required: it is declared optional only so that a
+	// missing `q` gets 400 `invalid_query`, like a too short one, instead of the generic
+	// `bad_request`.
+	Q *string `form:"q,omitempty" json:"q,omitempty"`
+
+	// Mode `auto` searches by keyword and by meaning (AI-5); `keyword` only by keyword and
+	// never calls the AI service. Any other value gets 400 `bad_request`.
+	Mode *SearchProjectsParamsMode `form:"mode,omitempty" json:"mode,omitempty"`
+
+	// Page The page to return, 1 to 50, 20 results each (FR-10.3). Defaults to 1.
+	Page *int `form:"page,omitempty" json:"page,omitempty"`
+}
+
+// SearchProjectsParamsMode defines parameters for SearchProjects.
+type SearchProjectsParamsMode string
+
 // SuggestInterestTagsParams defines parameters for SuggestInterestTags.
 type SuggestInterestTagsParams struct {
 	// Q The text typed so far. Empty or missing gives an empty list.
@@ -3510,6 +4057,9 @@ type DeleteAccountJSONRequestBody = DeleteAccountRequest
 
 // ResolveMessageReportJSONRequestBody defines body for ResolveMessageReport for application/json ContentType.
 type ResolveMessageReportJSONRequestBody = ResolveMessageReportRequest
+
+// ResolveProjectReportJSONRequestBody defines body for ResolveProjectReport for application/json ContentType.
+type ResolveProjectReportJSONRequestBody = ResolveProjectReportRequest
 
 // LiftRestrictionJSONRequestBody defines body for LiftRestriction for application/json ContentType.
 type LiftRestrictionJSONRequestBody = ReverseActionRequest
@@ -3637,6 +4187,15 @@ type UpdateMyPublicationJSONRequestBody = PublicationUpdate
 // AddMySkillJSONRequestBody defines body for AddMySkill for application/json ContentType.
 type AddMySkillJSONRequestBody = AddTagRequest
 
+// CreateProjectJSONRequestBody defines body for CreateProject for application/json ContentType.
+type CreateProjectJSONRequestBody = ProjectCreate
+
+// UpdateProjectJSONRequestBody defines body for UpdateProject for application/json ContentType.
+type UpdateProjectJSONRequestBody = ProjectUpdate
+
+// ReportProjectJSONRequestBody defines body for ReportProject for application/json ContentType.
+type ReportProjectJSONRequestBody = ReportProjectRequest
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// DeleteAccount Delete the logged-in user's account after entering the password (FR-2.8, FR-2.9)
@@ -3660,6 +4219,15 @@ type ServerInterface interface {
 	// ResolveMessageReport Close a report with an outcome (FR-16.9)
 	// (POST /admin/message-reports/{reportId}/resolve)
 	ResolveMessageReport(w http.ResponseWriter, r *http.Request, reportId ReportId)
+	// ListProjectReports List reports of projects for an administrator (FR-15.11)
+	// (GET /admin/project-reports)
+	ListProjectReports(w http.ResponseWriter, r *http.Request, params ListProjectReportsParams)
+	// GetProjectReport Read a report and the reported project as it is now (FR-15.11)
+	// (GET /admin/project-reports/{reportId})
+	GetProjectReport(w http.ResponseWriter, r *http.Request, reportId ReportId)
+	// ResolveProjectReport Close a project report with an outcome (FR-15.11)
+	// (POST /admin/project-reports/{reportId}/resolve)
+	ResolveProjectReport(w http.ResponseWriter, r *http.Request, reportId ReportId)
 	// LiftRestriction End a restriction early (FR-15.6)
 	// (POST /admin/restrictions/{restrictionId}/lift)
 	LiftRestriction(w http.ResponseWriter, r *http.Request, restrictionId string)
@@ -3798,6 +4366,9 @@ type ServerInterface interface {
 	// GetHealth Report whether the database, Redis, object storage and the AI service respond
 	// (GET /health)
 	GetHealth(w http.ResponseWriter, r *http.Request)
+	// ListMyProjects The caller's own projects with the caller's role in each (FR-10, FR-11.6)
+	// (GET /me/projects)
+	ListMyProjects(w http.ResponseWriter, r *http.Request, params ListMyProjectsParams)
 	// GetMySettings Return the caller's account settings (FR-16.11)
 	// (GET /me/settings)
 	GetMySettings(w http.ResponseWriter, r *http.Request)
@@ -3942,15 +4513,39 @@ type ServerInterface interface {
 	// ListPublications List any user's confirmed publications to a logged-in user (FR-5.5)
 	// (GET /profiles/{userId}/publications)
 	ListPublications(w http.ResponseWriter, r *http.Request, userId string, params ListPublicationsParams)
+	// CreateProject Create a research project, owned by the caller (FR-10.1)
+	// (POST /projects)
+	CreateProject(w http.ResponseWriter, r *http.Request)
+	// DeleteProject Delete a project and everything in it, after confirming (FR-10.6)
+	// (DELETE /projects/{projectId})
+	DeleteProject(w http.ResponseWriter, r *http.Request, projectId ProjectId, params DeleteProjectParams)
+	// GetProject Read a project's page (FR-10, SRS 2.3)
+	// (GET /projects/{projectId})
+	GetProject(w http.ResponseWriter, r *http.Request, projectId ProjectId)
+	// UpdateProject Change a project's details or status (FR-10.2)
+	// (PATCH /projects/{projectId})
+	UpdateProject(w http.ResponseWriter, r *http.Request, projectId ProjectId)
+	// RecommendProjectResearchers Researchers whose profiles are most similar to a project, for its owner (AI-2.3, AI-2.4)
+	// (GET /projects/{projectId}/recommended-researchers)
+	RecommendProjectResearchers(w http.ResponseWriter, r *http.Request, projectId ProjectId)
+	// ReportProject Report a project to the administrators (FR-15.11)
+	// (POST /projects/{projectId}/reports)
+	ReportProject(w http.ResponseWriter, r *http.Request, projectId ProjectId)
 	// LookupPublicationByDOI Preview the metadata of a publication by its DOI (FR-5.2, FR-5.6)
 	// (GET /publications/lookup)
 	LookupPublicationByDOI(w http.ResponseWriter, r *http.Request, params LookupPublicationByDOIParams)
 	// RecommendPeople Researchers whose profiles are most similar to the caller's (AI-2.1, AI-2.2, AI-2.4, AI-4)
 	// (GET /recommendations/people)
 	RecommendPeople(w http.ResponseWriter, r *http.Request, params RecommendPeopleParams)
+	// RecommendProjects Open projects whose embeddings are most similar to the caller's profile (AI-3.1, AI-2.4, AI-4)
+	// (GET /recommendations/projects)
+	RecommendProjects(w http.ResponseWriter, r *http.Request, params RecommendProjectsParams)
 	// SearchPeople Search researchers by name, institution, research interest, headline or meaning (FR-6.1 to FR-6.3, AI-5.1, AI-5.2, AI-5.4)
 	// (GET /search/people)
 	SearchPeople(w http.ResponseWriter, r *http.Request, params SearchPeopleParams)
+	// SearchProjects Search open projects by title, required skill or description (FR-10.3)
+	// (GET /search/projects)
+	SearchProjects(w http.ResponseWriter, r *http.Request, params SearchProjectsParams)
 	// SuggestInterestTags Suggest existing research interest tags while the user types (FR-4.3)
 	// (GET /tags/interests)
 	SuggestInterestTags(w http.ResponseWriter, r *http.Request, params SuggestInterestTagsParams)
@@ -4198,6 +4793,122 @@ func (siw *ServerInterfaceWrapper) ResolveMessageReport(w http.ResponseWriter, r
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ResolveMessageReport(w, r, reportId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListProjectReports operation middleware
+func (siw *ServerInterfaceWrapper) ListProjectReports(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListProjectReportsParams
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "page" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "page", r.URL.Query(), &params.Page, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "page"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListProjectReports(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetProjectReport operation middleware
+func (siw *ServerInterfaceWrapper) GetProjectReport(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "reportId" -------------
+	var reportId ReportId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "reportId", r.PathValue("reportId"), &reportId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "reportId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetProjectReport(w, r, reportId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ResolveProjectReport operation middleware
+func (siw *ServerInterfaceWrapper) ResolveProjectReport(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "reportId" -------------
+	var reportId ReportId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "reportId", r.PathValue("reportId"), &reportId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "reportId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ResolveProjectReport(w, r, reportId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -5712,6 +6423,58 @@ func (siw *ServerInterfaceWrapper) GetHealth(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
+// ListMyProjects operation middleware
+func (siw *ServerInterfaceWrapper) ListMyProjects(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListMyProjectsParams
+
+	// ------------- Optional query parameter "page" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "page", r.URL.Query(), &params.Page, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "page"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "pageSize" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "pageSize", r.URL.Query(), &params.PageSize, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "pageSize"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "pageSize", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListMyProjects(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetMySettings operation middleware
 func (siw *ServerInterfaceWrapper) GetMySettings(w http.ResponseWriter, r *http.Request) {
 
@@ -7113,6 +7876,202 @@ func (siw *ServerInterfaceWrapper) ListPublications(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// CreateProject operation middleware
+func (siw *ServerInterfaceWrapper) CreateProject(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateProject(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteProject operation middleware
+func (siw *ServerInterfaceWrapper) DeleteProject(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", r.PathValue("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DeleteProjectParams
+
+	// ------------- Optional query parameter "confirm" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "confirm", r.URL.Query(), &params.Confirm, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "confirm"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "confirm", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteProject(w, r, projectId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetProject operation middleware
+func (siw *ServerInterfaceWrapper) GetProject(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", r.PathValue("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetProject(w, r, projectId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateProject operation middleware
+func (siw *ServerInterfaceWrapper) UpdateProject(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", r.PathValue("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateProject(w, r, projectId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RecommendProjectResearchers operation middleware
+func (siw *ServerInterfaceWrapper) RecommendProjectResearchers(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", r.PathValue("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RecommendProjectResearchers(w, r, projectId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReportProject operation middleware
+func (siw *ServerInterfaceWrapper) ReportProject(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", r.PathValue("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReportProject(w, r, projectId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // LookupPublicationByDOI operation middleware
 func (siw *ServerInterfaceWrapper) LookupPublicationByDOI(w http.ResponseWriter, r *http.Request) {
 
@@ -7182,6 +8141,45 @@ func (siw *ServerInterfaceWrapper) RecommendPeople(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RecommendPeople(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RecommendProjects operation middleware
+func (siw *ServerInterfaceWrapper) RecommendProjects(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RecommendProjectsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RecommendProjects(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7273,6 +8271,71 @@ func (siw *ServerInterfaceWrapper) SearchPeople(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SearchPeople(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SearchProjects operation middleware
+func (siw *ServerInterfaceWrapper) SearchProjects(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SearchProjectsParams
+
+	// ------------- Optional query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "mode" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "mode", r.URL.Query(), &params.Mode, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "mode"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "mode", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "page" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "page", r.URL.Query(), &params.Page, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "page"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SearchProjects(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7578,6 +8641,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/admin/message-reports/{reportId}", wrapper.GetMessageReport)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/admin/message-reports/{reportId}/attachments/{attachmentId}", wrapper.GetReportedAttachment)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/admin/message-reports/{reportId}/resolve", wrapper.ResolveMessageReport)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/admin/project-reports", wrapper.ListProjectReports)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/admin/project-reports/{reportId}", wrapper.GetProjectReport)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/admin/project-reports/{reportId}/resolve", wrapper.ResolveProjectReport)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/admin/users/{userId}/warnings", wrapper.WarnUser)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/admin/users/{userId}/restrictions", wrapper.RestrictUser)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/admin/restrictions/{restrictionId}/lift", wrapper.LiftRestriction)
@@ -7663,8 +8729,17 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/conversations/{conversationId}/accept", wrapper.AcceptMessageRequest)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/conversations/{conversationId}/decline", wrapper.DeclineMessageRequest)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/conversations/{conversationId}/reports", wrapper.ReportConversation)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/projects", wrapper.CreateProject)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/projects/{projectId}", wrapper.DeleteProject)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/projects/{projectId}", wrapper.GetProject)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/projects/{projectId}", wrapper.UpdateProject)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/projects/{projectId}/reports", wrapper.ReportProject)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/me/projects", wrapper.ListMyProjects)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/search/projects", wrapper.SearchProjects)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/search/people", wrapper.SearchPeople)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/recommendations/people", wrapper.RecommendPeople)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/recommendations/projects", wrapper.RecommendProjects)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/projects/{projectId}/recommended-researchers", wrapper.RecommendProjectResearchers)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/ws", wrapper.OpenWebSocket)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/presence", wrapper.GetPresence)
 
@@ -7729,6 +8804,8 @@ type InvalidImageJSONResponse Error
 type InvalidLanguageJSONResponse Error
 
 type InvalidMessageJSONResponse Error
+
+type InvalidProjectJSONResponse Error
 
 type InvalidPublicationJSONResponse Error
 
@@ -8418,6 +9495,269 @@ func (response ResolveMessageReport409JSONResponse) VisitResolveMessageReportRes
 type ResolveMessageReport500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response ResolveMessageReport500JSONResponse) VisitResolveMessageReportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListProjectReportsRequestObject struct {
+	Params ListProjectReportsParams
+}
+
+type ListProjectReportsResponseObject interface {
+	VisitListProjectReportsResponse(w http.ResponseWriter) error
+}
+
+type ListProjectReports200JSONResponse ProjectReportPage
+
+func (response ListProjectReports200JSONResponse) VisitListProjectReportsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListProjectReports400JSONResponse Error
+
+func (response ListProjectReports400JSONResponse) VisitListProjectReportsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListProjectReports401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListProjectReports401JSONResponse) VisitListProjectReportsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListProjectReports403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListProjectReports403JSONResponse) VisitListProjectReportsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListProjectReports500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ListProjectReports500JSONResponse) VisitListProjectReportsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetProjectReportRequestObject struct {
+	ReportId ReportId `json:"reportId"`
+}
+
+type GetProjectReportResponseObject interface {
+	VisitGetProjectReportResponse(w http.ResponseWriter) error
+}
+
+type GetProjectReport200JSONResponse ProjectReportDetail
+
+func (response GetProjectReport200JSONResponse) VisitGetProjectReportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetProjectReport401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetProjectReport401JSONResponse) VisitGetProjectReportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetProjectReport403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetProjectReport403JSONResponse) VisitGetProjectReportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetProjectReport404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetProjectReport404JSONResponse) VisitGetProjectReportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetProjectReport500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response GetProjectReport500JSONResponse) VisitGetProjectReportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveProjectReportRequestObject struct {
+	ReportId ReportId `json:"reportId"`
+	Body     *ResolveProjectReportJSONRequestBody
+}
+
+type ResolveProjectReportResponseObject interface {
+	VisitResolveProjectReportResponse(w http.ResponseWriter) error
+}
+
+type ResolveProjectReport200JSONResponse ProjectReport
+
+func (response ResolveProjectReport200JSONResponse) VisitResolveProjectReportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveProjectReport400JSONResponse Error
+
+func (response ResolveProjectReport400JSONResponse) VisitResolveProjectReportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveProjectReport401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ResolveProjectReport401JSONResponse) VisitResolveProjectReportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveProjectReport403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ResolveProjectReport403JSONResponse) VisitResolveProjectReportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveProjectReport404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ResolveProjectReport404JSONResponse) VisitResolveProjectReportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveProjectReport409JSONResponse Error
+
+func (response ResolveProjectReport409JSONResponse) VisitResolveProjectReportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveProjectReport500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ResolveProjectReport500JSONResponse) VisitResolveProjectReportResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -12364,6 +13704,84 @@ func (response GetHealth503JSONResponse) VisitGetHealthResponse(w http.ResponseW
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMyProjectsRequestObject struct {
+	Params ListMyProjectsParams
+}
+
+type ListMyProjectsResponseObject interface {
+	VisitListMyProjectsResponse(w http.ResponseWriter) error
+}
+
+type ListMyProjects200JSONResponse ProjectPage
+
+func (response ListMyProjects200JSONResponse) VisitListMyProjectsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMyProjects400JSONResponse Error
+
+func (response ListMyProjects400JSONResponse) VisitListMyProjectsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMyProjects401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListMyProjects401JSONResponse) VisitListMyProjectsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMyProjects403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListMyProjects403JSONResponse) VisitListMyProjectsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMyProjects500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ListMyProjects500JSONResponse) VisitListMyProjectsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -16537,6 +17955,551 @@ func (response ListPublications500JSONResponse) VisitListPublicationsResponse(w 
 	return err
 }
 
+type CreateProjectRequestObject struct {
+	Body *CreateProjectJSONRequestBody
+}
+
+type CreateProjectResponseObject interface {
+	VisitCreateProjectResponse(w http.ResponseWriter) error
+}
+
+type CreateProject201JSONResponse Project
+
+func (response CreateProject201JSONResponse) VisitCreateProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateProject400JSONResponse struct{ InvalidProjectJSONResponse }
+
+func (response CreateProject400JSONResponse) VisitCreateProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateProject401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateProject401JSONResponse) VisitCreateProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateProject403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateProject403JSONResponse) VisitCreateProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateProject429ResponseHeaders struct {
+	RetryAfter int
+}
+
+type CreateProject429JSONResponse struct {
+	Body    Error
+	Headers CreateProject429ResponseHeaders
+}
+
+func (response CreateProject429JSONResponse) VisitCreateProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateProject500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response CreateProject500JSONResponse) VisitCreateProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteProjectRequestObject struct {
+	ProjectId ProjectId `json:"projectId"`
+	Params    DeleteProjectParams
+}
+
+type DeleteProjectResponseObject interface {
+	VisitDeleteProjectResponse(w http.ResponseWriter) error
+}
+
+type DeleteProject204Response struct {
+}
+
+func (response DeleteProject204Response) VisitDeleteProjectResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteProject400JSONResponse Error
+
+func (response DeleteProject400JSONResponse) VisitDeleteProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteProject401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response DeleteProject401JSONResponse) VisitDeleteProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteProject403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response DeleteProject403JSONResponse) VisitDeleteProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteProject404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DeleteProject404JSONResponse) VisitDeleteProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteProject500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response DeleteProject500JSONResponse) VisitDeleteProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetProjectRequestObject struct {
+	ProjectId ProjectId `json:"projectId"`
+}
+
+type GetProjectResponseObject interface {
+	VisitGetProjectResponse(w http.ResponseWriter) error
+}
+
+type GetProject200JSONResponse Project
+
+func (response GetProject200JSONResponse) VisitGetProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetProject401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetProject401JSONResponse) VisitGetProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetProject403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetProject403JSONResponse) VisitGetProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetProject404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetProject404JSONResponse) VisitGetProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetProject500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response GetProject500JSONResponse) VisitGetProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateProjectRequestObject struct {
+	ProjectId ProjectId `json:"projectId"`
+	Body      *UpdateProjectJSONRequestBody
+}
+
+type UpdateProjectResponseObject interface {
+	VisitUpdateProjectResponse(w http.ResponseWriter) error
+}
+
+type UpdateProject200JSONResponse Project
+
+func (response UpdateProject200JSONResponse) VisitUpdateProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateProject400JSONResponse struct{ InvalidProjectJSONResponse }
+
+func (response UpdateProject400JSONResponse) VisitUpdateProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateProject401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response UpdateProject401JSONResponse) VisitUpdateProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateProject403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response UpdateProject403JSONResponse) VisitUpdateProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateProject404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response UpdateProject404JSONResponse) VisitUpdateProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateProject500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response UpdateProject500JSONResponse) VisitUpdateProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RecommendProjectResearchersRequestObject struct {
+	ProjectId ProjectId `json:"projectId"`
+}
+
+type RecommendProjectResearchersResponseObject interface {
+	VisitRecommendProjectResearchersResponse(w http.ResponseWriter) error
+}
+
+type RecommendProjectResearchers200JSONResponse PeopleRecommendations
+
+func (response RecommendProjectResearchers200JSONResponse) VisitRecommendProjectResearchersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RecommendProjectResearchers401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RecommendProjectResearchers401JSONResponse) VisitRecommendProjectResearchersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RecommendProjectResearchers403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response RecommendProjectResearchers403JSONResponse) VisitRecommendProjectResearchersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RecommendProjectResearchers404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RecommendProjectResearchers404JSONResponse) VisitRecommendProjectResearchersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RecommendProjectResearchers500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RecommendProjectResearchers500JSONResponse) VisitRecommendProjectResearchersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReportProjectRequestObject struct {
+	ProjectId ProjectId `json:"projectId"`
+	Body      *ReportProjectJSONRequestBody
+}
+
+type ReportProjectResponseObject interface {
+	VisitReportProjectResponse(w http.ResponseWriter) error
+}
+
+type ReportProject201JSONResponse ProjectReportReceipt
+
+func (response ReportProject201JSONResponse) VisitReportProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReportProject400JSONResponse Error
+
+func (response ReportProject400JSONResponse) VisitReportProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReportProject401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ReportProject401JSONResponse) VisitReportProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReportProject403JSONResponse struct {
+	AccountSuspendedOrForbiddenJSONResponse
+}
+
+func (response ReportProject403JSONResponse) VisitReportProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReportProject404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ReportProject404JSONResponse) VisitReportProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReportProject409JSONResponse Error
+
+func (response ReportProject409JSONResponse) VisitReportProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReportProject500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ReportProject500JSONResponse) VisitReportProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type LookupPublicationByDOIRequestObject struct {
 	Params LookupPublicationByDOIParams
 }
@@ -16738,6 +18701,84 @@ func (response RecommendPeople500JSONResponse) VisitRecommendPeopleResponse(w ht
 	return err
 }
 
+type RecommendProjectsRequestObject struct {
+	Params RecommendProjectsParams
+}
+
+type RecommendProjectsResponseObject interface {
+	VisitRecommendProjectsResponse(w http.ResponseWriter) error
+}
+
+type RecommendProjects200JSONResponse ProjectRecommendations
+
+func (response RecommendProjects200JSONResponse) VisitRecommendProjectsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RecommendProjects400JSONResponse Error
+
+func (response RecommendProjects400JSONResponse) VisitRecommendProjectsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RecommendProjects401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RecommendProjects401JSONResponse) VisitRecommendProjectsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RecommendProjects403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response RecommendProjects403JSONResponse) VisitRecommendProjectsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RecommendProjects500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RecommendProjects500JSONResponse) VisitRecommendProjectsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type SearchPeopleRequestObject struct {
 	Params SearchPeopleParams
 }
@@ -16820,6 +18861,99 @@ func (response SearchPeople429JSONResponse) VisitSearchPeopleResponse(w http.Res
 type SearchPeople500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response SearchPeople500JSONResponse) VisitSearchPeopleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SearchProjectsRequestObject struct {
+	Params SearchProjectsParams
+}
+
+type SearchProjectsResponseObject interface {
+	VisitSearchProjectsResponse(w http.ResponseWriter) error
+}
+
+type SearchProjects200JSONResponse ProjectSearchPage
+
+func (response SearchProjects200JSONResponse) VisitSearchProjectsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SearchProjects400JSONResponse Error
+
+func (response SearchProjects400JSONResponse) VisitSearchProjectsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SearchProjects401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response SearchProjects401JSONResponse) VisitSearchProjectsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SearchProjects403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response SearchProjects403JSONResponse) VisitSearchProjectsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SearchProjects429JSONResponse struct{ SearchRateLimitedJSONResponse }
+
+func (response SearchProjects429JSONResponse) VisitSearchProjectsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SearchProjects500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response SearchProjects500JSONResponse) VisitSearchProjectsResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -17139,6 +19273,15 @@ type StrictServerInterface interface {
 	// ResolveMessageReport Close a report with an outcome (FR-16.9)
 	// (POST /admin/message-reports/{reportId}/resolve)
 	ResolveMessageReport(ctx context.Context, request ResolveMessageReportRequestObject) (ResolveMessageReportResponseObject, error)
+	// ListProjectReports List reports of projects for an administrator (FR-15.11)
+	// (GET /admin/project-reports)
+	ListProjectReports(ctx context.Context, request ListProjectReportsRequestObject) (ListProjectReportsResponseObject, error)
+	// GetProjectReport Read a report and the reported project as it is now (FR-15.11)
+	// (GET /admin/project-reports/{reportId})
+	GetProjectReport(ctx context.Context, request GetProjectReportRequestObject) (GetProjectReportResponseObject, error)
+	// ResolveProjectReport Close a project report with an outcome (FR-15.11)
+	// (POST /admin/project-reports/{reportId}/resolve)
+	ResolveProjectReport(ctx context.Context, request ResolveProjectReportRequestObject) (ResolveProjectReportResponseObject, error)
 	// LiftRestriction End a restriction early (FR-15.6)
 	// (POST /admin/restrictions/{restrictionId}/lift)
 	LiftRestriction(ctx context.Context, request LiftRestrictionRequestObject) (LiftRestrictionResponseObject, error)
@@ -17277,6 +19420,9 @@ type StrictServerInterface interface {
 	// GetHealth Report whether the database, Redis, object storage and the AI service respond
 	// (GET /health)
 	GetHealth(ctx context.Context, request GetHealthRequestObject) (GetHealthResponseObject, error)
+	// ListMyProjects The caller's own projects with the caller's role in each (FR-10, FR-11.6)
+	// (GET /me/projects)
+	ListMyProjects(ctx context.Context, request ListMyProjectsRequestObject) (ListMyProjectsResponseObject, error)
 	// GetMySettings Return the caller's account settings (FR-16.11)
 	// (GET /me/settings)
 	GetMySettings(ctx context.Context, request GetMySettingsRequestObject) (GetMySettingsResponseObject, error)
@@ -17421,15 +19567,39 @@ type StrictServerInterface interface {
 	// ListPublications List any user's confirmed publications to a logged-in user (FR-5.5)
 	// (GET /profiles/{userId}/publications)
 	ListPublications(ctx context.Context, request ListPublicationsRequestObject) (ListPublicationsResponseObject, error)
+	// CreateProject Create a research project, owned by the caller (FR-10.1)
+	// (POST /projects)
+	CreateProject(ctx context.Context, request CreateProjectRequestObject) (CreateProjectResponseObject, error)
+	// DeleteProject Delete a project and everything in it, after confirming (FR-10.6)
+	// (DELETE /projects/{projectId})
+	DeleteProject(ctx context.Context, request DeleteProjectRequestObject) (DeleteProjectResponseObject, error)
+	// GetProject Read a project's page (FR-10, SRS 2.3)
+	// (GET /projects/{projectId})
+	GetProject(ctx context.Context, request GetProjectRequestObject) (GetProjectResponseObject, error)
+	// UpdateProject Change a project's details or status (FR-10.2)
+	// (PATCH /projects/{projectId})
+	UpdateProject(ctx context.Context, request UpdateProjectRequestObject) (UpdateProjectResponseObject, error)
+	// RecommendProjectResearchers Researchers whose profiles are most similar to a project, for its owner (AI-2.3, AI-2.4)
+	// (GET /projects/{projectId}/recommended-researchers)
+	RecommendProjectResearchers(ctx context.Context, request RecommendProjectResearchersRequestObject) (RecommendProjectResearchersResponseObject, error)
+	// ReportProject Report a project to the administrators (FR-15.11)
+	// (POST /projects/{projectId}/reports)
+	ReportProject(ctx context.Context, request ReportProjectRequestObject) (ReportProjectResponseObject, error)
 	// LookupPublicationByDOI Preview the metadata of a publication by its DOI (FR-5.2, FR-5.6)
 	// (GET /publications/lookup)
 	LookupPublicationByDOI(ctx context.Context, request LookupPublicationByDOIRequestObject) (LookupPublicationByDOIResponseObject, error)
 	// RecommendPeople Researchers whose profiles are most similar to the caller's (AI-2.1, AI-2.2, AI-2.4, AI-4)
 	// (GET /recommendations/people)
 	RecommendPeople(ctx context.Context, request RecommendPeopleRequestObject) (RecommendPeopleResponseObject, error)
+	// RecommendProjects Open projects whose embeddings are most similar to the caller's profile (AI-3.1, AI-2.4, AI-4)
+	// (GET /recommendations/projects)
+	RecommendProjects(ctx context.Context, request RecommendProjectsRequestObject) (RecommendProjectsResponseObject, error)
 	// SearchPeople Search researchers by name, institution, research interest, headline or meaning (FR-6.1 to FR-6.3, AI-5.1, AI-5.2, AI-5.4)
 	// (GET /search/people)
 	SearchPeople(ctx context.Context, request SearchPeopleRequestObject) (SearchPeopleResponseObject, error)
+	// SearchProjects Search open projects by title, required skill or description (FR-10.3)
+	// (GET /search/projects)
+	SearchProjects(ctx context.Context, request SearchProjectsRequestObject) (SearchProjectsResponseObject, error)
 	// SuggestInterestTags Suggest existing research interest tags while the user types (FR-4.3)
 	// (GET /tags/interests)
 	SuggestInterestTags(ctx context.Context, request SuggestInterestTagsRequestObject) (SuggestInterestTagsResponseObject, error)
@@ -17668,6 +19838,91 @@ func (sh *strictHandler) ResolveMessageReport(w http.ResponseWriter, r *http.Req
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ResolveMessageReportResponseObject); ok {
 		if err := validResponse.VisitResolveMessageReportResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListProjectReports operation middleware
+func (sh *strictHandler) ListProjectReports(w http.ResponseWriter, r *http.Request, params ListProjectReportsParams) {
+	var request ListProjectReportsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListProjectReports(ctx, request.(ListProjectReportsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListProjectReports")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListProjectReportsResponseObject); ok {
+		if err := validResponse.VisitListProjectReportsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetProjectReport operation middleware
+func (sh *strictHandler) GetProjectReport(w http.ResponseWriter, r *http.Request, reportId ReportId) {
+	var request GetProjectReportRequestObject
+
+	request.ReportId = reportId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetProjectReport(ctx, request.(GetProjectReportRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetProjectReport")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetProjectReportResponseObject); ok {
+		if err := validResponse.VisitGetProjectReportResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ResolveProjectReport operation middleware
+func (sh *strictHandler) ResolveProjectReport(w http.ResponseWriter, r *http.Request, reportId ReportId) {
+	var request ResolveProjectReportRequestObject
+
+	request.ReportId = reportId
+
+	var body ResolveProjectReportJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ResolveProjectReport(ctx, request.(ResolveProjectReportRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ResolveProjectReport")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ResolveProjectReportResponseObject); ok {
+		if err := validResponse.VisitResolveProjectReportResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -19001,6 +21256,32 @@ func (sh *strictHandler) GetHealth(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetHealthResponseObject); ok {
 		if err := validResponse.VisitGetHealthResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListMyProjects operation middleware
+func (sh *strictHandler) ListMyProjects(w http.ResponseWriter, r *http.Request, params ListMyProjectsParams) {
+	var request ListMyProjectsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListMyProjects(ctx, request.(ListMyProjectsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListMyProjects")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListMyProjectsResponseObject); ok {
+		if err := validResponse.VisitListMyProjectsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -20346,6 +22627,182 @@ func (sh *strictHandler) ListPublications(w http.ResponseWriter, r *http.Request
 	}
 }
 
+// CreateProject operation middleware
+func (sh *strictHandler) CreateProject(w http.ResponseWriter, r *http.Request) {
+	var request CreateProjectRequestObject
+
+	var body CreateProjectJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateProject(ctx, request.(CreateProjectRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateProject")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateProjectResponseObject); ok {
+		if err := validResponse.VisitCreateProjectResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteProject operation middleware
+func (sh *strictHandler) DeleteProject(w http.ResponseWriter, r *http.Request, projectId ProjectId, params DeleteProjectParams) {
+	var request DeleteProjectRequestObject
+
+	request.ProjectId = projectId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteProject(ctx, request.(DeleteProjectRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteProject")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteProjectResponseObject); ok {
+		if err := validResponse.VisitDeleteProjectResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetProject operation middleware
+func (sh *strictHandler) GetProject(w http.ResponseWriter, r *http.Request, projectId ProjectId) {
+	var request GetProjectRequestObject
+
+	request.ProjectId = projectId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetProject(ctx, request.(GetProjectRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetProject")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetProjectResponseObject); ok {
+		if err := validResponse.VisitGetProjectResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateProject operation middleware
+func (sh *strictHandler) UpdateProject(w http.ResponseWriter, r *http.Request, projectId ProjectId) {
+	var request UpdateProjectRequestObject
+
+	request.ProjectId = projectId
+
+	var body UpdateProjectJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateProject(ctx, request.(UpdateProjectRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateProject")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateProjectResponseObject); ok {
+		if err := validResponse.VisitUpdateProjectResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RecommendProjectResearchers operation middleware
+func (sh *strictHandler) RecommendProjectResearchers(w http.ResponseWriter, r *http.Request, projectId ProjectId) {
+	var request RecommendProjectResearchersRequestObject
+
+	request.ProjectId = projectId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RecommendProjectResearchers(ctx, request.(RecommendProjectResearchersRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RecommendProjectResearchers")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RecommendProjectResearchersResponseObject); ok {
+		if err := validResponse.VisitRecommendProjectResearchersResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReportProject operation middleware
+func (sh *strictHandler) ReportProject(w http.ResponseWriter, r *http.Request, projectId ProjectId) {
+	var request ReportProjectRequestObject
+
+	request.ProjectId = projectId
+
+	var body ReportProjectJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReportProject(ctx, request.(ReportProjectRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReportProject")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReportProjectResponseObject); ok {
+		if err := validResponse.VisitReportProjectResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // LookupPublicationByDOI operation middleware
 func (sh *strictHandler) LookupPublicationByDOI(w http.ResponseWriter, r *http.Request, params LookupPublicationByDOIParams) {
 	var request LookupPublicationByDOIRequestObject
@@ -20398,6 +22855,32 @@ func (sh *strictHandler) RecommendPeople(w http.ResponseWriter, r *http.Request,
 	}
 }
 
+// RecommendProjects operation middleware
+func (sh *strictHandler) RecommendProjects(w http.ResponseWriter, r *http.Request, params RecommendProjectsParams) {
+	var request RecommendProjectsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RecommendProjects(ctx, request.(RecommendProjectsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RecommendProjects")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RecommendProjectsResponseObject); ok {
+		if err := validResponse.VisitRecommendProjectsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // SearchPeople operation middleware
 func (sh *strictHandler) SearchPeople(w http.ResponseWriter, r *http.Request, params SearchPeopleParams) {
 	var request SearchPeopleRequestObject
@@ -20417,6 +22900,32 @@ func (sh *strictHandler) SearchPeople(w http.ResponseWriter, r *http.Request, pa
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SearchPeopleResponseObject); ok {
 		if err := validResponse.VisitSearchPeopleResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SearchProjects operation middleware
+func (sh *strictHandler) SearchProjects(w http.ResponseWriter, r *http.Request, params SearchProjectsParams) {
+	var request SearchProjectsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SearchProjects(ctx, request.(SearchProjectsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SearchProjects")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SearchProjectsResponseObject); ok {
+		if err := validResponse.VisitSearchProjectsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

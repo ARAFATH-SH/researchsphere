@@ -107,3 +107,29 @@ func TestCutText(t *testing.T) {
 		t.Errorf("cut text has %d characters (valid %v), want %d", n, utf8.ValidString(got), domain.MaxTextChars)
 	}
 }
+
+// AI-1.2: a project's text is its title, skills, description and abstract, each on one line;
+// empty fields are left out. Its hash differs from a profile's with the same text, so the
+// two text formats can change apart.
+func TestProjectText(t *testing.T) {
+	tests := []struct {
+		src  domain.ProjectSource
+		want string
+	}{
+		{domain.ProjectSource{Title: " Graph\tlearning ", Skills: []string{"Go", " ", "Rust"}, Description: "Line one\nline two", Abstract: "Abs"},
+			"Graph learning\nGo, Rust\nLine one line two\nAbs"},
+		{domain.ProjectSource{Title: "Only a title"}, "Only a title"},
+		{domain.ProjectSource{}, ""},
+	}
+	for _, tt := range tests {
+		if got := ProjectText(tt.src); got != tt.want {
+			t.Errorf("ProjectText(%+v) = %q, want %q", tt.src, got, tt.want)
+		}
+	}
+	if ProjectContentHash("x") == ContentHash("x") {
+		t.Error("project and profile texts hash the same")
+	}
+	if hashOf(domain.OwnerProject, "x") != ProjectContentHash("x") || hashOf(domain.OwnerProfile, "x") != ContentHash("x") {
+		t.Error("hashOf picks the wrong hash")
+	}
+}

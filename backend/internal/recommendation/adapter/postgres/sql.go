@@ -40,3 +40,25 @@ func RankPeopleSQL() (string, error) {
 	q = strings.ReplaceAll(q, "@user_id", "$1")
 	return strings.ReplaceAll(q, "@lim", "$2"), nil
 }
+
+// RankProjectsSQL is the project ranking query (AI-3.1) with $1 for the caller's ID and $2
+// for the limit, for EXPLAIN.
+func RankProjectsSQL() (string, error) {
+	q, err := QueryText("RankProjects")
+	if err != nil {
+		return "", err
+	}
+	q = strings.ReplaceAll(q, "@user_id", "$1")
+	return strings.ReplaceAll(q, "@lim", "$2"), nil
+}
+
+// RankResearchersSQL is the researcher ranking query (AI-2.3) with $1 for the project's ID
+// and $2 for the limit, for EXPLAIN.
+func RankResearchersSQL() (string, error) {
+	q, err := QueryText("RankResearchers")
+	if err != nil {
+		return "", err
+	}
+	q = strings.ReplaceAll(q, "@project_id", "$1")
+	return strings.ReplaceAll(q, "@lim", "$2"), nil
+}

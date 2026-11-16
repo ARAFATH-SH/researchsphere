@@ -302,3 +302,54 @@ func TestProfilesFitTheDatabase(t *testing.T) {
 		t.Errorf("connections within the main cluster = %.2f, want mostly (about 0.8)", r)
 	}
 }
+
+// Sample projects (slice 19): project k is made from (seed, k) and its owner's label alone, lies
+// in the owner's main cluster and split, fits the project rules, and adding projects changes
+// no profile.
+func TestSampleProjects(t *testing.T) {
+	g := testGenerator(t, defaultSeed)
+	statuses := map[string]int{}
+	const n = 2000
+	for k := range n {
+		p := g.project(k)
+		if !reflect.DeepEqual(p, g.project(k)) {
+			t.Fatalf("project %d differs between two calls", k)
+		}
+		owner := g.label(k * profilesPerProject)
+		if p.ownerSeq != k*profilesPerProject || p.cluster != g.c.clusters[owner.main].ID || p.split != owner.split {
+			t.Fatalf("project %d = owner %d cluster %s split %s; owner label %+v", k, p.ownerSeq, p.cluster, p.split, owner)
+		}
+		if n := utf8.RuneCountInString(p.title); n < 3 || n > 150 || strings.TrimSpace(p.title) != p.title {
+			t.Errorf("project %d title %q", k, p.title)
+		}
+		if n := utf8.RuneCountInString(p.description); n < 1 || n > 5000 || strings.Contains(p.description, "{") {
+			t.Errorf("project %d description %q", k, p.description)
+		}
+		if utf8.RuneCountInString(p.abstract) > 3000 || strings.Contains(p.abstract, "{") {
+			t.Errorf("project %d abstract %q", k, p.abstract)
+		}
+		if len(p.skills) < 1 || len(p.skills) > 20 {
+			t.Errorf("project %d has %d skills", k, len(p.skills))
+		}
+		statuses[p.status]++
+	}
+	if open := float64(statuses["open"]) / n; open < 0.80 || open > 0.90 || statuses["closed"] == 0 || statuses["archived"] == 0 {
+		t.Errorf("statuses = %v, want about 85%% open with some closed and archived", statuses)
+	}
+	if !reflect.DeepEqual(tenThousand()[10], g.profile(10)) {
+		t.Error("making projects changed a profile")
+	}
+	if g.project(1).title == testGenerator(t, defaultSeed+1).project(1).title && g.project(2).title == testGenerator(t, defaultSeed+1).project(2).title {
+		t.Error("another seed makes the same projects")
+	}
+	if id := newUUIDv7(); len(id) != 36 || id[14] != '7' {
+		t.Errorf("newUUIDv7() = %s", id)
+	}
+}
+
+func TestProjectPlan(t *testing.T) {
+	profiles := map[int]string{0: "a", 5: "b", 10: "c", 20: "d", 31: "e"}
+	if got := projectPlan(profiles, map[int]bool{1: true}); !reflect.DeepEqual(got, []int{0, 2}) {
+		t.Errorf("projectPlan = %v, want [0 2]", got)
+	}
+}

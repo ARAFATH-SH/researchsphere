@@ -120,6 +120,59 @@ FROM (
       AND (u.suspended_at IS NULL OR (u.suspended_until IS NOT NULL AND u.suspended_until <= now()))
 ) q;
 
+-- Projects (AI-1.2; slice 19). Every project may have an embedding; status and the owner's
+-- suspension are filtered where the embeddings are read (AI-3).
+
+-- name: ProjectSourceFields :one
+SELECT title, description, abstract FROM projects WHERE id = @project_id;
+
+-- name: ProjectSkillNames :many
+SELECT s.name::text AS name
+FROM project_skills ps
+JOIN skills s ON s.id = ps.skill_id
+WHERE ps.project_id = @project_id
+ORDER BY lower(s.name::text), s.name::text;
+
+-- name: StoredProjectEmbedding :one
+SELECT model, content_hash FROM project_embeddings WHERE project_id = @project_id;
+
+-- name: SaveProjectEmbedding :execrows
+-- Only while the project exists. FOR KEY SHARE holds it: a delete that comes first is seen
+-- here (no row stored), one that comes later waits and its cascade deletes this.
+WITH owner AS (
+    SELECT id FROM projects WHERE id = @project_id FOR KEY SHARE
+)
+INSERT INTO project_embeddings (project_id, model, content_hash, embedding, chunk_count)
+SELECT owner.id, @model, @content_hash, CAST(@embedding::text AS vector), @chunk_count FROM owner
+ON CONFLICT (project_id) DO UPDATE
+SET model        = EXCLUDED.model,
+    content_hash = EXCLUDED.content_hash,
+    embedding    = EXCLUDED.embedding,
+    chunk_count  = EXCLUDED.chunk_count,
+    updated_at   = now();
+
+-- name: DeleteProjectEmbedding :exec
+DELETE FROM project_embeddings WHERE project_id = @project_id;
+
+-- name: QueueStaleProjects :execrows
+INSERT INTO embedding_jobs (owner_type, owner_id, priority)
+SELECT 'project', e.project_id, 1
+FROM project_embeddings e
+WHERE e.model <> @model
+  AND NOT EXISTS (SELECT 1 FROM embedding_jobs j WHERE j.owner_type = 'project' AND j.owner_id = e.project_id)
+ORDER BY e.project_id
+LIMIT @lim
+ON CONFLICT (owner_type, owner_id) DO NOTHING;
+
+-- name: QueueAllProjects :one
+SELECT count(*)::bigint AS queued
+FROM (SELECT embedding_enqueue('project', p.id, 1::smallint, @force::boolean) FROM projects p) q;
+
+-- name: ProjectEmbeddingStats :one
+SELECT count(*)::bigint                                  AS total,
+       count(*) FILTER (WHERE model = @model)::bigint    AS current_model
+FROM project_embeddings;
+
 -- name: InsertAIAdminAction :exec
 INSERT INTO ai_admin_actions (admin_id, action, queued) VALUES (@admin_id, @action, @queued);
 

@@ -20,6 +20,7 @@ func TestCan(t *testing.T) {
 		{RemoveAnyPostOrComment, false, false, true},
 		{SuspendUser, false, false, true},
 		{ReviewMessageReports, false, false, true},
+		{ReviewProjectReports, false, false, true},
 		{ManageAI, false, false, true},
 	}
 	for _, row := range rows {

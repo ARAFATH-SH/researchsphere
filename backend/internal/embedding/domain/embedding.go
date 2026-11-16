@@ -16,10 +16,11 @@ type OwnerType string
 // Owner types.
 const (
 	OwnerProfile OwnerType = "profile"
+	OwnerProject OwnerType = "project"
 )
 
 // OwnerTypes lists every owner type, in the order the admin statistics show them.
-var OwnerTypes = []OwnerType{OwnerProfile}
+var OwnerTypes = []OwnerType{OwnerProfile, OwnerProject}
 
 // MaxChunks is how many chunks of at most 512 tokens one embedding averages (AI-1.1).
 const MaxChunks = 8
@@ -63,6 +64,15 @@ type ProfileSource struct {
 	Interests    []string // by name
 	Skills       []string // by name
 	Publications []PublicationText
+}
+
+// ProjectSource is what a project's embedding is made from (AI-1.2). Every project may
+// have one.
+type ProjectSource struct {
+	Title       string
+	Description string
+	Abstract    string
+	Skills      []string // by name
 }
 
 // PublicationText is a confirmed publication's text, newest first in ProfileSource.
@@ -117,6 +127,8 @@ type Store interface {
 
 	// ProfileSource returns ErrNotFound when the user or profile is gone.
 	ProfileSource(ctx context.Context, userID string) (ProfileSource, error)
+	// ProjectSource returns ErrNotFound when the project is gone.
+	ProjectSource(ctx context.Context, projectID string) (ProjectSource, error)
 	// StoredEmbedding returns ErrNotFound when the owner has none.
 	StoredEmbedding(ctx context.Context, owner OwnerType, ownerID string) (Stored, error)
 	// SaveEmbedding inserts or replaces the embedding, only while the owner is still
@@ -138,4 +150,11 @@ type Store interface {
 	// Stats counts the embeddings and jobs of each owner type; model is the current model
 	// ("" when unknown: no embedding counts as current).
 	Stats(ctx context.Context, model string) ([]OwnerStats, error)
+}
+
+// Watcher is told, after the write, that the worker stored or deleted an owner's embedding,
+// so modules that keep lists made from embeddings can renew them (project recommendations,
+// AI-3.1). It must not block.
+type Watcher interface {
+	EmbeddingChanged(ctx context.Context, ownerType OwnerType, ownerID string)
 }

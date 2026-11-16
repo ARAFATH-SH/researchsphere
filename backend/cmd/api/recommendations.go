@@ -22,15 +22,19 @@ import (
 // cache, the connection statuses from the social module, and the score map from the
 // settings. It tells social to clear both users' lists on every link change. Close the
 // returned cache at shutdown.
-func newRecommendations(pool *pgxpool.Pool, rdb *goredis.Client, cfg config.Config, social *socialusecase.Service, logger *slog.Logger) (*recommendationusecase.Service, *recommendationredis.Cache, error) {
+//
+// Project matching (AI-3.1, AI-2.3) is added afterwards with enableProjectMatching, once the
+// project module exists.
+func newRecommendations(pool *pgxpool.Pool, rdb *goredis.Client, cfg config.Config, social *socialusecase.Service, logger *slog.Logger) (*recommendationusecase.Service, *recommendationpg.Store, *recommendationredis.Cache, error) {
 	scores := scoreMap(cfg)
 	if err := scores.Validate(); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	cache := recommendationredis.New(rdb)
-	social.WatchLinks(recommendationLinks{cache: cache, logger: logger})
-	svc := recommendationusecase.New(recommendationpg.NewStore(pool), cache, recommendationRelations{social: social}, scores, logger)
-	return svc, cache, nil
+	store := recommendationpg.NewStore(pool)
+	svc := recommendationusecase.New(store, cache, recommendationRelations{social: social}, scores, logger)
+	social.WatchLinks(recommendationLinks{cache: cache, recs: svc, logger: logger})
+	return svc, store, cache, nil
 }
 
 // scoreMap is the AI-2.2 score map the settings hold.
@@ -40,9 +44,12 @@ func scoreMap(cfg config.Config) recommendationusecase.ScoreMap {
 
 // recommendationLinks clears the recommendation lists of both users when the link between
 // them changes (a request sent, accepted, rejected or cancelled, a connection removed, a
-// block added or ended), once the change has committed: a rollback clears nothing.
+// block added or ended), once the change has committed: a rollback clears nothing. It
+// clears their project lists and the researcher lists of the projects they own too, since a
+// block between them changes both (AI-3.1, AI-2.3).
 type recommendationLinks struct {
 	cache  recommendationdomain.Cache
+	recs   *recommendationusecase.Service
 	logger *slog.Logger
 }
 
@@ -55,6 +62,7 @@ func (r recommendationLinks) LinkChanged(ctx context.Context, a, b string) {
 		if err := r.cache.Delete(ctx, a, b); err != nil {
 			r.logger.WarnContext(ctx, "recommendation lists not cleared after a link change", slog.Any("error", err))
 		}
+		r.recs.LinkChanged(ctx, a, b)
 	})
 }
 

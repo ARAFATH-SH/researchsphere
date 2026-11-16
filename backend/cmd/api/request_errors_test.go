@@ -58,6 +58,10 @@ var jsonBodyRoutes = []struct {
 	{http.MethodPost, "/api/v1/admin/users/" + okUserID + "/restore", "reason", `{"reason":5}`, "reason", "reason must be a string."},
 	{http.MethodPost, "/api/v1/admin/restrictions/" + okUserID + "/lift", "reason", `{"reason":5}`, "reason", "reason must be a string."},
 	{http.MethodPost, "/api/v1/admin/users/" + okUserID + "/restrictions", "days", `{"days":"week"}`, "days", "days must be a whole number."},
+	{http.MethodPost, "/api/v1/projects", "description", `{"description":"d","title":5}`, "title", "title must be a string."},
+	{http.MethodPatch, "/api/v1/projects/" + okProjectID, "", `{"requiredSkills":"Go"}`, "requiredSkills", "requiredSkills must be a list."},
+	{http.MethodPost, "/api/v1/projects/" + okProjectID + "/reports", "reason", `{"reason":5}`, "reason", "reason must be a string."},
+	{http.MethodPost, "/api/v1/admin/project-reports/" + okUserID + "/resolve", "outcome", `{"outcome":5}`, "outcome", "outcome must be a string."},
 }
 
 // Every operation with a JSON body goes through the same decoder and the same error shape.

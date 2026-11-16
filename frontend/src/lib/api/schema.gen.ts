@@ -351,7 +351,8 @@ export interface paths {
         /**
          * Queue every embedding to be made again (AI-1.6)
          * @description Needs the access cookie and the platform action "Manage the AI matching model".
-         *     Queues every verified, not suspended owner at low priority, forced, so each embedding
+         *     Queues every eligible owner (a verified, not suspended user's profile, and every
+         *     project) at low priority, forced, so each embedding
          *     is made again even when its text and model have not changed; changes users make go
          *     first. The work happens in the background; the answer comes at once. Asking again
          *     leaves one job per owner. Each call is recorded with the administrator and the count.
@@ -451,6 +452,75 @@ export interface paths {
          *     itself, so an action is the way to close a report with a consequence.
          */
         post: operations["resolveMessageReport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/project-reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List reports of projects for an administrator (FR-15.11)
+         * @description Needs the access cookie and the platform action "Review reported projects" (SRS 2.3).
+         *     20 per page, newest first. A report's `details` are the reporter's own words. A
+         *     report is deleted with its project.
+         */
+        get: operations["listProjectReports"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/project-reports/{reportId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a report and the reported project as it is now (FR-15.11)
+         * @description Needs the access cookie and the platform action "Review reported projects" (SRS 2.3).
+         *     The project is shown whatever its status, archived included, with its abstract. This
+         *     gives the administrator no right inside the project (SRS 2.3): no workspace, no
+         *     editing, no deletion.
+         */
+        get: operations["getProjectReport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/project-reports/{reportId}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Close a project report with an outcome (FR-15.11)
+         * @description Needs the access cookie and the platform action "Review reported projects" (SRS 2.3).
+         *     A report is resolved once; it stays readable afterwards. Resolving changes nothing
+         *     else: the project is never deleted or changed by an administrator. `action_taken`
+         *     records that the administrator acted on the owner through a moderation action
+         *     (warning, restriction or suspension).
+         */
+        post: operations["resolveProjectReport"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2373,6 +2443,179 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a research project, owned by the caller (FR-10.1)
+         * @description Needs the access cookie and the platform action "Create a project" (SRS 2.3). The
+         *     caller becomes the project's owner, its first member, in the same transaction. The
+         *     new project is `open`. Text fields are trimmed. `title` must then be 3 to 150
+         *     characters, `description` 1 to 5,000 and `abstract` at most 3,000 (empty means
+         *     none). Each name in `requiredSkills` is normalized like a profile skill (FR-4.2:
+         *     whitespace collapsed, 1 to 60 characters); names that differ only in letter case
+         *     are one skill, keeping the spelling first created, and at most 20 remain. A field
+         *     that breaks a rule gets 400 `bad_request` with `field`. Each user may create 10
+         *     projects a day; only created projects count.
+         */
+        post: operations["createProject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{projectId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a project's page (FR-10, SRS 2.3)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed,
+         *     events and recommendations" (SRS 2.3). A member sees the project whatever its status.
+         *     Anyone else sees it only when it is `open` or `closed`, its owner's account is not
+         *     suspended, and the owner has not blocked the caller (FR-16.9); otherwise the answer
+         *     is 404 `not_found`, the same as for a project that does not exist. `abstract` is
+         *     shown to members only.
+         */
+        get: operations["getProject"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete a project and everything in it, after confirming (FR-10.6)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed,
+         *     events and recommendations" (SRS 2.3); a project the caller cannot see gets 404
+         *     `not_found`. Then the project action "Transfer ownership, delete the project"
+         *     (owner only), else 403 `forbidden`. `confirm` must equal the project's title, letter
+         *     case included, after trimming both; else 400 `confirmation_mismatch` with
+         *     `field: confirm` and nothing is deleted. Deleting removes the project with its
+         *     members, skills, join requests, files, compile jobs, embedding and reports, in one
+         *     transaction. A post that linked to it stays, without the link.
+         */
+        delete: operations["deleteProject"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a project's details or status (FR-10.2)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed,
+         *     events and recommendations" (SRS 2.3); a project the caller cannot see gets 404
+         *     `not_found`. Then each field named needs its project action: `title`,
+         *     `description`, `requiredSkills` and `status` the row "Edit project details and
+         *     status" (owner), `abstract` the row "Compile, use the assistant, edit the abstract"
+         *     (editor, owner); otherwise 403 `forbidden` and nothing changes. A missing field keeps
+         *     its value; `null` clears `abstract` and is refused for the others. `requiredSkills`
+         *     replaces the whole list. The rules of `createProject` apply; `status` is `open`,
+         *     `closed` or `archived`, and the owner may move between any of them.
+         */
+        patch: operations["updateProject"];
+        trace?: never;
+    };
+    "/projects/{projectId}/reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Report a project to the administrators (FR-15.11)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Checks run in this order: the project must be one the
+         *     caller can see (else 404 `not_found`), the caller's account must not be suspended
+         *     (403 `account_suspended`), `reason` and `details` (`bad_request`, with `field`), the
+         *     caller must not be the owner (400 `cannot_report_own_project`), and the caller may
+         *     have one open report per project (409 `already_reported`).
+         */
+        post: operations["reportProject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The caller's own projects with the caller's role in each (FR-10, FR-11.6)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed,
+         *     events and recommendations" (SRS 2.3). Every project the caller is a member of, any
+         *     status, most recently changed first.
+         */
+        get: operations["listMyProjects"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/search/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search open projects by title, required skill or description (FR-10.3)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed,
+         *     events and recommendations" (SRS 2.3). Only `open` projects are found, never one
+         *     whose owner's account is suspended or not verified, and never one whose owner has
+         *     blocked the searcher (FR-16.9).
+         *
+         *     A project matches when its title, one of its required skill names or its
+         *     description contains `q`, ignoring letter case. Results are ranked by their best
+         *     match: a title equal to `q`, then a title that starts with `q`, then one that
+         *     contains it, then a required skill, then the description; within a rank, newest
+         *     first. When no visible open project's title contains `q`, titles with a word similar
+         *     to `q` (trigram word similarity, as in researcher search, so a small spelling
+         *     mistake still matches) take the place of the title matches; then `fuzzy` is true
+         *     and `correctedQuery` is the most similar title. Each user may search 60 times a
+         *     minute, in either mode.
+         *
+         *     **Modes (AI-5.1 for projects).** `mode=keyword` is the search above, unchanged, and
+         *     the answer's `mode` is `keyword`. `mode=auto` (the default) also searches by meaning:
+         *     the text is embedded by the AI service and compared with every visible open project's
+         *     embedding. A strong title match comes first, in keyword order: a title equal to `q`,
+         *     or a title that starts with `q` when `q` is at least 3 characters, both ignoring
+         *     letter case and accents. The other results are the 50 best keyword results (the order
+         *     above) and the 50 projects closest in meaning, with the same visibility rules, merged
+         *     by reciprocal rank fusion (k = 60), and the answer's `mode` is `hybrid`. Ranking
+         *     never uses member counts or any other popularity signal (AI-2.4). A result found only
+         *     by meaning has `matchedOn: meaning`. In hybrid mode `total` is the size of the merged
+         *     list, cut at 100, so there are at most 5 pages and a later page is empty; `fuzzy` and
+         *     `correctedQuery` come from the keyword side.
+         *
+         *     When the AI service does not answer within a short time (1.5 s by default) or answers
+         *     with an error, the keyword search runs instead and `mode` is `keyword_fallback`
+         *     (AI-5.4), so the client can say so.
+         */
+        get: operations["searchProjects"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/search/people": {
         parameters: {
             query?: never;
@@ -2463,6 +2706,81 @@ export interface paths {
          *     dropped from a kept list, which may then have fewer than `limit` items.
          */
         get: operations["recommendPeople"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/recommendations/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Open projects whose embeddings are most similar to the caller's profile (AI-3.1, AI-2.4, AI-4)
+         * @description Needs the access cookie, a verified email and the platform action "View profiles,
+         *     search, feed, events and recommendations" (SRS 2.3).
+         *
+         *     `state` is checked as for `recommendPeople`: `needs_profile` when the caller's
+         *     profile has no research interests, no skills and no bio (AI-4.2), `processing` when
+         *     its embedding is not made yet, otherwise `ready`.
+         *
+         *     Ranking uses only the cosine similarity between the caller's profile embedding and
+         *     each project's embedding, never member counts or any other popularity signal
+         *     (AI-2.4). Only `open` projects are listed. Left out: projects the caller is a member
+         *     of, projects the caller has a pending request to join, projects whose owner is
+         *     suspended or not verified, projects whose owner the caller has blocked or is blocked
+         *     by (FR-16.9), and projects without an embedding of the caller's model.
+         *
+         *     The list is kept for up to 10 minutes; it is made again at once when the caller's
+         *     embedding changes, when any project's embedding or status changes or a project is
+         *     deleted, when the caller's memberships change, and when a block between the caller
+         *     and anyone changes. A project that stops being eligible meanwhile is dropped from a
+         *     kept list, which may then have fewer than `limit` items.
+         */
+        get: operations["recommendProjects"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{projectId}/recommended-researchers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Researchers whose profiles are most similar to a project, for its owner (AI-2.3, AI-2.4)
+         * @description Needs the access cookie, a verified email and the platform action "View profiles,
+         *     search, feed, events and recommendations" (SRS 2.3). A project the caller cannot see
+         *     gets 404 `not_found`, as `getProject`. Then the project action "Invite, decide join
+         *     requests, change roles, remove members" (owner only), since the list is for finding
+         *     people to invite; anyone else gets 403 `forbidden`. Any project status is allowed.
+         *
+         *     `state` is `processing` while the project has no embedding (it is made in the
+         *     background within a minute, AI-1.4), otherwise `ready`; `missing` is always empty.
+         *
+         *     Ranking uses only the cosine similarity between the project's embedding and each
+         *     profile embedding, never citation, publication or connection counts (AI-2.4). Left
+         *     out: the project's current members, unverified and suspended users, users the owner
+         *     has blocked or is blocked by (FR-16.9), and users without an embedding of the
+         *     project's model. `shared` is up to 3 of the project's required skills the researcher
+         *     has (the same name, ignoring letter case), in the project's order.
+         *
+         *     The list is kept for up to 10 minutes; it is made again at once when the project's
+         *     embedding or members change, and when a block between the owner and anyone changes.
+         */
+        get: operations["recommendProjectResearchers"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2718,10 +3036,10 @@ export interface components {
         };
         EmbeddingOwnerStats: {
             /**
-             * @description What the embeddings belong to. Later slices add project, post and venue.
+             * @description What the embeddings belong to. Later slices add post and venue.
              * @enum {string}
              */
-            ownerType: "profile";
+            ownerType: "profile" | "project";
             /** @description Stored embeddings. */
             total: number;
             /** @description Of them, those the current model made; 0 when the model is unknown. */
@@ -3649,6 +3967,184 @@ export interface components {
             /** @description At most 1,000 characters after trimming; empty means none. */
             note?: string;
         };
+        /**
+         * @description `open` projects are found by search (FR-10.3); `archived` projects are seen by members only.
+         * @enum {string}
+         */
+        ProjectStatus: "open" | "closed" | "archived";
+        /**
+         * @description A member's role in one project (SRS 2.3).
+         * @enum {string}
+         */
+        ProjectRole: "owner" | "editor" | "viewer";
+        ProjectPerson: {
+            /** Format: uuid */
+            userId: string;
+            fullName: string;
+            headline: string | null;
+            /** @description The profile photo as `/api/v1/media/{fileId}`; null when not set. */
+            photoUrl: string | null;
+        };
+        /** @description A research project's page (FR-10.1, SRS 2.3). */
+        Project: {
+            /** Format: uuid */
+            id: string;
+            title: string;
+            description: string;
+            /** @description The paper's abstract; null when there is none, and always null for a caller who is not a member. */
+            abstract: string | null;
+            status: components["schemas"]["ProjectStatus"];
+            /** @description Sorted by name, ignoring letter case. */
+            requiredSkills: components["schemas"]["Tag"][];
+            owner: components["schemas"]["ProjectPerson"];
+            /** @description The caller's role in the project; null when the caller is not a member. */
+            myRole: components["schemas"]["ProjectRole"] | null;
+            memberCount: number;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        ProjectCreate: {
+            /** @description 3 to 150 characters after trimming. */
+            title: string;
+            /** @description 1 to 5,000 characters after trimming. */
+            description: string;
+            /** @description Skill names (FR-4.2); duplicates ignoring letter case are dropped, at most 20 remain. */
+            requiredSkills?: string[];
+            /** @description At most 3,000 characters after trimming; empty or null means none. */
+            abstract?: string | null;
+        };
+        /**
+         * @description The fields to change (FR-10.2). A missing field keeps its value. `null` clears
+         *     `abstract`; `null` for any other field is refused (`bad_request`).
+         */
+        ProjectUpdate: {
+            title?: string | null;
+            description?: string | null;
+            /** @description Replaces the whole list. */
+            requiredSkills?: string[] | null;
+            abstract?: string | null;
+            status?: components["schemas"]["ProjectStatus"] | null;
+        };
+        /** @description A project in a list. */
+        ProjectSummary: {
+            /** Format: uuid */
+            id: string;
+            title: string;
+            /** @description The first 300 characters of the description. */
+            description: string;
+            status: components["schemas"]["ProjectStatus"];
+            /** @description Up to 5 required skill names, by name ignoring letter case. */
+            requiredSkills: string[];
+            owner: components["schemas"]["ProjectPerson"];
+            /** @description The caller's role in the project; null when the caller is not a member. */
+            myRole: components["schemas"]["ProjectRole"] | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        ProjectPage: {
+            items: components["schemas"]["ProjectSummary"][];
+            page: number;
+            pageSize: number;
+            /** @description Projects on all pages. */
+            total: number;
+        };
+        ProjectSearchResult: components["schemas"]["ProjectSummary"] & {
+            /**
+             * @description The field of the result's best match; `meaning` when only the meaning search
+             *     found it (hybrid mode).
+             * @enum {string}
+             */
+            matchedOn: "title" | "skill" | "description" | "meaning";
+        };
+        ProjectSearchPage: {
+            /**
+             * @description How the results were found: `hybrid` by keyword and meaning, `keyword` because
+             *     the request asked for it, `keyword_fallback` by keyword only because the AI
+             *     service did not answer (AI-5.4).
+             * @enum {string}
+             */
+            mode: "hybrid" | "keyword" | "keyword_fallback";
+            items: components["schemas"]["ProjectSearchResult"][];
+            /** @description The number of results on all pages. */
+            total: number;
+            page: number;
+            /** @description Always 20 (FR-10.3). */
+            pageSize: number;
+            /** @description True when no title contains `q` and the title results are titles similar to it. */
+            fuzzy: boolean;
+            /** @description When `fuzzy` is true, the result title most similar to `q`; otherwise null. */
+            correctedQuery: string | null;
+        };
+        ReportProjectRequest: {
+            reason: components["schemas"]["ReportReason"];
+            /** @description At most 1,000 characters after trimming; empty means none. */
+            details?: string;
+        };
+        ProjectReportReceipt: {
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        ProjectReport: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            projectId: string;
+            /** @description The project's title now. */
+            projectTitle: string;
+            /** @enum {string} */
+            status: "open" | "resolved";
+            reason: components["schemas"]["ReportReason"];
+            /** @description The reporter's own words. */
+            details: string | null;
+            reporter: components["schemas"]["MessageReportPerson"];
+            /** @description The project's owner now, whom a moderation action would name. */
+            owner: components["schemas"]["MessageReportPerson"];
+            /** Format: date-time */
+            createdAt: string;
+            /** @enum {string|null} */
+            outcome: "dismissed" | "action_taken" | null;
+            note: string | null;
+            /** Format: date-time */
+            resolvedAt: string | null;
+        };
+        ProjectReportPage: {
+            items: components["schemas"]["ProjectReport"][];
+            page: number;
+            pageSize: number;
+            /** @description Reports with this status on all pages. */
+            total: number;
+        };
+        /** @description The reported project as it is now, whatever its status. */
+        ReportedProject: {
+            /** Format: uuid */
+            id: string;
+            title: string;
+            description: string;
+            abstract: string | null;
+            status: components["schemas"]["ProjectStatus"];
+            requiredSkills: components["schemas"]["Tag"][];
+            memberCount: number;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        ProjectReportDetail: {
+            report: components["schemas"]["ProjectReport"];
+            project: components["schemas"]["ReportedProject"];
+        };
+        ResolveProjectReportRequest: {
+            /** @enum {string} */
+            outcome: "dismissed" | "action_taken";
+            /** @description At most 1,000 characters after trimming; empty means none. */
+            note?: string;
+        };
         MessageUnreadCount: {
             /** @description Unread messages in active conversations. */
             total: number;
@@ -4238,11 +4734,53 @@ export interface components {
              */
             score: number;
             /**
-             * @description Up to 3 research interests or skills both users have (the same name, ignoring
-             *     letter case): interests first, then skills, each in the caller's order. May be
-             *     empty.
+             * @description In `recommendPeople`: up to 3 research interests or skills both users have (the
+             *     same name, ignoring letter case), interests first, then skills, each in the
+             *     caller's order. In `recommendProjectResearchers`: up to 3 of the project's
+             *     required skills the researcher has, in the project's order. May be empty.
              */
             shared: string[];
+        };
+        ProjectRecommendations: {
+            /**
+             * @description As in `PeopleRecommendations`.
+             * @enum {string}
+             */
+            state: "ready" | "needs_profile" | "processing";
+            /**
+             * @description With `needs_profile`, the profile fields to fill in, in this order: `interests`,
+             *     `skills`, `bio`. Empty in the other states.
+             */
+            missing: ("interests" | "skills" | "bio")[];
+            /** @description Most similar first. Empty unless `state` is `ready`. */
+            items: components["schemas"]["ProjectRecommendation"][];
+        };
+        ProjectRecommendation: {
+            project: components["schemas"]["RecommendedProject"];
+            /**
+             * @description How similar the project is to the caller's profile, as a percentage. It is the
+             *     cosine similarity of the embeddings put through a fixed increasing mapping fitted
+             *     on sample data (docs/evaluation.md), not the raw cosine.
+             */
+            score: number;
+            /**
+             * @description Up to 3 of the project's required skills the caller has (the same name, ignoring
+             *     letter case), in the project's order. May be empty.
+             */
+            shared: string[];
+        };
+        /** @description A recommended project's summary. */
+        RecommendedProject: {
+            /** Format: uuid */
+            id: string;
+            title: string;
+            /** @description The first 300 characters of the description. */
+            description: string;
+            /** @description Up to 5 required skill names, by name ignoring letter case. */
+            requiredSkills: string[];
+            owner: components["schemas"]["ProjectPerson"];
+            /** @description Shown only; it never affects the order (AI-2.4). */
+            memberCount: number;
         };
         PeopleSearchFacets: {
             /**
@@ -4610,6 +5148,19 @@ export interface components {
             };
         };
         /**
+         * @description A field is not valid (`bad_request`, with `field`: `title`, `description`, `abstract`,
+         *     `status`, `requiredSkills` or `requiredSkills[i]` for one name). The value is never
+         *     repeated.
+         */
+        InvalidProject: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /**
          * @description A field is not valid. The code names the first invalid field, in this order:
          *     `invalid_institution`, `invalid_degree`, `invalid_field_of_study`,
          *     `invalid_start_year`, `invalid_end_year` (also when `endYear` is before
@@ -4915,6 +5466,11 @@ export interface components {
          *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
          */
         WarningId: string;
+        /**
+         * @description The project's ID, a UUID. It is declared as a plain string so that the login and role
+         *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+         */
+        ProjectId: string;
         /**
          * @description The report's ID, a UUID. It is declared as a plain string so that the login and role
          *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
@@ -5767,6 +6323,125 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MessageReport"];
+                };
+            };
+            /** @description `outcome` or `note` is not valid (`bad_request`, with `field`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The report is already resolved (`report_already_resolved`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listProjectReports: {
+        parameters: {
+            query?: {
+                /** @description `open` or `resolved`; `open` when left out. Any other value gets 400 `bad_request`. */
+                status?: string;
+                /** @description The page to return, from 1. Defaults to 1. A value below 1 gets 400 `bad_request`. */
+                page?: components["parameters"]["PageFromOne"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of reports. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectReportPage"];
+                };
+            };
+            /** @description `status` or `page` is not valid (`bad_request`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getProjectReport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The report's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                reportId: components["parameters"]["ReportId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The report and the project. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectReportDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    resolveProjectReport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The report's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                reportId: components["parameters"]["ReportId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResolveProjectReportRequest"];
+            };
+        };
+        responses: {
+            /** @description The report, now resolved. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectReport"];
                 };
             };
             /** @description `outcome` or `note` is not valid (`bad_request`, with `field`). */
@@ -8956,6 +9631,299 @@ export interface operations {
             500: components["responses"]["InternalError"];
         };
     };
+    createProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectCreate"];
+            };
+        };
+        responses: {
+            /** @description The project, as its owner sees it. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+            400: components["responses"]["InvalidProject"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The user has created 10 projects in the current day (`rate_limited`). */
+            429: {
+                headers: {
+                    /** @description Seconds until creating is accepted again. */
+                    "Retry-After": number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The project's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                projectId: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The project. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    deleteProject: {
+        parameters: {
+            query?: {
+                /**
+                 * @description The project's title, typed by the owner to confirm. It is declared optional only
+                 *     so that a missing value gets 400 `confirmation_mismatch` instead of the generic
+                 *     `bad_request`.
+                 */
+                confirm?: string;
+            };
+            header?: never;
+            path: {
+                /**
+                 * @description The project's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                projectId: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The project is deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `confirm` is missing or is not the project's title (`confirmation_mismatch`, with `field`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    updateProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The project's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                projectId: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectUpdate"];
+            };
+        };
+        responses: {
+            /** @description The project after the change. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+            400: components["responses"]["InvalidProject"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    reportProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The project's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                projectId: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReportProjectRequest"];
+            };
+        };
+        responses: {
+            /** @description The report is stored. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectReportReceipt"];
+                };
+            };
+            /**
+             * @description A field is not valid (`bad_request`, with `field`), or the caller owns the project
+             *     (`cannot_report_own_project`).
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["AccountSuspendedOrForbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The caller already has an open report of this project (`already_reported`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listMyProjects: {
+        parameters: {
+            query?: {
+                /** @description The page to return, from 1. Defaults to 1. A value below 1 gets 400 `bad_request`. */
+                page?: components["parameters"]["PageFromOne"];
+                /** @description Projects per page, from 1; a larger value than 50 is reduced to 50. Defaults to 20. Below 1 gets 400 `bad_request`. */
+                pageSize?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of projects. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectPage"];
+                };
+            };
+            /** @description `page` or `pageSize` is not valid (`bad_request`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    searchProjects: {
+        parameters: {
+            query?: {
+                /**
+                 * @description The search text after trimming: 2 to 300 characters in `auto` mode (AI-5.1), 2 to
+                 *     100 in `keyword` mode. It is required: it is declared optional only so that a
+                 *     missing `q` gets 400 `invalid_query`, like a too short one, instead of the generic
+                 *     `bad_request`.
+                 * @example graph neural
+                 */
+                q?: string;
+                /**
+                 * @description `auto` searches by keyword and by meaning (AI-5); `keyword` only by keyword and
+                 *     never calls the AI service. Any other value gets 400 `bad_request`.
+                 */
+                mode?: "auto" | "keyword";
+                /** @description The page to return, 1 to 50, 20 results each (FR-10.3). Defaults to 1. */
+                page?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of results. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectSearchPage"];
+                };
+            };
+            /**
+             * @description `q` is missing or, after trimming, not 2 to 300 characters in `auto` mode or 2 to
+             *     100 in `keyword` mode (`invalid_query`), or `mode` or `page` is not valid
+             *     (`bad_request`).
+             */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            429: components["responses"]["SearchRateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
     searchPeople: {
         parameters: {
             query?: {
@@ -9056,6 +10024,74 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    recommendProjects: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Items to return, from 1. Defaults to 10. A larger value than 10 is reduced to
+                 *     10; a value below 1 gets 400 `bad_request`.
+                 */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's project recommendations, or why there are none yet. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectRecommendations"];
+                };
+            };
+            /** @description `limit` is below 1 (`bad_request`, `field: limit`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    recommendProjectResearchers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The project's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                projectId: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The project's recommended researchers, or why there are none yet. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PeopleRecommendations"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             500: components["responses"]["InternalError"];
         };
     };

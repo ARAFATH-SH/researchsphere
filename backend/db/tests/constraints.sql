@@ -919,6 +919,118 @@ SELECT pg_temp.expect_error('AI admin action: the count is not negative',
     $s$INSERT INTO ai_admin_actions (action, queued) VALUES ('embeddings_rebuild', -1)$s$, '23514');
 
 -- ---------------------------------------------------------------------------
+-- Projects (FR-10.1, FR-10.6, FR-15.11, AI-1.2). Project a2 is owned by user 3 and deleted
+-- at the end of this section.
+-- ---------------------------------------------------------------------------
+
+SELECT pg_temp.expect_true('Project: new IDs are UUIDv7', $q$
+    SELECT pg_get_expr(d.adbin, d.adrelid) = 'uuid_v7()'
+    FROM pg_attrdef d JOIN pg_attribute a ON a.attrelid = d.adrelid AND a.attnum = d.adnum
+    WHERE d.adrelid = 'projects'::regclass AND a.attname = 'id'$q$);
+INSERT INTO projects (id, title, description) VALUES
+    ('00000000-0000-0000-0000-0000000000a2', 'Protein folding', 'Folding proteins');
+INSERT INTO project_members (project_id, user_id, role) VALUES
+    ('00000000-0000-0000-0000-0000000000a2', '00000000-0000-0000-0000-000000000003', 'owner');
+
+SELECT pg_temp.expect_error('Project: title of at least 3 characters (FR-10.1)',
+    $s$UPDATE projects SET title = 'ab' WHERE id = '00000000-0000-0000-0000-0000000000a2'$s$, '23514');
+SELECT pg_temp.expect_error('Project: title length counts without surrounding spaces',
+    $s$UPDATE projects SET title = '   ab   ' WHERE id = '00000000-0000-0000-0000-0000000000a2'$s$, '23514');
+SELECT pg_temp.expect_error('Project: title of at most 150 characters',
+    $s$UPDATE projects SET title = repeat('x', 151) WHERE id = '00000000-0000-0000-0000-0000000000a2'$s$, '23514');
+SELECT pg_temp.expect_ok('Project: title of 150 characters',
+    $s$UPDATE projects SET title = repeat('x', 150) WHERE id = '00000000-0000-0000-0000-0000000000a2'$s$);
+SELECT pg_temp.expect_error('Project: description of at most 5,000 characters',
+    $s$UPDATE projects SET description = repeat('x', 5001) WHERE id = '00000000-0000-0000-0000-0000000000a2'$s$, '23514');
+SELECT pg_temp.expect_error('Project: abstract is absent, not empty',
+    $s$UPDATE projects SET abstract = '' WHERE id = '00000000-0000-0000-0000-0000000000a2'$s$, '23514');
+SELECT pg_temp.expect_error('Project: abstract of at most 3,000 characters',
+    $s$UPDATE projects SET abstract = repeat('x', 3001) WHERE id = '00000000-0000-0000-0000-0000000000a2'$s$, '23514');
+
+-- Embedding queue triggers (AI-1.2, AI-1.5).
+SELECT pg_temp.expect_true('Project embedding: a new project is queued', $q$
+    SELECT EXISTS (SELECT 1 FROM embedding_jobs WHERE owner_type = 'project' AND owner_id = '00000000-0000-0000-0000-0000000000a2')$q$);
+DELETE FROM embedding_jobs WHERE owner_type = 'project';
+UPDATE projects SET status = 'closed' WHERE id = '00000000-0000-0000-0000-0000000000a2';
+SELECT pg_temp.expect_true('Project embedding: a status change queues nothing', $q$
+    SELECT NOT EXISTS (SELECT 1 FROM embedding_jobs WHERE owner_type = 'project')$q$);
+UPDATE projects SET title = title, description = description WHERE id = '00000000-0000-0000-0000-0000000000a2';
+SELECT pg_temp.expect_true('Project embedding: saving the same text queues nothing', $q$
+    SELECT NOT EXISTS (SELECT 1 FROM embedding_jobs WHERE owner_type = 'project')$q$);
+UPDATE projects SET title = 'Protein folding again' WHERE id = '00000000-0000-0000-0000-0000000000a2';
+SELECT pg_temp.expect_true('Project embedding: a title change queues the project', $q$
+    SELECT EXISTS (SELECT 1 FROM embedding_jobs WHERE owner_type = 'project' AND owner_id = '00000000-0000-0000-0000-0000000000a2')$q$);
+DELETE FROM embedding_jobs WHERE owner_type = 'project';
+UPDATE projects SET description = 'Folding proteins faster' WHERE id = '00000000-0000-0000-0000-0000000000a2';
+SELECT pg_temp.expect_true('Project embedding: a description change queues the project', $q$
+    SELECT EXISTS (SELECT 1 FROM embedding_jobs WHERE owner_type = 'project' AND owner_id = '00000000-0000-0000-0000-0000000000a2')$q$);
+DELETE FROM embedding_jobs WHERE owner_type = 'project';
+UPDATE projects SET abstract = 'We fold proteins.' WHERE id = '00000000-0000-0000-0000-0000000000a2';
+SELECT pg_temp.expect_true('Project embedding: an abstract change queues the project', $q$
+    SELECT EXISTS (SELECT 1 FROM embedding_jobs WHERE owner_type = 'project' AND owner_id = '00000000-0000-0000-0000-0000000000a2')$q$);
+DELETE FROM embedding_jobs WHERE owner_type = 'project';
+INSERT INTO skills (name) SELECT pg_temp.t('Project skill ' || g) FROM generate_series(1, 21) g;
+INSERT INTO project_skills (project_id, skill_id)
+    SELECT '00000000-0000-0000-0000-0000000000a2', id FROM skills WHERE name = pg_temp.t('Project skill 1');
+SELECT pg_temp.expect_true('Project embedding: adding a skill queues the project', $q$
+    SELECT EXISTS (SELECT 1 FROM embedding_jobs WHERE owner_type = 'project' AND owner_id = '00000000-0000-0000-0000-0000000000a2')$q$);
+DELETE FROM embedding_jobs WHERE owner_type = 'project';
+DELETE FROM project_skills WHERE project_id = '00000000-0000-0000-0000-0000000000a2';
+SELECT pg_temp.expect_true('Project embedding: removing a skill queues the project', $q$
+    SELECT EXISTS (SELECT 1 FROM embedding_jobs WHERE owner_type = 'project' AND owner_id = '00000000-0000-0000-0000-0000000000a2')$q$);
+
+-- At most 20 required skills (FR-10.1), checked at commit.
+SELECT pg_temp.expect_error('Project: at most 20 required skills',
+    $s$DO $d$ BEGIN
+        INSERT INTO project_skills (project_id, skill_id)
+            SELECT '00000000-0000-0000-0000-0000000000a2', id FROM skills WHERE name LIKE pg_temp.t('Project skill %');
+        SET CONSTRAINTS project_skills_max IMMEDIATE;
+    END $d$$s$, '23514');
+SET CONSTRAINTS ALL DEFERRED;
+SELECT pg_temp.expect_ok('Project: 20 required skills',
+    $s$DO $d$ BEGIN
+        INSERT INTO project_skills (project_id, skill_id)
+            SELECT '00000000-0000-0000-0000-0000000000a2', id FROM skills
+            WHERE name LIKE pg_temp.t('Project skill %') AND name <> pg_temp.t('Project skill 21');
+        SET CONSTRAINTS project_skills_max IMMEDIATE;
+    END $d$$s$);
+SET CONSTRAINTS ALL DEFERRED;
+
+-- Project reports (FR-15.11).
+INSERT INTO project_reports (id, project_id, reporter_id, reason) VALUES
+    ('00000000-0000-0000-0000-0000000000b1', '00000000-0000-0000-0000-0000000000a2', '00000000-0000-0000-0000-000000000002', 'spam');
+SELECT pg_temp.expect_error('Project report: one open report per reporter per project',
+    $s$INSERT INTO project_reports (project_id, reporter_id, reason)
+       VALUES ('00000000-0000-0000-0000-0000000000a2', '00000000-0000-0000-0000-000000000002', 'other')$s$, '23505');
+SELECT pg_temp.expect_error('Project report: known reasons only',
+    $s$INSERT INTO project_reports (project_id, reporter_id, reason)
+       VALUES ('00000000-0000-0000-0000-0000000000a2', '00000000-0000-0000-0000-000000000001', 'boring')$s$, '23514');
+SELECT pg_temp.expect_error('Project report: details of at most 1,000 characters',
+    $s$INSERT INTO project_reports (project_id, reporter_id, reason, details)
+       VALUES ('00000000-0000-0000-0000-0000000000a2', '00000000-0000-0000-0000-000000000001', 'other', repeat('x', 1001))$s$, '23514');
+SELECT pg_temp.expect_error('Project report: resolved time and outcome go together',
+    $s$UPDATE project_reports SET resolved_at = now() WHERE id = '00000000-0000-0000-0000-0000000000b1'$s$, '23514');
+SELECT pg_temp.expect_error('Project report: an open report has no resolution note',
+    $s$UPDATE project_reports SET resolution_note = 'Note' WHERE id = '00000000-0000-0000-0000-0000000000b1'$s$, '23514');
+SELECT pg_temp.expect_ok('Project report: resolved',
+    $s$UPDATE project_reports SET resolved_at = now(), outcome = 'dismissed', resolved_by = '00000000-0000-0000-0000-000000000001'
+       WHERE id = '00000000-0000-0000-0000-0000000000b1'$s$);
+SELECT pg_temp.expect_ok('Project report: the reporter may report again once it is resolved',
+    $s$INSERT INTO project_reports (project_id, reporter_id, reason)
+       VALUES ('00000000-0000-0000-0000-0000000000a2', '00000000-0000-0000-0000-000000000002', 'other')$s$);
+
+-- Deleting the project (FR-10.6) removes its job, embedding, skills and reports, and the
+-- cascade of its skills does not queue it again.
+INSERT INTO project_embeddings (project_id, model, content_hash, embedding) VALUES
+    ('00000000-0000-0000-0000-0000000000a2', 'test-model@1', repeat('1', 64), array_fill(0.1::real, ARRAY[768])::vector);
+DELETE FROM projects WHERE id = '00000000-0000-0000-0000-0000000000a2';
+SELECT pg_temp.expect_true('Project deletion: job, embedding, skills and reports removed', $q$
+    SELECT NOT EXISTS (SELECT 1 FROM embedding_jobs     WHERE owner_type = 'project' AND owner_id = '00000000-0000-0000-0000-0000000000a2')
+       AND NOT EXISTS (SELECT 1 FROM project_embeddings WHERE project_id = '00000000-0000-0000-0000-0000000000a2')
+       AND NOT EXISTS (SELECT 1 FROM project_skills     WHERE project_id = '00000000-0000-0000-0000-0000000000a2')
+       AND NOT EXISTS (SELECT 1 FROM project_reports    WHERE project_id = '00000000-0000-0000-0000-0000000000a2')$q$);
+
+-- ---------------------------------------------------------------------------
 -- Messaging (FR-16.1, FR-16.2, NFR-13). Users 1 and 2 have one conversation.
 -- ---------------------------------------------------------------------------
 

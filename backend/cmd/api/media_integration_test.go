@@ -62,6 +62,7 @@ import (
 	profilepg "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/postgres"
 	profileredis "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/redis"
 	profileusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/usecase"
+	projecthttp "github.com/ARAFATH-SH/researchsphere/backend/internal/project/adapter/http"
 	realtimehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/realtime/adapter/http"
 	realtimeusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/realtime/usecase"
 	recommendationhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/recommendation/adapter/http"
@@ -96,6 +97,9 @@ type mediaEnv struct {
 	// embeddings serves the admin embedding operations (AI-1.6) with opt.ai, or a Fake AI
 	// service when it is nil; no worker runs unless a test starts one.
 	embeddings *embeddingusecase.Service
+	// embedWorker is the queue worker on the same AI service, watched by the project
+	// recommendations; it never runs on its own, a test calls Tick.
+	embedWorker *embeddingusecase.Worker
 	// recommendations serves the collaborator recommendations (AI-2.1); recCache is its
 	// Redis cache, which social clears on every link change.
 	recommendations *recommendationusecase.Service
@@ -274,15 +278,29 @@ func wireEnv(t *testing.T, pool *pgxpool.Pool, rdb *goredis.Client, files *stora
 	if ai == nil {
 		ai = &aiclient.Fake{}
 	}
-	embeddings, _ := newEmbeddings(pool, ai, logger)
-	recommendations, recCache, err := newRecommendations(pool, rdb, config.Config{
+	embeddings, embedWorker := newEmbeddings(pool, ai, logger)
+	recsCfg := config.Config{
 		RecsScoreModel: config.DefaultRecsScoreModel, RecsScoreSlope: config.DefaultRecsScoreSlope,
-		RecsScoreIntercept: config.DefaultRecsScoreIntercept,
-	}, social, logger)
+		RecsScoreIntercept: config.DefaultRecsScoreIntercept, RecsProjectScoreSlope: config.DefaultRecsProjectScoreSlope,
+		RecsProjectScoreIntercept: config.DefaultRecsProjectScoreIntercept,
+	}
+	recommendations, recStore, recCache, err := newRecommendations(pool, rdb, recsCfg, social, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = recCache.Close() })
+	// Project search embeds its queries only when the test gives an AI service, as people
+	// search does.
+	search := projectSearch{vectors: projectQueryVectors{cache: lookups.QueryVectors()}}
+	if opt.ai != nil {
+		search.embedder = projectQueryEmbedder{q: queryEmbedder{ai: opt.ai}}
+	}
+	projects, projectLimits := newProjects(pool, rdb, standings, search, projectChanges{recs: recommendations}, logger)
+	t.Cleanup(func() { _ = projectLimits.Close() })
+	if err := enableProjectMatching(recommendations, recStore, recCache, projects, recsCfg); err != nil {
+		t.Fatal(err)
+	}
+	embedWorker.Watch(embeddingChanges{recs: recommendations})
 	router := newRouter(logger, up, up, up, up, authAPI,
 		profilehttp.NewHandler(profileusecase.New(profileStore, profileOpts...)),
 		mediahttp.NewHandler(images),
@@ -293,8 +311,9 @@ func wireEnv(t *testing.T, pool *pgxpool.Pool, rdb *goredis.Client, files *stora
 		realtimehttp.NewHandler(realtime.hub, testOrigin, logger),
 		embeddinghttp.NewHandler(embeddings),
 		recommendationhttp.NewHandler(recommendations),
+		projecthttp.NewHandler(projects),
 		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
-	return mediaEnv{embeddings: embeddings, recommendations: recommendations, recCache: recCache, router: router, pool: pool, files: files, rdb: rdb, auth: auth, moderation: moderation, standings: standings, hub: realtime.hub, events: realtime.events, opt: opt,
+	return mediaEnv{embeddings: embeddings, embedWorker: embedWorker, recommendations: recommendations, recCache: recCache, router: router, pool: pool, files: files, rdb: rdb, auth: auth, moderation: moderation, standings: standings, hub: realtime.hub, events: realtime.events, opt: opt,
 		messaging: messaging, notifier: notifications, digests: digests, digestMail: digestMail}
 }
 

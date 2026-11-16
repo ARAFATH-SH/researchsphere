@@ -483,7 +483,7 @@ func TestQueueStaleAllRebuildAndStats(t *testing.T) {
 	}
 
 	st, err := s.Stats(ctx, modelB)
-	if err != nil || len(st) != 1 {
+	if err != nil || len(st) != 2 || st[1] != (domain.OwnerStats{OwnerType: domain.OwnerProject}) {
 		t.Fatal(st, err)
 	}
 	if st[0] != (domain.OwnerStats{OwnerType: domain.OwnerProfile, Total: 3, CurrentModel: 1, Queued: 2, Failed: 0}) {
@@ -613,5 +613,80 @@ func TestModelChangeReembedsEveryone(t *testing.T) {
 		if model != modelB || chunks != 1 {
 			t.Errorf("%s: model %s, chunks %d; want %s", id, model, chunks, modelB)
 		}
+	}
+}
+
+// AI-1.2: a project's source, stored embedding, stale queueing, rebuild and statistics.
+func TestProjectEmbeddings(t *testing.T) {
+	d := newDB(t)
+	s := NewStore(d.pool)
+	ctx := t.Context()
+	owner := d.user(true)
+	var id string
+	err := postgres.NewTransactor(d.pool).InTx(ctx, func(ctx context.Context) error {
+		tx := postgres.Conn(ctx, d.pool)
+		if err := tx.QueryRow(ctx, "INSERT INTO projects (title, description, abstract) VALUES ('Graph learning', 'A study', 'Abs') RETURNING id::text").Scan(&id); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, "INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, 'owner')", id, owner); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, "INSERT INTO skills (name) VALUES ('Rust'), ('go') ON CONFLICT (name) DO NOTHING"); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, "INSERT INTO project_skills (project_id, skill_id) SELECT $1, id FROM skills WHERE name IN ('Rust', 'go')", id)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	src, err := s.ProjectSource(ctx, id)
+	if err != nil || src.Title != "Graph learning" || src.Abstract != "Abs" || len(src.Skills) != 2 || src.Skills[0] != "go" {
+		t.Fatalf("source = %+v, %v", src, err)
+	}
+	if _, err := s.ProjectSource(ctx, "00000000-0000-4000-8000-000000000000"); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("missing project: %v", err)
+	}
+	if _, err := s.StoredEmbedding(ctx, domain.OwnerProject, id); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("no embedding yet: %v", err)
+	}
+	ok, err := s.SaveEmbedding(ctx, domain.Embedding{
+		OwnerType: domain.OwnerProject, OwnerID: id, Model: modelA, ContentHash: strings.Repeat("b", 64), ChunkCount: 2, Vector: vector(3),
+	})
+	if err != nil || !ok {
+		t.Fatalf("save: %v, %v", ok, err)
+	}
+	if st, err := s.StoredEmbedding(ctx, domain.OwnerProject, id); err != nil || st.Model != modelA || st.ContentHash != strings.Repeat("b", 64) {
+		t.Errorf("stored = %+v, %v", st, err)
+	}
+
+	d.clearJobs()
+	if n, err := s.QueueStale(ctx, modelB, 10); err != nil || n != 1 {
+		t.Errorf("QueueStale = %d, %v; want the project", n, err)
+	}
+	if n := d.scalar("SELECT count(*) FROM embedding_jobs WHERE owner_type = 'project' AND owner_id = $1 AND priority = 1", id); n != 1 {
+		t.Errorf("stale project job = %d", n)
+	}
+	st, err := s.Stats(ctx, modelA)
+	if err != nil || st[1] != (domain.OwnerStats{OwnerType: domain.OwnerProject, Total: 1, CurrentModel: 1, Queued: 1}) {
+		t.Errorf("stats = %+v, %v", st, err)
+	}
+	d.clearJobs()
+	if n, err := s.QueueAll(ctx, false); err != nil || n != 2 {
+		t.Errorf("QueueAll = %d, %v; want the profile and the project", n, err)
+	}
+
+	if err := s.DeleteEmbedding(ctx, domain.OwnerProject, id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.StoredEmbedding(ctx, domain.OwnerProject, id); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("after delete: %v", err)
+	}
+	// A project deleted before the save stores nothing.
+	d.exec("DELETE FROM projects WHERE id = $1", id)
+	if ok, err := s.SaveEmbedding(ctx, domain.Embedding{
+		OwnerType: domain.OwnerProject, OwnerID: id, Model: modelA, ContentHash: strings.Repeat("b", 64), ChunkCount: 1, Vector: vector(3),
+	}); err != nil || ok {
+		t.Errorf("save for a deleted project = %v, %v; want false", ok, err)
 	}
 }

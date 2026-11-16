@@ -43,6 +43,8 @@ const (
 	ModerateUser Action = "moderate_user"
 	// ReviewMessageReports is the row "Review reported conversations".
 	ReviewMessageReports Action = "review_message_reports"
+	// ReviewProjectReports is the row "Review reported projects" (FR-15.11).
+	ReviewProjectReports Action = "review_project_reports"
 	// ManageAI is "Manage the AI matching model": read the embedding statistics and queue a
 	// rebuild (AI-1.6). Administrators only.
 	ManageAI Action = "manage_ai"
@@ -64,6 +66,7 @@ var platform = map[Role]map[Action]bool{
 		SuspendUser:            true,
 		ModerateUser:           true,
 		ReviewMessageReports:   true,
+		ReviewProjectReports:   true,
 		ManageAI:               true,
 	},
 }

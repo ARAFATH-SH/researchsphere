@@ -34,6 +34,7 @@ type memStore struct {
 	jobs       map[string]*fakeJob
 	embeddings map[string]domain.Embedding
 	sources    map[string]domain.ProfileSource
+	projects   map[string]domain.ProjectSource
 	staleCalls []string
 	staleLeft  int // owners QueueStale still has to queue
 	queueAll   []bool
@@ -42,10 +43,16 @@ type memStore struct {
 }
 
 func newMemStore() *memStore {
-	return &memStore{jobs: map[string]*fakeJob{}, embeddings: map[string]domain.Embedding{}, sources: map[string]domain.ProfileSource{}}
+	return &memStore{jobs: map[string]*fakeJob{}, embeddings: map[string]domain.Embedding{}, sources: map[string]domain.ProfileSource{},
+		projects: map[string]domain.ProjectSource{}}
 }
 
 func (s *memStore) enqueue(id string) {
+	s.enqueueOwner(domain.OwnerProfile, id)
+}
+
+// enqueueOwner queues an owner of any type; IDs are unique across types in these tests.
+func (s *memStore) enqueueOwner(owner domain.OwnerType, id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if j, ok := s.jobs[id]; ok {
@@ -53,7 +60,7 @@ func (s *memStore) enqueue(id string) {
 		j.Attempts, j.failed, j.lastErr = 0, false, ""
 		return
 	}
-	s.jobs[id] = &fakeJob{Job: domain.Job{OwnerType: domain.OwnerProfile, OwnerID: id, Generation: 1}}
+	s.jobs[id] = &fakeJob{Job: domain.Job{OwnerType: owner, OwnerID: id, Generation: 1}}
 }
 
 func (s *memStore) ClaimJobs(_ context.Context, limit int, _ time.Duration) ([]domain.Job, error) {
@@ -113,6 +120,16 @@ func (s *memStore) ProfileSource(_ context.Context, id string) (domain.ProfileSo
 	src, ok := s.sources[id]
 	if !ok {
 		return domain.ProfileSource{}, domain.ErrNotFound
+	}
+	return src, nil
+}
+
+func (s *memStore) ProjectSource(_ context.Context, id string) (domain.ProjectSource, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	src, ok := s.projects[id]
+	if !ok {
+		return domain.ProjectSource{}, domain.ErrNotFound
 	}
 	return src, nil
 }
@@ -253,6 +270,44 @@ func TestWorkerEmbedsAQueuedProfile(t *testing.T) {
 	}
 	if e.ai.texts[0] != "Graph learning\nGo" {
 		t.Errorf("text sent = %q", e.ai.texts[0])
+	}
+}
+
+// AI-1.2: a project job embeds the project's title, skills, description and abstract with
+// the project hash; a project that is gone loses its embedding and its job.
+func TestWorkerEmbedsAQueuedProject(t *testing.T) {
+	e := newWorkerEnv(t)
+	src := domain.ProjectSource{Title: "Graph  learning", Skills: []string{"Go", "PyTorch"}, Description: "Study\ngraphs", Abstract: "We learn."}
+	e.store.projects["p1"] = src
+	e.store.enqueueOwner(domain.OwnerProject, "p1")
+	e.w.Tick(t.Context())
+	got, ok := e.store.embeddings["p1"]
+	if !ok {
+		t.Fatal("no embedding stored")
+	}
+	if got.OwnerType != domain.OwnerProject || got.ContentHash != ProjectContentHash(ProjectText(src)) {
+		t.Errorf("embedding = %+v", got)
+	}
+	if want := "Graph learning\nGo, PyTorch\nStudy graphs\nWe learn."; e.ai.texts[0] != want {
+		t.Errorf("text sent = %q, want %q", e.ai.texts[0], want)
+	}
+	if len(e.store.jobs) != 0 {
+		t.Errorf("job left: %+v", e.store.jobs)
+	}
+
+	// Unchanged: not embedded again.
+	e.store.enqueueOwner(domain.OwnerProject, "p1")
+	e.w.Tick(t.Context())
+	if n := e.ai.calls(); n != 1 {
+		t.Errorf("an unchanged project was embedded again: %d calls", n)
+	}
+
+	// Gone: the embedding is deleted and the job finished.
+	delete(e.store.projects, "p1")
+	e.store.enqueueOwner(domain.OwnerProject, "p1")
+	e.w.Tick(t.Context())
+	if _, ok := e.store.embeddings["p1"]; ok || len(e.store.jobs) != 0 {
+		t.Errorf("gone project: embedding kept %v, jobs %+v", ok, e.store.jobs)
 	}
 }
 
@@ -583,5 +638,35 @@ func TestServiceStatsRebuildAndBackfill(t *testing.T) {
 	}
 	if n, err := svc.Backfill(t.Context()); err != nil || n != 1 || store.queueAll[0] {
 		t.Errorf("Backfill = %d, %v; force %v, want not forced", n, err, store.queueAll)
+	}
+}
+
+// recordWatcher records what the worker tells it.
+type recordWatcher struct {
+	told []string
+}
+
+func (r *recordWatcher) EmbeddingChanged(_ context.Context, t domain.OwnerType, id string) {
+	r.told = append(r.told, string(t)+":"+id)
+}
+
+// The watcher (project recommendations, AI-3.1) hears of every embedding stored or deleted,
+// and of nothing when an unchanged text is skipped.
+func TestWorkerTellsTheWatcher(t *testing.T) {
+	e := newWorkerEnv(t)
+	w := &recordWatcher{}
+	e.w.Watch(w)
+	e.store.projects["p1"] = domain.ProjectSource{Title: "Graph learning", Description: "Study"}
+	e.store.enqueueOwner(domain.OwnerProject, "p1")
+	e.w.Tick(t.Context())
+	e.store.enqueueOwner(domain.OwnerProject, "p1") // unchanged
+	e.w.Tick(t.Context())
+	delete(e.store.projects, "p1")
+	e.store.enqueueOwner(domain.OwnerProject, "p1") // gone
+	e.w.Tick(t.Context())
+	e.profile("u1", eligible)
+	e.w.Tick(t.Context())
+	if want := "project:p1,project:p1,profile:u1"; strings.Join(w.told, ",") != want {
+		t.Errorf("told %v, want %s", w.told, want)
 	}
 }

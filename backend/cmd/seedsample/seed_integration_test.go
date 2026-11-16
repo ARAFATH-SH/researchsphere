@@ -153,6 +153,68 @@ func TestSeedRefusesTakenAddress(t *testing.T) {
 	}
 }
 
+// -projects: one project per 10 sample profiles, owned by profile 10k, in its cluster, with
+// its label; a second run adds none, a top-up adds the new ones, and the purge removes them
+// with their owners.
+func TestSeedProjects(t *testing.T) {
+	pool := testenv.DB(t)
+	ctx := t.Context()
+	g := testGenerator(t, defaultSeed)
+	seedTo(t, pool, g, 40)
+	ids, err := existingSamples(ctx, pool, g.seed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runProjects(ctx, pool, g, ids, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if got := count(t, pool, `SELECT count(*) FROM sample_projects`); got != 4 {
+		t.Fatalf("sample projects = %d, want 4", got)
+	}
+	if got := count(t, pool, `SELECT count(*) FROM sample_projects sp
+		JOIN project_members m ON m.project_id = sp.project_id AND m.role = 'owner'
+		JOIN sample_profiles o ON o.user_id = m.user_id
+		WHERE o.seq = sp.owner_seq AND o.main_cluster = sp.cluster AND o.split = sp.split AND sp.owner_seq = sp.seq * 10`); got != 4 {
+		t.Errorf("projects with the right owner, cluster and split = %d, want 4", got)
+	}
+	p := g.project(2)
+	var title string
+	var skills int
+	if err := pool.QueryRow(ctx, `SELECT p.title, (SELECT count(*) FROM project_skills ps WHERE ps.project_id = p.id)
+		FROM projects p JOIN sample_projects sp ON sp.project_id = p.id WHERE sp.seq = 2`).Scan(&title, &skills); err != nil {
+		t.Fatal(err)
+	}
+	if title != p.title || skills != len(p.skills) {
+		t.Errorf("project 2 = %q with %d skills, generator %q with %d", title, skills, p.title, len(p.skills))
+	}
+	if got := count(t, pool, `SELECT count(*) FROM embedding_jobs WHERE owner_type = 'project' AND priority = 1`); got != 4 {
+		t.Errorf("low-priority project jobs = %d, want 4", got)
+	}
+
+	if err := runProjects(ctx, pool, g, ids, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if got := count(t, pool, `SELECT count(*) FROM projects`); got != 4 {
+		t.Errorf("a second run made %d projects", got)
+	}
+	seedTo(t, pool, g, 60)
+	ids, _ = existingSamples(ctx, pool, g.seed)
+	if err := runProjects(ctx, pool, g, ids, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if got := count(t, pool, `SELECT count(*) FROM sample_projects`); got != 6 {
+		t.Errorf("after the top-up: %d, want 6", got)
+	}
+
+	auth := authusecase.New(authpg.NewStore(pool), nil, nil, nil, nil, authusecase.Config{}, time.Now, slog.New(slog.DiscardHandler))
+	if _, _, err := purge(ctx, pool, auth, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if got := count(t, pool, `SELECT count(*) FROM projects`) + count(t, pool, `SELECT count(*) FROM sample_projects`); got != 0 {
+		t.Errorf("%d project rows left after the purge", got)
+	}
+}
+
 // The purge deletes every sample account and nothing else, with the cleanup of the account
 // deletion: a publication shared with a real user stays theirs, the rest go.
 func TestPurgeRemovesOnlySampleAccounts(t *testing.T) {

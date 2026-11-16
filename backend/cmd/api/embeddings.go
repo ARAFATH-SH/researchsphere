@@ -63,9 +63,9 @@ func newEmbeddings(pool *pgxpool.Pool, ai aiclient.Embedder, logger *slog.Logger
 		embeddingusecase.NewWorker(store, embedder, embeddingusecase.DefaultWorkerConfig(), time.Now, logger)
 }
 
-// runEmbedBackfillOnce queues every eligible profile once (AI-1.5) and returns; the running
-// API's worker embeds them. `make embed-backfill` runs it. A profile whose text and model have
-// not changed is skipped by the worker.
+// runEmbedBackfillOnce queues every eligible profile and every project once (AI-1.5) and
+// returns; the running API's worker embeds them. `make embed-backfill` runs it. An owner whose
+// text and model have not changed is skipped by the worker.
 func runEmbedBackfillOnce(ctx context.Context, getenv func(string) string, logOut io.Writer) error {
 	cfg, err := config.Load(getenv)
 	if err != nil {

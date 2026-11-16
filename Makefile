@@ -86,9 +86,10 @@ seed-dev: ## Create or repair the dev accounts test1..test4@example.com and admi
 	@cd backend && go run ./cmd/seeddev
 
 # Sample profiles for development (slice 16): n is how many there should be (default 1000; a
-# second run tops up), wait=1 waits until the running API has embedded them. Never in production.
-sample-data: ## Load deterministic sample profiles into the dev database: make sample-data [n=10000] [wait=1] (needs make migrate and SAMPLE_PASSWORD)
-	@cd backend && go run ./cmd/seedsample -n "$(or $(n),1000)" $(if $(filter 1 true yes,$(wait)),-wait)
+# second run tops up), wait=1 waits until the running API has embedded them, projects=1 also
+# makes one sample project per 10 profiles (slice 19). Never in production.
+sample-data: ## Load deterministic sample profiles into the dev database: make sample-data [n=10000] [wait=1] [projects=1] (needs make migrate and SAMPLE_PASSWORD)
+	@cd backend && go run ./cmd/seedsample -n "$(or $(n),1000)" $(if $(filter 1 true yes,$(wait)),-wait) $(if $(filter 1 true yes,$(projects)),-projects)
 
 sample-purge: ## Delete every sample account (@sample.researchsphere.local) through the account deletion
 	@cd backend && go run ./cmd/seedsample -purge
@@ -99,13 +100,13 @@ purge-unverified: ## Run the FR-17.4 purge of old unverified accounts once, now 
 send-digests: ## Send the FR-16.11 unread message digests now due once (settings from .env), then exit
 	cd backend && go run ./cmd/api -send-digests
 
-calibrate-recs: ## Fit the AI-2.2 recommendation score map on the sample TUNING split and print RECS_SCORE_* (dev sample data)
+calibrate-recs: ## Fit the AI-2.2 score map on the sample TUNING split and print RECS_SCORE_*, then check it on profile-project pairs and print RECS_PROJECT_SCORE_* (dev sample data)
 	@cd backend && go run ./cmd/recseval calibrate
 
-eval-recs: ## Measure NFR-6 collaborator matching (recall@10, precision@10) on the held-out sample TEST split
+eval-recs: ## Measure NFR-6 collaborator matching and project matching both ways (recall@10, precision@10) on the held-out sample TEST split
 	@cd backend && go run ./cmd/recseval eval
 
-bench-recs: ## Measure NFR-1: the recommendation query for 200 random sample users (p50, p95, max) and its EXPLAIN ANALYZE
+bench-recs: ## Measure NFR-1: people and project recommendations for 200 random sample users and projects (p50, p95, max) and EXPLAIN ANALYZE
 	@cd backend && go run ./cmd/recseval bench
 
 eval-search: ## Measure AI-5.2: hybrid vs keyword researcher search precision@10 on the sample TEST split (needs the AI service)

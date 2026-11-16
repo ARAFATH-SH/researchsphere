@@ -1,7 +1,8 @@
-# Evaluation: collaborator matching (NFR-6, AI-2.2), semantic search (AI-5.2) and speed (NFR-1)
+# Evaluation: collaborator and project matching (NFR-6, AI-2.2, AI-3.1, AI-2.3), semantic search (AI-5.2) and speed (NFR-1)
 
-What is measured, how, and the results. Run on 2026-11-15 (slice 17, chunk 17.1) and
-2026-11-16 (slice 18, chunk 18.1: the last two sections). Each section says which `make`
+What is measured, how, and the results. Run on 2026-11-15 (slice 17, chunk 17.1),
+2026-11-16 (slice 18, chunk 18.1: the two search sections) and 2026-11-17 (slice 19, chunk
+19.2: the project matching section at the end). Each section says which `make`
 command reproduces it. All five commands run `cmd/recseval`, read the development database only
 and refuse anything else. They need `APP_ENV=development`, which you
 can pass on the command line: `make eval-recs APP_ENV=development`.
@@ -491,4 +492,324 @@ Planning:
   Buffers: shared hit=38
 Planning Time: 0.827 ms
 Execution Time: 1.530 ms
+```
+
+## Project matching (AI-3.1, AI-2.3), slice 19, chunk 19.2
+
+Both directions use the same embeddings: a user's profile against open projects
+(`GET /recommendations/projects`, AI-3.1) and a project against profiles
+(`GET /projects/{id}/recommended-researchers`, AI-2.3).
+
+**Data.** The 1,000 sample projects of `make sample-data n=10000 projects=1`, all embedded,
+labelled in `sample_projects`. A project's cluster is its owner's main cluster, and its split
+is its owner's. So no project crosses from tuning to test.
+
+| Split | Open | Closed | Archived |
+| --- | ---: | ---: | ---: |
+| tuning | 641 | 93 | 44 |
+| test | 195 | 16 | 11 |
+
+Every sample project has one chunk. A project's stored embedding is the average of its chunk
+vectors (decisions.md, 2026-11-14), so ranking uses that one vector. Ranking by the best chunk
+would need a vector per chunk (decisions.md, 2026-11-17).
+
+### Score map check (`make calibrate-recs`, tuning split only)
+
+**Question.** Does the 17.1 people map (slope 78.7208, intercept -70.2827, 50 at cosine 0.893)
+also hold for profile-project pairs?
+
+**Rule, fixed before the first run.** Keep the people map unless either of these is true:
+- its mean absolute calibration error on these pairs is above 5 points (per 0.02 cosine band,
+  weighted by pairs);
+- the cosine where a fitted map gives 50 moves by more than 0.01.
+
+**Pairs.**
+- Profile -> project: 2,000 tuning profiles (seed 17). Each is paired with its 50 nearest open
+  tuning projects (ranked as the endpoint ranks) and 50 random tuning projects.
+- Project -> profile: all 778 tuning projects. Each is paired with its 50 nearest and 50 random
+  tuning profiles.
+- A pair is "same" when the project's cluster is the profile's main cluster.
+
+| Pairs | Count | Same cluster | People map error (points) | Fitted slope | Fitted intercept | Cosine at 50 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| People map (17.1) | | | | 78.7208 | -70.2827 | 0.8928 |
+| profile -> project | 200,000 | 32.4% | 22.8 | 81.4235 | -69.1987 | 0.8499 |
+| project -> profile | 77,800 | 52.2% | 17.3 | 124.0820 | -105.8346 | 0.8529 |
+| both | 277,800 | 37.9% | 21.3 | 87.6849 | -74.5228 | 0.8499 |
+
+**Result: the distributions differ clearly.** The people map is 21.3 points off on these pairs,
+and the 50 point moves by 0.043. A profile and a project sit at lower cosines than two profiles
+in the same field: a project's text is shorter and is not written about a person. Under the
+people map, a project at cosine 0.87, which is in the user's field 87% of the time, would show 14.
+
+**Separate constants.** `RECS_PROJECT_SCORE_SLOPE = 87.6849` and
+`RECS_PROJECT_SCORE_INTERCEPT = -74.5228` are the config defaults. They are fitted on both
+directions pooled, for the model in `RECS_SCORE_MODEL`. One map serves both directions because
+their 50 points differ by only 0.0031. The project -> profile curve is steeper, which matters
+little in practice: almost all of a project's top 10 score 99 to 100 either way.
+
+Calibration table of both directions, with the fitted project map:
+
+| Cosine | Pairs | Same cluster | Score at the middle |
+| --- | ---: | ---: | ---: |
+| 0.72 to 0.74 | 198 | 0.0% | 0 |
+| 0.74 to 0.76 | 1939 | 0.0% | 0 |
+| 0.76 to 0.78 | 13880 | 0.2% | 0 |
+| 0.78 to 0.80 | 45257 | 1.0% | 1 |
+| 0.80 to 0.82 | 56364 | 4.1% | 3 |
+| 0.82 to 0.84 | 42823 | 15.5% | 15 |
+| 0.84 to 0.86 | 31368 | 43.3% | 50 |
+| 0.86 to 0.88 | 23117 | 87.0% | 85 |
+| 0.88 to 0.90 | 27238 | 98.1% | 97 |
+| 0.90 to 0.92 | 26141 | 99.6% | 99 |
+| 0.92 to 0.94 | 8782 | 99.9% | 100 |
+| 0.94 to 0.96 | 678 | 99.9% | 100 |
+
+With the people map, the same bands score 0, 0, 0, 0, 0, 1, 3, 14, 44, 79, 95 and 99.
+
+### Quality (`make eval-recs`, test split; nothing fitted)
+
+**Method.** Ranked by copies of the endpoints' queries (`rankProjectsSQL` and
+`rankResearchersSQL` in `cmd/recseval`), restricted to sample data. They keep the endpoints'
+model, status, owner and membership filters. Join requests and blocks are left out, as social
+links are for NFR-6.
+- Profile -> project: each of the 1,988 test profiles is a query against the 836 open sample
+  projects of both splits.
+- Project -> profile: each of the 222 test projects (any status, as its owner may ask) is a
+  query against all 10,000 sample profiles except its members.
+- Relevant means the project's cluster is the profile's main cluster. The second rule,
+  "main or second", counts the profile's second cluster too.
+- Metrics are as defined for NFR-6 above. A member's own projects are not counted as relevant
+  for them.
+
+**Results (2026-11-17):**
+
+| Metric | Profile -> project, same cluster | Profile -> project, main or second | Project -> profile, same cluster | Project -> profile, main or second |
+| --- | ---: | ---: | ---: | ---: |
+| Queries (test split) | 1988 | 1988 | 222 | 222 |
+| Mean relevant candidates, \|R\| | 41.7 | 54.5 | 501.6 | 652.6 |
+| Recall@10 (capped) | 0.9552 | 0.9885 | 0.9995 | 0.9995 |
+| Precision@10 | 0.9552 | 0.9885 | 0.9995 | 0.9995 |
+| Standard recall@10 | 0.2341 | 0.2046 | 0.0200 | 0.0153 |
+
+| Score of (project map) | Pairs | Mean | p10 | p25 | p50 | p75 | p90 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| profile->project random same | 4888 | 68.7 | 11 | 43 | 84 | 97 | 99 |
+| profile->project random other | 94512 | 4.4 | 0 | 0 | 1 | 4 | 11 |
+| profile->project top10 same | 18989 | 88.6 | 56 | 92 | 98 | 100 | 100 |
+| profile->project top10 other | 891 | 73.5 | 10 | 62 | 89 | 96 | 99 |
+| project->profile top10 same | 2219 | 99.8 | 99 | 100 | 100 | 100 | 100 |
+| project->profile top10 other | 1 | 100.0 | 100 | 100 | 100 | 100 | 100 |
+
+**Reading.**
+- Profile -> project matches the people result (0.9585), on far fewer relevant candidates: a
+  cluster has about 42 open projects, against 500 profiles.
+- Project -> profile is near perfect: each cluster has about 500 profiles to choose 10 from.
+- Of the 891 profile -> project misses, about 662 (74%) are in the profile's second cluster
+  (0.9885 against 0.9552, over 19,880 items).
+- As for NFR-6, these numbers are optimistic: the sample texts come from cluster templates.
+
+### Speed (`make bench-recs`, NFR-1)
+
+**Method.**
+- Profile -> project: the usecase's whole uncached work for 200 random sample users (seed 17,
+  10 warm-up calls not counted): the caller's fields and stamp, the ranking, the projects'
+  skills and their cards.
+- Project -> profile: the same for 200 random sample projects, drawn with repeats: the project's
+  fields and stamp, the ranking, the tags and the connection statuses.
+- The owner check (one project read through the project module), HTTP, the session check and
+  Redis are not included.
+
+**Results (2026-11-17), 10,000 profiles and 1,000 projects:**
+
+| Measure | Profile -> project | Project -> profile |
+| --- | ---: | ---: |
+| Calls | 200 | 200 |
+| p50 | 12.51 ms | 3.46 ms |
+| p95 | 19.27 ms | 5.33 ms |
+| max | 26.61 ms | 6.23 ms |
+
+**NFR-1 target:** p95 under 2 s. **Met.** The same run measured the people endpoint at p50
+4.76 ms and p95 9.38 ms, slower than on 2026-11-15 on the same data. The machine was busier,
+so the 17.1 table above is unchanged.
+
+**Plans.**
+- Project -> profile uses `profile_embeddings_hnsw_idx` with the member and block anti-joins,
+  as people recommendations do.
+- Profile -> project does not use `project_embeddings_hnsw_idx` at this size. Joined with
+  owners, statuses, members, join requests and blocks, the planner prefers an exact top-10
+  sort over all 1,001 project embeddings: 10 ms, and exact rather than approximate.
+- The query, its `ORDER BY` and its `LIMIT` suit the index, so with many more projects the
+  planner can switch to it. Re-run `make bench-recs` when the number of projects grows by an
+  order of magnitude.
+
+EXPLAIN (ANALYZE, BUFFERS) of `RankProjects`:
+
+```
+Sort  (cost=1007.18..1007.20 rows=10 width=32) (actual time=9.957..9.971 rows=10 loops=1)
+  Sort Key: cand.distance, cand.project_id
+  Sort Method: quicksort  Memory: 25kB
+  Buffers: shared hit=5452
+  CTE me
+    ->  Index Scan using profile_embeddings_pkey on profile_embeddings  (cost=0.29..8.30 rows=1 width=89) (actual time=0.013..0.015 rows=1 loops=1)
+          Index Cond: (user_id = '89059bf1-4d6b-4b22-84b7-9748092c5dc3'::uuid)
+          Buffers: shared hit=3
+  CTE cand
+    ->  Limit  (cost=998.46..998.49 rows=10 width=24) (actual time=9.934..9.947 rows=10 loops=1)
+          Buffers: shared hit=5452
+          InitPlan 2 (returns $1)
+            ->  CTE Scan on me  (cost=0.00..0.02 rows=1 width=32) (actual time=0.000..0.001 rows=1 loops=1)
+          InitPlan 3 (returns $2)
+            ->  CTE Scan on me me_1  (cost=0.00..0.02 rows=1 width=32) (actual time=0.015..0.016 rows=1 loops=1)
+                  Buffers: shared hit=3
+          ->  Sort  (cost=998.42..1000.51 rows=835 width=24) (actual time=9.932..9.943 rows=10 loops=1)
+                Sort Key: ((e.embedding <=> $1))
+                Sort Method: top-N heapsort  Memory: 26kB
+                Buffers: shared hit=5452
+                ->  Nested Loop Anti Join  (cost=232.65..980.38 rows=835 width=24) (actual time=1.198..9.789 rows=837 loops=1)
+                      Join Filter: (((b.blocker_id = '89059bf1-4d6b-4b22-84b7-9748092c5dc3'::uuid) AND (b.blocked_id = o.user_id)) OR ((b.blocker_id = o.user_id) AND (b.blocked_id = '89059bf1-4d6b-4b22-84b7-9748092c5dc3'::uuid)))
+                      Buffers: shared hit=5452
+                      ->  Nested Loop Anti Join  (cost=224.25..733.69 rows=835 width=50) (actual time=1.155..4.723 rows=837 loops=1)
+                            Join Filter: (j.project_id = p.id)
+                            Buffers: shared hit=428
+                            ->  Nested Loop Anti Join  (cost=224.25..719.08 rows=836 width=66) (actual time=1.150..4.541 rows=837 loops=1)
+                                  Join Filter: (m.project_id = p.id)
+                                  Buffers: shared hit=427
+                                  ->  Hash Join  (cost=223.97..698.23 rows=837 width=66) (actual time=1.139..4.341 rows=837 loops=1)
+                                        Hash Cond: (e.project_id = p.id)
+                                        Buffers: shared hit=425
+                                        ->  Hash Join  (cost=90.03..561.65 rows=1000 width=66) (actual time=0.627..3.616 rows=1001 loops=1)
+                                              Hash Cond: (o.project_id = e.project_id)
+                                              Buffers: shared hit=314
+                                              ->  Hash Join  (cost=35.00..503.99 rows=1000 width=32) (actual time=0.285..3.039 rows=1001 loops=1)
+                                                    Hash Cond: (u.id = o.user_id)
+                                                    Buffers: shared hit=281
+                                                    ->  Seq Scan on users u  (cost=0.00..421.39 rows=10026 width=16) (actual time=0.009..1.655 rows=10026 loops=1)
+                                                          Filter: ((email_verified_at IS NOT NULL) AND ((suspended_at IS NULL) OR ((suspended_until IS NOT NULL) AND (suspended_until <= now()))))
+                                                          Buffers: shared hit=271
+                                                    ->  Hash  (cost=22.50..22.50 rows=1000 width=32) (actual time=0.266..0.268 rows=1001 loops=1)
+                                                          Buckets: 1024  Batches: 1  Memory Usage: 71kB
+                                                          Buffers: shared hit=10
+                                                          ->  Seq Scan on project_members o  (cost=0.00..22.50 rows=1000 width=32) (actual time=0.005..0.121 rows=1001 loops=1)
+                                                                Filter: (role = 'owner'::project_role)
+                                                                Buffers: shared hit=10
+                                              ->  Hash  (cost=42.51..42.51 rows=1001 width=34) (actual time=0.335..0.336 rows=1001 loops=1)
+                                                    Buckets: 1024  Batches: 1  Memory Usage: 73kB
+                                                    Buffers: shared hit=33
+                                                    ->  Seq Scan on project_embeddings e  (cost=0.00..42.51 rows=1001 width=34) (actual time=0.021..0.192 rows=1001 loops=1)
+                                                          Filter: (model = $2)
+                                                          Buffers: shared hit=33
+                                        ->  Hash  (cost=123.50..123.50 rows=836 width=16) (actual time=0.505..0.506 rows=837 loops=1)
+                                              Buckets: 1024  Batches: 1  Memory Usage: 48kB
+                                              Buffers: shared hit=111
+                                              ->  Seq Scan on projects p  (cost=0.00..123.50 rows=836 width=16) (actual time=0.003..0.390 rows=837 loops=1)
+                                                    Filter: (status = 'open'::project_status)
+                                                    Rows Removed by Filter: 164
+                                                    Buffers: shared hit=111
+                                  ->  Materialize  (cost=0.28..8.30 rows=1 width=16) (actual time=0.000..0.000 rows=0 loops=837)
+                                        Buffers: shared hit=2
+                                        ->  Index Scan using project_members_user_idx on project_members m  (cost=0.28..8.29 rows=1 width=16) (actual time=0.007..0.007 rows=0 loops=1)
+                                              Index Cond: (user_id = '89059bf1-4d6b-4b22-84b7-9748092c5dc3'::uuid)
+                                              Buffers: shared hit=2
+                            ->  Materialize  (cost=0.00..2.07 rows=1 width=16) (actual time=0.000..0.000 rows=0 loops=837)
+                                  Buffers: shared hit=1
+                                  ->  Seq Scan on project_join_requests j  (cost=0.00..2.07 rows=1 width=16) (actual time=0.003..0.004 rows=0 loops=1)
+                                        Filter: ((user_id = '89059bf1-4d6b-4b22-84b7-9748092c5dc3'::uuid) AND (kind = 'request'::join_request_kind) AND (status = 'pending'::join_request_status))
+                                        Buffers: shared hit=1
+                      ->  Materialize  (cost=8.40..19.17 rows=12 width=32) (actual time=0.000..0.000 rows=0 loops=837)
+                            Buffers: shared hit=2
+                            ->  Bitmap Heap Scan on blocks b  (cost=8.40..19.11 rows=12 width=32) (actual time=0.007..0.008 rows=0 loops=1)
+                                  Recheck Cond: ((blocker_id = '89059bf1-4d6b-4b22-84b7-9748092c5dc3'::uuid) OR (blocked_id = '89059bf1-4d6b-4b22-84b7-9748092c5dc3'::uuid))
+                                  Buffers: shared hit=2
+                                  ->  BitmapOr  (cost=8.40..8.40 rows=12 width=0) (actual time=0.004..0.005 rows=0 loops=1)
+                                        Buffers: shared hit=2
+                                        ->  Bitmap Index Scan on blocks_blocker_created_idx  (cost=0.00..4.20 rows=6 width=0) (actual time=0.003..0.003 rows=0 loops=1)
+                                              Index Cond: (blocker_id = '89059bf1-4d6b-4b22-84b7-9748092c5dc3'::uuid)
+                                              Buffers: shared hit=1
+                                        ->  Bitmap Index Scan on blocks_blocked_idx  (cost=0.00..4.20 rows=6 width=0) (actual time=0.001..0.001 rows=0 loops=1)
+                                              Index Cond: (blocked_id = '89059bf1-4d6b-4b22-84b7-9748092c5dc3'::uuid)
+                                              Buffers: shared hit=1
+  ->  CTE Scan on cand  (cost=0.00..0.23 rows=10 width=32) (actual time=9.937..9.941 rows=10 loops=1)
+        Buffers: shared hit=5452
+Planning:
+  Buffers: shared hit=62
+Planning Time: 4.426 ms
+Execution Time: 10.091 ms
+```
+
+EXPLAIN (ANALYZE, BUFFERS) of `RankResearchers`:
+
+```
+Sort  (cost=440.99..441.01 rows=10 width=153) (actual time=1.049..1.054 rows=10 loops=1)
+  Sort Key: cand.distance, cand.user_id
+  Sort Method: quicksort  Memory: 26kB
+  Buffers: shared hit=804
+  CTE pe
+    ->  Nested Loop  (cost=0.55..16.60 rows=1 width=105) (actual time=0.030..0.033 rows=1 loops=1)
+          Buffers: shared hit=6
+          ->  Index Scan using project_embeddings_pkey on project_embeddings e  (cost=0.28..8.29 rows=1 width=105) (actual time=0.012..0.013 rows=1 loops=1)
+                Index Cond: (project_id = '01a1e541-e25c-706e-9596-5a3a73df591a'::uuid)
+                Buffers: shared hit=3
+          ->  Index Scan using project_members_one_owner_uq on project_members o  (cost=0.28..8.29 rows=1 width=32) (actual time=0.017..0.018 rows=1 loops=1)
+                Index Cond: (project_id = '01a1e541-e25c-706e-9596-5a3a73df591a'::uuid)
+                Buffers: shared hit=3
+  CTE cand
+    ->  Limit  (cost=312.22..340.98 rows=10 width=24) (actual time=0.869..0.997 rows=10 loops=1)
+          Buffers: shared hit=774
+          InitPlan 2 (returns $1)
+            ->  CTE Scan on pe  (cost=0.00..0.02 rows=1 width=32) (actual time=0.032..0.034 rows=1 loops=1)
+                  Buffers: shared hit=6
+          InitPlan 3 (returns $2)
+            ->  CTE Scan on pe pe_1  (cost=0.00..0.02 rows=1 width=32) (actual time=0.001..0.001 rows=1 loops=1)
+          InitPlan 4 (returns $3)
+            ->  CTE Scan on pe pe_2  (cost=0.00..0.02 rows=1 width=16) (actual time=0.000..0.001 rows=1 loops=1)
+          InitPlan 5 (returns $4)
+            ->  CTE Scan on pe pe_3  (cost=0.00..0.02 rows=1 width=16) (actual time=0.000..0.000 rows=1 loops=1)
+          ->  Nested Loop Anti Join  (cost=312.14..29091.27 rows=10010 width=24) (actual time=0.868..0.993 rows=10 loops=1)
+                Join Filter: (((b.blocker_id = $3) AND (b.blocked_id = e_1.user_id)) OR ((b.blocker_id = e_1.user_id) AND (b.blocked_id = $4)))
+                Buffers: shared hit=774
+                ->  Nested Loop  (cost=303.74..26344.40 rows=10010 width=34) (actual time=0.830..0.882 rows=10 loops=1)
+                      Buffers: shared hit=712
+                      ->  Nested Loop Anti Join  (cost=303.46..21606.68 rows=10010 width=34) (actual time=0.820..0.844 rows=10 loops=1)
+                            Join Filter: (m.user_id = e_1.user_id)
+                            Rows Removed by Join Filter: 10
+                            Buffers: shared hit=682
+                            ->  Index Scan using profile_embeddings_hnsw_idx on profile_embeddings e_1  (cost=303.18..21448.22 rows=10011 width=34) (actual time=0.805..0.825 rows=10 loops=1)
+                                  Order By: (embedding <=> $1)
+                                  Filter: (model = $2)
+                                  Buffers: shared hit=679
+                            ->  Materialize  (cost=0.28..8.30 rows=1 width=16) (actual time=0.001..0.001 rows=1 loops=10)
+                                  Buffers: shared hit=3
+                                  ->  Index Only Scan using project_members_pkey on project_members m  (cost=0.28..8.29 rows=1 width=16) (actual time=0.010..0.011 rows=1 loops=1)
+                                        Index Cond: (project_id = '01a1e541-e25c-706e-9596-5a3a73df591a'::uuid)
+                                        Heap Fetches: 1
+                                        Buffers: shared hit=3
+                      ->  Index Scan using users_pkey on users u  (cost=0.29..0.47 rows=1 width=16) (actual time=0.003..0.003 rows=1 loops=10)
+                            Index Cond: (id = e_1.user_id)
+                            Filter: ((email_verified_at IS NOT NULL) AND ((suspended_at IS NULL) OR ((suspended_until IS NOT NULL) AND (suspended_until <= now()))))
+                            Buffers: shared hit=30
+                ->  Materialize  (cost=8.40..19.17 rows=12 width=32) (actual time=0.001..0.001 rows=0 loops=10)
+                      Buffers: shared hit=2
+                      ->  Bitmap Heap Scan on blocks b  (cost=8.40..19.11 rows=12 width=32) (actual time=0.006..0.007 rows=0 loops=1)
+                            Recheck Cond: ((blocker_id = $3) OR (blocked_id = $4))
+                            Buffers: shared hit=2
+                            ->  BitmapOr  (cost=8.40..8.40 rows=12 width=0) (actual time=0.006..0.006 rows=0 loops=1)
+                                  Buffers: shared hit=2
+                                  ->  Bitmap Index Scan on blocks_blocker_created_idx  (cost=0.00..4.20 rows=6 width=0) (actual time=0.003..0.003 rows=0 loops=1)
+                                        Index Cond: (blocker_id = $3)
+                                        Buffers: shared hit=1
+                                  ->  Bitmap Index Scan on blocks_blocked_idx  (cost=0.00..4.20 rows=6 width=0) (actual time=0.002..0.002 rows=0 loops=1)
+                                        Index Cond: (blocked_id = $4)
+                                        Buffers: shared hit=1
+  ->  Nested Loop  (cost=0.29..83.25 rows=10 width=153) (actual time=0.878..1.038 rows=10 loops=1)
+        Buffers: shared hit=804
+        ->  CTE Scan on cand  (cost=0.00..0.20 rows=10 width=24) (actual time=0.871..1.001 rows=10 loops=1)
+              Buffers: shared hit=774
+        ->  Index Scan using profiles_pkey on profiles p  (cost=0.29..8.30 rows=1 width=137) (actual time=0.003..0.003 rows=1 loops=10)
+              Index Cond: (user_id = cand.user_id)
+              Buffers: shared hit=30
+Planning:
+  Buffers: shared hit=26
+Planning Time: 0.594 ms
+Execution Time: 1.154 ms
 ```

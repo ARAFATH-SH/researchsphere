@@ -69,10 +69,13 @@ func TestParseFlags(t *testing.T) {
 	if err != nil || o.n != 1000 || o.seed != defaultSeed || o.purge || o.wait {
 		t.Errorf("defaults = %+v, %v", o, err)
 	}
-	if o, err := parseFlags([]string{"-n", "10000", "-wait"}); err != nil || o.n != 10000 || !o.wait {
+	if o, err := parseFlags([]string{"-n", "10000", "-wait"}); err != nil || o.n != 10000 || !o.wait || o.projects {
 		t.Errorf("-n 10000 -wait = %+v, %v", o, err)
 	}
-	for _, args := range [][]string{{"-n", "0"}, {"-n", "100001"}, {"-seed", "-1"}, {"-purge", "-wait"}, {"extra"}} {
+	if o, err := parseFlags([]string{"-projects"}); err != nil || !o.projects {
+		t.Errorf("-projects = %+v, %v", o, err)
+	}
+	for _, args := range [][]string{{"-n", "0"}, {"-n", "100001"}, {"-seed", "-1"}, {"-purge", "-wait"}, {"-purge", "-projects"}, {"extra"}} {
 		if _, err := parseFlags(args); err == nil {
 			t.Errorf("parseFlags(%v) error = nil", args)
 		}

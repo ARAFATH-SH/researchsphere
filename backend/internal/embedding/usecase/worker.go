@@ -60,6 +60,8 @@ type Worker struct {
 	now      func() time.Time
 	logger   *slog.Logger
 
+	watcher domain.Watcher // nil: nobody is told
+
 	model     string // the AI service's model, "" until known
 	staleDone bool   // the owners of other models are all queued
 	downs     int    // ticks in a row that found the AI service down
@@ -69,6 +71,19 @@ type Worker struct {
 // NewWorker returns a Worker.
 func NewWorker(store domain.Store, embedder domain.Embedder, cfg WorkerConfig, now func() time.Time, logger *slog.Logger) *Worker {
 	return &Worker{store: store, embedder: embedder, cfg: cfg, now: now, logger: logger}
+}
+
+// Watch makes the worker tell wt about every embedding it stores or deletes. Call it before
+// Run.
+func (w *Worker) Watch(wt domain.Watcher) {
+	w.watcher = wt
+}
+
+// changed tells the watcher that the owner's embedding was stored or deleted.
+func (w *Worker) changed(ctx context.Context, job domain.Job) {
+	if w.watcher != nil {
+		w.watcher.EmbeddingChanged(ctx, job.OwnerType, job.OwnerID)
+	}
 }
 
 // Run ticks until ctx ends.
@@ -165,10 +180,11 @@ func (w *Worker) process(ctx context.Context, job domain.Job) error {
 		if err := w.store.DeleteEmbedding(ctx, job.OwnerType, job.OwnerID); err != nil {
 			return err
 		}
+		w.changed(ctx, job)
 		return w.store.FinishJob(ctx, job)
 	}
 
-	hash := ContentHash(text)
+	hash := hashOf(job.OwnerType, text)
 	stored, err := w.store.StoredEmbedding(ctx, job.OwnerType, job.OwnerID)
 	switch {
 	case err == nil:
@@ -194,6 +210,7 @@ func (w *Worker) process(ctx context.Context, job domain.Job) error {
 	}); err != nil {
 		return err
 	}
+	w.changed(ctx, job)
 	return w.store.FinishJob(ctx, job)
 }
 
@@ -210,6 +227,15 @@ func (w *Worker) sourceText(ctx context.Context, job domain.Job) (string, bool, 
 			return "", false, err
 		}
 		return ProfileText(src), src.Eligible, nil
+	case domain.OwnerProject:
+		src, err := w.store.ProjectSource(ctx, job.OwnerID)
+		if errors.Is(err, domain.ErrNotFound) {
+			return "", false, nil
+		}
+		if err != nil {
+			return "", false, err
+		}
+		return ProjectText(src), true, nil
 	default:
 		return "", false, fmt.Errorf("unknown owner type %q", job.OwnerType)
 	}

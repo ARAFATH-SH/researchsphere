@@ -11,9 +11,13 @@ import (
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/embedding/domain"
 )
 
-// textVersion is hashed with every text. Changing how text is built or split, without a new
-// model, changes it, so every embedding is made again.
-const textVersion = "profile-text-v1\n"
+// textVersion is hashed with every profile text, projectTextVersion with every project
+// text. Changing how a text is built or split, without a new model, changes it, so every
+// embedding of that owner type is made again.
+const (
+	textVersion        = "profile-text-v1\n"
+	projectTextVersion = "project-text-v1\n"
+)
 
 // ProfileText is the one place a profile's embedding text is built (AI-1.1): headline,
 // interests, skills, bio, then each confirmed publication's title and abstract, newest first.
@@ -40,10 +44,44 @@ func ProfileText(src domain.ProfileSource) string {
 	return strings.Join(lines, "\n")
 }
 
-// ContentHash is the hex SHA-256 the worker compares with the stored one (AI-1.4).
+// ProjectText is the one place a project's embedding text is built (AI-1.2): title, required
+// skills, description, then abstract, each on its own line with its whitespace collapsed, so
+// the same project always gives the same text and hash. Title and skills come first, so the
+// AI service's split always puts them in the first chunk. The AI service adds the same
+// "passage: " prefix and splits into chunks as for profiles.
+func ProjectText(src domain.ProjectSource) string {
+	var lines []string
+	add := func(s string) {
+		if s = oneLine(s); s != "" {
+			lines = append(lines, s)
+		}
+	}
+	add(src.Title)
+	add(joinTags(src.Skills))
+	add(src.Description)
+	add(src.Abstract)
+	return strings.Join(lines, "\n")
+}
+
+// ContentHash is the hex SHA-256 of a profile text the worker compares with the stored one
+// (AI-1.4).
 func ContentHash(text string) string {
 	sum := sha256.Sum256([]byte(textVersion + text))
 	return hex.EncodeToString(sum[:])
+}
+
+// ProjectContentHash is ContentHash for a project text.
+func ProjectContentHash(text string) string {
+	sum := sha256.Sum256([]byte(projectTextVersion + text))
+	return hex.EncodeToString(sum[:])
+}
+
+// hashOf is the content hash of an owner's text.
+func hashOf(owner domain.OwnerType, text string) string {
+	if owner == domain.OwnerProject {
+		return ProjectContentHash(text)
+	}
+	return ContentHash(text)
 }
 
 func joinTags(tags []string) string {

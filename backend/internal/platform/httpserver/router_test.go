@@ -462,6 +462,54 @@ func (fakeAPI) RecommendPeople(context.Context, gen.RecommendPeopleRequestObject
 	return nil, nil
 }
 
+func (fakeAPI) RecommendProjects(context.Context, gen.RecommendProjectsRequestObject) (gen.RecommendProjectsResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) RecommendProjectResearchers(context.Context, gen.RecommendProjectResearchersRequestObject) (gen.RecommendProjectResearchersResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) CreateProject(context.Context, gen.CreateProjectRequestObject) (gen.CreateProjectResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) GetProject(context.Context, gen.GetProjectRequestObject) (gen.GetProjectResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) UpdateProject(context.Context, gen.UpdateProjectRequestObject) (gen.UpdateProjectResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) DeleteProject(context.Context, gen.DeleteProjectRequestObject) (gen.DeleteProjectResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) ReportProject(context.Context, gen.ReportProjectRequestObject) (gen.ReportProjectResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) ListMyProjects(context.Context, gen.ListMyProjectsRequestObject) (gen.ListMyProjectsResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) SearchProjects(context.Context, gen.SearchProjectsRequestObject) (gen.SearchProjectsResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) ListProjectReports(context.Context, gen.ListProjectReportsRequestObject) (gen.ListProjectReportsResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) GetProjectReport(context.Context, gen.GetProjectReportRequestObject) (gen.GetProjectReportResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) ResolveProjectReport(context.Context, gen.ResolveProjectReportRequestObject) (gen.ResolveProjectReportResponseObject, error) {
+	return nil, nil
+}
+
 var _ gen.StrictServerInterface = fakeAPI{}
 
 var testSigner = accesstoken.New([]byte("test-secret-that-is-at-least-32-bytes-long"), 15*time.Minute)
@@ -836,8 +884,8 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 
 func TestRoutes(t *testing.T) {
 	got := Routes()
-	if len(got) != 108 {
-		t.Errorf("Routes() returned %d routes, want the 108 operations in the contract: %v", len(got), got)
+	if len(got) != 120 {
+		t.Errorf("Routes() returned %d routes, want the 120 operations in the contract: %v", len(got), got)
 	}
 	seen := map[string]bool{}
 	for _, p := range got {

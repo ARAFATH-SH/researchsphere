@@ -45,6 +45,212 @@ func (q *Queries) InterestsOf(ctx context.Context, userIds []pgtype.UUID) ([]Int
 	return items, nil
 }
 
+const ownedProjects = `-- name: OwnedProjects :many
+SELECT project_id FROM project_members
+WHERE user_id = ANY($1::uuid[]) AND role = 'owner'
+`
+
+// The projects the users own, whose researcher lists a block change clears.
+func (q *Queries) OwnedProjects(ctx context.Context, userIds []pgtype.UUID) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, ownedProjects, userIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var project_id pgtype.UUID
+		if err := rows.Scan(&project_id); err != nil {
+			return nil, err
+		}
+		items = append(items, project_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const projectCards = `-- name: ProjectCards :many
+SELECT p.id, p.title, left(p.description, 300)::text AS description,
+       o.user_id AS owner_id, coalesce(op.full_name, '')::text AS owner_name,
+       op.headline AS owner_headline, op.photo_file_id AS owner_photo,
+       (SELECT count(*) FROM project_members m WHERE m.project_id = p.id)::int AS member_count
+FROM projects p
+JOIN project_members o ON o.project_id = p.id AND o.role = 'owner'
+LEFT JOIN profiles op ON op.user_id = o.user_id
+WHERE p.id = ANY($1::uuid[])
+`
+
+type ProjectCardsRow struct {
+	ID            pgtype.UUID
+	Title         string
+	Description   string
+	OwnerID       pgtype.UUID
+	OwnerName     string
+	OwnerHeadline pgtype.Text
+	OwnerPhoto    pgtype.UUID
+	MemberCount   int32
+}
+
+// What a recommended project shows, read after the ranking: title, the first 300 characters
+// of the description, the owner and the member count (display only, AI-2.4).
+func (q *Queries) ProjectCards(ctx context.Context, ids []pgtype.UUID) ([]ProjectCardsRow, error) {
+	rows, err := q.db.Query(ctx, projectCards, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ProjectCardsRow
+	for rows.Next() {
+		var i ProjectCardsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.Description,
+			&i.OwnerID,
+			&i.OwnerName,
+			&i.OwnerHeadline,
+			&i.OwnerPhoto,
+			&i.MemberCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const projectSelfFields = `-- name: ProjectSelfFields :many
+SELECT o.user_id AS owner_id, e.model, e.content_hash, e.updated_at
+FROM projects p
+JOIN project_members o ON o.project_id = p.id AND o.role = 'owner'
+LEFT JOIN project_embeddings e ON e.project_id = p.id
+WHERE p.id = $1::uuid
+`
+
+type ProjectSelfFieldsRow struct {
+	OwnerID     pgtype.UUID
+	Model       pgtype.Text
+	ContentHash pgtype.Text
+	UpdatedAt   pgtype.Timestamptz
+}
+
+// The project's owner and the stored embedding's stamp (NULLs when there is none); no row
+// when the project does not exist.
+func (q *Queries) ProjectSelfFields(ctx context.Context, projectID pgtype.UUID) ([]ProjectSelfFieldsRow, error) {
+	rows, err := q.db.Query(ctx, projectSelfFields, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ProjectSelfFieldsRow
+	for rows.Next() {
+		var i ProjectSelfFieldsRow
+		if err := rows.Scan(
+			&i.OwnerID,
+			&i.Model,
+			&i.ContentHash,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const projectSkillsOf = `-- name: ProjectSkillsOf :many
+SELECT ps.project_id, s.name::text AS name
+FROM project_skills ps
+JOIN skills s ON s.id = ps.skill_id
+WHERE ps.project_id = ANY($1::uuid[])
+ORDER BY ps.project_id, lower(s.name::text), s.name::text
+`
+
+type ProjectSkillsOfRow struct {
+	ProjectID pgtype.UUID
+	Name      string
+}
+
+// The required skills of projects, by name ignoring letter case: the project's order for
+// the shared list and the summary.
+func (q *Queries) ProjectSkillsOf(ctx context.Context, projectIds []pgtype.UUID) ([]ProjectSkillsOfRow, error) {
+	rows, err := q.db.Query(ctx, projectSkillsOf, projectIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ProjectSkillsOfRow
+	for rows.Next() {
+		var i ProjectSkillsOfRow
+		if err := rows.Scan(&i.ProjectID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const projectsStillEligible = `-- name: ProjectsStillEligible :many
+SELECT p.id
+FROM projects p
+JOIN project_embeddings e ON e.project_id = p.id
+JOIN project_members o ON o.project_id = p.id AND o.role = 'owner'
+JOIN users u ON u.id = o.user_id
+WHERE p.id = ANY($1::uuid[])
+  AND e.model = (SELECT m.model FROM profile_embeddings m WHERE m.user_id = $2::uuid)
+  AND p.status = 'open'
+  AND u.email_verified_at IS NOT NULL
+  AND (u.suspended_at IS NULL OR (u.suspended_until IS NOT NULL AND u.suspended_until <= now()))
+  AND NOT EXISTS (
+      SELECT 1 FROM project_members m
+      WHERE m.project_id = p.id AND m.user_id = $2::uuid)
+  AND NOT EXISTS (
+      SELECT 1 FROM project_join_requests j
+      WHERE j.project_id = p.id AND j.user_id = $2::uuid
+        AND j.kind = 'request' AND j.status = 'pending')
+  AND NOT EXISTS (
+      SELECT 1 FROM blocks b
+      WHERE (b.blocker_id = $2::uuid AND b.blocked_id = o.user_id)
+         OR (b.blocker_id = o.user_id AND b.blocked_id = $2::uuid))
+`
+
+type ProjectsStillEligibleParams struct {
+	Ids    []pgtype.UUID
+	UserID pgtype.UUID
+}
+
+// Those of ids that RankProjects could still return for the caller now: the same filters.
+func (q *Queries) ProjectsStillEligible(ctx context.Context, arg ProjectsStillEligibleParams) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, projectsStillEligible, arg.Ids, arg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var id pgtype.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const rankPeople = `-- name: RankPeople :many
 WITH me AS (
     SELECT embedding, model FROM profile_embeddings WHERE user_id = $1::uuid
@@ -114,6 +320,206 @@ func (q *Queries) RankPeople(ctx context.Context, arg RankPeopleParams) ([]RankP
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const rankProjects = `-- name: RankProjects :many
+
+WITH me AS (
+    SELECT embedding, model FROM profile_embeddings WHERE user_id = $1::uuid
+),
+cand AS MATERIALIZED (
+    SELECT e.project_id, (e.embedding <=> (SELECT embedding FROM me))::float8 AS distance
+    FROM project_embeddings e
+    JOIN projects p ON p.id = e.project_id
+    JOIN project_members o ON o.project_id = p.id AND o.role = 'owner'
+    JOIN users u ON u.id = o.user_id
+    WHERE e.model = (SELECT model FROM me)
+      AND p.status = 'open'
+      AND u.email_verified_at IS NOT NULL
+      AND (u.suspended_at IS NULL OR (u.suspended_until IS NOT NULL AND u.suspended_until <= now()))
+      AND NOT EXISTS (
+          SELECT 1 FROM project_members m
+          WHERE m.project_id = p.id AND m.user_id = $1::uuid)
+      AND NOT EXISTS (
+          SELECT 1 FROM project_join_requests j
+          WHERE j.project_id = p.id AND j.user_id = $1::uuid
+            AND j.kind = 'request' AND j.status = 'pending')
+      AND NOT EXISTS (
+          SELECT 1 FROM blocks b
+          WHERE (b.blocker_id = $1::uuid AND b.blocked_id = o.user_id)
+             OR (b.blocker_id = o.user_id AND b.blocked_id = $1::uuid))
+    ORDER BY e.embedding <=> (SELECT embedding FROM me)
+    LIMIT $2
+)
+SELECT cand.project_id, (1 - cand.distance)::float8 AS cosine
+FROM cand
+ORDER BY cand.distance, cand.project_id
+`
+
+type RankProjectsParams struct {
+	UserID pgtype.UUID
+	Lim    int32
+}
+
+type RankProjectsRow struct {
+	ProjectID pgtype.UUID
+	Cosine    float64
+}
+
+// Project matching (AI-3.1, AI-2.3; slice 19, chunk 19.2). Read only, with the AI-2.4 rule
+// above: the ranking queries order by cosine distance only. A project's member count is read
+// only by ProjectCards, for display, after the order is fixed
+// (TestRankQueryReadsNoPopularity checks the ranking queries).
+//
+// A project has one stored embedding: the AI service averages the vectors of its chunks
+// (decisions.md, 2026-11-14), so there is no per-chunk vector to rank on.
+// The lim open projects whose embedding is closest in cosine distance to the caller's
+// profile embedding (AI-3.1), through project_embeddings_hnsw_idx. Left out: embeddings of
+// another model; projects the caller is a member of; projects the caller has a pending
+// request to join; projects whose owner is unverified or suspended now; a block either way
+// between the caller and the owner (FR-16.9).
+// slice 20: join requests are written there (project_join_requests exists since 000001);
+// the filter below already leaves a pending request of kind 'request' out.
+func (q *Queries) RankProjects(ctx context.Context, arg RankProjectsParams) ([]RankProjectsRow, error) {
+	rows, err := q.db.Query(ctx, rankProjects, arg.UserID, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RankProjectsRow
+	for rows.Next() {
+		var i RankProjectsRow
+		if err := rows.Scan(&i.ProjectID, &i.Cosine); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const rankResearchers = `-- name: RankResearchers :many
+WITH pe AS (
+    SELECT e.embedding, e.model, o.user_id AS owner_id
+    FROM project_embeddings e
+    JOIN project_members o ON o.project_id = e.project_id AND o.role = 'owner'
+    WHERE e.project_id = $1::uuid
+),
+cand AS MATERIALIZED (
+    SELECT e.user_id, (e.embedding <=> (SELECT embedding FROM pe))::float8 AS distance
+    FROM profile_embeddings e
+    JOIN users u ON u.id = e.user_id
+    WHERE e.model = (SELECT model FROM pe)
+      AND u.email_verified_at IS NOT NULL
+      AND (u.suspended_at IS NULL OR (u.suspended_until IS NOT NULL AND u.suspended_until <= now()))
+      AND NOT EXISTS (
+          SELECT 1 FROM project_members m
+          WHERE m.project_id = $1::uuid AND m.user_id = e.user_id)
+      AND NOT EXISTS (
+          SELECT 1 FROM blocks b
+          WHERE (b.blocker_id = (SELECT owner_id FROM pe) AND b.blocked_id = e.user_id)
+             OR (b.blocker_id = e.user_id AND b.blocked_id = (SELECT owner_id FROM pe)))
+    ORDER BY e.embedding <=> (SELECT embedding FROM pe)
+    LIMIT $2
+)
+SELECT cand.user_id, (1 - cand.distance)::float8 AS cosine,
+       p.full_name, p.headline, p.institution, p.photo_file_id
+FROM cand
+JOIN profiles p ON p.user_id = cand.user_id
+ORDER BY cand.distance, cand.user_id
+`
+
+type RankResearchersParams struct {
+	ProjectID pgtype.UUID
+	Lim       int32
+}
+
+type RankResearchersRow struct {
+	UserID      pgtype.UUID
+	Cosine      float64
+	FullName    string
+	Headline    pgtype.Text
+	Institution pgtype.Text
+	PhotoFileID pgtype.UUID
+}
+
+// The lim users whose profile embedding is closest in cosine distance to the project's
+// embedding (AI-2.3), through profile_embeddings_hnsw_idx. Left out: embeddings of another
+// model; the project's members; unverified and suspended users; a block either way between
+// the user and the project's owner (FR-16.9).
+func (q *Queries) RankResearchers(ctx context.Context, arg RankResearchersParams) ([]RankResearchersRow, error) {
+	rows, err := q.db.Query(ctx, rankResearchers, arg.ProjectID, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RankResearchersRow
+	for rows.Next() {
+		var i RankResearchersRow
+		if err := rows.Scan(
+			&i.UserID,
+			&i.Cosine,
+			&i.FullName,
+			&i.Headline,
+			&i.Institution,
+			&i.PhotoFileID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const researchersStillEligible = `-- name: ResearchersStillEligible :many
+SELECT e.user_id
+FROM profile_embeddings e
+JOIN users u ON u.id = e.user_id
+JOIN profiles p ON p.user_id = e.user_id
+JOIN project_embeddings pe ON pe.project_id = $1::uuid
+JOIN project_members o ON o.project_id = $1::uuid AND o.role = 'owner'
+WHERE e.user_id = ANY($2::uuid[])
+  AND e.model = pe.model
+  AND u.email_verified_at IS NOT NULL
+  AND (u.suspended_at IS NULL OR (u.suspended_until IS NOT NULL AND u.suspended_until <= now()))
+  AND NOT EXISTS (
+      SELECT 1 FROM project_members m
+      WHERE m.project_id = $1::uuid AND m.user_id = e.user_id)
+  AND NOT EXISTS (
+      SELECT 1 FROM blocks b
+      WHERE (b.blocker_id = o.user_id AND b.blocked_id = e.user_id)
+         OR (b.blocker_id = e.user_id AND b.blocked_id = o.user_id))
+`
+
+type ResearchersStillEligibleParams struct {
+	ProjectID pgtype.UUID
+	Ids       []pgtype.UUID
+}
+
+// Those of ids that RankResearchers could still return for the project now.
+func (q *Queries) ResearchersStillEligible(ctx context.Context, arg ResearchersStillEligibleParams) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, researchersStillEligible, arg.ProjectID, arg.Ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var user_id pgtype.UUID
+		if err := rows.Scan(&user_id); err != nil {
+			return nil, err
+		}
+		items = append(items, user_id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

@@ -133,3 +133,117 @@ type Relations interface {
 
 // ErrInvalidLimit means the limit is below 1.
 var ErrInvalidLimit = errors.New("recommendation: limit must be at least 1")
+
+// Project matching (AI-3.1, AI-2.3; slice 19, chunk 19.2).
+
+// ProjectCard is the public summary of a recommended project.
+type ProjectCard struct {
+	ID          string
+	Title       string
+	Description string   // the first 300 characters
+	Skills      []string // up to CardSkills required skills, by name ignoring case
+	Owner       ProjectOwner
+	MemberCount int // shown only; never read by the ranking (AI-2.4)
+}
+
+// CardSkills is how many required skills a ProjectCard carries.
+const CardSkills = 5
+
+// ProjectOwner is a project's owner as a card shows them.
+type ProjectOwner struct {
+	UserID      string
+	FullName    string
+	Headline    *string
+	PhotoFileID *string
+}
+
+// ProjectCandidate is a ranked project: the cosine similarity of its embedding to the
+// caller's profile embedding and its required skills, which only the shared list uses. Like
+// Candidate it carries no count of any kind (AI-2.4).
+type ProjectCandidate struct {
+	ProjectID string
+	Cosine    float64
+	Skills    []string // every required skill, by name ignoring case
+}
+
+// ProjectRecommendation is one item of a user's project list (AI-3.1).
+type ProjectRecommendation struct {
+	Project ProjectCard
+	Score   int      // 0 to 100
+	Shared  []string // up to 3 of the project's required skills the caller has
+}
+
+// KeptProjects is a user's project list as the cache holds it: the stamp of the caller's
+// embedding and the projects generation it was made at.
+type KeptProjects struct {
+	Stamp      Stamp
+	Generation int64
+	Items      []ProjectRecommendation
+}
+
+// ProjectSelf is what the usecase reads about a project for its researcher list (AI-2.3).
+type ProjectSelf struct {
+	OwnerID   string
+	Skills    []string // by name ignoring case
+	Embedding *Stamp   // nil when the project has no embedding yet
+}
+
+// ProjectStore reads project embeddings and what leaves projects and people out.
+type ProjectStore interface {
+	// RankProjects returns at most limit open projects ordered by the cosine similarity of
+	// their embedding to userID's profile embedding, most similar first, and nothing else
+	// (AI-2.4). It leaves out projects userID is a member of or has a pending request to
+	// join, projects whose owner is unverified or suspended, a block either way between
+	// userID and the owner, and embeddings of another model (AI-3.1).
+	RankProjects(ctx context.Context, userID string, limit int) ([]ProjectCandidate, error)
+	// ProjectCards returns the cards of ids, by ID; a missing project is left out.
+	ProjectCards(ctx context.Context, ids []string) (map[string]ProjectCard, error)
+	// ProjectsStillEligible returns those of ids that RankProjects could still return.
+	ProjectsStillEligible(ctx context.Context, userID string, ids []string) (map[string]bool, error)
+	// ProjectSelf reads the project; ErrProjectNotFound when it does not exist.
+	ProjectSelf(ctx context.Context, projectID string) (ProjectSelf, error)
+	// RankResearchers returns at most limit users ordered by the cosine similarity of their
+	// profile embedding to the project's, most similar first, and nothing else (AI-2.4). It
+	// leaves out the project's members, unverified and suspended users, a block either way
+	// with the owner, and embeddings of another model (AI-2.3).
+	RankResearchers(ctx context.Context, projectID string, limit int) ([]Candidate, error)
+	// ResearchersStillEligible returns those of ids that RankResearchers could still return.
+	ResearchersStillEligible(ctx context.Context, projectID string, ids []string) (map[string]bool, error)
+	// OwnedProjects returns the IDs of the projects the users own.
+	OwnedProjects(ctx context.Context, userIDs ...string) ([]string, error)
+}
+
+// ProjectCache keeps the project lists for a while. Errors are reported, never fatal.
+type ProjectCache interface {
+	GetProjects(ctx context.Context, userID string) (kept KeptProjects, found bool, err error)
+	SetProjects(ctx context.Context, userID string, kept KeptProjects, ttl time.Duration) error
+	// DeleteProjects drops the project lists of every user named.
+	DeleteProjects(ctx context.Context, userIDs ...string) error
+	// GetResearchers returns a project's kept researcher list.
+	GetResearchers(ctx context.Context, projectID string) (kept Kept, found bool, err error)
+	SetResearchers(ctx context.Context, projectID string, kept Kept, ttl time.Duration) error
+	// DeleteResearchers drops the researcher lists of every project named.
+	DeleteResearchers(ctx context.Context, projectIDs ...string) error
+	// Generation is the projects generation: it grows whenever a project's embedding or
+	// status changes or a project is deleted, so every user's kept project list is then
+	// made again. 0 when it was never raised.
+	Generation(ctx context.Context) (int64, error)
+	// NextGeneration raises it.
+	NextGeneration(ctx context.Context) error
+}
+
+// ProjectAccess checks that a user may see a project's recommended researchers: nil, or
+// ErrProjectNotFound when the user cannot see the project, or ErrNotProjectOwner when the
+// project role lacks the right (AI-2.3). The project module owns the rule; cmd/api
+// implements it.
+type ProjectAccess interface {
+	CanSeeRecommendedResearchers(ctx context.Context, userID, projectID string) error
+}
+
+// Errors of the project lists.
+var (
+	// ErrProjectNotFound covers a missing project and one the caller may not see.
+	ErrProjectNotFound = errors.New("recommendation: project not found")
+	// ErrNotProjectOwner refuses a visible project's researcher list to a non-owner.
+	ErrNotProjectOwner = errors.New("recommendation: only the project's owner sees its recommended researchers")
+)
