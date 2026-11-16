@@ -151,3 +151,10 @@ type Store interface {
 	// ("" when unknown: no embedding counts as current).
 	Stats(ctx context.Context, model string) ([]OwnerStats, error)
 }
+
+// Watcher is told, after the write, that the worker stored or deleted an owner's embedding,
+// so modules that keep lists made from embeddings can renew them (project recommendations,
+// AI-3.1). It must not block.
+type Watcher interface {
+	EmbeddingChanged(ctx context.Context, ownerType OwnerType, ownerID string)
+}

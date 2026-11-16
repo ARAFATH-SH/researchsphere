@@ -166,6 +166,10 @@ var platformGuards = map[string]authz.Action{
 	"GET /api/v1/search/people": authz.ViewContent,
 	// Collaborator recommendations (AI-2) are the same row ("... and recommendations").
 	"GET /api/v1/recommendations/people": authz.ViewContent,
+	// Project matching (AI-3.1) is the same row. A project's recommended researchers
+	// (AI-2.3) too; the usecase then checks the project role (owner only).
+	"GET /api/v1/recommendations/projects":                     authz.ViewContent,
+	"GET /api/v1/projects/{projectId}/recommended-researchers": authz.ViewContent,
 
 	// Research projects (FR-10). Creating is the row "Create a project". Reading, editing and
 	// deleting need what reading the app needs; the usecase then checks the project role

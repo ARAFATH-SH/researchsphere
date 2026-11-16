@@ -290,24 +290,24 @@ func TestListMinePages(t *testing.T) {
 	}
 }
 
-// FR-10.3: 2 to 100 characters, pages 1 to 50 of 20, 60 searches a minute; invalid ones are
-// not counted.
+// FR-10.3: 2 to 100 characters in keyword mode, pages 1 to 50 of 20, 60 searches a minute;
+// invalid ones are not counted.
 func TestSearchRules(t *testing.T) {
 	e := newEnv()
 	for _, q := range []*string{nil, ptr(" a "), ptr(strings.Repeat("x", 101)), ptr("a\x00b")} {
-		if _, err := e.service.Search(t.Context(), ada, q, 1); !errors.Is(err, domain.ErrInvalidQuery) {
+		if _, err := e.service.Search(t.Context(), ada, q, "keyword", 1); !errors.Is(err, domain.ErrInvalidQuery) {
 			t.Errorf("q %v: %v, want ErrInvalidQuery", q, err)
 		}
 	}
 	for _, p := range []int{0, 51} {
-		if _, err := e.service.Search(t.Context(), ada, ptr("graph"), p); !errors.Is(err, domain.ErrInvalidPage) {
+		if _, err := e.service.Search(t.Context(), ada, ptr("graph"), "keyword", p); !errors.Is(err, domain.ErrInvalidPage) {
 			t.Errorf("page %d: %v, want ErrInvalidPage", p, err)
 		}
 	}
 	if e.search.used[ada] != 0 {
 		t.Fatal("invalid searches were counted")
 	}
-	if _, err := e.service.Search(t.Context(), ada, ptr("  graph  "), 3); err != nil {
+	if _, err := e.service.Search(t.Context(), ada, ptr("  graph  "), "keyword", 3); err != nil {
 		t.Fatal(err)
 	}
 	if got := e.store.searches[0]; got.Q != "graph" || got.Limit != 20 || got.Offset != 40 || got.ViewerID != ada {
@@ -315,7 +315,7 @@ func TestSearchRules(t *testing.T) {
 	}
 	e.search.used[ada] = SearchesPerWindow
 	var limited *domain.RateLimitedError
-	if _, err := e.service.Search(t.Context(), ada, ptr("graph"), 1); !errors.As(err, &limited) {
+	if _, err := e.service.Search(t.Context(), ada, ptr("graph"), "keyword", 1); !errors.As(err, &limited) {
 		t.Errorf("61st search: %v, want RateLimitedError", err)
 	}
 }

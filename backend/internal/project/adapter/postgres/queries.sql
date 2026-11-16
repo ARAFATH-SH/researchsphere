@@ -267,3 +267,66 @@ WHERE id = @id AND resolved_at IS NULL;
 
 -- name: ProjectReportExists :one
 SELECT EXISTS (SELECT 1 FROM project_reports WHERE id = @id);
+
+-- Hybrid project search (AI-5.1 for projects; slice 19, chunk 19.2): the strong title matches
+-- and the candidates by meaning, with the keyword search's visibility rule (open, owner
+-- verified and not suspended, owner has not blocked the searcher). Like SearchProjectsPage,
+-- they order by match and similarity only, never by member counts (AI-2.4).
+
+-- name: SetHNSWIterativeScan :exec
+-- HNSW iterative scan (pgvector 0.8): when the filters drop rows the index returned, the
+-- scan goes on until LIMIT rows pass. relaxed_order may return rows slightly out of order, so
+-- SemanticProjectCandidates sorts again. Local to the transaction.
+SELECT set_config('hnsw.iterative_scan', 'relaxed_order', true);
+
+-- name: SetHNSWEfSearch :exec
+SELECT set_config('hnsw.ef_search', @ef_search::text, true);
+
+-- name: StrongTitleMatches :many
+-- Visible open projects whose title equals q, or starts with q when prefix_ok, ignoring
+-- letter case and accents (fold_name, migration 000030). prefix_pattern is the LIKE pattern
+-- of q followed by %, with \ % _ escaped. Exact matches first, then the keyword order within
+-- the title ranks: newest first, then ID.
+SELECT p.id, p.title, left(p.description, 300)::text AS description, p.status::text AS status,
+       p.created_at, p.updated_at,
+       coalesce((SELECT m.role::text FROM project_members m WHERE m.project_id = p.id AND m.user_id = @viewer_id::uuid), '')::text AS my_role,
+       o.user_id AS owner_id,
+       coalesce(op.full_name, '')::text AS owner_name, op.headline AS owner_headline, op.photo_file_id AS owner_photo,
+       (fold_name(p.title) = fold_name(@q::text))::boolean AS exact
+FROM projects p
+JOIN project_members o ON o.project_id = p.id AND o.role = 'owner'
+JOIN users u ON u.id = o.user_id
+LEFT JOIN profiles op ON op.user_id = o.user_id
+WHERE (fold_name(p.title) = fold_name(@q::text)
+       OR (@prefix_ok::boolean AND fold_name(p.title) LIKE fold_name(@prefix_pattern::text)))
+  AND p.status = 'open' AND u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL
+  AND NOT EXISTS (SELECT 1 FROM blocks x WHERE x.blocker_id = o.user_id AND x.blocked_id = @viewer_id::uuid)
+ORDER BY exact DESC, p.created_at DESC, p.id
+LIMIT @lim;
+
+-- name: SemanticProjectCandidates :many
+-- The lim visible open projects whose embedding is closest in cosine distance to the query
+-- vector, through project_embeddings_hnsw_idx, among embeddings of the query's model. The
+-- order is the cosine distance and nothing else, then the ID for ties.
+WITH cand AS MATERIALIZED (
+    SELECT e.project_id, (e.embedding <=> CAST(@embedding::text AS vector))::float8 AS distance
+    FROM project_embeddings e
+    JOIN projects p ON p.id = e.project_id
+    JOIN project_members o ON o.project_id = p.id AND o.role = 'owner'
+    JOIN users u ON u.id = o.user_id
+    WHERE e.model = @model::text
+      AND p.status = 'open' AND u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM blocks x WHERE x.blocker_id = o.user_id AND x.blocked_id = @viewer_id::uuid)
+    ORDER BY e.embedding <=> CAST(@embedding::text AS vector)
+    LIMIT @lim
+)
+SELECT p.id, p.title, left(p.description, 300)::text AS description, p.status::text AS status,
+       p.created_at, p.updated_at,
+       coalesce((SELECT m.role::text FROM project_members m WHERE m.project_id = p.id AND m.user_id = @viewer_id::uuid), '')::text AS my_role,
+       o.user_id AS owner_id,
+       coalesce(op.full_name, '')::text AS owner_name, op.headline AS owner_headline, op.photo_file_id AS owner_photo
+FROM cand
+JOIN projects p ON p.id = cand.project_id
+JOIN project_members o ON o.project_id = p.id AND o.role = 'owner'
+LEFT JOIN profiles op ON op.user_id = o.user_id
+ORDER BY cand.distance, cand.project_id;

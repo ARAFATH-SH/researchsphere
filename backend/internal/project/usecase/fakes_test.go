@@ -24,6 +24,8 @@ type memStore struct {
 	updates  []domain.Changes
 	deleted  []string
 	searches []domain.SearchQuery
+	hybrid   []domain.SearchQuery
+	vectors  []domain.QueryVector
 	failTx   error
 }
 
@@ -158,6 +160,14 @@ func (s *memStore) Search(_ context.Context, q domain.SearchQuery) (domain.Searc
 	return domain.SearchResult{Items: []domain.Summary{}}, nil
 }
 
+func (s *memStore) SearchHybrid(_ context.Context, q domain.SearchQuery, v domain.QueryVector) (domain.SearchResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.hybrid = append(s.hybrid, q)
+	s.vectors = append(s.vectors, v)
+	return domain.SearchResult{Items: []domain.Summary{}}, nil
+}
+
 func (s *memStore) CreateReport(_ context.Context, r domain.NewReport) (domain.ReportReceipt, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -200,7 +210,7 @@ func (tablePerms) Can(role domain.Role, a domain.Action) bool {
 		return true
 	case domain.ActEditAbstract:
 		return role == domain.RoleOwner || role == domain.RoleEditor
-	case domain.ActEditDetails, domain.ActDelete:
+	case domain.ActEditDetails, domain.ActDelete, domain.ActManageMembers:
 		return role == domain.RoleOwner
 	}
 	return false

@@ -640,3 +640,33 @@ func TestServiceStatsRebuildAndBackfill(t *testing.T) {
 		t.Errorf("Backfill = %d, %v; force %v, want not forced", n, err, store.queueAll)
 	}
 }
+
+// recordWatcher records what the worker tells it.
+type recordWatcher struct {
+	told []string
+}
+
+func (r *recordWatcher) EmbeddingChanged(_ context.Context, t domain.OwnerType, id string) {
+	r.told = append(r.told, string(t)+":"+id)
+}
+
+// The watcher (project recommendations, AI-3.1) hears of every embedding stored or deleted,
+// and of nothing when an unchanged text is skipped.
+func TestWorkerTellsTheWatcher(t *testing.T) {
+	e := newWorkerEnv(t)
+	w := &recordWatcher{}
+	e.w.Watch(w)
+	e.store.projects["p1"] = domain.ProjectSource{Title: "Graph learning", Description: "Study"}
+	e.store.enqueueOwner(domain.OwnerProject, "p1")
+	e.w.Tick(t.Context())
+	e.store.enqueueOwner(domain.OwnerProject, "p1") // unchanged
+	e.w.Tick(t.Context())
+	delete(e.store.projects, "p1")
+	e.store.enqueueOwner(domain.OwnerProject, "p1") // gone
+	e.w.Tick(t.Context())
+	e.profile("u1", eligible)
+	e.w.Tick(t.Context())
+	if want := "project:p1,project:p1,profile:u1"; strings.Join(w.told, ",") != want {
+		t.Errorf("told %v, want %s", w.told, want)
+	}
+}

@@ -237,17 +237,28 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 	// The embedding worker makes profile embeddings from the queue the database triggers
 	// fill (AI-1.5), every 5 s.
 	embeddings, embedWorker := newEmbeddings(pool, ai, logger)
-	go embedWorker.Run(ctx)
 	// Collaborator recommendations (AI-2.1): social clears both users' kept lists on every
 	// link change.
-	recommendations, recCache, err := newRecommendations(pool, rdb, cfg, social, logger)
+	recommendations, recStore, recCache, err := newRecommendations(pool, rdb, cfg, social, logger)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = recCache.Close() }()
-	// Research projects (FR-10).
-	projects, projectLimits := newProjects(pool, rdb, standings, logger)
+	// Research projects (FR-10), with hybrid search (AI-5.1); their status changes and
+	// deletions renew the project recommendations.
+	projects, projectLimits := newProjects(pool, rdb, standings, projectSearch{
+		embedder: projectQueryEmbedder{q: queryEmbedder{ai: ai}},
+		vectors:  projectQueryVectors{cache: lookups.QueryVectors()},
+		timeout:  cfg.SearchAITimeout,
+	}, projectChanges{recs: recommendations}, logger)
 	defer func() { _ = projectLimits.Close() }()
+	// Project matching (AI-3.1, AI-2.3); new project embeddings renew its lists. The worker
+	// starts only now, so it never tells a service that is still being wired.
+	if err := enableProjectMatching(recommendations, recStore, recCache, projects, cfg); err != nil {
+		return err
+	}
+	embedWorker.Watch(embeddingChanges{recs: recommendations})
+	go embedWorker.Run(ctx)
 	handler := newRouter(logger, healthpg.NewPinger(pool), healthredis.NewPinger(rdb), files, ai,
 		authhttp.NewHandler(auth, authhttp.CookieConfig{Secure: cfg.CookieSecure}),
 		profilehttp.NewHandler(profiles),

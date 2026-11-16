@@ -50,6 +50,11 @@ const (
 	ActEditAbstract Action = "edit_abstract"
 	// ActDelete is the row "Transfer ownership, delete the project".
 	ActDelete Action = "delete"
+	// ActManageMembers is the row "Invite, decide join requests, change roles, remove
+	// members". AI-2.3 ("show a project's owner the researchers most similar to it") has no
+	// row of its own in SRS 2.3; its list exists to find people to invite, so it uses this
+	// row (owner only), decisions.md 2026-11-16.
+	ActManageMembers Action = "manage_members"
 )
 
 // Permissions answers SRS 2.3's project table (authz.CanInProject).
@@ -201,6 +206,7 @@ type SearchQuery struct {
 
 // SearchResult is one page of a project search.
 type SearchResult struct {
+	Mode           ResultMode
 	Items          []Summary
 	Total          int
 	Fuzzy          bool
@@ -279,6 +285,9 @@ type Store interface {
 	ListMine(ctx context.Context, userID string, limit, offset int) ([]Summary, int, error)
 	// Search runs in one read-only snapshot of its own.
 	Search(ctx context.Context, q SearchQuery) (SearchResult, error)
+	// SearchHybrid runs the keyword search, the strong title matches and the search by
+	// meaning for v in one read-only snapshot of its own and merges them (FuseProjects).
+	SearchHybrid(ctx context.Context, q SearchQuery, v QueryVector) (SearchResult, error)
 
 	// CreateReport returns ErrAlreadyReported for a second open report.
 	CreateReport(ctx context.Context, r NewReport) (ReportReceipt, error)

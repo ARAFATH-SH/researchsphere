@@ -9,7 +9,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/project/domain"
 )
@@ -24,15 +23,19 @@ const (
 	SearchWindow      = time.Minute
 
 	MinQueryLength  = 2
-	MaxQueryLength  = 100
-	SearchPageSize  = 20 // FR-10.3
+	MaxQueryLength  = 100 // keyword mode (FR-10.3)
+	MaxMeaningQuery = 300 // auto mode (AI-5.1)
+	SearchPageSize  = 20  // FR-10.3
 	MaxSearchPage   = 50
 	DefaultPageSize = 20
 	MaxPageSize     = 50 // the server's cap on every list
 	ReportPageSize  = 20
 )
 
-// Deps is what the Service needs. Every field is required.
+// Deps is what the Service needs. The fields up to SearchLimiter are required. Without an
+// Embedder every auto search falls back to keywords (AI-5.4); without a VectorCache every
+// query is embedded; AITimeout 0 means DefaultSearchAITimeout; without a Watcher nobody is
+// told about changes.
 type Deps struct {
 	Store         domain.Store
 	Tx            domain.Transactor
@@ -40,12 +43,17 @@ type Deps struct {
 	Actors        domain.Actors
 	CreateLimiter domain.Limiter
 	SearchLimiter domain.Limiter
+	Embedder      domain.QueryEmbedder
+	VectorCache   domain.QueryVectorCache
+	AITimeout     time.Duration
+	Watcher       domain.Watcher
 	Logger        *slog.Logger
 }
 
 // Service runs the project operations.
 type Service struct {
-	d Deps
+	d  Deps
+	ai searchAI
 }
 
 // New returns a Service.
@@ -53,8 +61,20 @@ func New(d Deps) *Service {
 	if d.Logger == nil {
 		d.Logger = slog.New(slog.DiscardHandler)
 	}
+	if d.AITimeout <= 0 {
+		d.AITimeout = DefaultSearchAITimeout
+	}
+	if d.Watcher == nil {
+		d.Watcher = noWatcher{}
+	}
 	return &Service{d: d}
 }
+
+// noWatcher is the Watcher of a Service made without one.
+type noWatcher struct{}
+
+func (noWatcher) ProjectChanged(context.Context, string)            {}
+func (noWatcher) MembersChanged(context.Context, string, ...string) {}
 
 // CreateInput is a new project as the caller sends it.
 type CreateInput struct {
@@ -178,6 +198,9 @@ func (s *Service) Update(ctx context.Context, viewerID, projectID string, in Upd
 		if err := s.d.Store.Update(ctx, projectID, c); err != nil {
 			return err
 		}
+		if c.Status != nil && *c.Status != a.Status {
+			s.d.Watcher.ProjectChanged(ctx, projectID)
+		}
 		if c.Skills != nil {
 			return s.d.Store.SetSkills(ctx, projectID, *c.Skills)
 		}
@@ -252,7 +275,11 @@ func (s *Service) Delete(ctx context.Context, viewerID, projectID string, confir
 		if confirm == nil || strings.TrimSpace(*confirm) != strings.TrimSpace(a.Title) {
 			return domain.ErrConfirmMismatch
 		}
-		return s.d.Store.Delete(ctx, projectID)
+		if err := s.d.Store.Delete(ctx, projectID); err != nil {
+			return err
+		}
+		s.d.Watcher.ProjectChanged(ctx, projectID)
+		return nil
 	})
 }
 
@@ -286,37 +313,6 @@ func (s *Service) ListMine(ctx context.Context, userID string, page, pageSize in
 func offsetOf(page, size int) (int, bool) {
 	off := (page - 1) * size
 	return off, page-1 <= (1<<31-1)/size
-}
-
-// Search searches open projects by title, required skill and description (FR-10.3). It
-// returns domain.ErrInvalidQuery for a missing text or one that is not 2 to 100 characters
-// after trimming, domain.ErrInvalidPage for a page outside 1 to 50, and
-// *domain.RateLimitedError after SearchesPerWindow searches in a SearchWindow; invalid
-// searches do not count. When the limit cannot be read, the search goes ahead.
-func (s *Service) Search(ctx context.Context, viewerID string, q *string, page int) (domain.SearchResult, error) {
-	if q == nil {
-		return domain.SearchResult{}, domain.ErrInvalidQuery
-	}
-	text, ok := cleanText(*q)
-	if n := utf8.RuneCountInString(text); !ok || n < MinQueryLength || n > MaxQueryLength {
-		return domain.SearchResult{}, domain.ErrInvalidQuery
-	}
-	if page < 1 || page > MaxSearchPage {
-		return domain.SearchResult{}, domain.ErrInvalidPage
-	}
-	used, left, err := s.d.SearchLimiter.Used(ctx, viewerID)
-	switch {
-	case err != nil:
-		s.d.Logger.WarnContext(ctx, "project search limit unavailable, allowing the search", slog.Any("error", err))
-	case used >= SearchesPerWindow:
-		return domain.SearchResult{}, &domain.RateLimitedError{RetryAfter: left}
-	}
-	if err := s.d.SearchLimiter.Record(ctx, viewerID, SearchWindow); err != nil {
-		s.d.Logger.WarnContext(ctx, "project search limit not recorded", slog.Any("error", err))
-	}
-	return s.d.Store.Search(ctx, domain.SearchQuery{
-		ViewerID: viewerID, Q: text, Limit: SearchPageSize, Offset: (page - 1) * SearchPageSize,
-	})
 }
 
 // ReportInput is a report as the caller sends it.

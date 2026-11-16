@@ -2588,7 +2588,24 @@ export interface paths {
          *     to `q` (trigram word similarity, as in researcher search, so a small spelling
          *     mistake still matches) take the place of the title matches; then `fuzzy` is true
          *     and `correctedQuery` is the most similar title. Each user may search 60 times a
-         *     minute.
+         *     minute, in either mode.
+         *
+         *     **Modes (AI-5.1 for projects).** `mode=keyword` is the search above, unchanged, and
+         *     the answer's `mode` is `keyword`. `mode=auto` (the default) also searches by meaning:
+         *     the text is embedded by the AI service and compared with every visible open project's
+         *     embedding. A strong title match comes first, in keyword order: a title equal to `q`,
+         *     or a title that starts with `q` when `q` is at least 3 characters, both ignoring
+         *     letter case and accents. The other results are the 50 best keyword results (the order
+         *     above) and the 50 projects closest in meaning, with the same visibility rules, merged
+         *     by reciprocal rank fusion (k = 60), and the answer's `mode` is `hybrid`. Ranking
+         *     never uses member counts or any other popularity signal (AI-2.4). A result found only
+         *     by meaning has `matchedOn: meaning`. In hybrid mode `total` is the size of the merged
+         *     list, cut at 100, so there are at most 5 pages and a later page is empty; `fuzzy` and
+         *     `correctedQuery` come from the keyword side.
+         *
+         *     When the AI service does not answer within a short time (1.5 s by default) or answers
+         *     with an error, the keyword search runs instead and `mode` is `keyword_fallback`
+         *     (AI-5.4), so the client can say so.
          */
         get: operations["searchProjects"];
         put?: never;
@@ -2689,6 +2706,81 @@ export interface paths {
          *     dropped from a kept list, which may then have fewer than `limit` items.
          */
         get: operations["recommendPeople"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/recommendations/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Open projects whose embeddings are most similar to the caller's profile (AI-3.1, AI-2.4, AI-4)
+         * @description Needs the access cookie, a verified email and the platform action "View profiles,
+         *     search, feed, events and recommendations" (SRS 2.3).
+         *
+         *     `state` is checked as for `recommendPeople`: `needs_profile` when the caller's
+         *     profile has no research interests, no skills and no bio (AI-4.2), `processing` when
+         *     its embedding is not made yet, otherwise `ready`.
+         *
+         *     Ranking uses only the cosine similarity between the caller's profile embedding and
+         *     each project's embedding, never member counts or any other popularity signal
+         *     (AI-2.4). Only `open` projects are listed. Left out: projects the caller is a member
+         *     of, projects the caller has a pending request to join, projects whose owner is
+         *     suspended or not verified, projects whose owner the caller has blocked or is blocked
+         *     by (FR-16.9), and projects without an embedding of the caller's model.
+         *
+         *     The list is kept for up to 10 minutes; it is made again at once when the caller's
+         *     embedding changes, when any project's embedding or status changes or a project is
+         *     deleted, when the caller's memberships change, and when a block between the caller
+         *     and anyone changes. A project that stops being eligible meanwhile is dropped from a
+         *     kept list, which may then have fewer than `limit` items.
+         */
+        get: operations["recommendProjects"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{projectId}/recommended-researchers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Researchers whose profiles are most similar to a project, for its owner (AI-2.3, AI-2.4)
+         * @description Needs the access cookie, a verified email and the platform action "View profiles,
+         *     search, feed, events and recommendations" (SRS 2.3). A project the caller cannot see
+         *     gets 404 `not_found`, as `getProject`. Then the project action "Invite, decide join
+         *     requests, change roles, remove members" (owner only), since the list is for finding
+         *     people to invite; anyone else gets 403 `forbidden`. Any project status is allowed.
+         *
+         *     `state` is `processing` while the project has no embedding (it is made in the
+         *     background within a minute, AI-1.4), otherwise `ready`; `missing` is always empty.
+         *
+         *     Ranking uses only the cosine similarity between the project's embedding and each
+         *     profile embedding, never citation, publication or connection counts (AI-2.4). Left
+         *     out: the project's current members, unverified and suspended users, users the owner
+         *     has blocked or is blocked by (FR-16.9), and users without an embedding of the
+         *     project's model. `shared` is up to 3 of the project's required skills the researcher
+         *     has (the same name, ignoring letter case), in the project's order.
+         *
+         *     The list is kept for up to 10 minutes; it is made again at once when the project's
+         *     embedding or members change, and when a block between the owner and anyone changes.
+         */
+        get: operations["recommendProjectResearchers"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3962,12 +4054,20 @@ export interface components {
         };
         ProjectSearchResult: components["schemas"]["ProjectSummary"] & {
             /**
-             * @description The field of the result's best match.
+             * @description The field of the result's best match; `meaning` when only the meaning search
+             *     found it (hybrid mode).
              * @enum {string}
              */
-            matchedOn: "title" | "skill" | "description";
+            matchedOn: "title" | "skill" | "description" | "meaning";
         };
         ProjectSearchPage: {
+            /**
+             * @description How the results were found: `hybrid` by keyword and meaning, `keyword` because
+             *     the request asked for it, `keyword_fallback` by keyword only because the AI
+             *     service did not answer (AI-5.4).
+             * @enum {string}
+             */
+            mode: "hybrid" | "keyword" | "keyword_fallback";
             items: components["schemas"]["ProjectSearchResult"][];
             /** @description The number of results on all pages. */
             total: number;
@@ -4634,11 +4734,53 @@ export interface components {
              */
             score: number;
             /**
-             * @description Up to 3 research interests or skills both users have (the same name, ignoring
-             *     letter case): interests first, then skills, each in the caller's order. May be
-             *     empty.
+             * @description In `recommendPeople`: up to 3 research interests or skills both users have (the
+             *     same name, ignoring letter case), interests first, then skills, each in the
+             *     caller's order. In `recommendProjectResearchers`: up to 3 of the project's
+             *     required skills the researcher has, in the project's order. May be empty.
              */
             shared: string[];
+        };
+        ProjectRecommendations: {
+            /**
+             * @description As in `PeopleRecommendations`.
+             * @enum {string}
+             */
+            state: "ready" | "needs_profile" | "processing";
+            /**
+             * @description With `needs_profile`, the profile fields to fill in, in this order: `interests`,
+             *     `skills`, `bio`. Empty in the other states.
+             */
+            missing: ("interests" | "skills" | "bio")[];
+            /** @description Most similar first. Empty unless `state` is `ready`. */
+            items: components["schemas"]["ProjectRecommendation"][];
+        };
+        ProjectRecommendation: {
+            project: components["schemas"]["RecommendedProject"];
+            /**
+             * @description How similar the project is to the caller's profile, as a percentage. It is the
+             *     cosine similarity of the embeddings put through a fixed increasing mapping fitted
+             *     on sample data (docs/evaluation.md), not the raw cosine.
+             */
+            score: number;
+            /**
+             * @description Up to 3 of the project's required skills the caller has (the same name, ignoring
+             *     letter case), in the project's order. May be empty.
+             */
+            shared: string[];
+        };
+        /** @description A recommended project's summary. */
+        RecommendedProject: {
+            /** Format: uuid */
+            id: string;
+            title: string;
+            /** @description The first 300 characters of the description. */
+            description: string;
+            /** @description Up to 5 required skill names, by name ignoring letter case. */
+            requiredSkills: string[];
+            owner: components["schemas"]["ProjectPerson"];
+            /** @description Shown only; it never affects the order (AI-2.4). */
+            memberCount: number;
         };
         PeopleSearchFacets: {
             /**
@@ -9733,12 +9875,18 @@ export interface operations {
         parameters: {
             query?: {
                 /**
-                 * @description The search text after trimming: 2 to 100 characters. It is required: it is
-                 *     declared optional only so that a missing `q` gets 400 `invalid_query`, like a too
-                 *     short one, instead of the generic `bad_request`.
+                 * @description The search text after trimming: 2 to 300 characters in `auto` mode (AI-5.1), 2 to
+                 *     100 in `keyword` mode. It is required: it is declared optional only so that a
+                 *     missing `q` gets 400 `invalid_query`, like a too short one, instead of the generic
+                 *     `bad_request`.
                  * @example graph neural
                  */
                 q?: string;
+                /**
+                 * @description `auto` searches by keyword and by meaning (AI-5); `keyword` only by keyword and
+                 *     never calls the AI service. Any other value gets 400 `bad_request`.
+                 */
+                mode?: "auto" | "keyword";
                 /** @description The page to return, 1 to 50, 20 results each (FR-10.3). Defaults to 1. */
                 page?: number;
             };
@@ -9757,7 +9905,11 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectSearchPage"];
                 };
             };
-            /** @description `q` is missing or, after trimming, not 2 to 100 characters (`invalid_query`), or `page` is not valid (`bad_request`). */
+            /**
+             * @description `q` is missing or, after trimming, not 2 to 300 characters in `auto` mode or 2 to
+             *     100 in `keyword` mode (`invalid_query`), or `mode` or `page` is not valid
+             *     (`bad_request`).
+             */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -9872,6 +10024,74 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    recommendProjects: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Items to return, from 1. Defaults to 10. A larger value than 10 is reduced to
+                 *     10; a value below 1 gets 400 `bad_request`.
+                 */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's project recommendations, or why there are none yet. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectRecommendations"];
+                };
+            };
+            /** @description `limit` is below 1 (`bad_request`, `field: limit`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    recommendProjectResearchers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The project's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                projectId: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The project's recommended researchers, or why there are none yet. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PeopleRecommendations"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             500: components["responses"]["InternalError"];
         };
     };

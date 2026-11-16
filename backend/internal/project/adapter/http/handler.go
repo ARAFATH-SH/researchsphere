@@ -35,7 +35,7 @@ type Service interface {
 	Update(ctx context.Context, viewerID, projectID string, in usecase.UpdateInput) (domain.Project, error)
 	Delete(ctx context.Context, viewerID, projectID string, confirm *string) error
 	ListMine(ctx context.Context, userID string, page, pageSize int) (usecase.Page, error)
-	Search(ctx context.Context, viewerID string, q *string, page int) (domain.SearchResult, error)
+	Search(ctx context.Context, viewerID string, q *string, mode string, page int) (domain.SearchResult, error)
 	Report(ctx context.Context, userID, projectID string, in usecase.ReportInput) (domain.ReportReceipt, error)
 	ListReports(ctx context.Context, status *string, page int) (usecase.ReportPage, error)
 	GetReport(ctx context.Context, reportID string) (domain.Report, domain.ReportedProject, error)
@@ -266,11 +266,20 @@ func (h *Handler) SearchProjects(ctx context.Context, req gen.SearchProjectsRequ
 	if req.Params.Page != nil {
 		page = *req.Params.Page
 	}
-	res, err := h.svc.Search(ctx, id, req.Params.Q, page)
+	mode := ""
+	if req.Params.Mode != nil {
+		mode = string(*req.Params.Mode)
+	}
+	res, err := h.svc.Search(ctx, id, req.Params.Q, mode, page)
 	var limited *domain.RateLimitedError
 	switch {
-	case errors.Is(err, domain.ErrInvalidQuery):
+	case errors.Is(err, domain.ErrInvalidQuery) && mode == string(domain.SearchKeyword):
 		return gen.SearchProjects400JSONResponse{Code: CodeInvalidQuery, Message: "Type 2 to 100 characters to search."}, nil
+	case errors.Is(err, domain.ErrInvalidQuery):
+		return gen.SearchProjects400JSONResponse{Code: CodeInvalidQuery, Message: "Type 2 to 300 characters to search."}, nil
+	case errors.Is(err, domain.ErrInvalidSearchMode):
+		f := "mode"
+		return gen.SearchProjects400JSONResponse{Code: httpx.CodeBadRequest, Message: "The search mode is not valid.", Field: &f}, nil
 	case errors.Is(err, domain.ErrInvalidPage):
 		f := "page"
 		return gen.SearchProjects400JSONResponse{Code: httpx.CodeBadRequest, Message: "The page is not valid.", Field: &f}, nil
@@ -283,6 +292,7 @@ func (h *Handler) SearchProjects(ctx context.Context, req gen.SearchProjectsRequ
 		return nil, err
 	}
 	body := gen.ProjectSearchPage{
+		Mode:  gen.ProjectSearchPageMode(res.Mode),
 		Total: res.Total, Page: page, PageSize: usecase.SearchPageSize, Fuzzy: res.Fuzzy, CorrectedQuery: res.CorrectedQuery,
 		Items: make([]gen.ProjectSearchResult, len(res.Items)),
 	}

@@ -2,11 +2,15 @@
 // slice 16, in the development database:
 //
 //   - calibrate (make calibrate-recs) fits the AI-2.2 score map on the TUNING split only and
-//     prints its constants, which go into config (RECS_SCORE_* defaults);
+//     prints its constants, which go into config (RECS_SCORE_* defaults); then checks it on
+//     profile-project pairs of the tuning split and fits the project map
+//     (RECS_PROJECT_SCORE_*, slice 19);
 //   - eval (make eval-recs) measures NFR-6 on the held-out TEST split: precision@10 and
-//     recall@10 against "relevant = same main cluster";
+//     recall@10 against "relevant = same main cluster", for people and then for project
+//     matching in both directions (AI-3.1, AI-2.3);
 //   - bench (make bench-recs) measures NFR-1: the endpoint's work for 200 random sample users,
-//     p50, p95 and max, and EXPLAIN ANALYZE of the ranking query;
+//     p50, p95 and max, and EXPLAIN ANALYZE of the ranking query; then the same for both
+//     project matching endpoints;
 //   - eval-search (make eval-search) measures AI-5.2 for hybrid researcher search (slice 18):
 //     precision@10 of plain-language queries that share no word with their cluster, among
 //     TEST split profiles, hybrid against keyword;
@@ -116,7 +120,18 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 
 	switch o.mode {
 	case "calibrate":
-		return calibrate(ctx, pool, s, o, out)
+		if err := calibrate(ctx, pool, s, o, out); err != nil {
+			return err
+		}
+		ps, err := loadProjectSamples(ctx, pool, s.model)
+		if err != nil {
+			return err
+		}
+		people, err := scoreMapFromEnv(getenv)
+		if err != nil {
+			return err
+		}
+		return calibrateProjects(ctx, pool, s, ps, people, o, out)
 	case "eval-search", "bench-search":
 		ai, err := newAI(getenv)
 		if err != nil {
@@ -131,13 +146,35 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 		if err != nil {
 			return err
 		}
-		return evaluate(ctx, pool, s, cfg, o.seed, out)
+		if err := evaluate(ctx, pool, s, cfg, o.seed, out); err != nil {
+			return err
+		}
+		pcfg, err := projectScoreMapFromEnv(getenv)
+		if err != nil {
+			return err
+		}
+		ps, err := loadProjectSamples(ctx, pool, s.model)
+		if err != nil {
+			return err
+		}
+		return evaluateProjects(ctx, pool, s, ps, pcfg, o.seed, out)
 	default:
 		cfg, err := scoreMapFromEnv(getenv)
 		if err != nil {
 			return err
 		}
-		return bench(ctx, pool, s, cfg, o, out)
+		if err := bench(ctx, pool, s, cfg, o, out); err != nil {
+			return err
+		}
+		pcfg, err := projectScoreMapFromEnv(getenv)
+		if err != nil {
+			return err
+		}
+		ps, err := loadProjectSamples(ctx, pool, s.model)
+		if err != nil {
+			return err
+		}
+		return benchProjects(ctx, pool, s, ps, cfg, pcfg, o, out)
 	}
 }
 

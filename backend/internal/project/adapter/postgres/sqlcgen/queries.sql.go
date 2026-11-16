@@ -796,6 +796,118 @@ func (q *Queries) SearchProjectsSummary(ctx context.Context, arg SearchProjectsS
 	return i, err
 }
 
+const semanticProjectCandidates = `-- name: SemanticProjectCandidates :many
+WITH cand AS MATERIALIZED (
+    SELECT e.project_id, (e.embedding <=> CAST($2::text AS vector))::float8 AS distance
+    FROM project_embeddings e
+    JOIN projects p ON p.id = e.project_id
+    JOIN project_members o ON o.project_id = p.id AND o.role = 'owner'
+    JOIN users u ON u.id = o.user_id
+    WHERE e.model = $3::text
+      AND p.status = 'open' AND u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM blocks x WHERE x.blocker_id = o.user_id AND x.blocked_id = $1::uuid)
+    ORDER BY e.embedding <=> CAST($2::text AS vector)
+    LIMIT $4
+)
+SELECT p.id, p.title, left(p.description, 300)::text AS description, p.status::text AS status,
+       p.created_at, p.updated_at,
+       coalesce((SELECT m.role::text FROM project_members m WHERE m.project_id = p.id AND m.user_id = $1::uuid), '')::text AS my_role,
+       o.user_id AS owner_id,
+       coalesce(op.full_name, '')::text AS owner_name, op.headline AS owner_headline, op.photo_file_id AS owner_photo
+FROM cand
+JOIN projects p ON p.id = cand.project_id
+JOIN project_members o ON o.project_id = p.id AND o.role = 'owner'
+LEFT JOIN profiles op ON op.user_id = o.user_id
+ORDER BY cand.distance, cand.project_id
+`
+
+type SemanticProjectCandidatesParams struct {
+	ViewerID  pgtype.UUID
+	Embedding string
+	Model     string
+	Lim       int32
+}
+
+type SemanticProjectCandidatesRow struct {
+	ID            pgtype.UUID
+	Title         string
+	Description   string
+	Status        string
+	CreatedAt     pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
+	MyRole        string
+	OwnerID       pgtype.UUID
+	OwnerName     string
+	OwnerHeadline pgtype.Text
+	OwnerPhoto    pgtype.UUID
+}
+
+// The lim visible open projects whose embedding is closest in cosine distance to the query
+// vector, through project_embeddings_hnsw_idx, among embeddings of the query's model. The
+// order is the cosine distance and nothing else, then the ID for ties.
+func (q *Queries) SemanticProjectCandidates(ctx context.Context, arg SemanticProjectCandidatesParams) ([]SemanticProjectCandidatesRow, error) {
+	rows, err := q.db.Query(ctx, semanticProjectCandidates,
+		arg.ViewerID,
+		arg.Embedding,
+		arg.Model,
+		arg.Lim,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SemanticProjectCandidatesRow
+	for rows.Next() {
+		var i SemanticProjectCandidatesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.Description,
+			&i.Status,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.MyRole,
+			&i.OwnerID,
+			&i.OwnerName,
+			&i.OwnerHeadline,
+			&i.OwnerPhoto,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const setHNSWEfSearch = `-- name: SetHNSWEfSearch :exec
+SELECT set_config('hnsw.ef_search', $1::text, true)
+`
+
+func (q *Queries) SetHNSWEfSearch(ctx context.Context, efSearch string) error {
+	_, err := q.db.Exec(ctx, setHNSWEfSearch, efSearch)
+	return err
+}
+
+const setHNSWIterativeScan = `-- name: SetHNSWIterativeScan :exec
+
+SELECT set_config('hnsw.iterative_scan', 'relaxed_order', true)
+`
+
+// Hybrid project search (AI-5.1 for projects; slice 19, chunk 19.2): the strong title matches
+// and the candidates by meaning, with the keyword search's visibility rule (open, owner
+// verified and not suspended, owner has not blocked the searcher). Like SearchProjectsPage,
+// they order by match and similarity only, never by member counts (AI-2.4).
+// HNSW iterative scan (pgvector 0.8): when the filters drop rows the index returned, the
+// scan goes on until LIMIT rows pass. relaxed_order may return rows slightly out of order, so
+// SemanticProjectCandidates sorts again. Local to the transaction.
+func (q *Queries) SetHNSWIterativeScan(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, setHNSWIterativeScan)
+	return err
+}
+
 const setWordSimilarityThreshold = `-- name: SetWordSimilarityThreshold :exec
 
 SELECT set_config('pg_trgm.word_similarity_threshold', $1::text, true)
@@ -842,6 +954,91 @@ func (q *Queries) SkillsOfProjects(ctx context.Context, ids []pgtype.UUID) ([]Sk
 	for rows.Next() {
 		var i SkillsOfProjectsRow
 		if err := rows.Scan(&i.ProjectID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const strongTitleMatches = `-- name: StrongTitleMatches :many
+SELECT p.id, p.title, left(p.description, 300)::text AS description, p.status::text AS status,
+       p.created_at, p.updated_at,
+       coalesce((SELECT m.role::text FROM project_members m WHERE m.project_id = p.id AND m.user_id = $1::uuid), '')::text AS my_role,
+       o.user_id AS owner_id,
+       coalesce(op.full_name, '')::text AS owner_name, op.headline AS owner_headline, op.photo_file_id AS owner_photo,
+       (fold_name(p.title) = fold_name($2::text))::boolean AS exact
+FROM projects p
+JOIN project_members o ON o.project_id = p.id AND o.role = 'owner'
+JOIN users u ON u.id = o.user_id
+LEFT JOIN profiles op ON op.user_id = o.user_id
+WHERE (fold_name(p.title) = fold_name($2::text)
+       OR ($3::boolean AND fold_name(p.title) LIKE fold_name($4::text)))
+  AND p.status = 'open' AND u.email_verified_at IS NOT NULL AND u.suspended_at IS NULL
+  AND NOT EXISTS (SELECT 1 FROM blocks x WHERE x.blocker_id = o.user_id AND x.blocked_id = $1::uuid)
+ORDER BY exact DESC, p.created_at DESC, p.id
+LIMIT $5
+`
+
+type StrongTitleMatchesParams struct {
+	ViewerID      pgtype.UUID
+	Q             string
+	PrefixOk      bool
+	PrefixPattern string
+	Lim           int32
+}
+
+type StrongTitleMatchesRow struct {
+	ID            pgtype.UUID
+	Title         string
+	Description   string
+	Status        string
+	CreatedAt     pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
+	MyRole        string
+	OwnerID       pgtype.UUID
+	OwnerName     string
+	OwnerHeadline pgtype.Text
+	OwnerPhoto    pgtype.UUID
+	Exact         bool
+}
+
+// Visible open projects whose title equals q, or starts with q when prefix_ok, ignoring
+// letter case and accents (fold_name, migration 000030). prefix_pattern is the LIKE pattern
+// of q followed by %, with \ % _ escaped. Exact matches first, then the keyword order within
+// the title ranks: newest first, then ID.
+func (q *Queries) StrongTitleMatches(ctx context.Context, arg StrongTitleMatchesParams) ([]StrongTitleMatchesRow, error) {
+	rows, err := q.db.Query(ctx, strongTitleMatches,
+		arg.ViewerID,
+		arg.Q,
+		arg.PrefixOk,
+		arg.PrefixPattern,
+		arg.Lim,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []StrongTitleMatchesRow
+	for rows.Next() {
+		var i StrongTitleMatchesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.Description,
+			&i.Status,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.MyRole,
+			&i.OwnerID,
+			&i.OwnerName,
+			&i.OwnerHeadline,
+			&i.OwnerPhoto,
+			&i.Exact,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

@@ -100,13 +100,13 @@ purge-unverified: ## Run the FR-17.4 purge of old unverified accounts once, now 
 send-digests: ## Send the FR-16.11 unread message digests now due once (settings from .env), then exit
 	cd backend && go run ./cmd/api -send-digests
 
-calibrate-recs: ## Fit the AI-2.2 recommendation score map on the sample TUNING split and print RECS_SCORE_* (dev sample data)
+calibrate-recs: ## Fit the AI-2.2 score map on the sample TUNING split and print RECS_SCORE_*, then check it on profile-project pairs and print RECS_PROJECT_SCORE_* (dev sample data)
 	@cd backend && go run ./cmd/recseval calibrate
 
-eval-recs: ## Measure NFR-6 collaborator matching (recall@10, precision@10) on the held-out sample TEST split
+eval-recs: ## Measure NFR-6 collaborator matching and project matching both ways (recall@10, precision@10) on the held-out sample TEST split
 	@cd backend && go run ./cmd/recseval eval
 
-bench-recs: ## Measure NFR-1: the recommendation query for 200 random sample users (p50, p95, max) and its EXPLAIN ANALYZE
+bench-recs: ## Measure NFR-1: people and project recommendations for 200 random sample users and projects (p50, p95, max) and EXPLAIN ANALYZE
 	@cd backend && go run ./cmd/recseval bench
 
 eval-search: ## Measure AI-5.2: hybrid vs keyword researcher search precision@10 on the sample TEST split (needs the AI service)

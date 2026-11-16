@@ -462,6 +462,14 @@ func (fakeAPI) RecommendPeople(context.Context, gen.RecommendPeopleRequestObject
 	return nil, nil
 }
 
+func (fakeAPI) RecommendProjects(context.Context, gen.RecommendProjectsRequestObject) (gen.RecommendProjectsResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) RecommendProjectResearchers(context.Context, gen.RecommendProjectResearchersRequestObject) (gen.RecommendProjectResearchersResponseObject, error) {
+	return nil, nil
+}
+
 func (fakeAPI) CreateProject(context.Context, gen.CreateProjectRequestObject) (gen.CreateProjectResponseObject, error) {
 	return nil, nil
 }
@@ -876,8 +884,8 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 
 func TestRoutes(t *testing.T) {
 	got := Routes()
-	if len(got) != 118 {
-		t.Errorf("Routes() returned %d routes, want the 118 operations in the contract: %v", len(got), got)
+	if len(got) != 120 {
+		t.Errorf("Routes() returned %d routes, want the 120 operations in the contract: %v", len(got), got)
 	}
 	seen := map[string]bool{}
 	for _, p := range got {

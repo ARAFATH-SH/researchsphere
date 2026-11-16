@@ -28,7 +28,22 @@ func TestCacheReturnsErrorsWhenRedisIsDown(t *testing.T) {
 	if err := c.Delete(t.Context(), "u1"); err == nil {
 		t.Error("Delete() error = nil")
 	}
-	if d := time.Since(start); d > 3*time.Second {
+	if _, _, err := c.GetProjects(t.Context(), "u1"); err == nil {
+		t.Error("GetProjects() error = nil")
+	}
+	if err := c.SetProjects(t.Context(), "u1", domain.KeptProjects{}, time.Minute); err == nil {
+		t.Error("SetProjects() error = nil")
+	}
+	if _, err := c.Generation(t.Context()); err == nil {
+		t.Error("Generation() error = nil")
+	}
+	if err := c.NextGeneration(t.Context()); err == nil {
+		t.Error("NextGeneration() error = nil")
+	}
+	if err := c.DeleteResearchers(t.Context(), "p1"); err == nil {
+		t.Error("DeleteResearchers() error = nil")
+	}
+	if d := time.Since(start); d > 6*time.Second {
 		t.Errorf("took %v, want each call bounded by its timeout", d)
 	}
 }

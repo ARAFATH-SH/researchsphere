@@ -68,9 +68,24 @@ type itemJSON struct {
 
 // Get reads userID's list.
 func (c *Cache) Get(ctx context.Context, userID string) (domain.Kept, bool, error) {
+	return c.get(ctx, Key(userID))
+}
+
+// Set keeps userID's list for ttl. The connection statuses are not kept.
+func (c *Cache) Set(ctx context.Context, userID string, kept domain.Kept, ttl time.Duration) error {
+	return c.set(ctx, Key(userID), kept, ttl)
+}
+
+// Delete drops the lists of userIDs.
+func (c *Cache) Delete(ctx context.Context, userIDs ...string) error {
+	return c.del(ctx, Key, userIDs, "drop kept recommendations")
+}
+
+// get reads a people list kept at key.
+func (c *Cache) get(ctx context.Context, key string) (domain.Kept, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
-	b, err := c.client.Get(ctx, Key(userID)).Bytes()
+	b, err := c.client.Get(ctx, key).Bytes()
 	if errors.Is(err, goredis.Nil) {
 		return domain.Kept{}, false, nil
 	}
@@ -86,21 +101,17 @@ func (c *Cache) Get(ctx context.Context, userID string) (domain.Kept, bool, erro
 		Items: make([]domain.Recommendation, len(k.Items)),
 	}
 	for i, it := range k.Items {
-		shared := it.Shared
-		if shared == nil {
-			shared = []string{}
-		}
 		out.Items[i] = domain.Recommendation{
 			Person: domain.Person{UserID: it.UserID, FullName: it.FullName, Headline: it.Headline,
 				Institution: it.Institution, PhotoFileID: it.PhotoFileID},
-			Score: it.Score, Shared: shared,
+			Score: it.Score, Shared: nonNil(it.Shared),
 		}
 	}
 	return out, true, nil
 }
 
-// Set keeps userID's list for ttl. The connection statuses are not kept.
-func (c *Cache) Set(ctx context.Context, userID string, kept domain.Kept, ttl time.Duration) error {
+// set keeps a people list at key for ttl.
+func (c *Cache) set(ctx context.Context, key string, kept domain.Kept, ttl time.Duration) error {
 	ctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
 	k := keptJSON{Model: kept.Stamp.Model, ContentHash: kept.Stamp.ContentHash, UpdatedAt: kept.Stamp.UpdatedAt,
@@ -113,25 +124,8 @@ func (c *Cache) Set(ctx context.Context, userID string, kept domain.Kept, ttl ti
 	if err != nil {
 		return fmt.Errorf("encode recommendations: %w", err)
 	}
-	if err := c.client.Set(ctx, Key(userID), b, ttl).Err(); err != nil {
+	if err := c.client.Set(ctx, key, b, ttl).Err(); err != nil {
 		return fmt.Errorf("keep recommendations: %w", err)
-	}
-	return nil
-}
-
-// Delete drops the lists of userIDs.
-func (c *Cache) Delete(ctx context.Context, userIDs ...string) error {
-	if len(userIDs) == 0 {
-		return nil
-	}
-	ctx, cancel := context.WithTimeout(ctx, callTimeout)
-	defer cancel()
-	keys := make([]string, len(userIDs))
-	for i, id := range userIDs {
-		keys[i] = Key(id)
-	}
-	if err := c.client.Del(ctx, keys...).Err(); err != nil {
-		return fmt.Errorf("drop kept recommendations: %w", err)
 	}
 	return nil
 }

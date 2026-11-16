@@ -57,6 +57,15 @@ const (
 	DefaultRecsScoreSlope     = 78.7208
 	DefaultRecsScoreIntercept = -70.2827
 
+	// The project score map (AI-3.1, AI-2.3) for profile-project pairs, in both directions,
+	// for the same model: the people map above put them 21 points off on average, so make
+	// calibrate-recs fitted this one on 2026-11-16 on the sample tuning split only (277,800
+	// pairs: 2,000 tuning profiles with their 50 nearest and 50 random open tuning projects,
+	// and the 778 tuning projects with their 50 nearest and 50 random tuning profiles). A
+	// score of 50 is at cosine 0.850. docs/evaluation.md.
+	DefaultRecsProjectScoreSlope     = 87.6849
+	DefaultRecsProjectScoreIntercept = -74.5228
+
 	// DefaultSearchAITimeout is how long a hybrid search waits for its query embedding
 	// before it searches by keyword instead (AI-5.4). MaxSearchAITimeout keeps it short.
 	DefaultSearchAITimeout = 1500 * time.Millisecond
@@ -159,6 +168,10 @@ type Config struct {
 	RecsScoreModel     string
 	RecsScoreSlope     float64
 	RecsScoreIntercept float64
+	// The project score map (AI-3.1, AI-2.3): profile-project pairs, fitted for
+	// RecsScoreModel too; slope > 0.
+	RecsProjectScoreSlope     float64
+	RecsProjectScoreIntercept float64
 
 	// SearchAITimeout bounds the query embedding of a hybrid researcher search; after it
 	// the search falls back to keywords (AI-5.4).
@@ -349,6 +362,14 @@ func Load(getenv func(string) string) (Config, error) {
 		errs = append(errs, errors.New("RECS_SCORE_SLOPE must be more than 0, so a more similar profile never scores lower"))
 	}
 	if cfg.RecsScoreIntercept, err = parseFloat("RECS_SCORE_INTERCEPT", getenv("RECS_SCORE_INTERCEPT"), DefaultRecsScoreIntercept); err != nil {
+		errs = append(errs, err)
+	}
+	if cfg.RecsProjectScoreSlope, err = parseFloat("RECS_PROJECT_SCORE_SLOPE", getenv("RECS_PROJECT_SCORE_SLOPE"), DefaultRecsProjectScoreSlope); err != nil {
+		errs = append(errs, err)
+	} else if cfg.RecsProjectScoreSlope <= 0 {
+		errs = append(errs, errors.New("RECS_PROJECT_SCORE_SLOPE must be more than 0, so a more similar project never scores lower"))
+	}
+	if cfg.RecsProjectScoreIntercept, err = parseFloat("RECS_PROJECT_SCORE_INTERCEPT", getenv("RECS_PROJECT_SCORE_INTERCEPT"), DefaultRecsProjectScoreIntercept); err != nil {
 		errs = append(errs, err)
 	}
 	if cfg.SearchAITimeout, err = parseDuration("SEARCH_AI_TIMEOUT", getenv("SEARCH_AI_TIMEOUT"), DefaultSearchAITimeout); err != nil {

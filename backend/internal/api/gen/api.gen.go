@@ -575,19 +575,19 @@ func (e OrcidImportOutcome) Valid() bool {
 
 // Defines values for PeopleRecommendationsMissing.
 const (
-	Bio       PeopleRecommendationsMissing = "bio"
-	Interests PeopleRecommendationsMissing = "interests"
-	Skills    PeopleRecommendationsMissing = "skills"
+	PeopleRecommendationsMissingBio       PeopleRecommendationsMissing = "bio"
+	PeopleRecommendationsMissingInterests PeopleRecommendationsMissing = "interests"
+	PeopleRecommendationsMissingSkills    PeopleRecommendationsMissing = "skills"
 )
 
 // Valid indicates whether the value is a known member of the PeopleRecommendationsMissing enum.
 func (e PeopleRecommendationsMissing) Valid() bool {
 	switch e {
-	case Bio:
+	case PeopleRecommendationsMissingBio:
 		return true
-	case Interests:
+	case PeopleRecommendationsMissingInterests:
 		return true
-	case Skills:
+	case PeopleRecommendationsMissingSkills:
 		return true
 	default:
 		return false
@@ -596,19 +596,19 @@ func (e PeopleRecommendationsMissing) Valid() bool {
 
 // Defines values for PeopleRecommendationsState.
 const (
-	NeedsProfile PeopleRecommendationsState = "needs_profile"
-	Processing   PeopleRecommendationsState = "processing"
-	Ready        PeopleRecommendationsState = "ready"
+	PeopleRecommendationsStateNeedsProfile PeopleRecommendationsState = "needs_profile"
+	PeopleRecommendationsStateProcessing   PeopleRecommendationsState = "processing"
+	PeopleRecommendationsStateReady        PeopleRecommendationsState = "ready"
 )
 
 // Valid indicates whether the value is a known member of the PeopleRecommendationsState enum.
 func (e PeopleRecommendationsState) Valid() bool {
 	switch e {
-	case NeedsProfile:
+	case PeopleRecommendationsStateNeedsProfile:
 		return true
-	case Processing:
+	case PeopleRecommendationsStateProcessing:
 		return true
-	case Ready:
+	case PeopleRecommendationsStateReady:
 		return true
 	default:
 		return false
@@ -638,25 +638,67 @@ func (e PeopleSearchPageMode) Valid() bool {
 
 // Defines values for PersonSearchResultMatchedOn.
 const (
-	Headline    PersonSearchResultMatchedOn = "headline"
-	Institution PersonSearchResultMatchedOn = "institution"
-	Interest    PersonSearchResultMatchedOn = "interest"
-	Meaning     PersonSearchResultMatchedOn = "meaning"
-	Name        PersonSearchResultMatchedOn = "name"
+	PersonSearchResultMatchedOnHeadline    PersonSearchResultMatchedOn = "headline"
+	PersonSearchResultMatchedOnInstitution PersonSearchResultMatchedOn = "institution"
+	PersonSearchResultMatchedOnInterest    PersonSearchResultMatchedOn = "interest"
+	PersonSearchResultMatchedOnMeaning     PersonSearchResultMatchedOn = "meaning"
+	PersonSearchResultMatchedOnName        PersonSearchResultMatchedOn = "name"
 )
 
 // Valid indicates whether the value is a known member of the PersonSearchResultMatchedOn enum.
 func (e PersonSearchResultMatchedOn) Valid() bool {
 	switch e {
-	case Headline:
+	case PersonSearchResultMatchedOnHeadline:
 		return true
-	case Institution:
+	case PersonSearchResultMatchedOnInstitution:
 		return true
-	case Interest:
+	case PersonSearchResultMatchedOnInterest:
 		return true
-	case Meaning:
+	case PersonSearchResultMatchedOnMeaning:
 		return true
-	case Name:
+	case PersonSearchResultMatchedOnName:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProjectRecommendationsMissing.
+const (
+	ProjectRecommendationsMissingBio       ProjectRecommendationsMissing = "bio"
+	ProjectRecommendationsMissingInterests ProjectRecommendationsMissing = "interests"
+	ProjectRecommendationsMissingSkills    ProjectRecommendationsMissing = "skills"
+)
+
+// Valid indicates whether the value is a known member of the ProjectRecommendationsMissing enum.
+func (e ProjectRecommendationsMissing) Valid() bool {
+	switch e {
+	case ProjectRecommendationsMissingBio:
+		return true
+	case ProjectRecommendationsMissingInterests:
+		return true
+	case ProjectRecommendationsMissingSkills:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProjectRecommendationsState.
+const (
+	ProjectRecommendationsStateNeedsProfile ProjectRecommendationsState = "needs_profile"
+	ProjectRecommendationsStateProcessing   ProjectRecommendationsState = "processing"
+	ProjectRecommendationsStateReady        ProjectRecommendationsState = "ready"
+)
+
+// Valid indicates whether the value is a known member of the ProjectRecommendationsState enum.
+func (e ProjectRecommendationsState) Valid() bool {
+	switch e {
+	case ProjectRecommendationsStateNeedsProfile:
+		return true
+	case ProjectRecommendationsStateProcessing:
+		return true
+	case ProjectRecommendationsStateReady:
 		return true
 	default:
 		return false
@@ -720,21 +762,45 @@ func (e ProjectRole) Valid() bool {
 	}
 }
 
+// Defines values for ProjectSearchPageMode.
+const (
+	ProjectSearchPageModeHybrid          ProjectSearchPageMode = "hybrid"
+	ProjectSearchPageModeKeyword         ProjectSearchPageMode = "keyword"
+	ProjectSearchPageModeKeywordFallback ProjectSearchPageMode = "keyword_fallback"
+)
+
+// Valid indicates whether the value is a known member of the ProjectSearchPageMode enum.
+func (e ProjectSearchPageMode) Valid() bool {
+	switch e {
+	case ProjectSearchPageModeHybrid:
+		return true
+	case ProjectSearchPageModeKeyword:
+		return true
+	case ProjectSearchPageModeKeywordFallback:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ProjectSearchResultMatchedOn.
 const (
-	Description ProjectSearchResultMatchedOn = "description"
-	Skill       ProjectSearchResultMatchedOn = "skill"
-	Title       ProjectSearchResultMatchedOn = "title"
+	ProjectSearchResultMatchedOnDescription ProjectSearchResultMatchedOn = "description"
+	ProjectSearchResultMatchedOnMeaning     ProjectSearchResultMatchedOn = "meaning"
+	ProjectSearchResultMatchedOnSkill       ProjectSearchResultMatchedOn = "skill"
+	ProjectSearchResultMatchedOnTitle       ProjectSearchResultMatchedOn = "title"
 )
 
 // Valid indicates whether the value is a known member of the ProjectSearchResultMatchedOn enum.
 func (e ProjectSearchResultMatchedOn) Valid() bool {
 	switch e {
-	case Description:
+	case ProjectSearchResultMatchedOnDescription:
 		return true
-	case Skill:
+	case ProjectSearchResultMatchedOnMeaning:
 		return true
-	case Title:
+	case ProjectSearchResultMatchedOnSkill:
+		return true
+	case ProjectSearchResultMatchedOnTitle:
 		return true
 	default:
 		return false
@@ -1029,6 +1095,24 @@ func (e SearchPeopleParamsMode) Valid() bool {
 	case SearchPeopleParamsModeAuto:
 		return true
 	case SearchPeopleParamsModeKeyword:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SearchProjectsParamsMode.
+const (
+	SearchProjectsParamsModeAuto    SearchProjectsParamsMode = "auto"
+	SearchProjectsParamsModeKeyword SearchProjectsParamsMode = "keyword"
+)
+
+// Valid indicates whether the value is a known member of the SearchProjectsParamsMode enum.
+func (e SearchProjectsParamsMode) Valid() bool {
+	switch e {
+	case SearchProjectsParamsModeAuto:
+		return true
+	case SearchProjectsParamsModeKeyword:
 		return true
 	default:
 		return false
@@ -2387,9 +2471,10 @@ type PersonRecommendation struct {
 	// sample data (docs/evaluation.md), not the raw cosine.
 	Score int `json:"score"`
 
-	// Shared Up to 3 research interests or skills both users have (the same name, ignoring
-	// letter case): interests first, then skills, each in the caller's order. May be
-	// empty.
+	// Shared In `recommendPeople`: up to 3 research interests or skills both users have (the
+	// same name, ignoring letter case), interests first, then skills, each in the
+	// caller's order. In `recommendProjectResearchers`: up to 3 of the project's
+	// required skills the researcher has, in the project's order. May be empty.
 	Shared []string           `json:"shared"`
 	UserId openapi_types.UUID `json:"userId"`
 }
@@ -2655,6 +2740,40 @@ type ProjectPerson struct {
 	UserId   openapi_types.UUID `json:"userId"`
 }
 
+// ProjectRecommendation defines model for ProjectRecommendation.
+type ProjectRecommendation struct {
+	// Project A recommended project's summary.
+	Project RecommendedProject `json:"project"`
+
+	// Score How similar the project is to the caller's profile, as a percentage. It is the
+	// cosine similarity of the embeddings put through a fixed increasing mapping fitted
+	// on sample data (docs/evaluation.md), not the raw cosine.
+	Score int `json:"score"`
+
+	// Shared Up to 3 of the project's required skills the caller has (the same name, ignoring
+	// letter case), in the project's order. May be empty.
+	Shared []string `json:"shared"`
+}
+
+// ProjectRecommendations defines model for ProjectRecommendations.
+type ProjectRecommendations struct {
+	// Items Most similar first. Empty unless `state` is `ready`.
+	Items []ProjectRecommendation `json:"items"`
+
+	// Missing With `needs_profile`, the profile fields to fill in, in this order: `interests`,
+	// `skills`, `bio`. Empty in the other states.
+	Missing []ProjectRecommendationsMissing `json:"missing"`
+
+	// State As in `PeopleRecommendations`.
+	State ProjectRecommendationsState `json:"state"`
+}
+
+// ProjectRecommendationsMissing defines model for ProjectRecommendations.Missing.
+type ProjectRecommendationsMissing string
+
+// ProjectRecommendationsState As in `PeopleRecommendations`.
+type ProjectRecommendationsState string
+
 // ProjectRef defines model for ProjectRef.
 type ProjectRef struct {
 	Id    openapi_types.UUID `json:"id"`
@@ -2723,7 +2842,12 @@ type ProjectSearchPage struct {
 	// Fuzzy True when no title contains `q` and the title results are titles similar to it.
 	Fuzzy bool                  `json:"fuzzy"`
 	Items []ProjectSearchResult `json:"items"`
-	Page  int                   `json:"page"`
+
+	// Mode How the results were found: `hybrid` by keyword and meaning, `keyword` because
+	// the request asked for it, `keyword_fallback` by keyword only because the AI
+	// service did not answer (AI-5.4).
+	Mode ProjectSearchPageMode `json:"mode"`
+	Page int                   `json:"page"`
 
 	// PageSize Always 20 (FR-10.3).
 	PageSize int `json:"pageSize"`
@@ -2731,6 +2855,11 @@ type ProjectSearchPage struct {
 	// Total The number of results on all pages.
 	Total int `json:"total"`
 }
+
+// ProjectSearchPageMode How the results were found: `hybrid` by keyword and meaning, `keyword` because
+// the request asked for it, `keyword_fallback` by keyword only because the AI
+// service did not answer (AI-5.4).
+type ProjectSearchPageMode string
 
 // ProjectSearchResult defines model for ProjectSearchResult.
 type ProjectSearchResult struct {
@@ -2740,7 +2869,8 @@ type ProjectSearchResult struct {
 	Description string             `json:"description"`
 	Id          openapi_types.UUID `json:"id"`
 
-	// MatchedOn The field of the result's best match.
+	// MatchedOn The field of the result's best match; `meaning` when only the meaning search
+	// found it (hybrid mode).
 	MatchedOn ProjectSearchResultMatchedOn `json:"matchedOn"`
 
 	// MyRole The caller's role in the project; null when the caller is not a member.
@@ -2756,7 +2886,8 @@ type ProjectSearchResult struct {
 	UpdatedAt time.Time     `json:"updatedAt"`
 }
 
-// ProjectSearchResultMatchedOn The field of the result's best match.
+// ProjectSearchResultMatchedOn The field of the result's best match; `meaning` when only the meaning search
+// found it (hybrid mode).
 type ProjectSearchResultMatchedOn string
 
 // ProjectStatus `open` projects are found by search (FR-10.3); `archived` projects are seen by members only.
@@ -3057,6 +3188,21 @@ type RealtimeTyping struct {
 	ConversationId openapi_types.UUID `json:"conversationId"`
 	IsTyping       bool               `json:"isTyping"`
 	UserId         openapi_types.UUID `json:"userId"`
+}
+
+// RecommendedProject A recommended project's summary.
+type RecommendedProject struct {
+	// Description The first 300 characters of the description.
+	Description string             `json:"description"`
+	Id          openapi_types.UUID `json:"id"`
+
+	// MemberCount Shown only; it never affects the order (AI-2.4).
+	MemberCount int           `json:"memberCount"`
+	Owner       ProjectPerson `json:"owner"`
+
+	// RequiredSkills Up to 5 required skill names, by name ignoring letter case.
+	RequiredSkills []string `json:"requiredSkills"`
+	Title          string   `json:"title"`
 }
 
 // RegisterRequest defines model for RegisterRequest.
@@ -3826,6 +3972,13 @@ type RecommendPeopleParams struct {
 	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// RecommendProjectsParams defines parameters for RecommendProjects.
+type RecommendProjectsParams struct {
+	// Limit Items to return, from 1. Defaults to 10. A larger value than 10 is reduced to
+	// 10; a value below 1 gets 400 `bad_request`.
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // SearchPeopleParams defines parameters for SearchPeople.
 type SearchPeopleParams struct {
 	// Q The search text after trimming: 2 to 300 characters in `auto` mode (AI-5.1), 2 to
@@ -3857,14 +4010,22 @@ type SearchPeopleParamsMode string
 
 // SearchProjectsParams defines parameters for SearchProjects.
 type SearchProjectsParams struct {
-	// Q The search text after trimming: 2 to 100 characters. It is required: it is
-	// declared optional only so that a missing `q` gets 400 `invalid_query`, like a too
-	// short one, instead of the generic `bad_request`.
+	// Q The search text after trimming: 2 to 300 characters in `auto` mode (AI-5.1), 2 to
+	// 100 in `keyword` mode. It is required: it is declared optional only so that a
+	// missing `q` gets 400 `invalid_query`, like a too short one, instead of the generic
+	// `bad_request`.
 	Q *string `form:"q,omitempty" json:"q,omitempty"`
+
+	// Mode `auto` searches by keyword and by meaning (AI-5); `keyword` only by keyword and
+	// never calls the AI service. Any other value gets 400 `bad_request`.
+	Mode *SearchProjectsParamsMode `form:"mode,omitempty" json:"mode,omitempty"`
 
 	// Page The page to return, 1 to 50, 20 results each (FR-10.3). Defaults to 1.
 	Page *int `form:"page,omitempty" json:"page,omitempty"`
 }
+
+// SearchProjectsParamsMode defines parameters for SearchProjects.
+type SearchProjectsParamsMode string
 
 // SuggestInterestTagsParams defines parameters for SuggestInterestTags.
 type SuggestInterestTagsParams struct {
@@ -4364,6 +4525,9 @@ type ServerInterface interface {
 	// UpdateProject Change a project's details or status (FR-10.2)
 	// (PATCH /projects/{projectId})
 	UpdateProject(w http.ResponseWriter, r *http.Request, projectId ProjectId)
+	// RecommendProjectResearchers Researchers whose profiles are most similar to a project, for its owner (AI-2.3, AI-2.4)
+	// (GET /projects/{projectId}/recommended-researchers)
+	RecommendProjectResearchers(w http.ResponseWriter, r *http.Request, projectId ProjectId)
 	// ReportProject Report a project to the administrators (FR-15.11)
 	// (POST /projects/{projectId}/reports)
 	ReportProject(w http.ResponseWriter, r *http.Request, projectId ProjectId)
@@ -4373,6 +4537,9 @@ type ServerInterface interface {
 	// RecommendPeople Researchers whose profiles are most similar to the caller's (AI-2.1, AI-2.2, AI-2.4, AI-4)
 	// (GET /recommendations/people)
 	RecommendPeople(w http.ResponseWriter, r *http.Request, params RecommendPeopleParams)
+	// RecommendProjects Open projects whose embeddings are most similar to the caller's profile (AI-3.1, AI-2.4, AI-4)
+	// (GET /recommendations/projects)
+	RecommendProjects(w http.ResponseWriter, r *http.Request, params RecommendProjectsParams)
 	// SearchPeople Search researchers by name, institution, research interest, headline or meaning (FR-6.1 to FR-6.3, AI-5.1, AI-5.2, AI-5.4)
 	// (GET /search/people)
 	SearchPeople(w http.ResponseWriter, r *http.Request, params SearchPeopleParams)
@@ -7841,6 +8008,38 @@ func (siw *ServerInterfaceWrapper) UpdateProject(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// RecommendProjectResearchers operation middleware
+func (siw *ServerInterfaceWrapper) RecommendProjectResearchers(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", r.PathValue("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RecommendProjectResearchers(w, r, projectId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ReportProject operation middleware
 func (siw *ServerInterfaceWrapper) ReportProject(w http.ResponseWriter, r *http.Request) {
 
@@ -7942,6 +8141,45 @@ func (siw *ServerInterfaceWrapper) RecommendPeople(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RecommendPeople(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RecommendProjects operation middleware
+func (siw *ServerInterfaceWrapper) RecommendProjects(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RecommendProjectsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RecommendProjects(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -8066,6 +8304,19 @@ func (siw *ServerInterfaceWrapper) SearchProjects(w http.ResponseWriter, r *http
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "mode" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "mode", r.URL.Query(), &params.Mode, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "mode"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "mode", Err: err})
 		}
 		return
 	}
@@ -8487,6 +8738,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/search/projects", wrapper.SearchProjects)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/search/people", wrapper.SearchPeople)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/recommendations/people", wrapper.RecommendPeople)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/recommendations/projects", wrapper.RecommendProjects)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/projects/{projectId}/recommended-researchers", wrapper.RecommendProjectResearchers)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/ws", wrapper.OpenWebSocket)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/presence", wrapper.GetPresence)
 
@@ -18060,6 +18313,84 @@ func (response UpdateProject500JSONResponse) VisitUpdateProjectResponse(w http.R
 	return err
 }
 
+type RecommendProjectResearchersRequestObject struct {
+	ProjectId ProjectId `json:"projectId"`
+}
+
+type RecommendProjectResearchersResponseObject interface {
+	VisitRecommendProjectResearchersResponse(w http.ResponseWriter) error
+}
+
+type RecommendProjectResearchers200JSONResponse PeopleRecommendations
+
+func (response RecommendProjectResearchers200JSONResponse) VisitRecommendProjectResearchersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RecommendProjectResearchers401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RecommendProjectResearchers401JSONResponse) VisitRecommendProjectResearchersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RecommendProjectResearchers403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response RecommendProjectResearchers403JSONResponse) VisitRecommendProjectResearchersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RecommendProjectResearchers404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RecommendProjectResearchers404JSONResponse) VisitRecommendProjectResearchersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RecommendProjectResearchers500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RecommendProjectResearchers500JSONResponse) VisitRecommendProjectResearchersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ReportProjectRequestObject struct {
 	ProjectId ProjectId `json:"projectId"`
 	Body      *ReportProjectJSONRequestBody
@@ -18359,6 +18690,84 @@ func (response RecommendPeople403JSONResponse) VisitRecommendPeopleResponse(w ht
 type RecommendPeople500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response RecommendPeople500JSONResponse) VisitRecommendPeopleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RecommendProjectsRequestObject struct {
+	Params RecommendProjectsParams
+}
+
+type RecommendProjectsResponseObject interface {
+	VisitRecommendProjectsResponse(w http.ResponseWriter) error
+}
+
+type RecommendProjects200JSONResponse ProjectRecommendations
+
+func (response RecommendProjects200JSONResponse) VisitRecommendProjectsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RecommendProjects400JSONResponse Error
+
+func (response RecommendProjects400JSONResponse) VisitRecommendProjectsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RecommendProjects401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RecommendProjects401JSONResponse) VisitRecommendProjectsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RecommendProjects403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response RecommendProjects403JSONResponse) VisitRecommendProjectsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RecommendProjects500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RecommendProjects500JSONResponse) VisitRecommendProjectsResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -19170,6 +19579,9 @@ type StrictServerInterface interface {
 	// UpdateProject Change a project's details or status (FR-10.2)
 	// (PATCH /projects/{projectId})
 	UpdateProject(ctx context.Context, request UpdateProjectRequestObject) (UpdateProjectResponseObject, error)
+	// RecommendProjectResearchers Researchers whose profiles are most similar to a project, for its owner (AI-2.3, AI-2.4)
+	// (GET /projects/{projectId}/recommended-researchers)
+	RecommendProjectResearchers(ctx context.Context, request RecommendProjectResearchersRequestObject) (RecommendProjectResearchersResponseObject, error)
 	// ReportProject Report a project to the administrators (FR-15.11)
 	// (POST /projects/{projectId}/reports)
 	ReportProject(ctx context.Context, request ReportProjectRequestObject) (ReportProjectResponseObject, error)
@@ -19179,6 +19591,9 @@ type StrictServerInterface interface {
 	// RecommendPeople Researchers whose profiles are most similar to the caller's (AI-2.1, AI-2.2, AI-2.4, AI-4)
 	// (GET /recommendations/people)
 	RecommendPeople(ctx context.Context, request RecommendPeopleRequestObject) (RecommendPeopleResponseObject, error)
+	// RecommendProjects Open projects whose embeddings are most similar to the caller's profile (AI-3.1, AI-2.4, AI-4)
+	// (GET /recommendations/projects)
+	RecommendProjects(ctx context.Context, request RecommendProjectsRequestObject) (RecommendProjectsResponseObject, error)
 	// SearchPeople Search researchers by name, institution, research interest, headline or meaning (FR-6.1 to FR-6.3, AI-5.1, AI-5.2, AI-5.4)
 	// (GET /search/people)
 	SearchPeople(ctx context.Context, request SearchPeopleRequestObject) (SearchPeopleResponseObject, error)
@@ -22329,6 +22744,32 @@ func (sh *strictHandler) UpdateProject(w http.ResponseWriter, r *http.Request, p
 	}
 }
 
+// RecommendProjectResearchers operation middleware
+func (sh *strictHandler) RecommendProjectResearchers(w http.ResponseWriter, r *http.Request, projectId ProjectId) {
+	var request RecommendProjectResearchersRequestObject
+
+	request.ProjectId = projectId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RecommendProjectResearchers(ctx, request.(RecommendProjectResearchersRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RecommendProjectResearchers")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RecommendProjectResearchersResponseObject); ok {
+		if err := validResponse.VisitRecommendProjectResearchersResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ReportProject operation middleware
 func (sh *strictHandler) ReportProject(w http.ResponseWriter, r *http.Request, projectId ProjectId) {
 	var request ReportProjectRequestObject
@@ -22407,6 +22848,32 @@ func (sh *strictHandler) RecommendPeople(w http.ResponseWriter, r *http.Request,
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RecommendPeopleResponseObject); ok {
 		if err := validResponse.VisitRecommendPeopleResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RecommendProjects operation middleware
+func (sh *strictHandler) RecommendProjects(w http.ResponseWriter, r *http.Request, params RecommendProjectsParams) {
+	var request RecommendProjectsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RecommendProjects(ctx, request.(RecommendProjectsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RecommendProjects")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RecommendProjectsResponseObject); ok {
+		if err := validResponse.VisitRecommendProjectsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

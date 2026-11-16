@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math/rand/v2"
 	"slices"
 	"time"
 
@@ -146,3 +147,123 @@ func (r relations) Statuses(ctx context.Context, viewerID string, ids []string) 
 	}
 	return out, nil
 }
+
+// benchProjects measures NFR-1 for project matching: the uncached work of
+// GET /recommendations/projects for o.queries random sample users and of
+// GET /projects/{id}/recommended-researchers for o.queries random sample projects (the owner
+// check is not in it: the project module reads one row for it), then EXPLAIN ANALYZE of
+// both ranking queries.
+func benchProjects(ctx context.Context, pool *pgxpool.Pool, s samples, ps projectSamples, people, projects recommendationusecase.ScoreMap, o options, out io.Writer) error {
+	logger := slog.New(slog.DiscardHandler)
+	social := socialusecase.New(socialpg.NewStore(pool), postgres.NewTransactor(pool), nil, nil, nil, logger)
+	store := recommendationpg.NewStore(pool)
+	svc := recommendationusecase.New(store, noCache{}, relations{social: social}, people, logger).
+		WithProjects(recommendationusecase.ProjectDeps{Store: store, Cache: noProjectCache{}, Access: anyone{}, Scores: projects})
+
+	users := draw(s.all, benchWarmup+o.queries, o.seed, 8)
+	fmt.Fprintf(out, "\n## Project matching (AI-3.1, AI-2.3)\n\nProfile -> project: %d random sample users (seed %d) against %d sample projects, after %d warm-up calls, nothing cached.\n",
+		len(users)-benchWarmup, o.seed, len(ps.all), benchWarmup)
+	toProject := make([]time.Duration, 0, len(users))
+	for i, u := range users {
+		start := time.Now()
+		if _, err := svc.Projects(ctx, u.id, recommendationusecase.MaxLimit); err != nil {
+			return fmt.Errorf("project recommendations for %s: %w", short(u.id), err)
+		}
+		if i >= benchWarmup {
+			toProject = append(toProject, time.Since(start))
+		}
+	}
+	projs := make([]sampleProject, 0, benchWarmup+o.queries)
+	rp := rand.New(rand.NewPCG(o.seed, 9)) //nolint:gosec // reproducible draws of sample data, not a secret
+	for len(projs) < benchWarmup+o.queries {
+		projs = append(projs, ps.all[rp.IntN(len(ps.all))])
+	}
+	fmt.Fprintf(out, "Project -> profile: %d random sample projects (with repeats) against %d sample profiles, nothing cached.\n", o.queries, len(s.all))
+	toProfile := make([]time.Duration, 0, len(projs))
+	for i, p := range projs {
+		start := time.Now()
+		if _, err := svc.ProjectResearchers(ctx, p.ownerID, p.id); err != nil {
+			return fmt.Errorf("researchers for %s: %w", short(p.id), err)
+		}
+		if i >= benchWarmup {
+			toProfile = append(toProfile, time.Since(start))
+		}
+	}
+	slices.Sort(toProject)
+	slices.Sort(toProfile)
+	fmt.Fprintf(out, "\n| Measure | Profile -> project | Project -> profile |\n| --- | ---: | ---: |\n")
+	fmt.Fprintf(out, "| Calls | %d | %d |\n", len(toProject), len(toProfile))
+	for _, p := range []int{50, 95} {
+		fmt.Fprintf(out, "| p%d | %s | %s |\n", p, percentile(toProject, p), percentile(toProfile, p))
+	}
+	fmt.Fprintf(out, "| max | %s | %s |\n", toProject[len(toProject)-1].Round(10*time.Microsecond), toProfile[len(toProfile)-1].Round(10*time.Microsecond))
+	met := percentile(toProject, 95) < 2*time.Second && percentile(toProfile, 95) < 2*time.Second
+	fmt.Fprintf(out, "\nNFR-1 target: p95 under 2 s. %s\n", map[bool]string{true: "Met.", false: "NOT met."}[met])
+
+	for _, x := range []struct {
+		name string
+		sql  func() (string, error)
+		id   string
+	}{{"RankProjects", recommendationpg.RankProjectsSQL, users[benchWarmup].id}, {"RankResearchers", recommendationpg.RankResearchersSQL, projs[benchWarmup].id}} {
+		plan, err := explainWith(ctx, pool, x.sql, x.id)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "\nEXPLAIN (ANALYZE, BUFFERS) of %s for %s:\n\n%s\n", x.name, short(x.id), plan)
+	}
+	return nil
+}
+
+// explainWith runs a ranking query's text under EXPLAIN ANALYZE with the endpoint's settings.
+func explainWith(ctx context.Context, pool *pgxpool.Pool, sqlOf func() (string, error), id string) (string, error) {
+	q, err := sqlOf()
+	if err != nil {
+		return "", err
+	}
+	var lines []string
+	err = pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
+		if err := recommendationpg.SetupRanking(ctx, sqlcgen.New(tx)); err != nil {
+			return err
+		}
+		rows, err := tx.Query(ctx, "EXPLAIN (ANALYZE, BUFFERS) "+q, id, recommendationusecase.MaxLimit)
+		if err != nil {
+			return err
+		}
+		lines, err = pgx.CollectRows(rows, pgx.RowTo[string])
+		return err
+	})
+	if err != nil {
+		return "", fmt.Errorf("explain: %w", err)
+	}
+	return joinLines(lines), nil
+}
+
+// noProjectCache never keeps anything.
+type noProjectCache struct{}
+
+func (noProjectCache) GetProjects(context.Context, string) (recommendationdomain.KeptProjects, bool, error) {
+	return recommendationdomain.KeptProjects{}, false, nil
+}
+
+func (noProjectCache) SetProjects(context.Context, string, recommendationdomain.KeptProjects, time.Duration) error {
+	return nil
+}
+
+func (noProjectCache) DeleteProjects(context.Context, ...string) error { return nil }
+
+func (noProjectCache) GetResearchers(context.Context, string) (recommendationdomain.Kept, bool, error) {
+	return recommendationdomain.Kept{}, false, nil
+}
+
+func (noProjectCache) SetResearchers(context.Context, string, recommendationdomain.Kept, time.Duration) error {
+	return nil
+}
+
+func (noProjectCache) DeleteResearchers(context.Context, ...string) error { return nil }
+func (noProjectCache) Generation(context.Context) (int64, error)          { return 0, nil }
+func (noProjectCache) NextGeneration(context.Context) error               { return nil }
+
+// anyone lets every caller see every project's researchers: the benchmark calls as the owner.
+type anyone struct{}
+
+func (anyone) CanSeeRecommendedResearchers(context.Context, string, string) error { return nil }

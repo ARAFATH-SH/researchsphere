@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	goredis "github.com/redis/go-redis/v9"
@@ -19,7 +20,10 @@ import (
 // newProjects wires research projects (FR-10): the store, the Redis limits of creation and
 // search, the project permission table (authz) and the standings moderation keeps. Close the
 // returned limits at shutdown.
-func newProjects(pool *pgxpool.Pool, rdb *goredis.Client, standings *moderationusecase.Standings, logger *slog.Logger) (*projectusecase.Service, *projectredis.Limits) {
+//
+// Hybrid project search (AI-5.1) embeds its queries with the AI service and shares the query
+// vectors researcher search keeps; status changes and deletions are passed to watcher.
+func newProjects(pool *pgxpool.Pool, rdb *goredis.Client, standings *moderationusecase.Standings, search projectSearch, watcher projectdomain.Watcher, logger *slog.Logger) (*projectusecase.Service, *projectredis.Limits) {
 	limits := projectredis.New(rdb)
 	svc := projectusecase.New(projectusecase.Deps{
 		Store:         projectpg.NewStore(pool),
@@ -28,9 +32,20 @@ func newProjects(pool *pgxpool.Pool, rdb *goredis.Client, standings *moderationu
 		Actors:        projectActors{standings: standings},
 		CreateLimiter: limits.Create(),
 		SearchLimiter: limits.Search(),
+		Embedder:      search.embedder,
+		VectorCache:   search.vectors,
+		AITimeout:     search.timeout,
+		Watcher:       watcher,
 		Logger:        logger,
 	})
 	return svc, limits
+}
+
+// projectSearch is what hybrid project search needs from the AI service and the cache.
+type projectSearch struct {
+	embedder projectdomain.QueryEmbedder
+	vectors  projectdomain.QueryVectorCache
+	timeout  time.Duration
 }
 
 // projectPermissions answers the project module from SRS 2.3's project table, which only
@@ -45,6 +60,9 @@ var projectActions = map[projectdomain.Action]authz.ProjectAction{
 	projectdomain.ActEditDetails:  authz.EditProjectDetails,
 	projectdomain.ActEditAbstract: authz.CompileAndAssist,
 	projectdomain.ActDelete:       authz.TransferOrDeleteProject,
+	// AI-2.3 (recommended researchers, owner only) has no row of its own; its list is for
+	// finding people to invite (decisions.md 2026-11-16).
+	projectdomain.ActManageMembers: authz.ManageMembers,
 }
 
 func (projectPermissions) Can(role projectdomain.Role, action projectdomain.Action) bool {

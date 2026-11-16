@@ -35,6 +35,7 @@ type Service struct {
 	relations domain.Relations
 	scores    ScoreMap
 	logger    *slog.Logger
+	projects  *ProjectDeps // nil until WithProjects
 
 	warned sync.Map // embedding model -> struct{}: models already warned about
 }

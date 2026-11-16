@@ -4386,19 +4386,47 @@ paths:
         to `q` (trigram word similarity, as in researcher search, so a small spelling
         mistake still matches) take the place of the title matches; then `fuzzy` is true
         and `correctedQuery` is the most similar title. Each user may search 60 times a
-        minute.
+        minute, in either mode.
+
+        **Modes (AI-5.1 for projects).** `mode=keyword` is the search above, unchanged, and
+        the answer's `mode` is `keyword`. `mode=auto` (the default) also searches by meaning:
+        the text is embedded by the AI service and compared with every visible open project's
+        embedding. A strong title match comes first, in keyword order: a title equal to `q`,
+        or a title that starts with `q` when `q` is at least 3 characters, both ignoring
+        letter case and accents. The other results are the 50 best keyword results (the order
+        above) and the 50 projects closest in meaning, with the same visibility rules, merged
+        by reciprocal rank fusion (k = 60), and the answer's `mode` is `hybrid`. Ranking
+        never uses member counts or any other popularity signal (AI-2.4). A result found only
+        by meaning has `matchedOn: meaning`. In hybrid mode `total` is the size of the merged
+        list, cut at 100, so there are at most 5 pages and a later page is empty; `fuzzy` and
+        `correctedQuery` come from the keyword side.
+
+        When the AI service does not answer within a short time (1.5 s by default) or answers
+        with an error, the keyword search runs instead and `mode` is `keyword_fallback`
+        (AI-5.4), so the client can say so.
       tags: [search]
       parameters:
         - name: q
           in: query
           required: false
           description: |
-            The search text after trimming: 2 to 100 characters. It is required: it is
-            declared optional only so that a missing `q` gets 400 `invalid_query`, like a too
-            short one, instead of the generic `bad_request`.
+            The search text after trimming: 2 to 300 characters in `auto` mode (AI-5.1), 2 to
+            100 in `keyword` mode. It is required: it is declared optional only so that a
+            missing `q` gets 400 `invalid_query`, like a too short one, instead of the generic
+            `bad_request`.
           schema:
             type: string
           example: graph neural
+        - name: mode
+          in: query
+          required: false
+          description: |
+            `auto` searches by keyword and by meaning (AI-5); `keyword` only by keyword and
+            never calls the AI service. Any other value gets 400 `bad_request`.
+          schema:
+            type: string
+            enum: [auto, keyword]
+            default: auto
         - name: page
           in: query
           required: false
@@ -4416,7 +4444,10 @@ paths:
               schema:
                 $ref: "#/components/schemas/ProjectSearchPage"
         "400":
-          description: "`q` is missing or, after trimming, not 2 to 100 characters (`invalid_query`), or `page` is not valid (`bad_request`)."
+          description: |
+            `q` is missing or, after trimming, not 2 to 300 characters in `auto` mode or 2 to
+            100 in `keyword` mode (`invalid_query`), or `mode` or `page` is not valid
+            (`bad_request`).
           content:
             application/json:
               schema:
@@ -4608,6 +4639,104 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /recommendations/projects:
+    get:
+      operationId: recommendProjects
+      summary: Open projects whose embeddings are most similar to the caller's profile (AI-3.1, AI-2.4, AI-4)
+      description: |
+        Needs the access cookie, a verified email and the platform action "View profiles,
+        search, feed, events and recommendations" (SRS 2.3).
+
+        `state` is checked as for `recommendPeople`: `needs_profile` when the caller's
+        profile has no research interests, no skills and no bio (AI-4.2), `processing` when
+        its embedding is not made yet, otherwise `ready`.
+
+        Ranking uses only the cosine similarity between the caller's profile embedding and
+        each project's embedding, never member counts or any other popularity signal
+        (AI-2.4). Only `open` projects are listed. Left out: projects the caller is a member
+        of, projects the caller has a pending request to join, projects whose owner is
+        suspended or not verified, projects whose owner the caller has blocked or is blocked
+        by (FR-16.9), and projects without an embedding of the caller's model.
+
+        The list is kept for up to 10 minutes; it is made again at once when the caller's
+        embedding changes, when any project's embedding or status changes or a project is
+        deleted, when the caller's memberships change, and when a block between the caller
+        and anyone changes. A project that stops being eligible meanwhile is dropped from a
+        kept list, which may then have fewer than `limit` items.
+      tags: [recommendations]
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: |
+            Items to return, from 1. Defaults to 10. A larger value than 10 is reduced to
+            10; a value below 1 gets 400 `bad_request`.
+          schema:
+            type: integer
+            minimum: 1
+            default: 10
+      responses:
+        "200":
+          description: The caller's project recommendations, or why there are none yet.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectRecommendations"
+        "400":
+          description: "`limit` is below 1 (`bad_request`, `field: limit`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/recommended-researchers:
+    get:
+      operationId: recommendProjectResearchers
+      summary: Researchers whose profiles are most similar to a project, for its owner (AI-2.3, AI-2.4)
+      description: |
+        Needs the access cookie, a verified email and the platform action "View profiles,
+        search, feed, events and recommendations" (SRS 2.3). A project the caller cannot see
+        gets 404 `not_found`, as `getProject`. Then the project action "Invite, decide join
+        requests, change roles, remove members" (owner only), since the list is for finding
+        people to invite; anyone else gets 403 `forbidden`. Any project status is allowed.
+
+        `state` is `processing` while the project has no embedding (it is made in the
+        background within a minute, AI-1.4), otherwise `ready`; `missing` is always empty.
+
+        Ranking uses only the cosine similarity between the project's embedding and each
+        profile embedding, never citation, publication or connection counts (AI-2.4). Left
+        out: the project's current members, unverified and suspended users, users the owner
+        has blocked or is blocked by (FR-16.9), and users without an embedding of the
+        project's model. `shared` is up to 3 of the project's required skills the researcher
+        has (the same name, ignoring letter case), in the project's order.
+
+        The list is kept for up to 10 minutes; it is made again at once when the project's
+        embedding or members change, and when a block between the owner and anyone changes.
+      tags: [recommendations]
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: The project's recommended researchers, or why there are none yet.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PeopleRecommendations"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -6917,13 +7046,22 @@ components:
           properties:
             matchedOn:
               type: string
-              enum: [title, skill, description]
-              description: The field of the result's best match.
+              enum: [title, skill, description, meaning]
+              description: |
+                The field of the result's best match; `meaning` when only the meaning search
+                found it (hybrid mode).
 
     ProjectSearchPage:
       type: object
-      required: [items, total, page, pageSize, fuzzy, correctedQuery]
+      required: [items, total, page, pageSize, fuzzy, correctedQuery, mode]
       properties:
+        mode:
+          type: string
+          enum: [hybrid, keyword, keyword_fallback]
+          description: |
+            How the results were found: `hybrid` by keyword and meaning, `keyword` because
+            the request asked for it, `keyword_fallback` by keyword only because the AI
+            service did not answer (AI-5.4).
         items:
           type: array
           items:
@@ -8186,11 +8324,82 @@ components:
           type: array
           maxItems: 3
           description: |
-            Up to 3 research interests or skills both users have (the same name, ignoring
-            letter case): interests first, then skills, each in the caller's order. May be
-            empty.
+            In `recommendPeople`: up to 3 research interests or skills both users have (the
+            same name, ignoring letter case), interests first, then skills, each in the
+            caller's order. In `recommendProjectResearchers`: up to 3 of the project's
+            required skills the researcher has, in the project's order. May be empty.
           items:
             type: string
+    ProjectRecommendations:
+      type: object
+      required: [state, missing, items]
+      properties:
+        state:
+          type: string
+          enum: [ready, needs_profile, processing]
+          description: As in `PeopleRecommendations`.
+        missing:
+          type: array
+          maxItems: 3
+          description: |
+            With `needs_profile`, the profile fields to fill in, in this order: `interests`,
+            `skills`, `bio`. Empty in the other states.
+          items:
+            type: string
+            enum: [interests, skills, bio]
+        items:
+          type: array
+          maxItems: 10
+          description: Most similar first. Empty unless `state` is `ready`.
+          items:
+            $ref: "#/components/schemas/ProjectRecommendation"
+    ProjectRecommendation:
+      type: object
+      required: [project, score, shared]
+      properties:
+        project:
+          $ref: "#/components/schemas/RecommendedProject"
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: |
+            How similar the project is to the caller's profile, as a percentage. It is the
+            cosine similarity of the embeddings put through a fixed increasing mapping fitted
+            on sample data (docs/evaluation.md), not the raw cosine.
+        shared:
+          type: array
+          maxItems: 3
+          description: |
+            Up to 3 of the project's required skills the caller has (the same name, ignoring
+            letter case), in the project's order. May be empty.
+          items:
+            type: string
+    RecommendedProject:
+      type: object
+      description: A recommended project's summary.
+      required: [id, title, description, requiredSkills, owner, memberCount]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+          description: The first 300 characters of the description.
+        requiredSkills:
+          type: array
+          maxItems: 5
+          description: Up to 5 required skill names, by name ignoring letter case.
+          items:
+            type: string
+        owner:
+          $ref: "#/components/schemas/ProjectPerson"
+        memberCount:
+          type: integer
+          minimum: 1
+          description: Shown only; it never affects the order (AI-2.4).
     PeopleSearchFacets:
       type: object
       required: [institutions, interests]

@@ -699,15 +699,22 @@ func TestLoadRecsScoreMap(t *testing.T) {
 	if cfg.RecsScoreModel != DefaultRecsScoreModel || cfg.RecsScoreSlope != DefaultRecsScoreSlope || cfg.RecsScoreIntercept != DefaultRecsScoreIntercept {
 		t.Errorf("defaults = %q %v %v", cfg.RecsScoreModel, cfg.RecsScoreSlope, cfg.RecsScoreIntercept)
 	}
-	if !(DefaultRecsScoreSlope > 0) {
-		t.Error("the default slope must be above 0")
+	if cfg.RecsProjectScoreSlope != DefaultRecsProjectScoreSlope || cfg.RecsProjectScoreIntercept != DefaultRecsProjectScoreIntercept {
+		t.Errorf("project defaults = %v %v", cfg.RecsProjectScoreSlope, cfg.RecsProjectScoreIntercept)
 	}
-	cfg, err = Load(env(with(dev, "RECS_SCORE_MODEL", " m@2 ", "RECS_SCORE_SLOPE", "30.5", "RECS_SCORE_INTERCEPT", "-25")))
+	if !(DefaultRecsScoreSlope > 0) || !(DefaultRecsProjectScoreSlope > 0) {
+		t.Error("the default slopes must be above 0")
+	}
+	cfg, err = Load(env(with(dev, "RECS_SCORE_MODEL", " m@2 ", "RECS_SCORE_SLOPE", "30.5", "RECS_SCORE_INTERCEPT", "-25",
+		"RECS_PROJECT_SCORE_SLOPE", "40", "RECS_PROJECT_SCORE_INTERCEPT", "-33.5")))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cfg.RecsScoreModel != "m@2" || cfg.RecsScoreSlope != 30.5 || cfg.RecsScoreIntercept != -25 {
 		t.Errorf("set = %q %v %v", cfg.RecsScoreModel, cfg.RecsScoreSlope, cfg.RecsScoreIntercept)
+	}
+	if cfg.RecsProjectScoreSlope != 40 || cfg.RecsProjectScoreIntercept != -33.5 {
+		t.Errorf("project set = %v %v", cfg.RecsProjectScoreSlope, cfg.RecsProjectScoreIntercept)
 	}
 
 	for _, tt := range []struct{ name, key, value, want string }{
@@ -718,6 +725,9 @@ func TestLoadRecsScoreMap(t *testing.T) {
 		{"NaN intercept", "RECS_SCORE_INTERCEPT", "NaN", "RECS_SCORE_INTERCEPT must be a finite number"},
 		{"model without revision", "RECS_SCORE_MODEL", "e5", "RECS_SCORE_MODEL must be"},
 		{"model with a space", "RECS_SCORE_MODEL", "e5@a b", "RECS_SCORE_MODEL must be"},
+		{"zero project slope", "RECS_PROJECT_SCORE_SLOPE", "0", "RECS_PROJECT_SCORE_SLOPE must be more than 0"},
+		{"project slope not a number", "RECS_PROJECT_SCORE_SLOPE", "steep", "RECS_PROJECT_SCORE_SLOPE must be a finite number"},
+		{"NaN project intercept", "RECS_PROJECT_SCORE_INTERCEPT", "NaN", "RECS_PROJECT_SCORE_INTERCEPT must be a finite number"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := Load(env(with(dev, tt.key, tt.value)))

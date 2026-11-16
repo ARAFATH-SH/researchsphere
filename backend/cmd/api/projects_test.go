@@ -67,14 +67,21 @@ func (okProjects) ListMine(_ context.Context, _ string, page, size int) (project
 	return projectusecase.Page{Items: []projectdomain.Summary{}, Page: page, PageSize: size}, nil
 }
 
-func (okProjects) Search(_ context.Context, _ string, q *string, page int) (projectdomain.SearchResult, error) {
+func (okProjects) Search(_ context.Context, _ string, q *string, mode string, page int) (projectdomain.SearchResult, error) {
+	if mode != "" && mode != "auto" && mode != "keyword" {
+		return projectdomain.SearchResult{}, projectdomain.ErrInvalidSearchMode
+	}
 	if q == nil || len(*q) < 2 {
 		return projectdomain.SearchResult{}, projectdomain.ErrInvalidQuery
 	}
 	if page < 1 {
 		return projectdomain.SearchResult{}, projectdomain.ErrInvalidPage
 	}
-	return projectdomain.SearchResult{Items: []projectdomain.Summary{}}, nil
+	m := projectdomain.ResultHybrid
+	if mode == "keyword" {
+		m = projectdomain.ResultKeyword
+	}
+	return projectdomain.SearchResult{Mode: m, Items: []projectdomain.Summary{}}, nil
 }
 
 func (okProjects) Report(context.Context, string, string, projectusecase.ReportInput) (projectdomain.ReportReceipt, error) {
@@ -122,6 +129,9 @@ func TestProjectRoutes(t *testing.T) {
 		{"my projects, page 0", http.MethodGet, "/api/v1/me/projects?page=0", "", "researcher", http.StatusBadRequest, `"bad_request"`},
 		{"search", http.MethodGet, "/api/v1/search/projects?q=graph", "", "researcher", http.StatusOK, `"pageSize":20`},
 		{"search, no q", http.MethodGet, "/api/v1/search/projects", "", "researcher", http.StatusBadRequest, `"invalid_query"`},
+		{"search, hybrid by default", http.MethodGet, "/api/v1/search/projects?q=graph", "", "researcher", http.StatusOK, `"mode":"hybrid"`},
+		{"search, keyword mode", http.MethodGet, "/api/v1/search/projects?q=graph&mode=keyword", "", "researcher", http.StatusOK, `"mode":"keyword"`},
+		{"search, bad mode", http.MethodGet, "/api/v1/search/projects?q=graph&mode=semantic", "", "researcher", http.StatusBadRequest, `"field":"mode"`},
 		{"report list, researcher", http.MethodGet, "/api/v1/admin/project-reports", "", "researcher", http.StatusForbidden, `{"code":"forbidden","message":"You do not have permission to do this."}`},
 		{"report list, administrator", http.MethodGet, "/api/v1/admin/project-reports", "", "admin", http.StatusOK, `"projectTitle":"Graph learning"`},
 		{"report list, bad status", http.MethodGet, "/api/v1/admin/project-reports?status=all", "", "admin", http.StatusBadRequest, `"field":"status"`},
