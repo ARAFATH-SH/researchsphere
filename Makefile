@@ -86,9 +86,10 @@ seed-dev: ## Create or repair the dev accounts test1..test4@example.com and admi
 	@cd backend && go run ./cmd/seeddev
 
 # Sample profiles for development (slice 16): n is how many there should be (default 1000; a
-# second run tops up), wait=1 waits until the running API has embedded them. Never in production.
-sample-data: ## Load deterministic sample profiles into the dev database: make sample-data [n=10000] [wait=1] (needs make migrate and SAMPLE_PASSWORD)
-	@cd backend && go run ./cmd/seedsample -n "$(or $(n),1000)" $(if $(filter 1 true yes,$(wait)),-wait)
+# second run tops up), wait=1 waits until the running API has embedded them, projects=1 also
+# makes one sample project per 10 profiles (slice 19). Never in production.
+sample-data: ## Load deterministic sample profiles into the dev database: make sample-data [n=10000] [wait=1] [projects=1] (needs make migrate and SAMPLE_PASSWORD)
+	@cd backend && go run ./cmd/seedsample -n "$(or $(n),1000)" $(if $(filter 1 true yes,$(wait)),-wait) $(if $(filter 1 true yes,$(projects)),-projects)
 
 sample-purge: ## Delete every sample account (@sample.researchsphere.local) through the account deletion
 	@cd backend && go run ./cmd/seedsample -purge

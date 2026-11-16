@@ -86,6 +86,15 @@ func (q *Queries) DeleteProfileEmbedding(ctx context.Context, userID pgtype.UUID
 	return err
 }
 
+const deleteProjectEmbedding = `-- name: DeleteProjectEmbedding :exec
+DELETE FROM project_embeddings WHERE project_id = $1
+`
+
+func (q *Queries) DeleteProjectEmbedding(ctx context.Context, projectID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteProjectEmbedding, projectID)
+	return err
+}
+
 const finishJob = `-- name: FinishJob :execrows
 DELETE FROM embedding_jobs
 WHERE owner_type = $1 AND owner_id = $2 AND generation = $3
@@ -287,6 +296,72 @@ func (q *Queries) ProfileSourceFields(ctx context.Context, userID pgtype.UUID) (
 	return i, err
 }
 
+const projectEmbeddingStats = `-- name: ProjectEmbeddingStats :one
+SELECT count(*)::bigint                                  AS total,
+       count(*) FILTER (WHERE model = $1)::bigint    AS current_model
+FROM project_embeddings
+`
+
+type ProjectEmbeddingStatsRow struct {
+	Total        int64
+	CurrentModel int64
+}
+
+func (q *Queries) ProjectEmbeddingStats(ctx context.Context, model string) (ProjectEmbeddingStatsRow, error) {
+	row := q.db.QueryRow(ctx, projectEmbeddingStats, model)
+	var i ProjectEmbeddingStatsRow
+	err := row.Scan(&i.Total, &i.CurrentModel)
+	return i, err
+}
+
+const projectSkillNames = `-- name: ProjectSkillNames :many
+SELECT s.name::text AS name
+FROM project_skills ps
+JOIN skills s ON s.id = ps.skill_id
+WHERE ps.project_id = $1
+ORDER BY lower(s.name::text), s.name::text
+`
+
+func (q *Queries) ProjectSkillNames(ctx context.Context, projectID pgtype.UUID) ([]string, error) {
+	rows, err := q.db.Query(ctx, projectSkillNames, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		items = append(items, name)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const projectSourceFields = `-- name: ProjectSourceFields :one
+
+SELECT title, description, abstract FROM projects WHERE id = $1
+`
+
+type ProjectSourceFieldsRow struct {
+	Title       string
+	Description string
+	Abstract    pgtype.Text
+}
+
+// Projects (AI-1.2; slice 19). Every project may have an embedding; status and the owner's
+// suspension are filtered where the embeddings are read (AI-3).
+func (q *Queries) ProjectSourceFields(ctx context.Context, projectID pgtype.UUID) (ProjectSourceFieldsRow, error) {
+	row := q.db.QueryRow(ctx, projectSourceFields, projectID)
+	var i ProjectSourceFieldsRow
+	err := row.Scan(&i.Title, &i.Description, &i.Abstract)
+	return i, err
+}
+
 const queueAllProfiles = `-- name: QueueAllProfiles :one
 SELECT count(*)::bigint AS queued
 FROM (
@@ -302,6 +377,18 @@ FROM (
 // change resets it.
 func (q *Queries) QueueAllProfiles(ctx context.Context, force bool) (int64, error) {
 	row := q.db.QueryRow(ctx, queueAllProfiles, force)
+	var queued int64
+	err := row.Scan(&queued)
+	return queued, err
+}
+
+const queueAllProjects = `-- name: QueueAllProjects :one
+SELECT count(*)::bigint AS queued
+FROM (SELECT embedding_enqueue('project', p.id, 1::smallint, $1::boolean) FROM projects p) q
+`
+
+func (q *Queries) QueueAllProjects(ctx context.Context, force bool) (int64, error) {
+	row := q.db.QueryRow(ctx, queueAllProjects, force)
 	var queued int64
 	err := row.Scan(&queued)
 	return queued, err
@@ -326,6 +413,30 @@ type QueueStaleProfilesParams struct {
 // Owners whose embedding another model made and that wait for nothing yet (AI-1.6).
 func (q *Queries) QueueStaleProfiles(ctx context.Context, arg QueueStaleProfilesParams) (int64, error) {
 	result, err := q.db.Exec(ctx, queueStaleProfiles, arg.Model, arg.Lim)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const queueStaleProjects = `-- name: QueueStaleProjects :execrows
+INSERT INTO embedding_jobs (owner_type, owner_id, priority)
+SELECT 'project', e.project_id, 1
+FROM project_embeddings e
+WHERE e.model <> $1
+  AND NOT EXISTS (SELECT 1 FROM embedding_jobs j WHERE j.owner_type = 'project' AND j.owner_id = e.project_id)
+ORDER BY e.project_id
+LIMIT $2
+ON CONFLICT (owner_type, owner_id) DO NOTHING
+`
+
+type QueueStaleProjectsParams struct {
+	Model string
+	Lim   int32
+}
+
+func (q *Queries) QueueStaleProjects(ctx context.Context, arg QueueStaleProjectsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, queueStaleProjects, arg.Model, arg.Lim)
 	if err != nil {
 		return 0, err
 	}
@@ -422,6 +533,44 @@ func (q *Queries) SaveProfileEmbedding(ctx context.Context, arg SaveProfileEmbed
 	return result.RowsAffected(), nil
 }
 
+const saveProjectEmbedding = `-- name: SaveProjectEmbedding :execrows
+WITH owner AS (
+    SELECT id FROM projects WHERE id = $5 FOR KEY SHARE
+)
+INSERT INTO project_embeddings (project_id, model, content_hash, embedding, chunk_count)
+SELECT owner.id, $1, $2, CAST($3::text AS vector), $4 FROM owner
+ON CONFLICT (project_id) DO UPDATE
+SET model        = EXCLUDED.model,
+    content_hash = EXCLUDED.content_hash,
+    embedding    = EXCLUDED.embedding,
+    chunk_count  = EXCLUDED.chunk_count,
+    updated_at   = now()
+`
+
+type SaveProjectEmbeddingParams struct {
+	Model       string
+	ContentHash string
+	Embedding   string
+	ChunkCount  int16
+	ProjectID   pgtype.UUID
+}
+
+// Only while the project exists. FOR KEY SHARE holds it: a delete that comes first is seen
+// here (no row stored), one that comes later waits and its cascade deletes this.
+func (q *Queries) SaveProjectEmbedding(ctx context.Context, arg SaveProjectEmbeddingParams) (int64, error) {
+	result, err := q.db.Exec(ctx, saveProjectEmbedding,
+		arg.Model,
+		arg.ContentHash,
+		arg.Embedding,
+		arg.ChunkCount,
+		arg.ProjectID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const storedProfileEmbedding = `-- name: StoredProfileEmbedding :one
 SELECT model, content_hash FROM profile_embeddings WHERE user_id = $1
 `
@@ -434,6 +583,22 @@ type StoredProfileEmbeddingRow struct {
 func (q *Queries) StoredProfileEmbedding(ctx context.Context, userID pgtype.UUID) (StoredProfileEmbeddingRow, error) {
 	row := q.db.QueryRow(ctx, storedProfileEmbedding, userID)
 	var i StoredProfileEmbeddingRow
+	err := row.Scan(&i.Model, &i.ContentHash)
+	return i, err
+}
+
+const storedProjectEmbedding = `-- name: StoredProjectEmbedding :one
+SELECT model, content_hash FROM project_embeddings WHERE project_id = $1
+`
+
+type StoredProjectEmbeddingRow struct {
+	Model       string
+	ContentHash string
+}
+
+func (q *Queries) StoredProjectEmbedding(ctx context.Context, projectID pgtype.UUID) (StoredProjectEmbeddingRow, error) {
+	row := q.db.QueryRow(ctx, storedProjectEmbedding, projectID)
+	var i StoredProjectEmbeddingRow
 	err := row.Scan(&i.Model, &i.ContentHash)
 	return i, err
 }

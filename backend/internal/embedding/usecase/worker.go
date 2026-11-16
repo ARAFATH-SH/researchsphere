@@ -168,7 +168,7 @@ func (w *Worker) process(ctx context.Context, job domain.Job) error {
 		return w.store.FinishJob(ctx, job)
 	}
 
-	hash := ContentHash(text)
+	hash := hashOf(job.OwnerType, text)
 	stored, err := w.store.StoredEmbedding(ctx, job.OwnerType, job.OwnerID)
 	switch {
 	case err == nil:
@@ -210,6 +210,15 @@ func (w *Worker) sourceText(ctx context.Context, job domain.Job) (string, bool, 
 			return "", false, err
 		}
 		return ProfileText(src), src.Eligible, nil
+	case domain.OwnerProject:
+		src, err := w.store.ProjectSource(ctx, job.OwnerID)
+		if errors.Is(err, domain.ErrNotFound) {
+			return "", false, nil
+		}
+		if err != nil {
+			return "", false, err
+		}
+		return ProjectText(src), true, nil
 	default:
 		return "", false, fmt.Errorf("unknown owner type %q", job.OwnerType)
 	}

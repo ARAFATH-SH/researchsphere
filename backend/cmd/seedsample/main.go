@@ -27,6 +27,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/auth/adapter/argon2"
 	authpg "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/adapter/postgres"
 	authusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/usecase"
@@ -49,10 +51,11 @@ func main() {
 }
 
 type options struct {
-	n     int
-	seed  int64
-	purge bool
-	wait  bool
+	n        int
+	seed     int64
+	purge    bool
+	wait     bool
+	projects bool
 }
 
 func parseFlags(args []string) (options, error) {
@@ -62,6 +65,7 @@ func parseFlags(args []string) (options, error) {
 	fs.Int64Var(&o.seed, "seed", defaultSeed, "generator seed; the same seed makes the same data")
 	fs.BoolVar(&o.purge, "purge", false, "delete every sample account instead, through the account deletion")
 	fs.BoolVar(&o.wait, "wait", false, "after loading, wait until the running API has embedded every sample profile")
+	fs.BoolVar(&o.projects, "projects", false, "also make one sample project per 10 sample profiles, in the owner's cluster")
 	if err := fs.Parse(args); err != nil {
 		return o, err
 	}
@@ -74,8 +78,8 @@ func parseFlags(args []string) (options, error) {
 	if o.seed < 0 {
 		return o, errors.New("-seed must not be negative")
 	}
-	if o.purge && o.wait {
-		return o, errors.New("use -purge or -wait, not both")
+	if o.purge && (o.wait || o.projects) {
+		return o, errors.New("use -purge alone, without -wait or -projects")
 	}
 	return o, nil
 }
@@ -154,6 +158,11 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 		fmt.Fprintf(out, "Created %d sample profiles in %s. The password is SAMPLE_PASSWORD from .env.\n",
 			len(p.missing), time.Since(started).Round(time.Millisecond))
 	}
+	if o.projects {
+		if err := runProjects(ctx, pool, g, ids, out); err != nil {
+			return err
+		}
+	}
 	if !o.wait {
 		return nil
 	}
@@ -167,6 +176,26 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 		fmt.Fprintf(out, " %d failed five times; see last_error in embedding_jobs.", q.failed)
 	}
 	fmt.Fprintln(out)
+	return nil
+}
+
+// runProjects tops up the sample projects to one per profilesPerProject sample profiles.
+func runProjects(ctx context.Context, pool *pgxpool.Pool, g *generator, profiles map[int]string, out io.Writer) error {
+	have, err := existingSampleProjects(ctx, pool, g.seed)
+	if err != nil {
+		return err
+	}
+	missing := projectPlan(profiles, have)
+	fmt.Fprintf(out, "Sample projects: %d exist; adding %d (one per %d sample profiles, in the owner's cluster).\n",
+		len(have), len(missing), profilesPerProject)
+	if len(missing) == 0 {
+		return nil
+	}
+	started := time.Now()
+	if err := seedProjects(ctx, pool, g, missing, profiles, nil); err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "Created %d sample projects in %s.\n", len(missing), time.Since(started).Round(time.Millisecond))
 	return nil
 }
 

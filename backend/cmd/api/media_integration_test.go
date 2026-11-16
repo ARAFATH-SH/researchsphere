@@ -62,6 +62,7 @@ import (
 	profilepg "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/postgres"
 	profileredis "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/redis"
 	profileusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/usecase"
+	projecthttp "github.com/ARAFATH-SH/researchsphere/backend/internal/project/adapter/http"
 	realtimehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/realtime/adapter/http"
 	realtimeusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/realtime/usecase"
 	recommendationhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/recommendation/adapter/http"
@@ -283,6 +284,8 @@ func wireEnv(t *testing.T, pool *pgxpool.Pool, rdb *goredis.Client, files *stora
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = recCache.Close() })
+	projects, projectLimits := newProjects(pool, rdb, standings, logger)
+	t.Cleanup(func() { _ = projectLimits.Close() })
 	router := newRouter(logger, up, up, up, up, authAPI,
 		profilehttp.NewHandler(profileusecase.New(profileStore, profileOpts...)),
 		mediahttp.NewHandler(images),
@@ -293,6 +296,7 @@ func wireEnv(t *testing.T, pool *pgxpool.Pool, rdb *goredis.Client, files *stora
 		realtimehttp.NewHandler(realtime.hub, testOrigin, logger),
 		embeddinghttp.NewHandler(embeddings),
 		recommendationhttp.NewHandler(recommendations),
+		projecthttp.NewHandler(projects),
 		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
 	return mediaEnv{embeddings: embeddings, recommendations: recommendations, recCache: recCache, router: router, pool: pool, files: files, rdb: rdb, auth: auth, moderation: moderation, standings: standings, hub: realtime.hub, events: realtime.events, opt: opt,
 		messaging: messaging, notifier: notifications, digests: digests, digestMail: digestMail}

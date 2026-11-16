@@ -137,30 +137,60 @@ func (s *Store) ProfileSource(ctx context.Context, userID string) (domain.Profil
 	return src, nil
 }
 
+// ProjectSource reads what the project's text is made from (AI-1.2).
+func (s *Store) ProjectSource(ctx context.Context, projectID string) (domain.ProjectSource, error) {
+	id, ok := parseUUID(projectID)
+	if !ok {
+		return domain.ProjectSource{}, domain.ErrNotFound
+	}
+	q := s.q(ctx)
+	row, err := q.ProjectSourceFields(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ProjectSource{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.ProjectSource{}, fmt.Errorf("read project source: %w", err)
+	}
+	src := domain.ProjectSource{Title: row.Title, Description: row.Description, Abstract: row.Abstract.String}
+	if src.Skills, err = q.ProjectSkillNames(ctx, id); err != nil {
+		return domain.ProjectSource{}, fmt.Errorf("read project skills: %w", err)
+	}
+	return src, nil
+}
+
 // StoredEmbedding returns the owner's model and hash.
 func (s *Store) StoredEmbedding(ctx context.Context, owner domain.OwnerType, ownerID string) (domain.Stored, error) {
-	if owner != domain.OwnerProfile {
-		return domain.Stored{}, unknownOwner(owner)
-	}
 	id, ok := parseUUID(ownerID)
 	if !ok {
 		return domain.Stored{}, domain.ErrNotFound
 	}
-	row, err := s.q(ctx).StoredProfileEmbedding(ctx, id)
+	var (
+		model, hash string
+		err         error
+	)
+	switch owner {
+	case domain.OwnerProfile:
+		var row sqlcgen.StoredProfileEmbeddingRow
+		row, err = s.q(ctx).StoredProfileEmbedding(ctx, id)
+		model, hash = row.Model, row.ContentHash
+	case domain.OwnerProject:
+		var row sqlcgen.StoredProjectEmbeddingRow
+		row, err = s.q(ctx).StoredProjectEmbedding(ctx, id)
+		model, hash = row.Model, row.ContentHash
+	default:
+		return domain.Stored{}, unknownOwner(owner)
+	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Stored{}, domain.ErrNotFound
 	}
 	if err != nil {
 		return domain.Stored{}, fmt.Errorf("read stored embedding: %w", err)
 	}
-	return domain.Stored{Model: row.Model, ContentHash: row.ContentHash}, nil
+	return domain.Stored{Model: model, ContentHash: hash}, nil
 }
 
 // SaveEmbedding stores the embedding while the owner may have one.
 func (s *Store) SaveEmbedding(ctx context.Context, e domain.Embedding) (bool, error) {
-	if e.OwnerType != domain.OwnerProfile {
-		return false, unknownOwner(e.OwnerType)
-	}
 	id, err := ownerUUID(e.OwnerID)
 	if err != nil {
 		return false, err
@@ -168,9 +198,19 @@ func (s *Store) SaveEmbedding(ctx context.Context, e domain.Embedding) (bool, er
 	if e.ChunkCount < 1 || e.ChunkCount > domain.MaxChunks {
 		return false, fmt.Errorf("save embedding: %d chunks", e.ChunkCount)
 	}
-	n, err := s.q(ctx).SaveProfileEmbedding(ctx, sqlcgen.SaveProfileEmbeddingParams{
-		Model: e.Model, ContentHash: e.ContentHash, Embedding: vectorText(e.Vector), ChunkCount: int16(e.ChunkCount), UserID: id,
-	})
+	var n int64
+	switch e.OwnerType {
+	case domain.OwnerProfile:
+		n, err = s.q(ctx).SaveProfileEmbedding(ctx, sqlcgen.SaveProfileEmbeddingParams{
+			Model: e.Model, ContentHash: e.ContentHash, Embedding: vectorText(e.Vector), ChunkCount: int16(e.ChunkCount), UserID: id,
+		})
+	case domain.OwnerProject:
+		n, err = s.q(ctx).SaveProjectEmbedding(ctx, sqlcgen.SaveProjectEmbeddingParams{
+			Model: e.Model, ContentHash: e.ContentHash, Embedding: vectorText(e.Vector), ChunkCount: int16(e.ChunkCount), ProjectID: id,
+		})
+	default:
+		return false, unknownOwner(e.OwnerType)
+	}
 	if err != nil {
 		return false, fmt.Errorf("save embedding: %w", err)
 	}
@@ -179,39 +219,65 @@ func (s *Store) SaveEmbedding(ctx context.Context, e domain.Embedding) (bool, er
 
 // DeleteEmbedding removes the owner's embedding.
 func (s *Store) DeleteEmbedding(ctx context.Context, owner domain.OwnerType, ownerID string) error {
-	if owner != domain.OwnerProfile {
-		return unknownOwner(owner)
-	}
 	id, ok := parseUUID(ownerID)
 	if !ok {
-		return nil
+		if owner == domain.OwnerProfile || owner == domain.OwnerProject {
+			return nil
+		}
+		return unknownOwner(owner)
 	}
-	if err := s.q(ctx).DeleteProfileEmbedding(ctx, id); err != nil {
+	var err error
+	switch owner {
+	case domain.OwnerProfile:
+		err = s.q(ctx).DeleteProfileEmbedding(ctx, id)
+	case domain.OwnerProject:
+		err = s.q(ctx).DeleteProjectEmbedding(ctx, id)
+	default:
+		return unknownOwner(owner)
+	}
+	if err != nil {
 		return fmt.Errorf("delete embedding: %w", err)
 	}
 	return nil
 }
 
-// QueueStale queues up to limit owners of another model.
+// QueueStale queues up to limit owners of another model, profiles first.
 func (s *Store) QueueStale(ctx context.Context, model string, limit int) (int, error) {
 	lim, err := int32Of(limit)
 	if err != nil {
 		return 0, err
 	}
-	n, err := s.q(ctx).QueueStaleProfiles(ctx, sqlcgen.QueueStaleProfilesParams{Model: model, Lim: lim})
+	q := s.q(ctx)
+	n, err := q.QueueStaleProfiles(ctx, sqlcgen.QueueStaleProfilesParams{Model: model, Lim: lim})
 	if err != nil {
 		return 0, fmt.Errorf("queue stale embeddings: %w", err)
+	}
+	if left := limit - int(n); left > 0 {
+		rest, err := int32Of(left)
+		if err != nil {
+			return 0, err
+		}
+		m, err := q.QueueStaleProjects(ctx, sqlcgen.QueueStaleProjectsParams{Model: model, Lim: rest})
+		if err != nil {
+			return 0, fmt.Errorf("queue stale project embeddings: %w", err)
+		}
+		n += m
 	}
 	return int(n), nil
 }
 
-// QueueAll queues every eligible owner at low priority.
+// QueueAll queues every eligible owner at low priority: profiles, then projects.
 func (s *Store) QueueAll(ctx context.Context, force bool) (int, error) {
-	n, err := s.q(ctx).QueueAllProfiles(ctx, force)
+	q := s.q(ctx)
+	n, err := q.QueueAllProfiles(ctx, force)
 	if err != nil {
 		return 0, fmt.Errorf("queue all embeddings: %w", err)
 	}
-	return int(n), nil
+	m, err := q.QueueAllProjects(ctx, force)
+	if err != nil {
+		return 0, fmt.Errorf("queue all project embeddings: %w", err)
+	}
+	return int(n + m), nil
 }
 
 // Rebuild queues every eligible owner, forced, and records the action, in one transaction.
@@ -248,12 +314,17 @@ func (s *Store) Stats(ctx context.Context, model string) ([]domain.OwnerStats, e
 	if err != nil {
 		return nil, fmt.Errorf("embedding stats: %w", err)
 	}
+	proj, err := q.ProjectEmbeddingStats(ctx, model)
+	if err != nil {
+		return nil, fmt.Errorf("project embedding stats: %w", err)
+	}
 	jobs, err := q.JobStats(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("job stats: %w", err)
 	}
 	byType := map[domain.OwnerType]domain.OwnerStats{
 		domain.OwnerProfile: {OwnerType: domain.OwnerProfile, Total: int(prof.Total), CurrentModel: int(prof.CurrentModel)},
+		domain.OwnerProject: {OwnerType: domain.OwnerProject, Total: int(proj.Total), CurrentModel: int(proj.CurrentModel)},
 	}
 	for _, j := range jobs {
 		t := domain.OwnerType(j.OwnerType)

@@ -582,7 +582,8 @@ paths:
       summary: Queue every embedding to be made again (AI-1.6)
       description: |
         Needs the access cookie and the platform action "Manage the AI matching model".
-        Queues every verified, not suspended owner at low priority, forced, so each embedding
+        Queues every eligible owner (a verified, not suspended user's profile, and every
+        project) at low priority, forced, so each embedding
         is made again even when its text and model have not changed; changes users make go
         first. The work happens in the background; the answer comes at once. Asking again
         leaves one job per owner. Each call is recorded with the administrator and the count.
@@ -737,6 +738,118 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/MessageReport"
+        "400":
+          description: "`outcome` or `note` is not valid (`bad_request`, with `field`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The report is already resolved (`report_already_resolved`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /admin/project-reports:
+    get:
+      operationId: listProjectReports
+      summary: List reports of projects for an administrator (FR-15.11)
+      description: |
+        Needs the access cookie and the platform action "Review reported projects" (SRS 2.3).
+        20 per page, newest first. A report's `details` are the reporter's own words. A
+        report is deleted with its project.
+      tags: [admin]
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: "`open` or `resolved`; `open` when left out. Any other value gets 400 `bad_request`."
+          schema:
+            type: string
+        - $ref: "#/components/parameters/PageFromOne"
+      responses:
+        "200":
+          description: One page of reports.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectReportPage"
+        "400":
+          description: "`status` or `page` is not valid (`bad_request`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /admin/project-reports/{reportId}:
+    get:
+      operationId: getProjectReport
+      summary: Read a report and the reported project as it is now (FR-15.11)
+      description: |
+        Needs the access cookie and the platform action "Review reported projects" (SRS 2.3).
+        The project is shown whatever its status, archived included, with its abstract. This
+        gives the administrator no right inside the project (SRS 2.3): no workspace, no
+        editing, no deletion.
+      tags: [admin]
+      parameters:
+        - $ref: "#/components/parameters/ReportId"
+      responses:
+        "200":
+          description: The report and the project.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectReportDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /admin/project-reports/{reportId}/resolve:
+    post:
+      operationId: resolveProjectReport
+      summary: Close a project report with an outcome (FR-15.11)
+      description: |
+        Needs the access cookie and the platform action "Review reported projects" (SRS 2.3).
+        A report is resolved once; it stays readable afterwards. Resolving changes nothing
+        else: the project is never deleted or changed by an administrator. `action_taken`
+        records that the administrator acted on the owner through a moderation action
+        (warning, restriction or suspension).
+      tags: [admin]
+      parameters:
+        - $ref: "#/components/parameters/ReportId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolveProjectReportRequest"
+      responses:
+        "200":
+          description: The report, now resolved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectReport"
         "400":
           description: "`outcome` or `note` is not valid (`bad_request`, with `field`)."
           content:
@@ -4007,6 +4120,316 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /projects:
+    post:
+      operationId: createProject
+      summary: Create a research project, owned by the caller (FR-10.1)
+      description: |
+        Needs the access cookie and the platform action "Create a project" (SRS 2.3). The
+        caller becomes the project's owner, its first member, in the same transaction. The
+        new project is `open`. Text fields are trimmed. `title` must then be 3 to 150
+        characters, `description` 1 to 5,000 and `abstract` at most 3,000 (empty means
+        none). Each name in `requiredSkills` is normalized like a profile skill (FR-4.2:
+        whitespace collapsed, 1 to 60 characters); names that differ only in letter case
+        are one skill, keeping the spelling first created, and at most 20 remain. A field
+        that breaks a rule gets 400 `bad_request` with `field`. Each user may create 10
+        projects a day; only created projects count.
+      tags: [projects]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectCreate"
+      responses:
+        "201":
+          description: The project, as its owner sees it.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "400":
+          $ref: "#/components/responses/InvalidProject"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          description: The user has created 10 projects in the current day (`rate_limited`).
+          headers:
+            Retry-After:
+              description: Seconds until creating is accepted again.
+              required: true
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}:
+    get:
+      operationId: getProject
+      summary: Read a project's page (FR-10, SRS 2.3)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed,
+        events and recommendations" (SRS 2.3). A member sees the project whatever its status.
+        Anyone else sees it only when it is `open` or `closed`, its owner's account is not
+        suspended, and the owner has not blocked the caller (FR-16.9); otherwise the answer
+        is 404 `not_found`, the same as for a project that does not exist. `abstract` is
+        shown to members only.
+      tags: [projects]
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: The project.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    patch:
+      operationId: updateProject
+      summary: Change a project's details or status (FR-10.2)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed,
+        events and recommendations" (SRS 2.3); a project the caller cannot see gets 404
+        `not_found`. Then each field named needs its project action: `title`,
+        `description`, `requiredSkills` and `status` the row "Edit project details and
+        status" (owner), `abstract` the row "Compile, use the assistant, edit the abstract"
+        (editor, owner); otherwise 403 `forbidden` and nothing changes. A missing field keeps
+        its value; `null` clears `abstract` and is refused for the others. `requiredSkills`
+        replaces the whole list. The rules of `createProject` apply; `status` is `open`,
+        `closed` or `archived`, and the owner may move between any of them.
+      tags: [projects]
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectUpdate"
+      responses:
+        "200":
+          description: The project after the change.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "400":
+          $ref: "#/components/responses/InvalidProject"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: deleteProject
+      summary: Delete a project and everything in it, after confirming (FR-10.6)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed,
+        events and recommendations" (SRS 2.3); a project the caller cannot see gets 404
+        `not_found`. Then the project action "Transfer ownership, delete the project"
+        (owner only), else 403 `forbidden`. `confirm` must equal the project's title, letter
+        case included, after trimming both; else 400 `confirmation_mismatch` with
+        `field: confirm` and nothing is deleted. Deleting removes the project with its
+        members, skills, join requests, files, compile jobs, embedding and reports, in one
+        transaction. A post that linked to it stays, without the link.
+      tags: [projects]
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - name: confirm
+          in: query
+          required: false
+          description: |
+            The project's title, typed by the owner to confirm. It is declared optional only
+            so that a missing value gets 400 `confirmation_mismatch` instead of the generic
+            `bad_request`.
+          schema:
+            type: string
+      responses:
+        "204":
+          description: The project is deleted.
+        "400":
+          description: "`confirm` is missing or is not the project's title (`confirmation_mismatch`, with `field`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/reports:
+    post:
+      operationId: reportProject
+      summary: Report a project to the administrators (FR-15.11)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Checks run in this order: the project must be one the
+        caller can see (else 404 `not_found`), the caller's account must not be suspended
+        (403 `account_suspended`), `reason` and `details` (`bad_request`, with `field`), the
+        caller must not be the owner (400 `cannot_report_own_project`), and the caller may
+        have one open report per project (409 `already_reported`).
+      tags: [projects]
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReportProjectRequest"
+      responses:
+        "201":
+          description: The report is stored.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectReportReceipt"
+        "400":
+          description: |
+            A field is not valid (`bad_request`, with `field`), or the caller owns the project
+            (`cannot_report_own_project`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/AccountSuspendedOrForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The caller already has an open report of this project (`already_reported`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /me/projects:
+    get:
+      operationId: listMyProjects
+      summary: The caller's own projects with the caller's role in each (FR-10, FR-11.6)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed,
+        events and recommendations" (SRS 2.3). Every project the caller is a member of, any
+        status, most recently changed first.
+      tags: [projects]
+      parameters:
+        - $ref: "#/components/parameters/PageFromOne"
+        - name: pageSize
+          in: query
+          required: false
+          description: Projects per page, from 1; a larger value than 50 is reduced to 50. Defaults to 20. Below 1 gets 400 `bad_request`.
+          schema:
+            type: integer
+            minimum: 1
+            default: 20
+      responses:
+        "200":
+          description: One page of projects.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectPage"
+        "400":
+          description: "`page` or `pageSize` is not valid (`bad_request`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /search/projects:
+    get:
+      operationId: searchProjects
+      summary: Search open projects by title, required skill or description (FR-10.3)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed,
+        events and recommendations" (SRS 2.3). Only `open` projects are found, never one
+        whose owner's account is suspended or not verified, and never one whose owner has
+        blocked the searcher (FR-16.9).
+
+        A project matches when its title, one of its required skill names or its
+        description contains `q`, ignoring letter case. Results are ranked by their best
+        match: a title equal to `q`, then a title that starts with `q`, then one that
+        contains it, then a required skill, then the description; within a rank, newest
+        first. When no visible open project's title contains `q`, titles with a word similar
+        to `q` (trigram word similarity, as in researcher search, so a small spelling
+        mistake still matches) take the place of the title matches; then `fuzzy` is true
+        and `correctedQuery` is the most similar title. Each user may search 60 times a
+        minute.
+      tags: [search]
+      parameters:
+        - name: q
+          in: query
+          required: false
+          description: |
+            The search text after trimming: 2 to 100 characters. It is required: it is
+            declared optional only so that a missing `q` gets 400 `invalid_query`, like a too
+            short one, instead of the generic `bad_request`.
+          schema:
+            type: string
+          example: graph neural
+        - name: page
+          in: query
+          required: false
+          description: The page to return, 1 to 50, 20 results each (FR-10.3). Defaults to 1.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 1
+      responses:
+        "200":
+          description: One page of results.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectSearchPage"
+        "400":
+          description: "`q` is missing or, after trimming, not 2 to 100 characters (`invalid_query`), or `page` is not valid (`bad_request`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/SearchRateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /search/people:
     get:
       operationId: searchPeople
@@ -4310,6 +4733,15 @@ components:
       required: true
       description: |
         The warning's ID, a UUID. It is declared as a plain string so that the login and role
+        checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+      schema:
+        type: string
+    ProjectId:
+      name: projectId
+      in: path
+      required: true
+      description: |
+        The project's ID, a UUID. It is declared as a plain string so that the login and role
         checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
       schema:
         type: string
@@ -4814,8 +5246,8 @@ components:
       properties:
         ownerType:
           type: string
-          description: What the embeddings belong to. Later slices add project, post and venue.
-          enum: [profile]
+          description: What the embeddings belong to. Later slices add post and venue.
+          enum: [profile, project]
         total:
           type: integer
           description: Stored embeddings.
@@ -6277,6 +6709,362 @@ components:
           description: "`edited`: a new text replaced it. `deleted`: the sender deleted the message."
 
     ResolveMessageReportRequest:
+      type: object
+      required: [outcome]
+      properties:
+        outcome:
+          type: string
+          enum: [dismissed, action_taken]
+        note:
+          type: string
+          description: At most 1,000 characters after trimming; empty means none.
+          maxLength: 1000
+
+    ProjectStatus:
+      type: string
+      description: "`open` projects are found by search (FR-10.3); `archived` projects are seen by members only."
+      enum: [open, closed, archived]
+
+    ProjectRole:
+      type: string
+      description: A member's role in one project (SRS 2.3).
+      enum: [owner, editor, viewer]
+
+    ProjectPerson:
+      type: object
+      required: [userId, fullName, headline, photoUrl]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        fullName:
+          type: string
+        headline:
+          type: string
+          nullable: true
+        photoUrl:
+          type: string
+          nullable: true
+          description: The profile photo as `/api/v1/media/{fileId}`; null when not set.
+
+    Project:
+      type: object
+      description: A research project's page (FR-10.1, SRS 2.3).
+      required: [id, title, description, abstract, status, requiredSkills, owner, myRole, memberCount, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+        abstract:
+          type: string
+          nullable: true
+          description: The paper's abstract; null when there is none, and always null for a caller who is not a member.
+        status:
+          $ref: "#/components/schemas/ProjectStatus"
+        requiredSkills:
+          type: array
+          description: Sorted by name, ignoring letter case.
+          items:
+            $ref: "#/components/schemas/Tag"
+        owner:
+          $ref: "#/components/schemas/ProjectPerson"
+        myRole:
+          nullable: true
+          description: The caller's role in the project; null when the caller is not a member.
+          allOf:
+            - $ref: "#/components/schemas/ProjectRole"
+        memberCount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ProjectCreate:
+      type: object
+      required: [title, description]
+      properties:
+        title:
+          type: string
+          description: 3 to 150 characters after trimming.
+          maxLength: 150
+        description:
+          type: string
+          description: 1 to 5,000 characters after trimming.
+          maxLength: 5000
+        requiredSkills:
+          type: array
+          description: Skill names (FR-4.2); duplicates ignoring letter case are dropped, at most 20 remain.
+          items:
+            type: string
+        abstract:
+          type: string
+          nullable: true
+          description: At most 3,000 characters after trimming; empty or null means none.
+          maxLength: 3000
+
+    ProjectUpdate:
+      type: object
+      description: |
+        The fields to change (FR-10.2). A missing field keeps its value. `null` clears
+        `abstract`; `null` for any other field is refused (`bad_request`).
+      properties:
+        title:
+          type: string
+          nullable: true
+          maxLength: 150
+          x-go-type: nullable.Nullable[string]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        description:
+          type: string
+          nullable: true
+          maxLength: 5000
+          x-go-type: nullable.Nullable[string]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        requiredSkills:
+          type: array
+          nullable: true
+          description: Replaces the whole list.
+          items:
+            type: string
+          x-go-type: nullable.Nullable[[]string]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        abstract:
+          type: string
+          nullable: true
+          maxLength: 3000
+          x-go-type: nullable.Nullable[string]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        status:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/ProjectStatus"
+          x-go-type: nullable.Nullable[string]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+
+    ProjectSummary:
+      type: object
+      description: A project in a list.
+      required: [id, title, description, status, requiredSkills, owner, myRole, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+          description: The first 300 characters of the description.
+        status:
+          $ref: "#/components/schemas/ProjectStatus"
+        requiredSkills:
+          type: array
+          maxItems: 5
+          description: Up to 5 required skill names, by name ignoring letter case.
+          items:
+            type: string
+        owner:
+          $ref: "#/components/schemas/ProjectPerson"
+        myRole:
+          nullable: true
+          description: The caller's role in the project; null when the caller is not a member.
+          allOf:
+            - $ref: "#/components/schemas/ProjectRole"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ProjectPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProjectSummary"
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+          description: Projects on all pages.
+
+    ProjectSearchResult:
+      allOf:
+        - $ref: "#/components/schemas/ProjectSummary"
+        - type: object
+          required: [matchedOn]
+          properties:
+            matchedOn:
+              type: string
+              enum: [title, skill, description]
+              description: The field of the result's best match.
+
+    ProjectSearchPage:
+      type: object
+      required: [items, total, page, pageSize, fuzzy, correctedQuery]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProjectSearchResult"
+        total:
+          type: integer
+          description: The number of results on all pages.
+        page:
+          type: integer
+        pageSize:
+          type: integer
+          description: Always 20 (FR-10.3).
+        fuzzy:
+          type: boolean
+          description: True when no title contains `q` and the title results are titles similar to it.
+        correctedQuery:
+          type: string
+          nullable: true
+          description: When `fuzzy` is true, the result title most similar to `q`; otherwise null.
+
+    ReportProjectRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          $ref: "#/components/schemas/ReportReason"
+        details:
+          type: string
+          description: At most 1,000 characters after trimming; empty means none.
+          maxLength: 1000
+
+    ProjectReportReceipt:
+      type: object
+      required: [id, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+
+    ProjectReport:
+      type: object
+      required: [id, projectId, projectTitle, status, reason, details, reporter, owner, createdAt, outcome, note, resolvedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        projectId:
+          type: string
+          format: uuid
+        projectTitle:
+          type: string
+          description: The project's title now.
+        status:
+          type: string
+          enum: [open, resolved]
+        reason:
+          $ref: "#/components/schemas/ReportReason"
+        details:
+          type: string
+          nullable: true
+          description: The reporter's own words.
+        reporter:
+          $ref: "#/components/schemas/MessageReportPerson"
+        owner:
+          description: The project's owner now, whom a moderation action would name.
+          allOf:
+            - $ref: "#/components/schemas/MessageReportPerson"
+        createdAt:
+          type: string
+          format: date-time
+        outcome:
+          type: string
+          nullable: true
+          enum: [dismissed, action_taken]
+        note:
+          type: string
+          nullable: true
+        resolvedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    ProjectReportPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProjectReport"
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+          description: Reports with this status on all pages.
+
+    ReportedProject:
+      type: object
+      description: The reported project as it is now, whatever its status.
+      required: [id, title, description, abstract, status, requiredSkills, memberCount, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+        abstract:
+          type: string
+          nullable: true
+        status:
+          $ref: "#/components/schemas/ProjectStatus"
+        requiredSkills:
+          type: array
+          items:
+            $ref: "#/components/schemas/Tag"
+        memberCount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ProjectReportDetail:
+      type: object
+      required: [report, project]
+      properties:
+        report:
+          $ref: "#/components/schemas/ProjectReport"
+        project:
+          $ref: "#/components/schemas/ReportedProject"
+
+    ResolveProjectReportRequest:
       type: object
       required: [outcome]
       properties:
@@ -7838,6 +8626,15 @@ components:
             $ref: "#/components/schemas/Error"
     NotFound:
       description: No such route or resource.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    InvalidProject:
+      description: |
+        A field is not valid (`bad_request`, with `field`: `title`, `description`, `abstract`,
+        `status`, `requiredSkills` or `requiredSkills[i]` for one name). The value is never
+        repeated.
       content:
         application/json:
           schema:

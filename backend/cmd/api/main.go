@@ -57,6 +57,7 @@ import (
 	profilepg "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/postgres"
 	profileredis "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/redis"
 	profileusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/usecase"
+	projecthttp "github.com/ARAFATH-SH/researchsphere/backend/internal/project/adapter/http"
 	realtimehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/realtime/adapter/http"
 	realtimeusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/realtime/usecase"
 	recommendationhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/recommendation/adapter/http"
@@ -244,6 +245,9 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 		return err
 	}
 	defer func() { _ = recCache.Close() }()
+	// Research projects (FR-10).
+	projects, projectLimits := newProjects(pool, rdb, standings, logger)
+	defer func() { _ = projectLimits.Close() }()
 	handler := newRouter(logger, healthpg.NewPinger(pool), healthredis.NewPinger(rdb), files, ai,
 		authhttp.NewHandler(auth, authhttp.CookieConfig{Secure: cfg.CookieSecure}),
 		profilehttp.NewHandler(profiles),
@@ -255,6 +259,7 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 		realtimehttp.NewHandler(realtime.hub, cfg.AppBaseURL, logger),
 		embeddinghttp.NewHandler(embeddings),
 		recommendationhttp.NewHandler(recommendations),
+		projecthttp.NewHandler(projects),
 		httpx.RequireAuth(tokens, time.Now))
 
 	var lc net.ListenConfig

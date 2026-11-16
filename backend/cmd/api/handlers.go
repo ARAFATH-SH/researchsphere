@@ -20,6 +20,7 @@ import (
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpserver"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpx"
 	profilehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/http"
+	projecthttp "github.com/ARAFATH-SH/researchsphere/backend/internal/project/adapter/http"
 	realtimehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/realtime/adapter/http"
 	recommendationhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/recommendation/adapter/http"
 	socialhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/social/adapter/http"
@@ -39,6 +40,7 @@ type (
 	realtimeHandler       = realtimehttp.Handler
 	embeddingHandler      = embeddinghttp.Handler
 	recommendationHandler = recommendationhttp.Handler
+	projectHandler        = projecthttp.Handler
 )
 
 // handlers implements every operation in the contract by embedding each module's HTTP
@@ -55,6 +57,7 @@ type handlers struct {
 	*realtimeHandler
 	*embeddingHandler
 	*recommendationHandler
+	*projectHandler
 }
 
 var _ gen.StrictServerInterface = handlers{}
@@ -90,6 +93,12 @@ var platformGuards = map[string]authz.Action{
 	"GET /api/v1/admin/message-reports/{reportId}":                            authz.ReviewMessageReports,
 	"GET /api/v1/admin/message-reports/{reportId}/attachments/{attachmentId}": authz.ReviewMessageReports,
 	"POST /api/v1/admin/message-reports/{reportId}/resolve":                   authz.ReviewMessageReports,
+
+	// Reported projects (FR-15.11): reading and resolving; an administrator never edits or
+	// deletes a project.
+	"GET /api/v1/admin/project-reports":                     authz.ReviewProjectReports,
+	"GET /api/v1/admin/project-reports/{reportId}":          authz.ReviewProjectReports,
+	"POST /api/v1/admin/project-reports/{reportId}/resolve": authz.ReviewProjectReports,
 
 	// Profiles (FR-4.1, FR-4.5): reading any profile, the caller's own included, is the
 	// row "View profiles, ..."; editing is the row "Edit own profile, ...".
@@ -157,6 +166,19 @@ var platformGuards = map[string]authz.Action{
 	"GET /api/v1/search/people": authz.ViewContent,
 	// Collaborator recommendations (AI-2) are the same row ("... and recommendations").
 	"GET /api/v1/recommendations/people": authz.ViewContent,
+
+	// Research projects (FR-10). Creating is the row "Create a project". Reading, editing and
+	// deleting need what reading the app needs; the usecase then checks the project role
+	// (SRS 2.3, project level), so an administrator gets no extra right inside a project.
+	// Reporting one is the row "Edit own profile, connect, ...", like reporting a
+	// conversation. Project search (FR-10.3) is the row "View profiles, search, ...".
+	"POST /api/v1/projects":                     authz.CreateProject,
+	"GET /api/v1/projects/{projectId}":          authz.ViewContent,
+	"PATCH /api/v1/projects/{projectId}":        authz.ViewContent,
+	"DELETE /api/v1/projects/{projectId}":       authz.ViewContent,
+	"POST /api/v1/projects/{projectId}/reports": authz.ActAsMember,
+	"GET /api/v1/me/projects":                   authz.ViewContent,
+	"GET /api/v1/search/projects":               authz.ViewContent,
 
 	// Connections (FR-7): sending and answering requests and removing a connection are
 	// the row "Edit own profile, connect, ..."; the lists are viewing content.
@@ -332,7 +354,7 @@ func guardPlatform(next http.Handler) http.Handler {
 // Tests pass fakes; run passes the real PostgreSQL, Redis, SMTP and AI service adapters. requireAuth
 // guards the operations the contract secures (httpx.RequireAuth); guardPlatform runs
 // inside it, and limitBody inside that.
-func newRouter(logger *slog.Logger, db, redis, storage, ai healthdomain.Pinger, auth *authhttp.Handler, profile *profilehttp.Handler, media *mediahttp.Handler, social *socialhttp.Handler, notifications *notificationhttp.Handler, messaging *messaginghttp.Handler, moderation *moderationhttp.Handler, realtime *realtimehttp.Handler, embedding *embeddinghttp.Handler, recommendation *recommendationhttp.Handler, requireAuth func(http.Handler) http.Handler) http.Handler {
+func newRouter(logger *slog.Logger, db, redis, storage, ai healthdomain.Pinger, auth *authhttp.Handler, profile *profilehttp.Handler, media *mediahttp.Handler, social *socialhttp.Handler, notifications *notificationhttp.Handler, messaging *messaginghttp.Handler, moderation *moderationhttp.Handler, realtime *realtimehttp.Handler, embedding *embeddinghttp.Handler, recommendation *recommendationhttp.Handler, projects *projecthttp.Handler, requireAuth func(http.Handler) http.Handler) http.Handler {
 	checker := healthusecase.New(healthusecase.DefaultTimeout,
 		healthdomain.Dependency{Name: "database", Pinger: db},
 		healthdomain.Dependency{Name: "redis", Pinger: redis},
@@ -352,5 +374,6 @@ func newRouter(logger *slog.Logger, db, redis, storage, ai healthdomain.Pinger, 
 		realtimeHandler:       realtime,
 		embeddingHandler:      embedding,
 		recommendationHandler: recommendation,
+		projectHandler:        projects,
 	}, func(next http.Handler) http.Handler { return requireAuth(guardPlatform(limitBody(next))) })
 }

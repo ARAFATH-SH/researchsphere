@@ -140,7 +140,8 @@ func TestProfileRoutesAreGuarded(t *testing.T) {
 		"PUT /api/v1/profiles/me/cover":    authz.ActAsMember,
 		"DELETE /api/v1/profiles/me/cover": authz.ActAsMember,
 
-		"GET /api/v1/search/people": authz.ViewContent,
+		"GET /api/v1/search/people":   authz.ViewContent,
+		"GET /api/v1/search/projects": authz.ViewContent,
 
 		// Another user's connections (FR-7.4); TestConnectionRoutesAreGuarded covers it too.
 		"GET /api/v1/profiles/{userId}/connections": authz.ViewContent,

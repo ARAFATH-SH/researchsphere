@@ -87,6 +87,7 @@ The server enforces both tables (FR-3.2). An administrator has no extra rights i
 | Warn or restrict a user, and read their moderation history | No | No | Yes |
 | Send messages and message requests | No | Yes | Yes |
 | Review reported conversations | No | No | Yes |
+| Review reported projects | No | No | Yes |
 
 **Project level**
 
@@ -101,6 +102,8 @@ The server enforces both tables (FR-3.2). An administrator has no extra rights i
 | Edit project details and status | No | No | No | Yes |
 | Invite, decide join requests, change roles, remove members | No | No | No | Yes |
 | Transfer ownership, delete the project | No | No | No | Yes |
+
+A non-member sees a project page only while the project is open or closed, its owner's account is verified and not suspended, and the owner has not blocked them; an archived project is seen by its members only. The paper abstract is shown to members only. An administrator reads a reported project through the report (FR-15.11), with no right inside it.
 
 ### 2.4 Operating environment
 
@@ -328,6 +331,7 @@ Security notes for FR-17.5 and FR-17.6: the authorization code flow with PKCE an
 | FR-15.8 | record every moderation action with the administrator, user, action, reason, internal note, report and time, in the transaction of the action; email the user the reason and never the note; and, when the action names a report, resolve it as action taken | Should |
 | FR-15.9 | show an administrator a user's moderation history, newest first, with linked reports | Should |
 | FR-15.10 | refuse every moderation action on an administrator, oneself included | Should |
+| FR-15.11 | let a user report a project they do not own, once while the report is open, and let an administrator list and read reported projects, whatever their status, and resolve each report as dismissed or action taken; an administrator never edits or deletes the project | Should |
 
 ### 3.6 Messaging
 
@@ -505,7 +509,7 @@ The database holds the 18 core kinds of record below, plus 19 added for profile 
 | Publication | DOI, title, abstract, venue name, year, link, source | DOI is unique; linked to each author with a confirmed time |
 | Connection | Requester, receiver, status, times | No self-connection; one pending or accepted connection per pair, in either direction |
 | Post, Like, Comment | Author, text, linked publication or project, removal time and reason | One like per user per post |
-| Project | Title, description, abstract, status, main file | Deleting a project deletes its files, members and requests |
+| Project | Title, description, abstract, status, main file | Title of 3 to 150 characters, description of 1 to 5,000, abstract of at most 3,000, at most 20 required skills; deleting a project deletes its files, members, requests, embedding and reports |
 | Membership | Project, user, role | One role per user per project; exactly one owner per project |
 | Join request | Project, user, kind (request or invitation), status, message | One pending request per user per project |
 | File | Project, path, text content, editing state, storage key, size | Path is unique within a project and cannot point outside it |
@@ -527,6 +531,7 @@ The database holds the 18 core kinds of record below, plus 19 added for profile 
 | Message version | Message, text, shown from, shown until, ended by (edit or deletion) | One per replaced text, at most one deletion per message; read only through an administrator's report (NFR-13); deleted with the message |
 | Message request | Held in the conversation: state `request` and who requested it (see Conversation) | One pending request per pair of users, as there is one direct conversation per pair |
 | Block | Blocker, blocked user, time | One per direction; no self-block; a block stops messages in both directions; deleted with either user |
+| Project report | Project, reporter, reason, details, time, status and resolution (time, administrator, outcome, note) | One open report per reporter per project; deleted with the project or the reporter |
 | Message report | Conversation, reporter, reported user, message, reason, details, time, status and resolution (time, administrator, outcome, note) | A reported message belongs to the conversation; a report of a whole group names no reported user; deleted with the conversation |
 | Report view | Report, administrator, time | One per administrator's read; holds no message text and outlives the report |
 | Report attachment download | Report, file, administrator, time | One per administrator's download of an attachment through a report; outlives the report and the file |
