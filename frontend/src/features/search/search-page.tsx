@@ -9,11 +9,13 @@ import { useSearchDraftLength } from "@/components/app-shell/search-draft";
 import { rsButtonClass } from "@/components/ui/button";
 import { FormError } from "@/components/ui/field";
 import { emptyCard } from "@/features/home/cards";
+import { type ProjectSearchPage, searchProjects } from "@/features/project/api";
 import type { Result } from "@/lib/api/call";
 
 import { type PeopleSearch, type PeopleSearchPage, searchPeople } from "./api";
+import { ProjectNoResults, ProjectResults } from "./project-results";
 import { SearchFilters } from "./search-filters";
-import { queryTooLong, queryTooShort, readSearch, searchHref } from "./search-params";
+import { queryTooLong, queryTooShort, readSearch, searchHref, type SearchType } from "./search-params";
 import {
   FallbackBanner,
   FuzzyNotice,
@@ -23,10 +25,15 @@ import {
   SearchSkeleton,
 } from "./search-results";
 
-// SearchPage is the search page (FR-6.1 to FR-6.3, AI-5.1 to AI-5.4). Its state lives in
-// the URL (q, institution, interest repeated, page, mode=keyword), so back, forward and
-// shared links work. It searches when the URL changes: on Enter in the top bar, a mode or
-// filter change, or a page link.
+type Found =
+  | { type: "people"; res: Result<PeopleSearchPage> }
+  | { type: "projects"; res: Result<ProjectSearchPage> };
+
+// SearchPage is the search page (FR-6.1 to FR-6.3, FR-10.3, AI-5.1 to AI-5.4). Its state
+// lives in the URL (type=projects, q, institution, interest repeated, page, mode=keyword), so
+// back, forward and shared links work. It searches when the URL changes: on Enter in the top
+// bar, a tab, mode or filter change, or a page link. The People tab searches researchers with
+// filters; the Projects tab searches open projects, with the same modes and notices.
 export function SearchPage() {
   const router = useRouter();
   const params = useSearchParams();
@@ -38,7 +45,7 @@ export function SearchPage() {
 
   const [attempt, setAttempt] = useState(0);
   const key = `${href}#${attempt}`;
-  const [result, setResult] = useState<{ key: string; value: Result<PeopleSearchPage> } | null>(null);
+  const [result, setResult] = useState<{ key: string; value: Found } | null>(null);
   // lastFacets keeps the filters listed while the next results load.
   const [lastFacets, setLastFacets] = useState<PeopleSearchPage["facets"] | null>(null);
 
@@ -46,11 +53,18 @@ export function SearchPage() {
     const wanted = readSearch(new URL(href, "http://x").searchParams);
     if (queryTooShort(wanted.q) || queryTooLong(wanted.q, wanted.keywordOnly)) return;
     let current = true;
-    void searchPeople(wanted).then((value) => {
-      if (!current) return;
-      setResult({ key, value });
-      if (value.ok) setLastFacets(value.data.facets);
-    });
+    const { type, ...people } = wanted;
+    if (type === "projects") {
+      void searchProjects({ q: people.q, page: people.page, keywordOnly: people.keywordOnly }).then((res) => {
+        if (current) setResult({ key, value: { type: "projects", res } });
+      });
+    } else {
+      void searchPeople(people).then((res) => {
+        if (!current) return;
+        setResult({ key, value: { type: "people", res } });
+        if (res.ok) setLastFacets(res.data.facets);
+      });
+    }
     return () => {
       current = false;
     };
@@ -61,12 +75,18 @@ export function SearchPage() {
     router.push(searchHref({ ...search, ...filters, page: 1 }));
   }
 
+  // A tab change keeps the text and the mode and starts again at page 1.
+  function changeType(type: SearchType) {
+    if (type !== search.type) router.push(searchHref({ ...search, type, page: 1 }));
+  }
+
   // A mode change keeps the filters and starts again at page 1.
   function changeMode(keywordOnly: boolean) {
     if (keywordOnly !== search.keywordOnly) router.push(searchHref({ ...search, keywordOnly, page: 1 }));
   }
 
-  const value = !idle && result?.key === key ? result.value : null;
+  const found = !idle && result?.key === key ? result.value : null;
+  const value = found?.res ?? null;
   let body;
   if (tooShort) {
     body = (
@@ -100,8 +120,24 @@ export function SearchPage() {
           </button>
         </div>
       );
-  } else {
-    const page = value.data;
+  } else if (found?.type === "projects" && found.res.ok) {
+    const page = found.res.data;
+    body = (
+      <>
+        {page.mode === "keyword_fallback" && <FallbackBanner />}
+        {page.fuzzy && page.correctedQuery && <FuzzyNotice corrected={page.correctedQuery} q={search.q} />}
+        {page.total === 0 ? (
+          <ProjectNoResults q={search.q} mode={page.mode} />
+        ) : (
+          <>
+            {page.mode === "hybrid" && <HybridNote what="projects whose work matches" />}
+            <ProjectResults search={search} result={page} />
+          </>
+        )}
+      </>
+    );
+  } else if (found?.type === "people" && found.res.ok) {
+    const page = found.res.data;
     body = (
       <>
         {page.mode === "keyword_fallback" && <FallbackBanner />}
@@ -118,31 +154,60 @@ export function SearchPage() {
     );
   }
 
-  const facets = value?.ok ? value.data.facets : idle ? null : lastFacets;
+  const facets = found?.type === "people" && found.res.ok ? found.res.data.facets : idle ? null : lastFacets;
   return (
     <div className="flex flex-col gap-5 max-[640px]:gap-4">
       <div className="-mt-6 flex flex-wrap items-center gap-2 border-b border-rs-border py-2.5 max-[640px]:-mt-4">
-        <div role="tablist" aria-label="Result type" className="flex flex-wrap gap-1.5">
-          <button
-            type="button"
-            role="tab"
-            aria-selected="true"
-            className={rsButtonClass({ variant: "primary", size: "sm" })}
-          >
-            People
-          </button>
-        </div>
+        <ResultTabs type={search.type} onChange={changeType} />
         <span aria-hidden="true" className="mx-1 h-7 w-px bg-rs-border" />
         <ModeSwitch keywordOnly={search.keywordOnly} onChange={changeMode} />
         <QueryCounter keywordOnly={search.keywordOnly} />
       </div>
       <h1 className="sr-only">Search{search.q && ` results for “${search.q}”`}</h1>
       <div className="flex flex-wrap items-start gap-6 max-[640px]:gap-4">
-        <SearchFilters search={search} facets={facets} onChange={changeFilters} />
+        {search.type === "people" && <SearchFilters search={search} facets={facets} onChange={changeFilters} />}
         <section aria-label="Results" className="flex min-w-0 flex-[999_1_560px] flex-col gap-3">
           {body}
         </section>
       </div>
+    </div>
+  );
+}
+
+const tabs: { type: SearchType; label: string }[] = [
+  { type: "people", label: "People" },
+  { type: "projects", label: "Projects" },
+];
+
+// ResultTabs picks what to search: People or Projects. Posts join with their slice. The
+// arrow keys move between the tabs.
+function ResultTabs({ type, onChange }: { type: SearchType; onChange: (type: SearchType) => void }) {
+  function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const i = tabs.findIndex((t) => t.type === type);
+    const next = (i + (event.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length;
+    onChange(tabs[next].type);
+    event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
+  }
+  return (
+    <div role="tablist" aria-label="Result type" onKeyDown={onKeyDown} className="flex flex-wrap gap-1.5">
+      {tabs.map((tab) => {
+        const selected = tab.type === type;
+        return (
+          <button
+            key={tab.type}
+            type="button"
+            role="tab"
+            aria-selected={selected}
+            tabIndex={selected ? 0 : -1}
+            onClick={() => onChange(tab.type)}
+            className={rsButtonClass({ variant: selected ? "primary" : "secondary", size: "sm" })}
+          >
+            {tab.label}
+          </button>
+        );
+      })}
     </div>
   );
 }

@@ -74,7 +74,7 @@ export function StaticSearchBox({
 // SearchBox sends the trimmed query to the search page (FR-6.1, AI-5.1); shorter than 2
 // characters does nothing. On the search page it shows the current query, keeps the search
 // mode (Keyword or By meaning) and shares the length of the text being typed, which the
-// page's counter shows.
+// page's counter shows. It keeps the result tab (People or Projects) too.
 export function SearchBox({ id, variant }: Omit<SearchBoxProps, "value" | "maxLength">) {
   const router = useRouter();
   const pathname = usePathname();
@@ -82,6 +82,7 @@ export function SearchBox({ id, variant }: Omit<SearchBoxProps, "value" | "maxLe
   const onSearch = pathname === "/search";
   const value = onSearch ? (params.get("q") ?? "") : "";
   const keywordOnly = onSearch && params.get("mode") === "keyword";
+  const projects = onSearch && params.get("type") === "projects";
 
   useEffect(() => {
     setSearchDraftLength(value.length);
@@ -92,6 +93,7 @@ export function SearchBox({ id, variant }: Omit<SearchBoxProps, "value" | "maxLe
     const q = String(new FormData(event.currentTarget).get("q") ?? "").trim();
     if (q.length < minQueryLength) return;
     const next = new URLSearchParams({ q });
+    if (projects) next.set("type", "projects");
     if (keywordOnly) next.set("mode", "keyword");
     router.push(`/search?${next}`);
   }

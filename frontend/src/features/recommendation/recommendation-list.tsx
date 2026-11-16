@@ -15,13 +15,19 @@ import { useRecommendations } from "./recommendations-provider";
 // The places a list is shown. home and profile are the narrow right-column cards of
 // design/screens/Home.html and Profile.html; network is the collaborators card of
 // Network.html and page the full list at /network/recommendations, both with wide rows.
-export type RecommendationVariant = "home" | "profile" | "network" | "page";
+// project is the owner's "Researchers who fit this project" card of ProjectDetail.html
+// (AI-2.3), narrow, fed by a RecommendationsProvider that reads the project's list.
+export type RecommendationVariant = "home" | "profile" | "network" | "page" | "project";
 
 type VariantConfig = {
   title: string;
   level: 2 | 3;
   intro?: string;
   wide: boolean;
+  // processing replaces the default text while the embedding is being made.
+  processing?: string;
+  // info replaces scoreInfoText.
+  info?: string;
 };
 
 const excludesNote =
@@ -37,6 +43,15 @@ const variants: Record<RecommendationVariant, VariantConfig> = {
   },
   network: { title: "Researchers to work with", level: 3, intro: excludesNote, wide: true },
   page: { title: "Researchers to work with", level: 2, intro: excludesNote, wide: true },
+  // slice 20: the project rows offer Invite (FR-11.3) in place of Connect.
+  project: {
+    title: "Researchers who fit this project",
+    level: 2,
+    intro: "Excludes the project’s members. Ranked only by research similarity — never by citations, papers or connection counts.",
+    wide: false,
+    processing: "We’re finding researchers for this project. Check back in a minute.",
+    info: "How closely their research profile matches this project’s title, description, skills and abstract. Not based on popularity.",
+  },
 };
 
 // scoreInfoText explains the match score (AI-2.4).
@@ -58,7 +73,11 @@ export function RecommendationList({ limit, variant }: { limit: number; variant:
   const { state } = recs;
 
   if (variant === "profile" && (state.status !== "ready" || state.rows.length === 0)) return null;
-  if (state.status === "needs_profile") return <NeedsProfileCard missing={state.missing} level={config.level} />;
+  if (state.status === "needs_profile") {
+    // Home's one card speaks for the projects card under it too (design/screens/Home.html).
+    const what = variant === "home" ? "collaborators and projects" : "collaborators";
+    return <NeedsProfileCard missing={state.missing} level={config.level} what={what} />;
+  }
 
   let body: ReactNode;
   switch (state.status) {
@@ -68,7 +87,7 @@ export function RecommendationList({ limit, variant }: { limit: number; variant:
     case "processing":
       body = (
         <p role="status" className="text-rs-body text-rs-text">
-          We’re preparing your recommendations. Check back in a minute.
+          {config.processing ?? "We’re preparing your recommendations. Check back in a minute."}
         </p>
       );
       break;
@@ -165,7 +184,7 @@ function Card({ config, busy, children }: { config: VariantConfig; busy: boolean
   );
   const info = (
     <p id={infoId} hidden={!infoOpen} className="text-rs-caption text-rs-text">
-      {scoreInfoText}
+      {config.info ?? scoreInfoText}
     </p>
   );
   const intro = config.intro && <p className="text-rs-caption text-rs-text-muted">{config.intro}</p>;
@@ -263,7 +282,7 @@ function Row({
 
 // MatchBadge is the score as "97% match" (AI-2.2), read as "97 percent match"; bar adds the
 // score bar of the wide rows.
-function MatchBadge({ score, bar = false }: { score: number; bar?: boolean }) {
+export function MatchBadge({ score, bar = false }: { score: number; bar?: boolean }) {
   const text = (
     <>
       <span aria-hidden="true">{score}% match</span>
@@ -282,14 +301,14 @@ function MatchBadge({ score, bar = false }: { score: number; bar?: boolean }) {
 }
 
 // Shared lists up to 3 interests or skills both users have.
-function Shared({ items }: { items: string[] }) {
+export function Shared({ items, label = "Shared interests and skills" }: { items: string[]; label?: string }) {
   if (items.length === 0) return null;
   return (
     <div className="flex flex-wrap items-center gap-1">
       <span aria-hidden="true" className="text-rs-tiny text-rs-text-muted">
         Shared:
       </span>
-      <ul aria-label="Shared interests and skills" className="flex flex-wrap gap-1">
+      <ul aria-label={label} className="flex flex-wrap gap-1">
         {items.map((tag) => (
           <li key={tag} className="rounded-rs-pill bg-rs-accent-soft px-2 py-0.5 text-rs-tiny text-rs-heading">
             {tag}
@@ -313,8 +332,17 @@ const missingAction: Record<MissingField, { label: string; href: string }> = {
 };
 
 // NeedsProfileCard is the dashed "Get better recommendations" card (AI-4.2): it names what
-// the profile lacks and links to the editor of the first of them.
-function NeedsProfileCard({ missing, level }: { missing: MissingField[]; level: 2 | 3 }) {
+// the profile lacks and links to the editor of the first of them. what names what we would
+// suggest ("collaborators").
+export function NeedsProfileCard({
+  missing,
+  level,
+  what = "collaborators",
+}: {
+  missing: MissingField[];
+  level: 2 | 3;
+  what?: string;
+}) {
   const headingId = useId();
   const H = level === 2 ? "h2" : "h3";
   const fields = missing.length > 0 ? missing : (["interests", "skills", "bio"] as MissingField[]);
@@ -325,7 +353,7 @@ function NeedsProfileCard({ missing, level }: { missing: MissingField[]; level: 
         Get better recommendations
       </H>
       <p className="text-rs-body text-rs-text">
-        Add {joinOr(fields.map((f) => missingLabels[f]))} and we’ll suggest collaborators — no publications needed.
+        Add {joinOr(fields.map((f) => missingLabels[f]))} and we’ll suggest {what} — no publications needed.
       </p>
       <Link href={action.href} className={`${rsButtonClass({ size: "sm" })} self-start`}>
         {action.label}

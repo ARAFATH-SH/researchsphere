@@ -4,7 +4,15 @@ describe("readSearch", () => {
   it("reads every parameter", () => {
     expect(
       readSearch(new URLSearchParams("q=+ada+&institution=BUET&interest=ml&interest=nlp&page=3")),
-    ).toEqual({ q: "ada", institution: "BUET", interests: ["ml", "nlp"], page: 3, keywordOnly: false });
+    ).toEqual({ q: "ada", institution: "BUET", interests: ["ml", "nlp"], page: 3, keywordOnly: false, type: "people" });
+  });
+
+  it.each([
+    ["projects", "projects"],
+    ["people", "people"],
+    ["posts", "people"],
+  ])("reads type %j as the %s tab", (type, tab) => {
+    expect(readSearch(new URLSearchParams(`q=ada&type=${type}`)).type).toBe(tab);
   });
 
   it.each(["0", "51", "2.5", "x", "-1"])("turns page %j into 1", (page) => {
@@ -18,6 +26,7 @@ describe("readSearch", () => {
       interests: [],
       page: 1,
       keywordOnly: false,
+      type: "people",
     });
   });
 
@@ -38,10 +47,39 @@ describe("searchHref", () => {
   });
 
   it("repeats interest and round-trips through readSearch", () => {
-    const state = { q: "ada", institution: "BUET", interests: ["ml", "nlp"], page: 2, keywordOnly: true };
+    const state = {
+      q: "ada",
+      institution: "BUET",
+      interests: ["ml", "nlp"],
+      page: 2,
+      keywordOnly: true,
+      type: "people" as const,
+    };
     const href = searchHref(state);
     expect(href).toBe("/search?q=ada&institution=BUET&interest=ml&interest=nlp&page=2&mode=keyword");
     expect(readSearch(new URLSearchParams(href.split("?")[1]))).toEqual(state);
+  });
+});
+
+describe("searchHref for projects", () => {
+  it("names the tab, leaves out the people filters and round-trips", () => {
+    const href = searchHref({
+      q: "graph",
+      institution: "BUET",
+      interests: ["ml"],
+      page: 3,
+      keywordOnly: true,
+      type: "projects",
+    });
+    expect(href).toBe("/search?q=graph&type=projects&page=3&mode=keyword");
+    expect(readSearch(new URLSearchParams(href.split("?")[1]))).toEqual({
+      q: "graph",
+      institution: "",
+      interests: [],
+      page: 3,
+      keywordOnly: true,
+      type: "projects",
+    });
   });
 });
 
