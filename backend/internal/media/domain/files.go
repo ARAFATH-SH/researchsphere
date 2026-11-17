@@ -20,6 +20,13 @@ type PreparedFile struct {
 	Width, Height int
 }
 
+// FigureInfo is what the figure check found (FR-12.2): its type, from the content, and an
+// image's size in pixels (0 for a PDF).
+type FigureInfo struct {
+	ContentType   string
+	Width, Height int
+}
+
 // ScanStatus is a stored file's scan outcome. The values match stored_files.scan_status.
 type ScanStatus string
 

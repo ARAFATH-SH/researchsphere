@@ -8,8 +8,11 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"image/jpeg"
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -49,14 +52,31 @@ func (e mediaEnv) tree(t *testing.T, userID, projectPath string) ([]string, map[
 	return paths, byPath, body["mainFilePath"].(string)
 }
 
-// uploadFigure posts content as a figure at path, and deletes its object from the bucket
-// when the test ends unless the test already did.
-func (e mediaEnv) uploadFigure(t *testing.T, userID, projectPath, path string, content []byte) (int, map[string]any) {
+// startUpload asks for a presigned POST of size bytes to path.
+func (e mediaEnv) startUpload(t *testing.T, userID, projectPath, path string, size int) (int, map[string]any) {
+	t.Helper()
+	body, err := json.Marshal(map[string]any{"path": path, "size": size})
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, ticket := e.json(t, userID, http.MethodPost, projectPath+"/files/uploads", string(body))
+	if code == http.StatusCreated {
+		key := ticket["fields"].(map[string]any)["key"].(string)
+		t.Cleanup(func() { _ = e.files.Delete(context.Background(), key) })
+	}
+	return code, ticket
+}
+
+// postToStorage sends content with a presigned POST, as the browser does: the fields, then
+// the file part. It returns storage's status.
+func postToStorage(t *testing.T, ticket map[string]any, content []byte) int {
 	t.Helper()
 	var b bytes.Buffer
 	w := multipart.NewWriter(&b)
-	if err := w.WriteField("path", path); err != nil {
-		t.Fatal(err)
+	for k, v := range ticket["fields"].(map[string]any) {
+		if err := w.WriteField(k, v.(string)); err != nil {
+			t.Fatal(err)
+		}
 	}
 	fw, err := w.CreateFormFile("file", "upload.bin")
 	if err != nil {
@@ -68,13 +88,42 @@ func (e mediaEnv) uploadFigure(t *testing.T, userID, projectPath, path string, c
 	if err := w.Close(); err != nil {
 		t.Fatal(err)
 	}
-	rec := e.send(t, userID, http.MethodPost, projectPath+"/files/uploads", &b, w.FormDataContentType())
-	body := decodeBody(t, rec.Body.Bytes())
-	if id, ok := body["id"].(string); ok && rec.Code == http.StatusCreated {
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, ticket["url"].(string), &b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	return resp.StatusCode
+}
+
+// completeUpload records the figure of an upload.
+func (e mediaEnv) completeUpload(t *testing.T, userID, projectPath, uploadID string) (int, map[string]any) {
+	t.Helper()
+	code, body := e.json(t, userID, http.MethodPost, projectPath+"/files/uploads/"+uploadID+"/complete", "")
+	if id, ok := body["id"].(string); ok && code == http.StatusCreated {
 		key := e.figureKey(t, id)
 		t.Cleanup(func() { _ = e.files.Delete(context.Background(), key) })
 	}
-	return rec.Code, body
+	return code, body
+}
+
+// uploadFigure sends content as a figure at path the way the web client does: start, POST to
+// storage, complete. Objects are deleted from the bucket when the test ends.
+func (e mediaEnv) uploadFigure(t *testing.T, userID, projectPath, path string, content []byte) (int, map[string]any) {
+	t.Helper()
+	code, ticket := e.startUpload(t, userID, projectPath, path, len(content))
+	if code != http.StatusCreated {
+		return code, ticket
+	}
+	if status := postToStorage(t, ticket, content); status != http.StatusNoContent {
+		t.Fatalf("storage refused the POST: %d", status)
+	}
+	return e.completeUpload(t, userID, projectPath, ticket["id"].(string))
 }
 
 func (e mediaEnv) figureKey(t *testing.T, fileID string) string {
@@ -260,8 +309,9 @@ func TestProjectFileTree(t *testing.T) {
 	wantError(t, "deleted file", code, body, http.StatusNotFound, "not_found")
 }
 
-// FR-12.2: figures by content type only, EXIF dropped, scanned before anyone downloads them;
-// infected ones are removed; deleting the project deletes their objects.
+// FR-12.2: figures go straight to storage, are typed by content only with EXIF dropped
+// losslessly, and are scanned before anyone downloads them; infected ones are removed;
+// deleting the project deletes their objects.
 func TestProjectFigures(t *testing.T) {
 	e := newMediaEnv(t)
 	ada, bob := e.projectUser(t), e.projectUser(t)
@@ -306,6 +356,23 @@ func TestProjectFigures(t *testing.T) {
 	if bytes.Contains(content, []byte("SECRET-EXIF-MARKER")) || bytes.Contains(content, []byte("Exif\x00\x00")) {
 		t.Errorf("EXIF kept in the stored figure (%d bytes)", len(content))
 	}
+	// Lossless: the image is not encoded again, so its pixels are exactly the upload's.
+	before, err := jpeg.Decode(bytes.NewReader(jpg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := jpeg.Decode(bytes.NewReader(content))
+	if err != nil {
+		t.Fatalf("stored figure does not decode: %v", err)
+	}
+	yb, ya := before.(*image.YCbCr), after.(*image.YCbCr)
+	if !bytes.Equal(yb.Y, ya.Y) || !bytes.Equal(yb.Cb, ya.Cb) || !bytes.Equal(yb.Cr, ya.Cr) || int64(len(content)) != int64(fig["size"].(float64)) {
+		t.Errorf("pixels changed, or size %v is not the stored %d bytes", fig["size"], len(content))
+	}
+	// The scan section of the file, from the start of scan to the end, is byte-identical.
+	if sos := bytes.Index(jpg, []byte{0xFF, 0xDA}); sos < 0 || !bytes.HasSuffix(content, jpg[sos:]) {
+		t.Error("the image data was changed")
+	}
 	if !strings.HasPrefix(header.Get("Content-Disposition"), "attachment") || header.Get("Content-Type") != "image/jpeg" {
 		t.Errorf("download headers = %v", header)
 	}
@@ -339,7 +406,6 @@ func TestProjectFigures(t *testing.T) {
 		{"jpeg named .png", "figures/x.png", jpg, http.StatusBadRequest, "type_mismatch"},
 		{"png named .pdf", "figures/x.pdf", png, http.StatusBadRequest, "type_mismatch"},
 		{"no figure extension", "figures/x.tex", png, http.StatusBadRequest, "invalid_path"},
-		{"over 5 MB", "figures/big.pdf", append([]byte("%PDF-"), make([]byte, projectusecase.MaxFigureBytes)...), http.StatusRequestEntityTooLarge, "file_too_large"},
 		{"path taken", "FIGURES/PHOTO.JPG", jpg, http.StatusConflict, "path_taken"},
 	} {
 		code, body := e.uploadFigure(t, ada, path, tt.path, tt.data)
@@ -364,6 +430,81 @@ func TestProjectFigures(t *testing.T) {
 	if n := e.countRows(t, `SELECT count(*) FROM stored_files WHERE project_id = $1`, id); n != 0 {
 		t.Errorf("%d stored files outlived the project", n)
 	}
+}
+
+// FR-12.2: the figure and project limits come from the settings; the browser's POST is held
+// to the size it announced; only the user who started an upload completes it; an abandoned
+// upload expires and its object is queued for deletion.
+func TestProjectFigureLimits(t *testing.T) {
+	e := newMediaEnvOnPool(t, testenv.DB(t), "", "", envOptions{figures: &figureLimits{figure: 1500, storage: 2500}})
+	ada, bob := e.projectUser(t), e.projectUser(t)
+	id, path := e.ownProject(t, ada, testenv.Word(t)+" limits")
+	e.member(t, id, bob, "editor")
+	pdf := func(n int) []byte { return append([]byte("%PDF-1.4\n"), bytes.Repeat([]byte("x"), n-9)...) }
+
+	code, body := e.startUpload(t, ada, path, "big.pdf", 1501)
+	if code != http.StatusRequestEntityTooLarge || body["code"] != "file_too_large" || body["limitBytes"] != float64(1500) {
+		t.Errorf("over the figure limit: %d %v", code, body)
+	}
+	if code, body := e.uploadFigure(t, ada, path, "a.pdf", pdf(1200)); code != http.StatusCreated {
+		t.Fatalf("a.pdf: %d %v", code, body)
+	}
+	code, body = e.startUpload(t, bob, path, "b.pdf", 1301)
+	if code != http.StatusRequestEntityTooLarge || body["code"] != "storage_limit_reached" ||
+		body["usedBytes"] != float64(1200) || body["limitBytes"] != float64(2500) ||
+		body["message"] != "This project uses 2 KB of 3 KB, so a figure of 2 KB does not fit. Delete figures it no longer needs to make room." {
+		t.Errorf("over the project limit: %d %v", code, body)
+	}
+	code, tree := e.json(t, bob, http.MethodGet, path+"/files", "")
+	if st, _ := tree["storage"].(map[string]any); code != http.StatusOK || st["usedBytes"] != float64(1200) ||
+		st["limitBytes"] != float64(2500) || st["figureMaxBytes"] != float64(1500) {
+		t.Errorf("tree storage: %d %v", code, tree["storage"])
+	}
+
+	// Storage holds the POST to the announced size; until a file arrives there is nothing to
+	// complete.
+	code, ticket := e.startUpload(t, bob, path, "b.pdf", 100)
+	if code != http.StatusCreated || !strings.HasPrefix(ticket["fields"].(map[string]any)["key"].(string), "projects/"+id+"/uploads/") {
+		t.Fatalf("start: %d %v", code, ticket)
+	}
+	if status := postToStorage(t, ticket, pdf(1000)); status != http.StatusBadRequest {
+		t.Errorf("POST over the announced size: %d, want 400", status)
+	}
+	code, body = e.completeUpload(t, bob, path, ticket["id"].(string))
+	wantError(t, "nothing arrived", code, body, http.StatusConflict, "upload_incomplete")
+	if status := postToStorage(t, ticket, pdf(100)); status != http.StatusNoContent {
+		t.Fatalf("POST: %d", status)
+	}
+	code, body = e.completeUpload(t, ada, path, ticket["id"].(string))
+	wantError(t, "another member completes", code, body, http.StatusNotFound, "not_found")
+	if code, body := e.completeUpload(t, bob, path, ticket["id"].(string)); code != http.StatusCreated || body["size"] != float64(100) {
+		t.Fatalf("complete: %d %v", code, body)
+	}
+	code, body = e.completeUpload(t, bob, path, ticket["id"].(string))
+	wantError(t, "completed twice", code, body, http.StatusNotFound, "not_found")
+	uploadKey := ticket["fields"].(map[string]any)["key"].(string)
+	if e.objectExists(t, uploadKey) {
+		t.Error("the upload's own object outlived its completion")
+	}
+
+	// An abandoned upload: its hour passes, the sweep deletes it and queues its object.
+	code, ticket = e.startUpload(t, bob, path, "c.pdf", 50)
+	if code != http.StatusCreated || postToStorage(t, ticket, pdf(50)) != http.StatusNoContent {
+		t.Fatalf("start c.pdf: %d", code)
+	}
+	if _, err := e.pool.Exec(t.Context(), `UPDATE project_figure_uploads
+		SET created_at = now() - interval '2 hours', expires_at = now() - interval '1 hour' WHERE id = $1`, ticket["id"]); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := e.projects.ExpireUploads(t.Context()); err != nil || n != 1 {
+		t.Fatalf("ExpireUploads = %d, %v", n, err)
+	}
+	key := ticket["fields"].(map[string]any)["key"].(string)
+	if n := e.countRows(t, `SELECT count(*) FROM storage_deletions WHERE object_key = $1`, key); n != 1 {
+		t.Error("the abandoned upload's object was not queued for deletion")
+	}
+	code, body = e.completeUpload(t, bob, path, ticket["id"].(string))
+	wantError(t, "expired", code, body, http.StatusNotFound, "not_found")
 }
 
 func testenvTitle(t *testing.T, e mediaEnv, projectID string) string {

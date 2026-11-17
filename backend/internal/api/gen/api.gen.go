@@ -1853,6 +1853,30 @@ type ExperienceUpdate struct {
 	Title     nullable.Nullable[string]    `json:"title,omitempty"`
 }
 
+// FigureUploadStart defines model for FigureUploadStart.
+type FigureUploadStart struct {
+	// Path Where the figure goes; see `ProjectFilePath`. It ends in `.png`, `.jpg`, `.jpeg` or `.pdf`.
+	Path string `json:"path"`
+
+	// Size The file's size in bytes; storage accepts exactly this many.
+	Size int64 `json:"size"`
+}
+
+// FigureUploadTicket defines model for FigureUploadTicket.
+type FigureUploadTicket struct {
+	// ExpiresAt Storage refuses the POST after this time.
+	ExpiresAt time.Time `json:"expiresAt"`
+
+	// Fields Form fields to send, in any order, before the file part named `file`.
+	Fields map[string]string `json:"fields"`
+
+	// Id The upload, for `completeFigureUpload`.
+	Id openapi_types.UUID `json:"id"`
+
+	// Url Where to POST the form (the storage service, not the API).
+	Url string `json:"url"`
+}
+
 // FileVersionConflict The `Error` shape with one **conflict-specific extension** (docs/decisions.md,
 // 2026-11-17): on `version_conflict`, `current` holds the file's version and text as
 // they are now, so the client can show or merge them without another request. It is
@@ -3050,6 +3074,10 @@ type ProjectFileTree struct {
 
 	// MainFilePath The file compile starts from (FR-13.1); it may not exist.
 	MainFilePath string `json:"mainFilePath"`
+
+	// Storage The project's figure storage and its limits (FR-12.2; `FIGURE_MAX_BYTES` and
+	// `PROJECT_STORAGE_MAX_BYTES`, docs/decisions.md 2026-11-18).
+	Storage ProjectStorage `json:"storage"`
 }
 
 // ProjectInvitation An invitation as the project's owner sees it.
@@ -3279,6 +3307,19 @@ type ProjectSearchResultMatchedOn string
 
 // ProjectStatus `open` projects are found by search (FR-10.3); `archived` projects are seen by members only.
 type ProjectStatus string
+
+// ProjectStorage The project's figure storage and its limits (FR-12.2; `FIGURE_MAX_BYTES` and
+// `PROJECT_STORAGE_MAX_BYTES`, docs/decisions.md 2026-11-18).
+type ProjectStorage struct {
+	// FigureMaxBytes The largest figure, 50 MB by default.
+	FigureMaxBytes int64 `json:"figureMaxBytes"`
+
+	// LimitBytes The most the project's figures may take, 500 MB by default.
+	LimitBytes int64 `json:"limitBytes"`
+
+	// UsedBytes The bytes of the project's figures, except those removed as malware.
+	UsedBytes int64 `json:"usedBytes"`
+}
 
 // ProjectSummary A project in a list.
 type ProjectSummary struct {
@@ -3790,6 +3831,17 @@ type SentMessage struct {
 	Message           Message           `json:"message"`
 }
 
+// StorageLimitError The `Error` shape. On `storage_limit_reached` it adds `usedBytes` and `limitBytes`,
+// the project's storage as it is now (docs/decisions.md, 2026-11-18); the message
+// names both too. `file_too_large` carries `limitBytes`, the largest figure.
+type StorageLimitError struct {
+	// Code Example: storage_limit_reached
+	Code       string `json:"code"`
+	LimitBytes *int64 `json:"limitBytes,omitempty"`
+	Message    string `json:"message"`
+	UsedBytes  *int64 `json:"usedBytes,omitempty"`
+}
+
 // SuspendUserRequest defines model for SuspendUserRequest.
 type SuspendUserRequest struct {
 	// Note For administrators only. It is never shown or sent to the user.
@@ -4017,6 +4069,11 @@ type AttachmentRemoved = Error
 
 // DOINotFound The shape of every error response (SRS 5.3).
 type DOINotFound = Error
+
+// FigureTooLarge The `Error` shape. On `storage_limit_reached` it adds `usedBytes` and `limitBytes`,
+// the project's storage as it is now (docs/decisions.md, 2026-11-18); the message
+// names both too. `file_too_large` carries `limitBytes`, the largest figure.
+type FigureTooLarge = StorageLimitError
 
 // FileTooLarge The shape of every error response (SRS 5.3).
 type FileTooLarge = Error
@@ -4398,12 +4455,6 @@ type DeleteProjectParams struct {
 	Confirm *string `form:"confirm,omitempty" json:"confirm,omitempty"`
 }
 
-// UploadProjectFigureMultipartBody defines parameters for UploadProjectFigure.
-type UploadProjectFigureMultipartBody struct {
-	File openapi_types.File `json:"file"`
-	Path string             `json:"path"`
-}
-
 // ListProjectInvitationsParams defines parameters for ListProjectInvitations.
 type ListProjectInvitationsParams struct {
 	// Page The page to return, from 1. Defaults to 1. A value below 1 gets 400 `bad_request`.
@@ -4670,8 +4721,8 @@ type UpdateProjectJSONRequestBody = ProjectUpdate
 // CreateProjectFileJSONRequestBody defines body for CreateProjectFile for application/json ContentType.
 type CreateProjectFileJSONRequestBody = ProjectFileCreate
 
-// UploadProjectFigureMultipartRequestBody defines body for UploadProjectFigure for multipart/form-data ContentType.
-type UploadProjectFigureMultipartRequestBody UploadProjectFigureMultipartBody
+// StartFigureUploadJSONRequestBody defines body for StartFigureUpload for application/json ContentType.
+type StartFigureUploadJSONRequestBody = FigureUploadStart
 
 // MoveProjectFileJSONRequestBody defines body for MoveProjectFile for application/json ContentType.
 type MoveProjectFileJSONRequestBody = ProjectFileMove
@@ -5038,9 +5089,12 @@ type ServerInterface interface {
 	// CreateProjectFile Create a text file or a folder (FR-12.1)
 	// (POST /projects/{projectId}/files)
 	CreateProjectFile(w http.ResponseWriter, r *http.Request, projectId ProjectId)
-	// UploadProjectFigure Upload a figure, PNG, JPG or PDF of up to 5 MB (FR-12.2)
+	// StartFigureUpload Start a figure upload straight to storage, PNG, JPG or PDF (FR-12.2)
 	// (POST /projects/{projectId}/files/uploads)
-	UploadProjectFigure(w http.ResponseWriter, r *http.Request, projectId ProjectId)
+	StartFigureUpload(w http.ResponseWriter, r *http.Request, projectId ProjectId)
+	// CompleteFigureUpload Record a figure the browser sent to storage (FR-12.2)
+	// (POST /projects/{projectId}/files/uploads/{uploadId}/complete)
+	CompleteFigureUpload(w http.ResponseWriter, r *http.Request, projectId ProjectId, uploadId string)
 	// DeleteProjectFile Delete a file, or a folder with everything in it (FR-12.1)
 	// (DELETE /projects/{projectId}/files/{fileId})
 	DeleteProjectFile(w http.ResponseWriter, r *http.Request, projectId ProjectId, fileId ProjectFileId)
@@ -8749,8 +8803,8 @@ func (siw *ServerInterfaceWrapper) CreateProjectFile(w http.ResponseWriter, r *h
 	handler.ServeHTTP(w, r)
 }
 
-// UploadProjectFigure operation middleware
-func (siw *ServerInterfaceWrapper) UploadProjectFigure(w http.ResponseWriter, r *http.Request) {
+// StartFigureUpload operation middleware
+func (siw *ServerInterfaceWrapper) StartFigureUpload(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -8771,7 +8825,48 @@ func (siw *ServerInterfaceWrapper) UploadProjectFigure(w http.ResponseWriter, r 
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.UploadProjectFigure(w, r, projectId)
+		siw.Handler.StartFigureUpload(w, r, projectId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CompleteFigureUpload operation middleware
+func (siw *ServerInterfaceWrapper) CompleteFigureUpload(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", r.PathValue("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "uploadId" -------------
+	var uploadId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "uploadId", r.PathValue("uploadId"), &uploadId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "uploadId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CompleteFigureUpload(w, r, projectId, uploadId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -10332,7 +10427,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/projects/{projectId}/files/{fileId}", wrapper.GetProjectFile)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/projects/{projectId}/files/{fileId}", wrapper.MoveProjectFile)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/projects/{projectId}/files/{fileId}/content", wrapper.SaveProjectFileContent)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/projects/{projectId}/files/uploads", wrapper.UploadProjectFigure)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/projects/{projectId}/files/uploads", wrapper.StartFigureUpload)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/projects/{projectId}/files/uploads/{uploadId}/complete", wrapper.CompleteFigureUpload)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/me/join-requests", wrapper.ListMyJoinRequests)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/me/invitations", wrapper.ListMyInvitations)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/search/projects", wrapper.SearchProjects)
@@ -10371,6 +10467,8 @@ type AttachmentRedirectResponse struct {
 type AttachmentRemovedJSONResponse Error
 
 type DOINotFoundJSONResponse Error
+
+type FigureTooLargeJSONResponse StorageLimitError
 
 type FileTooLargeJSONResponse Error
 
@@ -20300,18 +20398,18 @@ func (response CreateProjectFile500JSONResponse) VisitCreateProjectFileResponse(
 	return err
 }
 
-type UploadProjectFigureRequestObject struct {
+type StartFigureUploadRequestObject struct {
 	ProjectId ProjectId `json:"projectId"`
-	Body      *multipart.Reader
+	Body      *StartFigureUploadJSONRequestBody
 }
 
-type UploadProjectFigureResponseObject interface {
-	VisitUploadProjectFigureResponse(w http.ResponseWriter) error
+type StartFigureUploadResponseObject interface {
+	VisitStartFigureUploadResponse(w http.ResponseWriter) error
 }
 
-type UploadProjectFigure201JSONResponse ProjectFile
+type StartFigureUpload201JSONResponse FigureUploadTicket
 
-func (response UploadProjectFigure201JSONResponse) VisitUploadProjectFigureResponse(w http.ResponseWriter) error {
+func (response StartFigureUpload201JSONResponse) VisitStartFigureUploadResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -20323,9 +20421,9 @@ func (response UploadProjectFigure201JSONResponse) VisitUploadProjectFigureRespo
 	return err
 }
 
-type UploadProjectFigure400JSONResponse struct{ InvalidProjectFileJSONResponse }
+type StartFigureUpload400JSONResponse struct{ InvalidProjectFileJSONResponse }
 
-func (response UploadProjectFigure400JSONResponse) VisitUploadProjectFigureResponse(w http.ResponseWriter) error {
+func (response StartFigureUpload400JSONResponse) VisitStartFigureUploadResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -20337,9 +20435,9 @@ func (response UploadProjectFigure400JSONResponse) VisitUploadProjectFigureRespo
 	return err
 }
 
-type UploadProjectFigure401JSONResponse struct{ UnauthorizedJSONResponse }
+type StartFigureUpload401JSONResponse struct{ UnauthorizedJSONResponse }
 
-func (response UploadProjectFigure401JSONResponse) VisitUploadProjectFigureResponse(w http.ResponseWriter) error {
+func (response StartFigureUpload401JSONResponse) VisitStartFigureUploadResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -20351,11 +20449,11 @@ func (response UploadProjectFigure401JSONResponse) VisitUploadProjectFigureRespo
 	return err
 }
 
-type UploadProjectFigure403JSONResponse struct {
+type StartFigureUpload403JSONResponse struct {
 	AccountSuspendedOrForbiddenJSONResponse
 }
 
-func (response UploadProjectFigure403JSONResponse) VisitUploadProjectFigureResponse(w http.ResponseWriter) error {
+func (response StartFigureUpload403JSONResponse) VisitStartFigureUploadResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -20367,9 +20465,9 @@ func (response UploadProjectFigure403JSONResponse) VisitUploadProjectFigureRespo
 	return err
 }
 
-type UploadProjectFigure404JSONResponse struct{ NotFoundJSONResponse }
+type StartFigureUpload404JSONResponse struct{ NotFoundJSONResponse }
 
-func (response UploadProjectFigure404JSONResponse) VisitUploadProjectFigureResponse(w http.ResponseWriter) error {
+func (response StartFigureUpload404JSONResponse) VisitStartFigureUploadResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -20381,11 +20479,11 @@ func (response UploadProjectFigure404JSONResponse) VisitUploadProjectFigureRespo
 	return err
 }
 
-type UploadProjectFigure409JSONResponse struct {
+type StartFigureUpload409JSONResponse struct {
 	ProjectFileConflictJSONResponse
 }
 
-func (response UploadProjectFigure409JSONResponse) VisitUploadProjectFigureResponse(w http.ResponseWriter) error {
+func (response StartFigureUpload409JSONResponse) VisitStartFigureUploadResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -20397,9 +20495,9 @@ func (response UploadProjectFigure409JSONResponse) VisitUploadProjectFigureRespo
 	return err
 }
 
-type UploadProjectFigure413JSONResponse struct{ FileTooLargeJSONResponse }
+type StartFigureUpload413JSONResponse struct{ FigureTooLargeJSONResponse }
 
-func (response UploadProjectFigure413JSONResponse) VisitUploadProjectFigureResponse(w http.ResponseWriter) error {
+func (response StartFigureUpload413JSONResponse) VisitStartFigureUploadResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -20411,27 +20509,11 @@ func (response UploadProjectFigure413JSONResponse) VisitUploadProjectFigureRespo
 	return err
 }
 
-type UploadProjectFigure415JSONResponse struct {
-	UnsupportedFigureTypeJSONResponse
-}
-
-func (response UploadProjectFigure415JSONResponse) VisitUploadProjectFigureResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(415)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type UploadProjectFigure429JSONResponse struct {
+type StartFigureUpload429JSONResponse struct {
 	ProjectFileRateLimitedJSONResponse
 }
 
-func (response UploadProjectFigure429JSONResponse) VisitUploadProjectFigureResponse(w http.ResponseWriter) error {
+func (response StartFigureUpload429JSONResponse) VisitStartFigureUploadResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -20444,9 +20526,150 @@ func (response UploadProjectFigure429JSONResponse) VisitUploadProjectFigureRespo
 	return err
 }
 
-type UploadProjectFigure500JSONResponse struct{ InternalErrorJSONResponse }
+type StartFigureUpload500JSONResponse struct{ InternalErrorJSONResponse }
 
-func (response UploadProjectFigure500JSONResponse) VisitUploadProjectFigureResponse(w http.ResponseWriter) error {
+func (response StartFigureUpload500JSONResponse) VisitStartFigureUploadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteFigureUploadRequestObject struct {
+	ProjectId ProjectId `json:"projectId"`
+	UploadId  string    `json:"uploadId"`
+}
+
+type CompleteFigureUploadResponseObject interface {
+	VisitCompleteFigureUploadResponse(w http.ResponseWriter) error
+}
+
+type CompleteFigureUpload201JSONResponse ProjectFile
+
+func (response CompleteFigureUpload201JSONResponse) VisitCompleteFigureUploadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteFigureUpload400JSONResponse struct{ InvalidProjectFileJSONResponse }
+
+func (response CompleteFigureUpload400JSONResponse) VisitCompleteFigureUploadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteFigureUpload401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CompleteFigureUpload401JSONResponse) VisitCompleteFigureUploadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteFigureUpload403JSONResponse struct {
+	AccountSuspendedOrForbiddenJSONResponse
+}
+
+func (response CompleteFigureUpload403JSONResponse) VisitCompleteFigureUploadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteFigureUpload404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CompleteFigureUpload404JSONResponse) VisitCompleteFigureUploadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteFigureUpload409JSONResponse struct {
+	ProjectFileConflictJSONResponse
+}
+
+func (response CompleteFigureUpload409JSONResponse) VisitCompleteFigureUploadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteFigureUpload413JSONResponse struct{ FigureTooLargeJSONResponse }
+
+func (response CompleteFigureUpload413JSONResponse) VisitCompleteFigureUploadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(413)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteFigureUpload415JSONResponse struct {
+	UnsupportedFigureTypeJSONResponse
+}
+
+func (response CompleteFigureUpload415JSONResponse) VisitCompleteFigureUploadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(415)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteFigureUpload500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response CompleteFigureUpload500JSONResponse) VisitCompleteFigureUploadResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -23647,9 +23870,12 @@ type StrictServerInterface interface {
 	// CreateProjectFile Create a text file or a folder (FR-12.1)
 	// (POST /projects/{projectId}/files)
 	CreateProjectFile(ctx context.Context, request CreateProjectFileRequestObject) (CreateProjectFileResponseObject, error)
-	// UploadProjectFigure Upload a figure, PNG, JPG or PDF of up to 5 MB (FR-12.2)
+	// StartFigureUpload Start a figure upload straight to storage, PNG, JPG or PDF (FR-12.2)
 	// (POST /projects/{projectId}/files/uploads)
-	UploadProjectFigure(ctx context.Context, request UploadProjectFigureRequestObject) (UploadProjectFigureResponseObject, error)
+	StartFigureUpload(ctx context.Context, request StartFigureUploadRequestObject) (StartFigureUploadResponseObject, error)
+	// CompleteFigureUpload Record a figure the browser sent to storage (FR-12.2)
+	// (POST /projects/{projectId}/files/uploads/{uploadId}/complete)
+	CompleteFigureUpload(ctx context.Context, request CompleteFigureUploadRequestObject) (CompleteFigureUploadResponseObject, error)
 	// DeleteProjectFile Delete a file, or a folder with everything in it (FR-12.1)
 	// (DELETE /projects/{projectId}/files/{fileId})
 	DeleteProjectFile(ctx context.Context, request DeleteProjectFileRequestObject) (DeleteProjectFileResponseObject, error)
@@ -26983,32 +27209,59 @@ func (sh *strictHandler) CreateProjectFile(w http.ResponseWriter, r *http.Reques
 	}
 }
 
-// UploadProjectFigure operation middleware
-func (sh *strictHandler) UploadProjectFigure(w http.ResponseWriter, r *http.Request, projectId ProjectId) {
-	var request UploadProjectFigureRequestObject
+// StartFigureUpload operation middleware
+func (sh *strictHandler) StartFigureUpload(w http.ResponseWriter, r *http.Request, projectId ProjectId) {
+	var request StartFigureUploadRequestObject
 
 	request.ProjectId = projectId
 
-	if reader, err := r.MultipartReader(); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode multipart body: %w", err))
+	var body StartFigureUploadJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
-	} else {
-		request.Body = reader
 	}
+	request.Body = &body
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.UploadProjectFigure(ctx, request.(UploadProjectFigureRequestObject))
+		return sh.ssi.StartFigureUpload(ctx, request.(StartFigureUploadRequestObject))
 	}
 	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "UploadProjectFigure")
+		handler = middleware(handler, "StartFigureUpload")
 	}
 
 	response, err := handler(r.Context(), w, r, request)
 
 	if err != nil {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(UploadProjectFigureResponseObject); ok {
-		if err := validResponse.VisitUploadProjectFigureResponse(w); err != nil {
+	} else if validResponse, ok := response.(StartFigureUploadResponseObject); ok {
+		if err := validResponse.VisitStartFigureUploadResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CompleteFigureUpload operation middleware
+func (sh *strictHandler) CompleteFigureUpload(w http.ResponseWriter, r *http.Request, projectId ProjectId, uploadId string) {
+	var request CompleteFigureUploadRequestObject
+
+	request.ProjectId = projectId
+	request.UploadId = uploadId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CompleteFigureUpload(ctx, request.(CompleteFigureUploadRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CompleteFigureUpload")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CompleteFigureUploadResponseObject); ok {
+		if err := validResponse.VisitCompleteFigureUploadResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

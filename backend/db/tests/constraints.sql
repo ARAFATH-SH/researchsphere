@@ -577,9 +577,9 @@ SELECT pg_temp.expect_error('Stored file: size must be more than 0',
 SELECT pg_temp.expect_error('Stored file: a photo is at most 2 MB (FR-4.6)',
     $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes)
        VALUES ('00000000-0000-0000-0000-000000000001', 'photo', pg_temp.t('x/4'), 'image/png', 2097153)$s$, '23514');
-SELECT pg_temp.expect_error('Stored file: a figure is at most 5 MB (FR-12.2)',
+SELECT pg_temp.expect_error('Stored file: a figure is at most 200 MiB, the ceiling of FIGURE_MAX_BYTES (FR-12.2)',
     $s$INSERT INTO stored_files (project_id, purpose, object_key, content_type, size_bytes)
-       VALUES ('00000000-0000-0000-0000-0000000000a1', 'figure', pg_temp.t('x/5'), 'image/png', 5242881)$s$, '23514');
+       VALUES ('00000000-0000-0000-0000-0000000000a1', 'figure', pg_temp.t('x/5'), 'image/png', 209715201)$s$, '23514');
 SELECT pg_temp.expect_error('Stored file: width and height are both set or both empty',
     $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes, width)
        VALUES ('00000000-0000-0000-0000-000000000001', 'photo', pg_temp.t('x/6'), 'image/png', 10, 100)$s$, '23514');
@@ -938,9 +938,9 @@ SELECT pg_temp.expect_error('File: a text file has content',
     $s$INSERT INTO project_files (project_id, path) VALUES ('00000000-0000-0000-0000-0000000000a1', 'none.tex')$s$, '23514');
 SELECT pg_temp.expect_error('File: a text file cannot take a figure''s extension',
     $s$INSERT INTO project_files (project_id, path, content) VALUES ('00000000-0000-0000-0000-0000000000a1', 'fake.png', '')$s$, '23514');
-SELECT pg_temp.expect_error('File: figure over 5 MB is refused (FR-12.2)',
+SELECT pg_temp.expect_error('File: figure over 200 MiB is refused (FR-12.2)',
     $s$INSERT INTO project_files (project_id, path, kind, stored_file_id, size_bytes)
-       VALUES ('00000000-0000-0000-0000-0000000000a1', 'big.png', 'binary', '00000000-0000-0000-0000-0000000000f2', 5242881)$s$, '23514');
+       VALUES ('00000000-0000-0000-0000-0000000000a1', 'big.png', 'binary', '00000000-0000-0000-0000-0000000000f2', 209715201)$s$, '23514');
 SELECT pg_temp.expect_error('File: figure must be PNG, JPG or PDF (FR-12.2)',
     $s$INSERT INTO project_files (project_id, path, kind, stored_file_id, size_bytes)
        VALUES ('00000000-0000-0000-0000-0000000000a1', 'anim.gif', 'binary', '00000000-0000-0000-0000-0000000000f2', 10)$s$, '23514');
@@ -962,6 +962,44 @@ SELECT pg_temp.expect_true('File: and queues its object', $q$
 SELECT pg_temp.expect_ok('File: a figure again, for the project deletion below',
     $s$INSERT INTO project_files (project_id, path, kind, stored_file_id, size_bytes)
        VALUES ('00000000-0000-0000-0000-0000000000a1', 'figs/p2.png', 'binary', '00000000-0000-0000-0000-0000000000f2', 10)$s$);
+
+-- Figure uploads waiting for confirmation (FR-12.2, migration 000036).
+SELECT pg_temp.expect_ok('Figure upload: a pending upload of 50 MB',
+    $s$INSERT INTO project_figure_uploads (project_id, user_id, object_key, path, size_bytes, expires_at)
+       VALUES ('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000000001',
+               'projects/00000000-0000-0000-0000-0000000000a1/uploads/00000000-0000-0000-0000-0000000000c1',
+               'figs/big.png', 52428800, now() + interval '1 hour')$s$);
+SELECT pg_temp.expect_error('Figure upload: at most 200 MiB',
+    $s$INSERT INTO project_figure_uploads (project_id, user_id, object_key, path, size_bytes, expires_at)
+       VALUES ('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000000001',
+               'projects/00000000-0000-0000-0000-0000000000a1/uploads/00000000-0000-0000-0000-0000000000c2',
+               'figs/huge.png', 209715201, now() + interval '1 hour')$s$, '23514');
+SELECT pg_temp.expect_error('Figure upload: never empty',
+    $s$INSERT INTO project_figure_uploads (project_id, user_id, object_key, path, size_bytes, expires_at)
+       VALUES ('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000000001',
+               'projects/00000000-0000-0000-0000-0000000000a1/uploads/00000000-0000-0000-0000-0000000000c3',
+               'figs/none.png', 0, now() + interval '1 hour')$s$, '23514');
+SELECT pg_temp.expect_error('Figure upload: its object waits under the project''s uploads/',
+    $s$INSERT INTO project_figure_uploads (project_id, user_id, object_key, path, size_bytes, expires_at)
+       VALUES ('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000000001',
+               'projects/00000000-0000-0000-0000-0000000000a1/files/00000000-0000-0000-0000-0000000000c4',
+               'figs/x.png', 10, now() + interval '1 hour')$s$, '23514');
+SELECT pg_temp.expect_error('Figure upload: expires after it starts',
+    $s$INSERT INTO project_figure_uploads (project_id, user_id, object_key, path, size_bytes, expires_at)
+       VALUES ('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000000001',
+               'projects/00000000-0000-0000-0000-0000000000a1/uploads/00000000-0000-0000-0000-0000000000c5',
+               'figs/x.png', 10, now() - interval '1 second')$s$, '23514');
+SELECT pg_temp.expect_ok('Figure upload: a second pending upload, for the project deletion below',
+    $s$INSERT INTO project_figure_uploads (project_id, user_id, object_key, path, size_bytes, expires_at)
+       VALUES ('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000000001',
+               'projects/00000000-0000-0000-0000-0000000000a1/uploads/00000000-0000-0000-0000-0000000000c6',
+               'figs/later.png', 10, now() + interval '1 hour')$s$);
+SELECT pg_temp.expect_ok('Figure upload: deleting one (confirmed or expired)',
+    $s$DELETE FROM project_figure_uploads
+       WHERE object_key = 'projects/00000000-0000-0000-0000-0000000000a1/uploads/00000000-0000-0000-0000-0000000000c1'$s$);
+SELECT pg_temp.expect_true('Figure upload: queues its object for deletion', $q$
+    SELECT EXISTS (SELECT 1 FROM storage_deletions
+                   WHERE object_key = 'projects/00000000-0000-0000-0000-0000000000a1/uploads/00000000-0000-0000-0000-0000000000c1')$q$);
 
 -- 200 entries at most, folders included: a project of its own, filled to the limit.
 INSERT INTO projects (id, title, description) VALUES ('00000000-0000-0000-0000-0000000000a9', 'Full project', 'Many files');
@@ -1499,6 +1537,10 @@ SELECT pg_temp.expect_true('Project deletion: files, members, requests, compile 
 SELECT pg_temp.expect_true('Project deletion: its figures'' stored files go and their objects are queued', $q$
     SELECT NOT EXISTS (SELECT 1 FROM stored_files WHERE project_id = '00000000-0000-0000-0000-0000000000a1')
        AND EXISTS (SELECT 1 FROM storage_deletions WHERE object_key = pg_temp.t('projects/a1/f2'))$q$);
+SELECT pg_temp.expect_true('Project deletion: its pending figure uploads go and their objects are queued', $q$
+    SELECT NOT EXISTS (SELECT 1 FROM project_figure_uploads WHERE project_id = '00000000-0000-0000-0000-0000000000a1')
+       AND EXISTS (SELECT 1 FROM storage_deletions
+                   WHERE object_key = 'projects/00000000-0000-0000-0000-0000000000a1/uploads/00000000-0000-0000-0000-0000000000c6')$q$);
 SELECT pg_temp.expect_true('Project deletion: a post that linked to it stays, without the link', $q$
     SELECT project_id IS NULL FROM posts WHERE id = '00000000-0000-0000-0000-0000000000e4'$q$);
 

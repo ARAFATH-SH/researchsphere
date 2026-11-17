@@ -112,10 +112,12 @@ describe("ProjectPage for the owner", () => {
     expect(screen.queryByRole("button", { name: "Report project" })).toBeNull();
     expect(screen.getByRole("button", { name: "+ Invite" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Transfer" })).toHaveProperty("disabled", true);
-    // No request or invitation yet; the workspace and venues come with their slices.
+    expect(screen.getByRole("link", { name: "Open workspace" }).getAttribute("href")).toBe(
+      `/projects/${projectID}/workspace`,
+    );
+    // No request or invitation yet; venues come with their slice.
     expect(screen.queryByText(/Join requests/)).toBeNull();
     expect(screen.queryByRole("region", { name: "Invitations" })).toBeNull();
-    expect(screen.queryByText(/Open workspace/)).toBeNull();
     expect(screen.queryByText(/Where to submit/)).toBeNull();
   });
 
@@ -266,6 +268,7 @@ describe("ProjectPage for others", () => {
     expect(screen.queryByRole("complementary", { name: "Project recommendations" })).toBeNull();
     expect(screen.getByText("3 members")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Report project" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Open workspace" })).toBeNull();
     expect(mockResearchers).not.toHaveBeenCalled();
   });
 
@@ -276,6 +279,8 @@ describe("ProjectPage for others", () => {
     expect(screen.queryByRole("button", { name: "Edit details" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Delete project" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Report project" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Ask to join" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Open workspace" })).toBeTruthy();
     expect(mockResearchers).not.toHaveBeenCalled();
   });
 

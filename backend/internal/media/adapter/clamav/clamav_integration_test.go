@@ -21,7 +21,7 @@ func TestRealClamd(t *testing.T) {
 	if addr == "" {
 		t.Skip("TEST_CLAMAV_ADDR is not set; no clamd to scan with")
 	}
-	c := New(addr)
+	c := New(addr, 0)
 	if err := c.Ping(t.Context()); err != nil {
 		t.Fatalf("Ping: %v", err)
 	}
@@ -32,5 +32,11 @@ func TestRealClamd(t *testing.T) {
 	v, err = c.Scan(t.Context(), bytes.NewReader(bytes.Repeat([]byte("plain research notes\n"), 10000)))
 	if err != nil || v.Infected {
 		t.Errorf("clean file: %+v, %v", v, err)
+	}
+	// docker-compose.yml raises clamd's limits to 210M (docs/decisions.md 2026-11-18): a file
+	// over the largest default figure (50 MB) is scanned whole, not refused or skipped.
+	v, err = c.Scan(t.Context(), bytes.NewReader(bytes.Repeat([]byte("figure bytes "), 55<<20/13)))
+	if err != nil || v.Infected {
+		t.Errorf("55 MB clean file: %+v, %v", v, err)
 	}
 }

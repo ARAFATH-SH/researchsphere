@@ -145,6 +145,16 @@ type envOptions struct {
 	realAuth bool
 	// ai, when set, is the AI service of the embedding module and of researcher search.
 	ai aiclient.Embedder
+	// figures, when set, replaces the figure limits of the settings' defaults (FR-12.2).
+	figures *figureLimits
+}
+
+// figureLimits are opt.figures, or FIGURE_MAX_BYTES' and PROJECT_STORAGE_MAX_BYTES' defaults.
+func (opt envOptions) figureLimits() figureLimits {
+	if opt.figures != nil {
+		return *opt.figures
+	}
+	return figureLimits{figure: config.DefaultFigureMaxBytes, storage: config.DefaultProjectStorageMaxBytes}
 }
 
 // newMediaEnvOnPool is newMediaEnvWithSources on a given pool to the test database, such
@@ -301,7 +311,7 @@ func wireEnv(t *testing.T, pool *pgxpool.Pool, rdb *goredis.Client, files *stora
 		search.embedder = projectQueryEmbedder{q: queryEmbedder{ai: opt.ai}}
 	}
 	projects, projectLimits := newProjects(pool, rdb, standings, search, projectChanges{recs: recommendations, people: recCache, logger: logger},
-		projectNotifier{notifications: notifications}, files, fileChecks, logger)
+		projectNotifier{notifications: notifications}, files, opt.figureLimits(), logger)
 	t.Cleanup(func() { _ = projectLimits.Close() })
 	memberships.projects = projects
 	titles.projects = projects

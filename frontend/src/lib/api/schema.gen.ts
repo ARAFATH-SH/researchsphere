@@ -3029,27 +3029,65 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Upload a figure, PNG, JPG or PDF of up to 5 MB (FR-12.2)
+         * Start a figure upload straight to storage, PNG, JPG or PDF (FR-12.2)
          * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
-         *     like, comment" (SRS 2.3). Multipart with two parts: `path`, where the figure goes,
-         *     and `file`. Checks run in this order: the parts (400 `bad_request`; `invalid_path`
-         *     for a path that breaks the path rules or does not end in `.png`, `.jpg`, `.jpeg` or
-         *     `.pdf`); membership (404 `not_found`), the project action "Edit files, upload
-         *     figures" (403 `forbidden`) and standing (403 `account_suspended`); the upload limit
-         *     (429 `rate_limited`: 30 figures per user per hour, refused files do not count); the
-         *     size (413 `file_too_large`, over 5 MB); the type, **read from the content only**,
-         *     never from the name or the part's header: PNG, JPEG or PDF (415 `unsupported_type`;
-         *     WebP is refused too, pdfLaTeX cannot use it); the path's extension must name the
-         *     type found (400 `type_mismatch`); an image over 8000 pixels a side gets 400
-         *     `image_too_large`, one that does not decode 400 `invalid_image`. Then as
-         *     `createProjectFile`: `path_taken`, `parent_not_folder`, `file_limit_reached`.
+         *     like, comment" (SRS 2.3). The first of two steps (docs/decisions.md, 2026-11-18): the
+         *     figure itself never passes through the API. The answer is a presigned POST: the
+         *     browser sends `fields`, then the file as the last part named `file`, to `url` before
+         *     `expiresAt` (15 minutes). Storage accepts exactly `size` bytes and nothing else, under
+         *     a key of its own. Then the browser calls `completeFigureUpload`.
          *
-         *     An image is decoded and encoded again at its own size, so EXIF, GPS and any other data
-         *     in it are dropped; an image that grows over 5 MB that way gets 413. A PDF is stored as
-         *     uploaded. The file is scanned for malware after the upload, as message attachments
-         *     are (FR-16.7); nobody can download it before the scan says clean.
+         *     Checks, in this order: the body (400 `bad_request`, `field: size` for a size under 1);
+         *     the path (400 `invalid_path`, also when it does not end in `.png`, `.jpg`, `.jpeg` or
+         *     `.pdf`); membership (404 `not_found`), the project action "Edit files, upload figures"
+         *     (403 `forbidden`) and standing (403 `account_suspended`); the upload limit (429
+         *     `rate_limited`: 30 figures per user per hour, counted when confirmed); the size (413
+         *     `file_too_large`, over `figureMaxBytes` of the tree's `storage`, 50 MB by default);
+         *     the project's storage (413 `storage_limit_reached`, with `usedBytes` and `limitBytes`,
+         *     when the project's figures, the uploads it has in progress and this one would pass
+         *     `limitBytes`, 500 MB by default); and, early, the path itself (409 `path_taken`,
+         *     `parent_not_folder`, `file_limit_reached`), all checked again on completion.
          */
-        post: operations["uploadProjectFigure"];
+        post: operations["startFigureUpload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{projectId}/files/uploads/{uploadId}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record a figure the browser sent to storage (FR-12.2)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). The second step: the API reads the object the browser sent
+         *     and records the figure. Only the user who started the upload may complete it, within
+         *     1 hour of the start; anyone else, an unknown, expired or already completed upload,
+         *     and a non-member get 404 `not_found`. 409 `upload_incomplete`: storage has no file
+         *     for this upload yet.
+         *
+         *     The type is **read from the content only**: PNG, JPEG or PDF (415
+         *     `unsupported_type`; WebP is refused, pdfLaTeX cannot use it), and the path's
+         *     extension must name it (400 `type_mismatch`). An image whose structure cannot be read
+         *     gets 400 `invalid_image`. **An image is not encoded again**: its metadata is removed
+         *     losslessly (JPEG: EXIF and XMP, IPTC, comments and other application segments,
+         *     keeping JFIF, the ICC colour profile and Adobe's colour marker; PNG: `eXIf`, text and
+         *     time chunks and any unknown ancillary chunk), so its pixels are exactly as uploaded;
+         *     anything after the image's end is dropped too. A PDF is stored as uploaded. Then,
+         *     under the project's lock, the role and standing again, the size and the project's
+         *     storage (413 as `startFigureUpload`) and the path (409 `path_taken`,
+         *     `parent_not_folder`, `file_limit_reached`). The file is scanned for malware after,
+         *     as message attachments are (FR-16.7); nobody can download it before the scan says
+         *     clean.
+         */
+        post: operations["completeFigureUpload"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4688,7 +4726,70 @@ export interface components {
         ProjectFileTree: {
             /** @description The file compile starts from (FR-13.1); it may not exist. */
             mainFilePath: string;
+            storage: components["schemas"]["ProjectStorage"];
             items: components["schemas"]["ProjectFile"][];
+        };
+        /**
+         * @description The project's figure storage and its limits (FR-12.2; `FIGURE_MAX_BYTES` and
+         *     `PROJECT_STORAGE_MAX_BYTES`, docs/decisions.md 2026-11-18).
+         */
+        ProjectStorage: {
+            /**
+             * Format: int64
+             * @description The bytes of the project's figures, except those removed as malware.
+             */
+            usedBytes: number;
+            /**
+             * Format: int64
+             * @description The most the project's figures may take, 500 MB by default.
+             */
+            limitBytes: number;
+            /**
+             * Format: int64
+             * @description The largest figure, 50 MB by default.
+             */
+            figureMaxBytes: number;
+        };
+        FigureUploadStart: {
+            /** @description Where the figure goes; see `ProjectFilePath`. It ends in `.png`, `.jpg`, `.jpeg` or `.pdf`. */
+            path: string;
+            /**
+             * Format: int64
+             * @description The file's size in bytes; storage accepts exactly this many.
+             */
+            size: number;
+        };
+        FigureUploadTicket: {
+            /**
+             * Format: uuid
+             * @description The upload, for `completeFigureUpload`.
+             */
+            id: string;
+            /** @description Where to POST the form (the storage service, not the API). */
+            url: string;
+            /** @description Form fields to send, in any order, before the file part named `file`. */
+            fields: {
+                [key: string]: string;
+            };
+            /**
+             * Format: date-time
+             * @description Storage refuses the POST after this time.
+             */
+            expiresAt: string;
+        };
+        /**
+         * @description The `Error` shape. On `storage_limit_reached` it adds `usedBytes` and `limitBytes`,
+         *     the project's storage as it is now (docs/decisions.md, 2026-11-18); the message
+         *     names both too. `file_too_large` carries `limitBytes`, the largest figure.
+         */
+        StorageLimitError: {
+            /** @example storage_limit_reached */
+            code: string;
+            message: string;
+            /** Format: int64 */
+            usedBytes?: number;
+            /** Format: int64 */
+            limitBytes?: number;
         };
         ProjectFileCreate: {
             /** @description See `ProjectFilePath`. */
@@ -5922,7 +6023,7 @@ export interface components {
          *     names a figure's extension for a text file, or a figure's path does not end in an
          *     extension of its type. `invalid_move`: a folder cannot move into itself or below
          *     itself. `type_mismatch`: the figure's content is not the type its extension names.
-         *     `image_too_large` and `invalid_image`: as for message attachments. `bad_request`
+         *     `invalid_image`: a figure's image structure cannot be read. `bad_request`
          *     (with `field` when one is at fault): any other invalid body, such as a folder with
          *     `content` or text with control characters.
          */
@@ -5938,6 +6039,7 @@ export interface components {
          * @description `path_taken`: another entry has this path, ignoring letter case. `parent_not_folder`:
          *     a part of the path is a file, not a folder. `file_limit_reached`: the project would
          *     have more than 200 files and folders.
+         *     `upload_incomplete`: storage has no file for this upload yet.
          */
         ProjectFileConflict: {
             headers: {
@@ -6119,6 +6221,18 @@ export interface components {
             };
             content: {
                 "application/json": components["schemas"]["Error"];
+            };
+        };
+        /**
+         * @description `file_too_large`: the figure is over the largest figure (`limitBytes`).
+         *     `storage_limit_reached`: the project's figures would pass its storage limit.
+         */
+        FigureTooLarge: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["StorageLimitError"];
             };
         };
         /** @description The file is not a PNG, JPEG or PDF by its content (`unsupported_type`). */
@@ -6445,20 +6559,6 @@ export interface components {
         AttachmentUpload: {
             content: {
                 "multipart/form-data": {
-                    /** Format: binary */
-                    file: string;
-                };
-            };
-        };
-        /**
-         * @description `path` where the figure goes (see `ProjectFilePath`; it must end in `.png`, `.jpg`,
-         *     `.jpeg` or `.pdf`) and the figure in the part named `file`. The file part's name and
-         *     content type are ignored.
-         */
-        FigureUpload: {
-            content: {
-                "multipart/form-data": {
-                    path: string;
                     /** Format: binary */
                     file: string;
                 };
@@ -11537,7 +11637,7 @@ export interface operations {
             500: components["responses"]["InternalError"];
         };
     };
-    uploadProjectFigure: {
+    startFigureUpload: {
         parameters: {
             query?: never;
             header?: never;
@@ -11550,7 +11650,50 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: components["requestBodies"]["FigureUpload"];
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FigureUploadStart"];
+            };
+        };
+        responses: {
+            /** @description Send the file to storage with this presigned POST. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FigureUploadTicket"];
+                };
+            };
+            400: components["responses"]["InvalidProjectFile"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["AccountSuspendedOrForbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["ProjectFileConflict"];
+            413: components["responses"]["FigureTooLarge"];
+            429: components["responses"]["ProjectFileRateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    completeFigureUpload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The project's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                projectId: components["parameters"]["ProjectId"];
+                /**
+                 * @description The upload's `id` from `startFigureUpload`, a UUID declared as a plain string like
+                 *     `fileId`; a value that is not a UUID gets 404 `not_found`.
+                 */
+                uploadId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description The figure is stored and waits for its scan. */
             201: {
@@ -11566,9 +11709,8 @@ export interface operations {
             403: components["responses"]["AccountSuspendedOrForbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["ProjectFileConflict"];
-            413: components["responses"]["FileTooLarge"];
+            413: components["responses"]["FigureTooLarge"];
             415: components["responses"]["UnsupportedFigureType"];
-            429: components["responses"]["ProjectFileRateLimited"];
             500: components["responses"]["InternalError"];
         };
     };

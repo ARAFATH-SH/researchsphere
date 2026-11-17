@@ -3,7 +3,8 @@ import { refreshSession, reportSessionLost } from "./client";
 
 // The one exception to "every API call goes through client.ts" (docs/decisions.md,
 // 2026-11-10): fetch cannot report how much of a request body has been sent, so a file upload
-// that shows progress uses XMLHttpRequest, here and nowhere else. It keeps the client's rules:
+// that shows progress uses XMLHttpRequest, here and nowhere else. postToStorage, at the end,
+// is the only request that leaves the API's origin: a figure's presigned POST (2026-11-18). It keeps the client's rules:
 // the same /api/v1 origin with the cookies, one refresh and one retry on 401 through
 // refreshSession, and the same lost-session report when the refresh fails.
 
@@ -89,4 +90,54 @@ export async function uploadFile<T>(path: string, file: File, options: UploadOpt
   }
   const error = isApiError(body) ? { code: body.code, message: body.message } : unexpectedError;
   return { ok: false, status, ...error, ...(retryAfter ? { retryAfter } : {}) };
+}
+
+// StorageResult is the outcome of a POST to object storage: status is storage's HTTP status,
+// 0 when it could not be reached.
+export type StorageResult = { ok: true } | ({ ok: false; status: number } & ApiError);
+
+// storageFailed is a POST storage refused: an expired or changed form, or a different size.
+export const storageFailed: ApiError = {
+  code: "storage_failed",
+  message: "The file couldn’t be sent to storage. Try again.",
+};
+
+// postToStorage sends a file with a presigned POST straight to object storage (FR-12.2,
+// docs/decisions.md 2026-11-18): fields first, then the file in the part named "file", to a
+// URL on the storage service, not the API. It sends no cookies, since the form's signature is
+// the permission, and reports progress on the way.
+export function postToStorage(
+  url: string,
+  fields: Record<string, string>,
+  file: File,
+  { onProgress, signal }: UploadOptions = {},
+): Promise<StorageResult> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve({ ok: false, status: 0, ...aborted });
+      return;
+    }
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", url);
+    xhr.withCredentials = false;
+    const abort = () => xhr.abort();
+    signal?.addEventListener("abort", abort, { once: true });
+    const done = (value: StorageResult) => {
+      signal?.removeEventListener("abort", abort);
+      resolve(value);
+    };
+    xhr.upload.addEventListener("progress", (event) => {
+      if (event.lengthComputable && event.total > 0) onProgress?.(Math.min(1, event.loaded / event.total));
+    });
+    xhr.addEventListener("load", () =>
+      done(xhr.status >= 200 && xhr.status < 300 ? { ok: true } : { ok: false, status: xhr.status, ...storageFailed }),
+    );
+    xhr.addEventListener("error", () => done({ ok: false, status: 0, ...networkError }));
+    xhr.addEventListener("timeout", () => done({ ok: false, status: 0, ...networkError }));
+    xhr.addEventListener("abort", () => done({ ok: false, status: 0, ...aborted }));
+    const form = new FormData();
+    for (const [name, value] of Object.entries(fields)) form.append(name, value);
+    form.append("file", file);
+    xhr.send(form);
+  });
 }

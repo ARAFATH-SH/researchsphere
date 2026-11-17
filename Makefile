@@ -48,7 +48,7 @@ ps: ## Show the status of the containers
 psql: ## Open a psql prompt in the database
 	docker compose exec postgres psql -U $(POSTGRES_USER) -d $(POSTGRES_DB)
 
-check: ## Check that PostgreSQL, pgvector, Redis and storage respond, and the bucket is private; show whether ClamAV answers
+check: ## Check that PostgreSQL, pgvector, Redis and storage respond, the bucket is private and takes uploads from the web client; show whether ClamAV answers
 	@docker compose exec -T postgres psql -U $(POSTGRES_USER) -d $(POSTGRES_DB) -tAc "SELECT 'postgres ok: ' || current_setting('server_version')"
 	@docker compose exec -T postgres psql -U $(POSTGRES_USER) -d $(POSTGRES_DB) -tAc "SELECT 'pgvector available: ' || default_version FROM pg_available_extensions WHERE name = 'vector'"
 	@echo "redis: $$(docker compose exec -T redis redis-cli ping)"
@@ -56,6 +56,10 @@ check: ## Check that PostgreSQL, pgvector, Redis and storage respond, and the bu
 	@status=$$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$(MINIO_API_PORT)/$(S3_BUCKET)/"); \
 	if [[ "$$status" != 403 ]]; then echo "storage: anonymous listing of $(S3_BUCKET) returned $$status, want 403 (bucket must be private)"; exit 1; fi
 	@echo "storage ok (bucket $(S3_BUCKET) is private)"
+	@cors=$$(curl -s -o /dev/null -D - -X OPTIONS "http://127.0.0.1:$(MINIO_API_PORT)/$(S3_BUCKET)/" -H "Origin: http://localhost:3000" \
+		-H "Access-Control-Request-Method: POST" -H "Access-Control-Request-Headers: content-type" | tr -d '\r' | grep -i '^access-control-allow-origin:'); \
+	if [[ "$$cors" != *"http://localhost:3000"* ]]; then echo "storage: the web client (http://localhost:3000) may not upload figures (CORS); run make up again"; exit 1; fi
+	@echo "storage CORS ok (the web client may upload figures)"
 	@echo "clamav: $$(docker compose exec -T clamav clamdscan --ping 1 >/dev/null 2>&1 && echo ready || echo 'not ready yet (attachments stay pending until it answers)')"
 	@echo "ai: $$(curl -fsS -o /dev/null "http://127.0.0.1:$(AI_SERVICE_PORT)/ready" 2>/dev/null && echo ready || echo 'not ready yet (loading or downloading its model, or not started; GET /health says degraded)')"
 

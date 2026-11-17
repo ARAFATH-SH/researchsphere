@@ -69,6 +69,7 @@ var jsonBodyRoutes = []struct {
 	{http.MethodPost, "/api/v1/projects/" + okProjectID + "/transfer", "userId", `{"userId":5}`, "userId", "userId must be a UUID."},
 	{http.MethodPost, "/api/v1/projects/" + okProjectID + "/files", "kind", `{"kind":"text","path":5}`, "path", "path must be a string."},
 	{http.MethodPatch, "/api/v1/projects/" + okProjectID + "/files/" + okProjectFileID, "path", `{"path":5}`, "path", "path must be a string."},
+	{http.MethodPost, "/api/v1/projects/" + okProjectID + "/files/uploads", "path", `{"path":"a.png","size":"big"}`, "size", "size must be a whole number."},
 	{http.MethodPut, "/api/v1/projects/" + okProjectID + "/files/" + okProjectFileID + "/content", "content", `{"content":"x","version":"2"}`, "version", "version must be a whole number."},
 }
 

@@ -8,7 +8,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	goredis "github.com/redis/go-redis/v9"
 
-	mediausecase "github.com/ARAFATH-SH/researchsphere/backend/internal/media/usecase"
 	moderationusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/moderation/usecase"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/authz"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/postgres"
@@ -27,8 +26,8 @@ import (
 // vectors researcher search keeps; status, owner and membership changes and deletions are
 // passed to watcher, and membership events (FR-9.2) to notifier.
 //
-// Project files (FR-12) keep figures in files, checked by figures.
-func newProjects(pool *pgxpool.Pool, rdb *goredis.Client, standings *moderationusecase.Standings, search projectSearch, watcher projectdomain.Watcher, notifier projectdomain.Notifier, files storage.Storage, figures *mediausecase.Attachments, logger *slog.Logger) (*projectusecase.Service, *projectredis.Limits) {
+// Project files (FR-12) keep figures in files, within the figures limits.
+func newProjects(pool *pgxpool.Pool, rdb *goredis.Client, standings *moderationusecase.Standings, search projectSearch, watcher projectdomain.Watcher, notifier projectdomain.Notifier, files storage.Storage, figures figureLimits, logger *slog.Logger) (*projectusecase.Service, *projectredis.Limits) {
 	limits := projectredis.New(rdb)
 	store := projectpg.NewStore(pool)
 	svc := projectusecase.New(projectusecase.Deps{
@@ -48,12 +47,14 @@ func newProjects(pool *pgxpool.Pool, rdb *goredis.Client, standings *moderationu
 		JoinLimiter:   limits.Join(),
 		InviteLimiter: limits.Invite(),
 		FileDeps: projectusecase.FileDeps{
-			Files:         store,
-			Figures:       figureIntake{media: figures},
-			Objects:       files,
-			Remover:       objectRemover{files: files, logger: logger},
-			FigureLimiter: limits.Figure(),
-			SaveLimiter:   limits.Save(),
+			Files:           store,
+			Figures:         figureIntake{},
+			Objects:         figureObjects{Storage: files},
+			Remover:         objectRemover{files: files, logger: logger},
+			FigureLimiter:   limits.Figure(),
+			SaveLimiter:     limits.Save(),
+			FigureMaxBytes:  figures.figure,
+			StorageMaxBytes: figures.storage,
 		},
 	})
 	return svc, limits

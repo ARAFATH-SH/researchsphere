@@ -1,7 +1,9 @@
 package usecase
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/url"
 	"sort"
@@ -24,6 +26,14 @@ type memFiles struct {
 	main   map[string]string   // project -> main file path
 	names  map[string]string   // user -> profile name
 	shared []string            // projects LockShared was called for
+	// uploads by ID; now is the clock of their expiry, the test's.
+	uploads map[string]*memUpload
+	now     func() time.Time
+}
+
+type memUpload struct {
+	domain.Upload
+	created time.Time
 }
 
 type memFile struct {
@@ -31,7 +41,8 @@ type memFile struct {
 }
 
 func newMemFiles(s *memStore) *memFiles {
-	return &memFiles{s: s, files: map[string]*memFile{}, main: map[string]string{}, names: map[string]string{}}
+	return &memFiles{s: s, files: map[string]*memFile{}, main: map[string]string{}, names: map[string]string{},
+		uploads: map[string]*memUpload{}, now: time.Now}
 }
 
 func (m *memFiles) project(projectID string) []*memFile {
@@ -135,6 +146,9 @@ func (m *memFiles) InsertText(_ context.Context, projectID, path, content, user 
 }
 
 func (m *memFiles) InsertFigure(_ context.Context, f domain.NewFigure) (string, error) {
+	if f.Size > 200<<20 {
+		return "", errors.New("check violation: project_files_binary")
+	}
 	st := domain.ScanPending
 	return m.insert(domain.StoredFile{
 		File: domain.File{
@@ -246,40 +260,209 @@ func (m *memFiles) LockShared(ctx context.Context, projectID, userID string) (do
 	return m.s.members[projectID][userID], nil
 }
 
-// memIntake accepts data that starts with "PNG", "JPG" or "PDF" as that type, refuses the
-// rest, and makes an image grow by grow bytes when encoded again.
-type memIntake struct{ grow int }
-
-func (i memIntake) PrepareFigure(_ context.Context, data []byte) (domain.PreparedFigure, error) {
-	switch {
-	case strings.HasPrefix(string(data), "PNG"):
-		return domain.PreparedFigure{Data: append(append([]byte{}, data...), make([]byte, i.grow)...), ContentType: TypePNG, Width: 1, Height: 1}, nil
-	case strings.HasPrefix(string(data), "JPG"):
-		return domain.PreparedFigure{Data: data, ContentType: TypeJPEG, Width: 1, Height: 1}, nil
-	case strings.HasPrefix(string(data), "PDF"):
-		return domain.PreparedFigure{Data: data, ContentType: TypePDF}, nil
+func (m *memFiles) StorageUsed(_ context.Context, projectID string) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var n int64
+	for _, f := range m.project(projectID) {
+		if f.Kind == domain.KindBinary && (f.ScanStatus == nil || *f.ScanStatus != domain.ScanInfected) {
+			n += f.Size
+		}
 	}
-	return domain.PreparedFigure{}, domain.ErrUnsupportedType
+	return n, nil
 }
 
-// memObjects is the bucket in memory.
+func (m *memFiles) PendingUploadBytes(_ context.Context, projectID string, since time.Time) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var n int64
+	for _, u := range m.uploads {
+		if u.ProjectID == projectID && u.created.After(since) && u.ExpiresAt.After(m.now()) {
+			n += u.Size
+		}
+	}
+	return n, nil
+}
+
+func (m *memFiles) InsertUpload(_ context.Context, u domain.Upload) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.next++
+	u.ID = "u" + strconv.Itoa(m.next)
+	m.uploads[u.ID] = &memUpload{Upload: u, created: m.now()}
+	return u.ID, nil
+}
+
+func (m *memFiles) Upload(_ context.Context, projectID, uploadID, userID string) (domain.Upload, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.uploads[uploadID]
+	if !ok || u.ProjectID != projectID || u.UserID != userID || !u.ExpiresAt.After(m.now()) {
+		return domain.Upload{}, domain.ErrUploadNotFound
+	}
+	return u.Upload, nil
+}
+
+func (m *memFiles) ClaimUpload(_ context.Context, uploadID string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.uploads[uploadID]
+	if !ok || !u.ExpiresAt.After(m.now()) {
+		return false, nil
+	}
+	delete(m.uploads, uploadID)
+	return true, nil
+}
+
+func (m *memFiles) DeleteExpiredUploads(_ context.Context, limit int) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for id, u := range m.uploads {
+		if n < limit && !u.ExpiresAt.After(m.now()) {
+			delete(m.uploads, id)
+			n++
+		}
+	}
+	return n, nil
+}
+
+// memIntake checks figures by a prefix of the content: "PNG" and "JPG" are images, whose
+// metadata is the text "META" (removed), "PDF" a PDF, "BAD" a broken image; the rest is
+// refused.
+type memIntake struct{}
+
+func (memIntake) StripFigure(r io.Reader, w io.Writer) (domain.FigureInfo, error) {
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return domain.FigureInfo{}, err
+	}
+	var info domain.FigureInfo
+	switch {
+	case bytes.HasPrefix(data, []byte("PNG")):
+		info = domain.FigureInfo{ContentType: TypePNG, Width: 1, Height: 1}
+		data = bytes.ReplaceAll(data, []byte("META"), nil)
+	case bytes.HasPrefix(data, []byte("JPG")):
+		info = domain.FigureInfo{ContentType: TypeJPEG, Width: 1, Height: 1}
+		data = bytes.ReplaceAll(data, []byte("META"), nil)
+	case bytes.HasPrefix(data, []byte("PDF")):
+		info = domain.FigureInfo{ContentType: TypePDF}
+	case bytes.HasPrefix(data, []byte("BAD")):
+		return domain.FigureInfo{}, domain.ErrInvalidImage
+	default:
+		return domain.FigureInfo{}, domain.ErrUnsupportedType
+	}
+	if _, err := w.Write(data); err != nil {
+		return domain.FigureInfo{}, err
+	}
+	return info, nil
+}
+
+// memObjects is the bucket in memory. Each write gives the object a new ETag.
 type memObjects struct {
 	mu      sync.Mutex
 	objects map[string][]byte
+	types   map[string]string
+	etags   map[string]string
+	writes  int
 	deleted []string
+	copies  int
+	// posts is what each presigned POST allows: key -> size.
+	posts map[string]int64
+	// beforeOpen runs before each Open, for a test that writes the object in between.
+	beforeOpen func(key string)
 }
 
-func (o *memObjects) Put(_ context.Context, key string, r io.Reader, _ int64, _ string) error {
-	b, err := io.ReadAll(r)
+func (o *memObjects) put(key string, b []byte, contentType string) {
+	if o.objects == nil {
+		o.objects, o.types, o.etags = map[string][]byte{}, map[string]string{}, map[string]string{}
+	}
+	o.writes++
+	o.objects[key], o.types[key], o.etags[key] = b, contentType, "etag-"+strconv.Itoa(o.writes)
+}
+
+func (o *memObjects) Put(_ context.Context, key string, r io.Reader, size int64, contentType string) error {
+	b, err := io.ReadAll(io.LimitReader(r, size+1))
 	if err != nil {
 		return err
 	}
+	if int64(len(b)) != size {
+		return errors.New("put: wrong size")
+	}
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if o.objects == nil {
-		o.objects = map[string][]byte{}
+	o.put(key, b, contentType)
+	return nil
+}
+
+func (o *memObjects) PresignPost(_ context.Context, key string, size int64, expiry time.Duration) (domain.PostUpload, error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.posts == nil {
+		o.posts = map[string]int64{}
 	}
-	o.objects[key] = b
+	o.posts[key] = size
+	return domain.PostUpload{
+		URL: &url.URL{Scheme: "https", Host: "bucket", Path: "/"}, Fields: map[string]string{"key": key},
+		ExpiresAt: time.Now().Add(expiry),
+	}, nil
+}
+
+// post is the browser's POST: storage keeps it only at the size the policy allows.
+func (o *memObjects) post(key string, data []byte) bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	size, ok := o.posts[key]
+	if !ok || size != int64(len(data)) {
+		return false
+	}
+	o.put(key, data, "application/octet-stream")
+	return true
+}
+
+func (o *memObjects) Stat(_ context.Context, key string) (domain.ObjectVersion, error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	b, ok := o.objects[key]
+	if !ok {
+		return domain.ObjectVersion{}, domain.ErrObjectMissing
+	}
+	return domain.ObjectVersion{Size: int64(len(b)), ETag: o.etags[key]}, nil
+}
+
+func (o *memObjects) version(key, etag string) ([]byte, error) {
+	b, ok := o.objects[key]
+	switch {
+	case !ok:
+		return nil, domain.ErrObjectMissing
+	case o.etags[key] != etag:
+		return nil, domain.ErrObjectChanged
+	}
+	return b, nil
+}
+
+func (o *memObjects) Open(_ context.Context, key, etag string) (io.ReadCloser, error) {
+	if o.beforeOpen != nil {
+		o.beforeOpen(key)
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	b, err := o.version(key, etag)
+	if err != nil {
+		return nil, err
+	}
+	return io.NopCloser(bytes.NewReader(b)), nil
+}
+
+func (o *memObjects) Copy(_ context.Context, src, dst, etag, contentType string) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	b, err := o.version(src, etag)
+	if err != nil {
+		return err
+	}
+	o.copies++
+	o.put(dst, bytes.Clone(b), contentType)
 	return nil
 }
 
@@ -312,6 +495,7 @@ func (r *memRemover) RemoveAfterCommit(_ context.Context, keys []string) {
 // fileEnv is env with the file operations.
 type fileEnv struct {
 	*env
+	now     time.Time
 	files   *memFiles
 	objects *memObjects
 	remover *memRemover
@@ -323,8 +507,9 @@ func newFileEnv() *fileEnv {
 	e := newEnv()
 	fe := &fileEnv{
 		env: e, files: newMemFiles(e.store), objects: &memObjects{}, remover: &memRemover{},
-		figures: &memLimiter{}, saves: &memLimiter{},
+		figures: &memLimiter{}, saves: &memLimiter{}, now: time.Date(2026, 11, 18, 10, 0, 0, 0, time.UTC),
 	}
+	fe.files.now = func() time.Time { return fe.now }
 	fe.service = New(Deps{
 		Store: e.store, Tx: memTx{s: e.store}, Permissions: tablePerms{}, Actors: e.actors,
 		CreateLimiter: e.create, SearchLimiter: e.search, Watcher: e.watcher,
@@ -332,6 +517,7 @@ func newFileEnv() *fileEnv {
 		FileDeps: FileDeps{
 			Files: fe.files, Figures: memIntake{}, Objects: fe.objects, Remover: fe.remover,
 			FigureLimiter: fe.figures, SaveLimiter: fe.saves,
+			Now: func() time.Time { return fe.now },
 		},
 	})
 	return fe
@@ -342,4 +528,16 @@ func (e *fileEnv) withMember(project, user string, role domain.Role) {
 	e.store.mu.Lock()
 	defer e.store.mu.Unlock()
 	e.store.members[project][user] = role
+}
+
+// upload sends a figure the way the browser does: start, POST to storage, complete.
+func (e *fileEnv) upload(ctx context.Context, user, project, path string, data []byte) (domain.File, error) {
+	t, err := e.service.StartFigureUpload(ctx, user, project, path, int64(len(data)))
+	if err != nil {
+		return domain.File{}, err
+	}
+	if !e.objects.post(t.Fields["key"], data) {
+		return domain.File{}, errors.New("storage refused the POST")
+	}
+	return e.service.CompleteFigureUpload(ctx, user, project, t.ID)
 }

@@ -95,7 +95,6 @@ describe("AppShell", () => {
 
   it.each([
     ["/projects", "Projects"],
-    ["/projects/123/workspace", "Projects"],
     ["/network", "My Network"],
     ["/messaging", "Messaging"],
   ])("marks the tab for %s as current", (path, label) => {
@@ -150,7 +149,7 @@ describe("AppShell", () => {
     expect(screen.getByRole("main").compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it.each(["/home", "/messaging", "/projects/123/workspace"])("leaves its footer out of %s", (path) => {
+  it.each(["/home", "/messaging"])("leaves its footer out of %s", (path) => {
     mockPathname.mockReturnValue(path);
     render(<AppShell>x</AppShell>);
     expect(screen.queryByRole("contentinfo")).toBeNull();

@@ -207,15 +207,16 @@ var platformGuards = map[string]authz.Action{
 	"POST /api/v1/projects/{projectId}/transfer":                          authz.ActAsMember,
 	// Project files (FR-12.1, FR-12.2, FR-12.6): the usecase then checks the project role
 	// (members only; editors and the owner write).
-	"GET /api/v1/projects/{projectId}/files":                  authz.ViewContent,
-	"POST /api/v1/projects/{projectId}/files":                 authz.ActAsMember,
-	"POST /api/v1/projects/{projectId}/files/uploads":         authz.ActAsMember,
-	"GET /api/v1/projects/{projectId}/files/{fileId}":         authz.ViewContent,
-	"PATCH /api/v1/projects/{projectId}/files/{fileId}":       authz.ActAsMember,
-	"DELETE /api/v1/projects/{projectId}/files/{fileId}":      authz.ActAsMember,
-	"PUT /api/v1/projects/{projectId}/files/{fileId}/content": authz.ActAsMember,
-	"GET /api/v1/me/join-requests":                            authz.ViewContent,
-	"GET /api/v1/me/invitations":                              authz.ViewContent,
+	"GET /api/v1/projects/{projectId}/files":                              authz.ViewContent,
+	"POST /api/v1/projects/{projectId}/files":                             authz.ActAsMember,
+	"POST /api/v1/projects/{projectId}/files/uploads":                     authz.ActAsMember,
+	"POST /api/v1/projects/{projectId}/files/uploads/{uploadId}/complete": authz.ActAsMember,
+	"GET /api/v1/projects/{projectId}/files/{fileId}":                     authz.ViewContent,
+	"PATCH /api/v1/projects/{projectId}/files/{fileId}":                   authz.ActAsMember,
+	"DELETE /api/v1/projects/{projectId}/files/{fileId}":                  authz.ActAsMember,
+	"PUT /api/v1/projects/{projectId}/files/{fileId}/content":             authz.ActAsMember,
+	"GET /api/v1/me/join-requests":                                        authz.ViewContent,
+	"GET /api/v1/me/invitations":                                          authz.ViewContent,
 
 	// Connections (FR-7): sending and answering requests and removing a connection are
 	// the row "Edit own profile, connect, ..."; the lists are viewing content.
@@ -346,8 +347,8 @@ var bodyLimits = map[string]int64{
 	"PUT /api/v1/profiles/me/cover": mediausecase.Specs[mediadomain.PurposeCover].MaxBytes + multipartOverhead,
 	// FR-16.7: 25 MB.
 	"POST /api/v1/conversations/{conversationId}/attachments": mediausecase.MaxAttachmentBytes + multipartOverhead,
-	// FR-12.2: 5 MB.
-	"POST /api/v1/projects/{projectId}/files/uploads": projectusecase.MaxFigureBytes + multipartOverhead,
+	// FR-12.2: only the path and size; the figure goes straight to storage.
+	"POST /api/v1/projects/{projectId}/files/uploads": 4 << 10,
 	// FR-12.1, FR-12.6: text of 1 MiB, which JSON escaping can make up to 3 times longer.
 	"POST /api/v1/projects/{projectId}/files":                 maxFileJSONBody,
 	"PUT /api/v1/projects/{projectId}/files/{fileId}/content": maxFileJSONBody,

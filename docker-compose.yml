@@ -67,6 +67,12 @@ services:
   # One-shot: creates the bucket and makes sure it is private (no anonymous access), then exits.
   # `make up` runs it with `docker compose run`; the profile keeps it out of `up --wait`,
   # which treats a container that has exited as a failure.
+  #
+  # It also sets which web origins may send figures straight to storage with a presigned POST
+  # (FR-12.2, docs/decisions.md 2026-11-18): the web client on ports 3000 and 3001, by name
+  # and by address. This MinIO build has no per-bucket CORS (`mc cors set` answers "not
+  # implemented"), so it is the server's `api cors_allow_origin`, which takes effect at once
+  # and is kept in the minio volume. MINIO_CORS_ALLOW_ORIGINS overrides the list.
   minio-init:
     profiles: [init]
     image: cgr.dev/chainguard/minio@sha256:cff197fef764642223ef9f4444c903d51aee9b544a7be8bc007fef6b7b00d136
@@ -76,9 +82,12 @@ services:
     environment:
       MC_HOST_local: http://${S3_ACCESS_KEY:-researchsphere}:${S3_SECRET_KEY:-local-dev-only-minio-secret}@minio:9000
       S3_BUCKET: ${S3_BUCKET:-researchsphere}
+      CORS_ORIGINS: ${MINIO_CORS_ALLOW_ORIGINS:-http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001}
     entrypoint: ["sh", "-c"]
     command:
-      - mc mb --ignore-existing "local/$$S3_BUCKET" && mc anonymous set private "local/$$S3_BUCKET"
+      - >-
+        mc mb --ignore-existing "local/$$S3_BUCKET" && mc anonymous set private "local/$$S3_BUCKET" &&
+        mc admin config set local api cors_allow_origin="$$CORS_ORIGINS"
     restart: "no"
 
   # Malware scanner for message attachments (FR-16.7, NFR-13). The API streams each file to
@@ -87,8 +96,21 @@ services:
   # every start. clamd needs about 1.5 to 3 GB of memory and 30 to 90 seconds to load its
   # signatures: `make up` starts it without waiting, and the scan worker waits for it
   # (docs/decisions.md, 2026-11-09).
+  #
+  # Size limits (docs/decisions.md, 2026-11-18): figures may be up to FIGURE_MAX_BYTES, 50 MB
+  # by default and at most 200 MiB, so clamd takes a stream of 210M and scans a file of that
+  # size whole; the API's CLAMAV_MAX_BYTES (210M) is the same limit on its side, and the API
+  # refuses to start with FIGURE_MAX_BYTES above it. MaxScanSize leaves room for what clamd
+  # unpacks from a PDF. AlertExceedsMax makes clamd say when it could not scan a file whole,
+  # instead of passing it as clean; the API then marks the file failed, never serves it.
+  # The image writes each CLAMD_CONF_ variable into clamd.conf at start.
   clamav:
     image: clamav/clamav:1.4.6
+    environment:
+      CLAMD_CONF_StreamMaxLength: 210M
+      CLAMD_CONF_MaxFileSize: 210M
+      CLAMD_CONF_MaxScanSize: 420M
+      CLAMD_CONF_AlertExceedsMax: "yes"
     ports:
       - "127.0.0.1:${CLAMAV_PORT:-3310}:3310"
     volumes:

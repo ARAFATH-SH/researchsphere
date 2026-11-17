@@ -44,6 +44,14 @@ const (
 	DefaultMessageEditWindow = 15 * time.Minute
 	// clamd, the malware scanner of attachments (FR-16.7), as docker-compose.yml publishes it.
 	DefaultClamAVAddr = "127.0.0.1:3310"
+	// DefaultClamAVMaxBytes is the client limit of a scan: the size docker-compose.yml lets
+	// clamd scan whole (StreamMaxLength, MaxFileSize and MaxScanSize 210M).
+	DefaultClamAVMaxBytes = 210 << 20
+	// Figure limits (FR-12.2, docs/decisions.md 2026-11-18). MaxFigureBytesCeiling is the
+	// most FIGURE_MAX_BYTES may be in any environment; the database refuses a larger figure.
+	DefaultFigureMaxBytes         = 50 << 20
+	DefaultProjectStorageMaxBytes = 500 << 20
+	MaxFigureBytesCeiling         = 200 << 20
 	// Days after sign-up an account that never verified its email address is deleted (FR-17.4).
 	DefaultUnverifiedAccountDays = 7
 	// The AI service (AI-1), as docker-compose.yml publishes it on this machine.
@@ -156,6 +164,13 @@ type Config struct {
 	MessageEditWindow time.Duration
 	// ClamAVAddr is clamd's TCP address (host:port) for the malware scan (FR-16.7).
 	ClamAVAddr string
+	// ClamAVMaxBytes is the largest file the scan sends to clamd (CLAMAV_MAX_BYTES); it must
+	// not be more than clamd's own StreamMaxLength, MaxFileSize and MaxScanSize.
+	ClamAVMaxBytes int64
+	// FigureMaxBytes is the largest project figure and ProjectStorageMaxBytes the most a
+	// project's figures may take (FR-12.2; FIGURE_MAX_BYTES, PROJECT_STORAGE_MAX_BYTES).
+	FigureMaxBytes         int64
+	ProjectStorageMaxBytes int64
 
 	// The internal AI service (AI-1). AIServiceToken is the shared secret it requires: never
 	// log it. Empty (development only) leaves the AI service off.
@@ -295,6 +310,8 @@ func Load(getenv func(string) string) (Config, error) {
 
 	if err := checkHostPort("S3_ENDPOINT", cfg.Storage.Endpoint); err != nil {
 		errs = append(errs, err)
+	} else if !production {
+		cfg.Storage.Endpoint = ipv4Loopback(cfg.Storage.Endpoint)
 	}
 	if cfg.Storage.UseSSL, err = parseBool("S3_USE_SSL", getenv("S3_USE_SSL")); err != nil {
 		errs = append(errs, err)
@@ -336,6 +353,26 @@ func Load(getenv func(string) string) (Config, error) {
 	cfg.ClamAVAddr = orDefault(getenv("CLAMAV_ADDR"), DefaultClamAVAddr)
 	if err := checkHostPort("CLAMAV_ADDR", cfg.ClamAVAddr); err != nil {
 		errs = append(errs, err)
+	}
+
+	sizes := []struct {
+		name string
+		def  int64
+		dst  *int64
+	}{
+		{"CLAMAV_MAX_BYTES", DefaultClamAVMaxBytes, &cfg.ClamAVMaxBytes},
+		{"FIGURE_MAX_BYTES", DefaultFigureMaxBytes, &cfg.FigureMaxBytes},
+		{"PROJECT_STORAGE_MAX_BYTES", DefaultProjectStorageMaxBytes, &cfg.ProjectStorageMaxBytes},
+	}
+	sizesOK := true
+	for _, sz := range sizes {
+		if *sz.dst, err = parseBytes(sz.name, getenv(sz.name), sz.def); err != nil {
+			errs = append(errs, err)
+			sizesOK = false
+		}
+	}
+	if sizesOK {
+		errs = append(errs, checkFigureLimits(cfg)...)
 	}
 
 	cfg.AIServiceURL = strings.TrimRight(orDefault(getenv("AI_SERVICE_URL"), DefaultAIServiceURL), "/")
@@ -420,6 +457,9 @@ func (c Config) LogValue() slog.Value {
 		slog.String("openalex_base_url", c.OpenAlexBaseURL),
 		slog.String("orcid_base_url", c.ORCIDBaseURL),
 		slog.String("clamav_addr", c.ClamAVAddr),
+		slog.Int64("clamav_max_bytes", c.ClamAVMaxBytes),
+		slog.Int64("figure_max_bytes", c.FigureMaxBytes),
+		slog.Int64("project_storage_max_bytes", c.ProjectStorageMaxBytes),
 		slog.String("ai_service_url", c.AIServiceURL),
 		slog.String("recs_score_model", c.RecsScoreModel),
 		slog.Bool("ai_service_configured", c.AIServiceToken != ""),
@@ -497,6 +537,65 @@ func parsePositive(name, raw string, def int) (int, error) {
 		return 0, fmt.Errorf("%s must be a whole number of at least 1, got %q", name, raw)
 	}
 	return n, nil
+}
+
+// parseBytes reads a size of at least 1 byte: a whole number of bytes, or one with the
+// suffix K, M or G (KiB, MiB, GiB), as clamd.conf writes them; empty means def.
+func parseBytes(name, raw string, def int64) (int64, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return def, nil
+	}
+	shift := 0
+	switch strings.ToUpper(raw[len(raw)-1:]) {
+	case "K":
+		shift = 10
+	case "M":
+		shift = 20
+	case "G":
+		shift = 30
+	}
+	digits := raw
+	if shift > 0 {
+		digits = raw[:len(raw)-1]
+	}
+	n, err := strconv.ParseInt(digits, 10, 64)
+	if err != nil || n < 1 || n > math.MaxInt64>>shift {
+		return 0, fmt.Errorf("%s must be a size of at least 1 byte, in bytes or with K, M or G (such as 50M), got %q", name, raw)
+	}
+	return n << shift, nil
+}
+
+// ipv4Loopback names this machine as 127.0.0.1 in a host:port: "localhost" or "::1" become
+// it (development only, docs/decisions.md 2026-11-18). Presigned URLs carry this host to the
+// browser, which may try "localhost" as ::1 first, while docker-compose.yml publishes MinIO on
+// 127.0.0.1 only.
+func ipv4Loopback(hostPort string) string {
+	host, port, err := net.SplitHostPort(hostPort)
+	if err != nil {
+		return hostPort
+	}
+	if strings.EqualFold(host, "localhost") || host == "::1" {
+		return net.JoinHostPort("127.0.0.1", port)
+	}
+	return hostPort
+}
+
+// checkFigureLimits keeps the figure limits consistent (docs/decisions.md 2026-11-18): a
+// figure of at most 200 MiB in every environment (the database's ceiling), no more than a
+// project may hold, and no more than the scanner reads whole.
+func checkFigureLimits(cfg Config) []error {
+	var errs []error
+	if cfg.FigureMaxBytes > MaxFigureBytesCeiling {
+		errs = append(errs, fmt.Errorf("FIGURE_MAX_BYTES must be at most %d (200M), got %d", MaxFigureBytesCeiling, cfg.FigureMaxBytes))
+	}
+	if cfg.FigureMaxBytes > cfg.ProjectStorageMaxBytes {
+		errs = append(errs, fmt.Errorf("FIGURE_MAX_BYTES (%d) must not be more than PROJECT_STORAGE_MAX_BYTES (%d)", cfg.FigureMaxBytes, cfg.ProjectStorageMaxBytes))
+	}
+	if cfg.FigureMaxBytes > cfg.ClamAVMaxBytes {
+		errs = append(errs, fmt.Errorf("FIGURE_MAX_BYTES (%d) must not be more than CLAMAV_MAX_BYTES (%d), or figures could not be scanned whole", cfg.FigureMaxBytes, cfg.ClamAVMaxBytes))
+	}
+	return errs
 }
 
 // parseFloat reads a finite number; empty means def.

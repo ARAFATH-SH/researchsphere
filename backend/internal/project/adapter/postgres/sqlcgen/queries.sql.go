@@ -51,6 +51,20 @@ func (q *Queries) AnyVisibleTitleContains(ctx context.Context, arg AnyVisibleTit
 	return exists, err
 }
 
+const claimFigureUpload = `-- name: ClaimFigureUpload :execrows
+DELETE FROM project_figure_uploads WHERE id = $1 AND expires_at > now()
+`
+
+// Completing takes the upload in the transaction that records the figure: a second
+// completion finds nothing. The trigger queues the upload's object for deletion.
+func (q *Queries) ClaimFigureUpload(ctx context.Context, id pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, claimFigureUpload, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const countMyInvitations = `-- name: CountMyInvitations :one
 SELECT count(*)::int
 FROM project_join_requests j
@@ -163,6 +177,24 @@ func (q *Queries) DecideJoinRequest(ctx context.Context, arg DecideJoinRequestPa
 	return err
 }
 
+const deleteExpiredFigureUploads = `-- name: DeleteExpiredFigureUploads :execrows
+DELETE FROM project_figure_uploads
+WHERE id IN (SELECT id FROM project_figure_uploads
+             WHERE expires_at <= now()
+             ORDER BY expires_at
+             LIMIT $1
+             FOR UPDATE SKIP LOCKED)
+`
+
+// Abandoned uploads, a batch at a time; the trigger queues each object for deletion.
+func (q *Queries) DeleteExpiredFigureUploads(ctx context.Context, maxRows int32) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteExpiredFigureUploads, maxRows)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteJoinRequest = `-- name: DeleteJoinRequest :exec
 DELETE FROM project_join_requests WHERE id = $1
 `
@@ -249,6 +281,40 @@ func (q *Queries) FigureKeysUnder(ctx context.Context, arg FigureKeysUnderParams
 		return nil, err
 	}
 	return items, nil
+}
+
+const figureUpload = `-- name: FigureUpload :one
+SELECT id, object_key, path, size_bytes, expires_at
+FROM project_figure_uploads
+WHERE id = $1 AND project_id = $2 AND user_id = $3 AND expires_at > now()
+`
+
+type FigureUploadParams struct {
+	ID        pgtype.UUID
+	ProjectID pgtype.UUID
+	UserID    pgtype.UUID
+}
+
+type FigureUploadRow struct {
+	ID        pgtype.UUID
+	ObjectKey string
+	Path      string
+	SizeBytes int64
+	ExpiresAt pgtype.Timestamptz
+}
+
+// The user's own upload in the project, while it has not expired.
+func (q *Queries) FigureUpload(ctx context.Context, arg FigureUploadParams) (FigureUploadRow, error) {
+	row := q.db.QueryRow(ctx, figureUpload, arg.ID, arg.ProjectID, arg.UserID)
+	var i FigureUploadRow
+	err := row.Scan(
+		&i.ID,
+		&i.ObjectKey,
+		&i.Path,
+		&i.SizeBytes,
+		&i.ExpiresAt,
+	)
+	return i, err
 }
 
 const getProject = `-- name: GetProject :one
@@ -411,6 +477,35 @@ func (q *Queries) InsertFigureObject(ctx context.Context, arg InsertFigureObject
 		arg.Height,
 	)
 	return err
+}
+
+const insertFigureUpload = `-- name: InsertFigureUpload :one
+INSERT INTO project_figure_uploads (project_id, user_id, object_key, path, size_bytes, expires_at)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id
+`
+
+type InsertFigureUploadParams struct {
+	ProjectID pgtype.UUID
+	UserID    pgtype.UUID
+	ObjectKey string
+	Path      string
+	SizeBytes int64
+	ExpiresAt pgtype.Timestamptz
+}
+
+func (q *Queries) InsertFigureUpload(ctx context.Context, arg InsertFigureUploadParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, insertFigureUpload,
+		arg.ProjectID,
+		arg.UserID,
+		arg.ObjectKey,
+		arg.Path,
+		arg.SizeBytes,
+		arg.ExpiresAt,
+	)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
 }
 
 const insertJoinRequest = `-- name: InsertJoinRequest :one
@@ -1235,6 +1330,26 @@ func (q *Queries) PendingJoinRequest(ctx context.Context, arg PendingJoinRequest
 	return i, err
 }
 
+const pendingUploadBytes = `-- name: PendingUploadBytes :one
+SELECT coalesce(sum(size_bytes), 0)::bigint
+FROM project_figure_uploads
+WHERE project_id = $1 AND created_at > $2 AND expires_at > now()
+`
+
+type PendingUploadBytesParams struct {
+	ProjectID pgtype.UUID
+	Since     pgtype.Timestamptz
+}
+
+// The bytes of the project's uploads still being sent (started after @since), held against
+// the quota so several uploads at once cannot pass it.
+func (q *Queries) PendingUploadBytes(ctx context.Context, arg PendingUploadBytesParams) (int64, error) {
+	row := q.db.QueryRow(ctx, pendingUploadBytes, arg.ProjectID, arg.Since)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const profileFullName = `-- name: ProfileFullName :one
 SELECT full_name FROM profiles WHERE user_id = $1
 `
@@ -1649,6 +1764,21 @@ func (q *Queries) ProjectSkills(ctx context.Context, projectID pgtype.UUID) ([]P
 		return nil, err
 	}
 	return items, nil
+}
+
+const projectStorageUsed = `-- name: ProjectStorageUsed :one
+SELECT coalesce(sum(size_bytes), 0)::bigint
+FROM stored_files
+WHERE project_id = $1 AND scan_status <> 'infected'
+`
+
+// The bytes of the project's stored files (FR-12.2 quota), except those removed as malware,
+// whose objects are gone.
+func (q *Queries) ProjectStorageUsed(ctx context.Context, projectID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, projectStorageUsed, projectID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const projectsWithoutFiles = `-- name: ProjectsWithoutFiles :many

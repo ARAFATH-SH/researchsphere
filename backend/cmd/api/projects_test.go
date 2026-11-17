@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -222,13 +223,28 @@ func (okProjects) SaveContent(_ context.Context, _, _, _, _ string, version int)
 	return f, nil
 }
 
-func (okProjects) UploadFigure(_ context.Context, _, _, path string, data []byte) (projectdomain.File, error) {
-	if len(data) > projectusecase.MaxFigureBytes {
-		return projectdomain.File{}, projectdomain.ErrFileTooLarge
+func (okProjects) StartFigureUpload(_ context.Context, _, _, path string, size int64) (projectusecase.UploadTicket, error) {
+	switch {
+	case size > projectusecase.DefaultFigureMaxBytes:
+		return projectusecase.UploadTicket{}, &projectdomain.FigureTooLargeError{LimitBytes: projectusecase.DefaultFigureMaxBytes}
+	case path == "full.png":
+		return projectusecase.UploadTicket{}, &projectdomain.StorageLimitError{UsedBytes: 480 << 20, LimitBytes: 500 << 20, NeedBytes: size}
+	}
+	return projectusecase.UploadTicket{
+		ID: okUploadID, URL: &url.URL{Scheme: "http", Host: "localhost:9000", Path: "/researchsphere"},
+		Fields: map[string]string{"key": "projects/x/uploads/y", "policy": "p"}, ExpiresAt: time.Date(2026, 11, 18, 10, 15, 0, 0, time.UTC),
+	}, nil
+}
+
+func (okProjects) CompleteFigureUpload(_ context.Context, _, _, uploadID string) (projectdomain.File, error) {
+	if uploadID != okUploadID {
+		return projectdomain.File{}, projectdomain.ErrUploadNotFound
 	}
 	ct, st := "image/png", projectdomain.ScanPending
-	return projectdomain.File{ID: okProjectFileID, Path: path, Kind: projectdomain.KindBinary, Size: int64(len(data)), Version: 1, ContentType: &ct, ScanStatus: &st}, nil
+	return projectdomain.File{ID: okProjectFileID, Path: "figures/plot.png", Kind: projectdomain.KindBinary, Size: 3, Version: 1, ContentType: &ct, ScanStatus: &st}, nil
 }
+
+const okUploadID = "0192f0a0-0000-7000-8000-00000000f0a1"
 
 // Every project route needs the platform action platformGuards names (SRS 2.3): the admin
 // routes refuse a researcher with the one forbidden body, and none of them answers an
@@ -300,7 +316,18 @@ func TestProjectRoutes(t *testing.T) {
 		{"save, no version", http.MethodPut, p + "/files/" + okProjectFileID + "/content", `{"content":"x"}`, "researcher", http.StatusBadRequest, `"field":"version"`},
 		{"save, body over the cap", http.MethodPut, p + "/files/" + okProjectFileID + "/content",
 			`{"content":"` + strings.Repeat("x", maxFileJSONBody) + `","version":2}`, "researcher", http.StatusRequestEntityTooLarge, `"request_too_large"`},
-		{"upload, not multipart", http.MethodPost, p + "/files/uploads", `{}`, "researcher", http.StatusBadRequest, `"bad_request"`},
+		{"start an upload", http.MethodPost, p + "/files/uploads", `{"path":"figures/plot.png","size":3}`, "researcher", http.StatusCreated,
+			`"fields":{"key":"projects/x/uploads/y","policy":"p"}`},
+		{"start, empty", http.MethodPost, p + "/files/uploads", `{"path":"figures/plot.png","size":0}`, "researcher", http.StatusBadRequest, `"field":"size"`},
+		{"start, over 50 MB", http.MethodPost, p + "/files/uploads", `{"path":"big.png","size":52428801}`, "researcher", http.StatusRequestEntityTooLarge,
+			`{"code":"file_too_large","limitBytes":52428800,"message":"A figure may be at most 50 MB."}`},
+		{"start, project full", http.MethodPost, p + "/files/uploads", `{"path":"full.png","size":31457280}`, "researcher", http.StatusRequestEntityTooLarge,
+			`{"code":"storage_limit_reached","limitBytes":524288000,"message":"This project uses 480 MB of 500 MB, so a figure of 30 MB does not fit. Delete figures it no longer needs to make room.","usedBytes":503316480}`},
+		{"start, body over the cap", http.MethodPost, p + "/files/uploads", `{"path":"` + strings.Repeat("x", 5000) + `","size":3}`, "researcher",
+			http.StatusRequestEntityTooLarge, `"request_too_large"`},
+		{"complete", http.MethodPost, p + "/files/uploads/" + okUploadID + "/complete", "", "researcher", http.StatusCreated, `"scanStatus":"pending"`},
+		{"complete, unknown upload", http.MethodPost, p + "/files/uploads/" + okProjectFileID + "/complete", "", "researcher", http.StatusNotFound, `"not_found"`},
+		{"complete, no session", http.MethodPost, p + "/files/uploads/" + okUploadID + "/complete", "", "", http.StatusUnauthorized, `"unauthenticated"`},
 		{"resolve twice", http.MethodPost, "/api/v1/admin/project-reports/" + okProjectReport.ID + "/resolve", `{"outcome":"dismissed"}`, "admin", http.StatusConflict, `"report_already_resolved"`},
 	}
 	for _, tt := range tests {

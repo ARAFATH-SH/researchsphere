@@ -68,6 +68,26 @@ type StoredFile struct {
 type FileTree struct {
 	MainFilePath string
 	Files        []File // sorted by path, ignoring letter case
+	Storage      Storage
+}
+
+// Storage is a project's figure storage and its limits (FR-12.2).
+type Storage struct {
+	UsedBytes      int64 // the project's stored files, except those removed as malware
+	LimitBytes     int64 // PROJECT_STORAGE_MAX_BYTES
+	FigureMaxBytes int64 // FIGURE_MAX_BYTES
+}
+
+// Upload is a figure the browser sends straight to storage, until it is completed
+// (docs/decisions.md 2026-11-18).
+type Upload struct {
+	ID        string
+	ProjectID string
+	UserID    string
+	ObjectKey string // where the browser sends it: projects/{projectId}/uploads/{random}
+	Path      string // where the figure goes
+	Size      int64  // exactly what storage accepts
+	ExpiresAt time.Time
 }
 
 // NewFigure is an uploaded figure to record: its stored file and its project file.
@@ -100,22 +120,45 @@ var (
 	ErrFileLimit = errors.New("project: too many files")
 	// ErrNotTextFile refuses saving content into a folder or a figure.
 	ErrNotTextFile = errors.New("project: not a text file")
-	// ErrFileTooLarge refuses text over MaxTextBytes or a figure over MaxFigureBytes.
+	// ErrFileTooLarge refuses text over MaxTextBytes; a figure over the figure limit is a
+	// *FigureTooLargeError, which matches it too.
 	ErrFileTooLarge = errors.New("project: file too large")
 	// ErrUnsupportedType refuses a figure that is not PNG, JPEG or PDF by its content.
 	ErrUnsupportedType = errors.New("project: unsupported figure type")
 	// ErrTypeMismatch refuses a figure whose content is not the type its path's extension
 	// names.
 	ErrTypeMismatch = errors.New("project: the figure's type does not match its extension")
-	// ErrImageTooLarge and ErrInvalidImage are media's image checks.
-	ErrImageTooLarge = errors.New("project: image too large")
-	ErrInvalidImage  = errors.New("project: invalid image")
+	// ErrInvalidImage is media's figure check: an image whose structure cannot be read.
+	ErrInvalidImage = errors.New("project: invalid image")
 	// ErrScanPending, ErrScanFailed and ErrFileRemoved refuse a figure's download until its
 	// scan says clean.
 	ErrScanPending = errors.New("project: scan pending")
 	ErrScanFailed  = errors.New("project: scan failed")
 	ErrFileRemoved = errors.New("project: file removed")
+	// ErrUploadNotFound covers an upload that does not exist, expired, was completed, or is
+	// another user's or another project's.
+	ErrUploadNotFound = errors.New("project: upload not found")
+	// ErrUploadIncomplete refuses completing an upload whose file is not in storage yet.
+	ErrUploadIncomplete = errors.New("project: the upload has not reached storage")
 )
+
+// FigureTooLargeError refuses a figure over the largest figure (FR-12.2).
+type FigureTooLargeError struct {
+	LimitBytes int64
+}
+
+func (e *FigureTooLargeError) Error() string { return "project: figure too large" }
+
+// Is makes errors.Is(err, ErrFileTooLarge) hold.
+func (e *FigureTooLargeError) Is(target error) bool { return target == ErrFileTooLarge }
+
+// StorageLimitError refuses a figure the project's storage cannot hold (FR-12.2). UsedBytes
+// counts its stored files and, when an upload starts, the uploads still being sent.
+type StorageLimitError struct {
+	UsedBytes, LimitBytes, NeedBytes int64
+}
+
+func (e *StorageLimitError) Error() string { return "project: storage limit reached" }
 
 // VersionConflictError refuses a save whose version is not the file's (FR-12.6).
 type VersionConflictError struct {
@@ -165,28 +208,73 @@ type FileStore interface {
 	// project row locked shared until the transaction ends; ErrNotFound when there is no
 	// project.
 	LockShared(ctx context.Context, projectID, userID string) (Role, error)
+	// StorageUsed is the bytes of the project's stored files, except those removed as
+	// malware.
+	StorageUsed(ctx context.Context, projectID string) (int64, error)
+	// PendingUploadBytes is the bytes of the project's uploads started after since that have
+	// not expired.
+	PendingUploadBytes(ctx context.Context, projectID string, since time.Time) (int64, error)
+	// InsertUpload records an upload and returns its ID.
+	InsertUpload(ctx context.Context, u Upload) (string, error)
+	// Upload reads the user's upload in the project; ErrUploadNotFound when there is none or
+	// it expired.
+	Upload(ctx context.Context, projectID, uploadID, userID string) (Upload, error)
+	// ClaimUpload deletes the upload, if it is still there and not expired, and says so; the
+	// database queues its object for deletion.
+	ClaimUpload(ctx context.Context, uploadID string) (bool, error)
+	// DeleteExpiredUploads deletes up to limit expired uploads and says how many; the
+	// database queues their objects for deletion.
+	DeleteExpiredUploads(ctx context.Context, limit int) (int, error)
 }
 
-// PreparedFigure is an upload the type check accepted, ready to store.
-type PreparedFigure struct {
-	Data          []byte
+// FigureInfo is what the figure check found.
+type FigureInfo struct {
 	ContentType   string
 	Width, Height int // 0 for a PDF
 }
 
-// FigureIntake checks a figure by its content (PNG, JPEG or PDF) and encodes an image again,
-// dropping EXIF and anything else it carries. The media module owns the checks; cmd/api
-// implements this. Errors: ErrFileTooLarge, ErrUnsupportedType, ErrImageTooLarge,
-// ErrInvalidImage.
+// FigureIntake checks a figure by its content (PNG, JPEG or PDF) and copies it from r to w,
+// an image without its metadata, losslessly, and a PDF as it is. The media module owns the
+// checks; cmd/api implements this. Errors: ErrUnsupportedType, ErrInvalidImage, or the error
+// of r or w.
 type FigureIntake interface {
-	PrepareFigure(ctx context.Context, data []byte) (PreparedFigure, error)
+	StripFigure(r io.Reader, w io.Writer) (FigureInfo, error)
 }
+
+// ObjectVersion is an object's size and ETag, which names this version of it.
+type ObjectVersion struct {
+	Size int64
+	ETag string
+}
+
+// PostUpload is a presigned form upload to storage.
+type PostUpload struct {
+	URL       *url.URL
+	Fields    map[string]string
+	ExpiresAt time.Time
+}
+
+// ErrObjectMissing and ErrObjectChanged are the bucket's answers for an object that is not
+// there, or no longer the version an ETag named.
+var (
+	ErrObjectMissing = errors.New("project: object missing")
+	ErrObjectChanged = errors.New("project: object changed")
+)
 
 // FileObjects is the bucket, as project files use it.
 type FileObjects interface {
 	Put(ctx context.Context, key string, r io.Reader, size int64, contentType string) error
 	// Delete removes the object. A key with no object is not an error.
 	Delete(ctx context.Context, key string) error
+	// PresignPost returns a form upload of exactly size bytes to key, until expiry.
+	PresignPost(ctx context.Context, key string, size int64, expiry time.Duration) (PostUpload, error)
+	// Stat returns the object's version; ErrObjectMissing when there is none.
+	Stat(ctx context.Context, key string) (ObjectVersion, error)
+	// Open reads the object's version with this ETag; ErrObjectMissing, ErrObjectChanged.
+	Open(ctx context.Context, key, etag string) (io.ReadCloser, error)
+	// Copy copies the object's version with this ETag to dst with the content type, inside
+	// storage; ErrObjectMissing, ErrObjectChanged.
+	Copy(ctx context.Context, src, dst, etag, contentType string) error
 	// PresignDownload returns a URL that downloads the object as a file named filename, with
 	// the given content type, until expiry.
 	PresignDownload(ctx context.Context, key string, expiry time.Duration, filename, contentType string) (*url.URL, error)

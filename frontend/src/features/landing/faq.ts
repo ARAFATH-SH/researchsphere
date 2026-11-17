@@ -30,7 +30,7 @@ export const faq: FaqEntry[] = [
     question: "Can I use my existing LaTeX files?",
     answer:
       "Yes. Every project starts with a main.tex file, and you can create more .tex files and folders and paste your " +
-      "existing source in. You can upload figures as PNG, JPG or PDF files of up to 5 MB each. Papers compile with pdfLaTeX and BibTeX.",
+      "existing source in. You can upload figures as PNG, JPG or PDF files of up to 50 MB each, stored without recompression, with 500 MB per project. Papers compile with pdfLaTeX and BibTeX.",
   },
   {
     // Section 2.5 (nothing is trained or fine-tuned), AI-7.2, AI-8.3, NFR-9.1.

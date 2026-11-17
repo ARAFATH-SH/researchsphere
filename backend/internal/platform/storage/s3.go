@@ -111,6 +111,38 @@ func (s *S3) PresignDownload(ctx context.Context, key string, expiry time.Durati
 	return u, nil
 }
 
+// PresignPost signs a POST policy for exactly one key and exactly size bytes. The stored
+// type is fixed to application/octet-stream, so whatever the browser claims is never kept;
+// the API reads the content to find the type.
+func (s *S3) PresignPost(ctx context.Context, key string, size int64, expiry time.Duration) (PresignedPost, error) {
+	if key == "" || size <= 0 {
+		return PresignedPost{}, errors.New("storage: presign post needs a key and a size over 0")
+	}
+	if expiry <= 0 || expiry > MaxPresignExpiry {
+		return PresignedPost{}, fmt.Errorf("storage: presign expiry must be more than 0 and at most %v, got %v", MaxPresignExpiry, expiry)
+	}
+	expires := time.Now().Add(expiry).UTC()
+	policy := minio.NewPostPolicy()
+	for _, err := range []error{
+		policy.SetBucket(s.bucket),
+		policy.SetKey(key),
+		policy.SetExpires(expires),
+		policy.SetContentLengthRange(size, size),
+		policy.SetContentType(octetStream),
+	} {
+		if err != nil {
+			return PresignedPost{}, fmt.Errorf("storage: presign post %s: %w", key, err)
+		}
+	}
+	u, fields, err := s.client.PresignedPostPolicy(ctx, policy)
+	if err != nil {
+		return PresignedPost{}, fmt.Errorf("storage: presign post %s: %w", key, err)
+	}
+	return PresignedPost{URL: u, Fields: fields, ExpiresAt: expires}, nil
+}
+
+const octetStream = "application/octet-stream"
+
 // Get opens the object. minio-go sends the request on the first read, so the object is
 // stat-ed first to tell a missing object apart.
 func (s *S3) Get(ctx context.Context, key string) (io.ReadCloser, error) {
@@ -129,6 +161,52 @@ func (s *S3) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 		return nil, fmt.Errorf("storage: get %s: %w", key, err)
 	}
 	return obj, nil
+}
+
+// GetIfMatch is Get with an If-Match on the ETag.
+func (s *S3) GetIfMatch(ctx context.Context, key, etag string) (io.ReadCloser, error) {
+	if key == "" || etag == "" {
+		return nil, errors.New("storage: get needs a key and an ETag")
+	}
+	opts := minio.GetObjectOptions{}
+	if err := opts.SetMatchETag(etag); err != nil {
+		return nil, fmt.Errorf("storage: get %s: %w", key, err)
+	}
+	obj, err := s.client.GetObject(ctx, s.bucket, key, opts)
+	if err != nil {
+		return nil, fmt.Errorf("storage: get %s: %w", key, err)
+	}
+	if _, err := obj.Stat(); err != nil {
+		_ = obj.Close()
+		return nil, objectError("get", key, err)
+	}
+	return obj, nil
+}
+
+// CopyIfMatch copies inside storage with an If-Match on the source's ETag, replacing the
+// metadata so the copy has the given content type.
+func (s *S3) CopyIfMatch(ctx context.Context, src, dst, etag, contentType string) error {
+	if src == "" || dst == "" || etag == "" || contentType == "" {
+		return errors.New("storage: copy needs a source, a destination, an ETag and a content type")
+	}
+	_, err := s.client.CopyObject(ctx,
+		minio.CopyDestOptions{Bucket: s.bucket, Object: dst, ReplaceMetadata: true, ContentType: contentType},
+		minio.CopySrcOptions{Bucket: s.bucket, Object: src, MatchETag: etag})
+	if err != nil {
+		return objectError("copy", src, err)
+	}
+	return nil
+}
+
+// objectError maps a missing object to ErrNotFound and a failed If-Match to ErrChanged.
+func objectError(op, key string, err error) error {
+	switch minio.ToErrorResponse(err).Code {
+	case minio.NoSuchKey:
+		return ErrNotFound
+	case minio.PreconditionFailed:
+		return ErrChanged
+	}
+	return fmt.Errorf("storage: %s %s: %w", op, key, err)
 }
 
 // Stat returns ErrNotFound when no object has the key.

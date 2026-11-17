@@ -1,11 +1,13 @@
 package usecase
 
 import (
+	"bytes"
 	"errors"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/project/domain"
 )
@@ -162,7 +164,7 @@ func TestFileRoles(t *testing.T) {
 			if _, err := e.service.MoveFile(ctx, tt.user, pid, main.ID, MainFileName); !errors.Is(err, tt.write) {
 				t.Errorf("MoveFile: err = %v, want %v", err, tt.write)
 			}
-			if _, err := e.service.UploadFigure(ctx, tt.user, pid, tt.user+".png", []byte("PNG")); !errors.Is(err, tt.write) {
+			if _, err := e.upload(ctx, tt.user, pid, tt.user+".png", []byte("PNG")); !errors.Is(err, tt.write) {
 				t.Errorf("UploadFigure: err = %v, want %v", err, tt.write)
 			}
 		})
@@ -322,7 +324,7 @@ func TestMoveFigureKeepsItsType(t *testing.T) {
 	e := newFileEnv()
 	pid := e.project(t)
 	ctx := t.Context()
-	png, err := e.service.UploadFigure(ctx, fEditor, pid, "fig/plot.png", []byte("PNG data"))
+	png, err := e.upload(ctx, fEditor, pid, "fig/plot.png", []byte("PNG data"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -342,13 +344,14 @@ func TestDeleteFolderDeletesEverythingInIt(t *testing.T) {
 	if _, err := e.service.CreateFile(ctx, fOwner, pid, CreateFileInput{Path: "figs/old/a.tex", Kind: domain.KindText}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.service.UploadFigure(ctx, fOwner, pid, "figs/old/p.png", []byte("PNG")); err != nil {
+	if _, err := e.upload(ctx, fOwner, pid, "figs/old/p.png", []byte("PNG")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.service.UploadFigure(ctx, fOwner, pid, "keep.pdf", []byte("PDF")); err != nil {
+	if _, err := e.upload(ctx, fOwner, pid, "keep.pdf", []byte("PDF")); err != nil {
 		t.Fatal(err)
 	}
 	figs := e.fileAt(t, pid, "figs")
+	e.remover.keys = nil // the uploads' own objects
 	if err := e.service.DeleteFile(ctx, fEditor, pid, figs.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -436,19 +439,26 @@ func TestSaveContentLimit(t *testing.T) {
 	}
 }
 
+// FR-12.2: a figure goes straight to storage, then is checked by its content and recorded.
 func TestUploadFigure(t *testing.T) {
 	e := newFileEnv()
 	pid := e.project(t)
 	ctx := t.Context()
-	f, err := e.service.UploadFigure(ctx, fEditor, pid, "figures/plot.png", []byte("PNG pixels"))
+	f, err := e.upload(ctx, fEditor, pid, "figures/plot.png", []byte("PNG pixels"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if f.Kind != domain.KindBinary || *f.ContentType != TypePNG || *f.ScanStatus != domain.ScanPending || f.Path != "figures/plot.png" {
 		t.Errorf("uploaded %+v", f)
 	}
-	if len(e.objects.objects) != 1 || e.figures.used[fEditor] != 1 {
-		t.Errorf("objects %d, counted %d; want 1 and 1", len(e.objects.objects), e.figures.used[fEditor])
+	stored := e.files.files[f.ID].ObjectKey
+	if !strings.HasPrefix(*stored, "projects/"+pid+"/files/") || string(e.objects.objects[*stored]) != "PNG pixels" ||
+		e.objects.types[*stored] != TypePNG || e.figures.used[fEditor] != 1 {
+		t.Errorf("stored at %s as %q (%s), counted %d", *stored, e.objects.objects[*stored], e.objects.types[*stored], e.figures.used[fEditor])
+	}
+	// The upload's own object is deleted after the commit (and queued by the database).
+	if len(e.remover.keys) != 1 || !strings.HasPrefix(e.remover.keys[0], "projects/"+pid+"/uploads/") {
+		t.Errorf("removed after commit: %v", e.remover.keys)
 	}
 	// Not downloadable before the scan says clean.
 	if _, err := e.service.File(ctx, fViewer, pid, f.ID); !errors.Is(err, domain.ErrScanPending) {
@@ -462,9 +472,9 @@ func TestUploadFigure(t *testing.T) {
 	}{
 		{"no figure extension", "figures/plot.tex", []byte("PNG"), domain.ErrInvalidPath},
 		{"bad path", "figures/my plot.png", []byte("PNG"), domain.ErrInvalidPath},
-		{"over 5 MB", "big.png", append([]byte("PNG"), make([]byte, MaxFigureBytes)...), domain.ErrFileTooLarge},
 		{"empty", "empty.png", nil, domain.ErrUnsupportedType},
 		{"not a figure", "virus.png", []byte("MZ program"), domain.ErrUnsupportedType},
+		{"broken image", "broken.png", []byte("BAD image"), domain.ErrInvalidImage},
 		{"JPEG named .png", "photo.png", []byte("JPG data"), domain.ErrTypeMismatch},
 		{"PDF named .jpg", "doc.jpg", []byte("PDF data"), domain.ErrTypeMismatch},
 		{"path taken", "FIGURES/PLOT.PNG", []byte("PNG"), domain.ErrPathTaken},
@@ -472,42 +482,251 @@ func TestUploadFigure(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if _, err := e.service.UploadFigure(ctx, fEditor, pid, tt.path, tt.data); !errors.Is(err, tt.want) {
+			if _, err := e.upload(ctx, fEditor, pid, tt.path, tt.data); !errors.Is(err, tt.want) {
 				t.Errorf("err = %v, want %v", err, tt.want)
 			}
 		})
 	}
-	// Refused files are not counted, and a figure refused after it was stored leaves no
-	// object behind.
+	// Refused files are not counted and leave no figure object behind.
 	if e.figures.used[fEditor] != 1 {
 		t.Errorf("counted %d uploads, want 1", e.figures.used[fEditor])
 	}
-	if len(e.objects.objects) != 1 {
-		t.Errorf("%d objects left, want 1", len(e.objects.objects))
+	for k := range e.objects.objects {
+		if strings.Contains(k, "/files/") && k != *stored {
+			t.Errorf("figure object %s left after a refusal", k)
+		}
 	}
-	// .jpeg and .jpg both name a JPEG; a PDF is kept as uploaded.
+	// .jpeg and .jpg both name a JPEG.
 	for _, p := range []string{"a.jpeg", "b.JPG"} {
-		if _, err := e.service.UploadFigure(ctx, fEditor, pid, p, []byte("JPG")); err != nil {
+		if _, err := e.upload(ctx, fEditor, pid, p, []byte("JPG")); err != nil {
 			t.Errorf("%s: %v", p, err)
 		}
 	}
-	if _, err := e.service.UploadFigure(ctx, fEditor, pid, "c.pdf", []byte("PDF")); err != nil {
-		t.Errorf("pdf: %v", err)
+}
+
+// An image's metadata is removed by the figure check and what remains is stored; a file
+// with nothing to remove, and a PDF, are copied inside storage byte for byte.
+func TestUploadFigureStripsMetadata(t *testing.T) {
+	e := newFileEnv()
+	pid := e.project(t)
+	ctx := t.Context()
+	f, err := e.upload(ctx, fEditor, pid, "photo.jpg", []byte("JPG METApixelsMETA"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := *e.files.files[f.ID].ObjectKey
+	if got := string(e.objects.objects[key]); got != "JPG pixels" || f.Size != int64(len("JPG pixels")) || e.objects.copies != 0 {
+		t.Errorf("stored %q, size %d, copies %d", got, f.Size, e.objects.copies)
+	}
+	pdf := []byte("PDF META stays in a PDF")
+	f, err = e.upload(ctx, fEditor, pid, "paper.pdf", pdf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key = *e.files.files[f.ID].ObjectKey
+	if !bytes.Equal(e.objects.objects[key], pdf) || e.objects.types[key] != TypePDF || e.objects.copies != 1 {
+		t.Errorf("PDF stored %q as %s, copies %d", e.objects.objects[key], e.objects.types[key], e.objects.copies)
+	}
+	if _, err := e.upload(ctx, fEditor, pid, "clean.png", []byte("PNG clean")); err != nil || e.objects.copies != 2 {
+		t.Errorf("clean image: %v, copies %d", err, e.objects.copies)
 	}
 }
 
 func TestUploadFigureLimits(t *testing.T) {
 	e := newFileEnv()
 	pid := e.project(t)
+	ctx := t.Context()
 	e.figures.used = map[string]int{fEditor: FiguresPerWindow}
 	var limited *domain.RateLimitedError
-	if _, err := e.service.UploadFigure(t.Context(), fEditor, pid, "a.png", []byte("PNG")); !errors.As(err, &limited) {
+	if _, err := e.upload(ctx, fEditor, pid, "a.png", []byte("PNG")); !errors.As(err, &limited) {
 		t.Errorf("err = %v, want rate limited", err)
 	}
-	// An image that grows past 5 MB when encoded again is refused.
-	e.service.d.Figures = memIntake{grow: MaxFigureBytes}
-	if _, err := e.service.UploadFigure(t.Context(), fOwner, pid, "b.png", []byte("PNG")); !errors.Is(err, domain.ErrFileTooLarge) {
-		t.Errorf("grown: err = %v, want too large", err)
+	// 50 MB by default (FIGURE_MAX_BYTES): exactly that is accepted, a byte more is not.
+	if _, err := e.service.StartFigureUpload(ctx, fOwner, pid, "max.png", DefaultFigureMaxBytes); err != nil {
+		t.Errorf("50 MB: %v", err)
+	}
+	var big *domain.FigureTooLargeError
+	_, err := e.service.StartFigureUpload(ctx, fOwner, pid, "big.png", DefaultFigureMaxBytes+1)
+	if !errors.As(err, &big) || big.LimitBytes != DefaultFigureMaxBytes || !errors.Is(err, domain.ErrFileTooLarge) {
+		t.Errorf("over 50 MB: err = %v", err)
+	}
+	// The setting changes it.
+	e.service.d.FigureMaxBytes = 5
+	if _, err := e.upload(ctx, fOwner, pid, "six.png", []byte("PNG123")); !errors.As(err, &big) || big.LimitBytes != 5 {
+		t.Errorf("over the setting: err = %v", err)
+	}
+	// A limit lowered between start and completion still holds.
+	e.service.d.FigureMaxBytes = 100
+	tk, err := e.service.StartFigureUpload(ctx, fOwner, pid, "late.png", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.objects.post(tk.Fields["key"], []byte("PNG4567890"))
+	e.service.d.FigureMaxBytes = 9
+	if _, err := e.service.CompleteFigureUpload(ctx, fOwner, pid, tk.ID); !errors.As(err, &big) {
+		t.Errorf("lowered limit: err = %v", err)
+	}
+}
+
+// FR-12.2: a project's figures fit in PROJECT_STORAGE_MAX_BYTES. Uploads still being sent
+// count when one starts, so several at once cannot pass it; completion checks again.
+func TestUploadStorageQuota(t *testing.T) {
+	e := newFileEnv()
+	pid := e.project(t)
+	ctx := t.Context()
+	e.service.d.StorageMaxBytes = 100
+	if _, err := e.upload(ctx, fEditor, pid, "a.png", bytes.Repeat([]byte("PNG"), 20)); err != nil { // 60 bytes
+		t.Fatal(err)
+	}
+	var full *domain.StorageLimitError
+	if _, err := e.service.StartFigureUpload(ctx, fEditor, pid, "b.png", 41); !errors.As(err, &full) ||
+		*full != (domain.StorageLimitError{UsedBytes: 60, LimitBytes: 100, NeedBytes: 41}) {
+		t.Errorf("over the quota: err = %v", err)
+	}
+	b, err := e.service.StartFigureUpload(ctx, fEditor, pid, "b.png", 40)
+	if err != nil {
+		t.Fatalf("exactly the quota: %v", err)
+	}
+	// b is being sent, so nothing else fits.
+	if _, err := e.service.StartFigureUpload(ctx, fOwner, pid, "c.png", 1); !errors.As(err, &full) || full.UsedBytes != 100 {
+		t.Errorf("with an upload in progress: err = %v", err)
+	}
+	// Once b's POST can no longer be used, it is no longer held.
+	e.now = e.now.Add(UploadPostExpiry + time.Second)
+	c, err := e.service.StartFigureUpload(ctx, fOwner, pid, "c.png", 30)
+	if err != nil {
+		t.Fatalf("after the POST expired: %v", err)
+	}
+	// Both arrive; the first to complete fits, the second does not, and its figure object
+	// is deleted.
+	e.objects.post(b.Fields["key"], append([]byte("PNG"), make([]byte, 37)...))
+	e.objects.post(c.Fields["key"], append([]byte("PNG"), make([]byte, 27)...))
+	if _, err := e.service.CompleteFigureUpload(ctx, fOwner, pid, c.ID); err != nil {
+		t.Fatalf("c: %v", err)
+	}
+	deletedBefore := len(e.objects.deleted)
+	if _, err := e.service.CompleteFigureUpload(ctx, fEditor, pid, b.ID); !errors.As(err, &full) ||
+		*full != (domain.StorageLimitError{UsedBytes: 90, LimitBytes: 100, NeedBytes: 40}) {
+		t.Errorf("b over the quota at completion: err = %v", err)
+	}
+	if len(e.objects.deleted) != deletedBefore+1 || !strings.Contains(e.objects.deleted[deletedBefore], "/files/") {
+		t.Errorf("deleted %v", e.objects.deleted)
+	}
+	// The tree shows the storage; a figure removed as malware no longer counts.
+	tree, err := e.service.Files(ctx, fViewer, pid)
+	if err != nil || tree.Storage != (domain.Storage{UsedBytes: 90, LimitBytes: 100, FigureMaxBytes: DefaultFigureMaxBytes}) {
+		t.Errorf("storage = %+v (%v)", tree.Storage, err)
+	}
+	infected := domain.ScanInfected
+	e.files.at(pid, "a.png").ScanStatus = &infected
+	if tree, _ := e.service.Files(ctx, fViewer, pid); tree.Storage.UsedBytes != 30 {
+		t.Errorf("after malware: used %d, want 30", tree.Storage.UsedBytes)
+	}
+}
+
+// Only the user who started an upload may complete it, once, within its hour, after the file
+// reached storage, while still a member.
+func TestCompleteFigureUploadRefusals(t *testing.T) {
+	e := newFileEnv()
+	pid := e.project(t)
+	other := e.project(t)
+	ctx := t.Context()
+	start := func(path string) UploadTicket {
+		t.Helper()
+		tk, err := e.service.StartFigureUpload(ctx, fEditor, pid, path, 3)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return tk
+	}
+	tk := start("a.png")
+	if _, err := e.service.CompleteFigureUpload(ctx, fEditor, pid, tk.ID); !errors.Is(err, domain.ErrUploadIncomplete) {
+		t.Errorf("not sent yet: err = %v", err)
+	}
+	if e.objects.post(tk.Fields["key"], []byte("PNG!")) {
+		t.Error("storage took a size the POST does not allow")
+	}
+	e.objects.post(tk.Fields["key"], []byte("PNG"))
+	if _, err := e.service.CompleteFigureUpload(ctx, fOwner, pid, tk.ID); !errors.Is(err, domain.ErrUploadNotFound) {
+		t.Errorf("another member: err = %v", err)
+	}
+	if _, err := e.service.CompleteFigureUpload(ctx, fEditor, other, tk.ID); !errors.Is(err, domain.ErrUploadNotFound) {
+		t.Errorf("another project: err = %v", err)
+	}
+	if _, err := e.service.CompleteFigureUpload(ctx, fViewer, pid, tk.ID); !errors.Is(err, domain.ErrForbidden) {
+		t.Errorf("viewer: err = %v", err)
+	}
+	if _, err := e.service.CompleteFigureUpload(ctx, fEditor, pid, tk.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.service.CompleteFigureUpload(ctx, fEditor, pid, tk.ID); !errors.Is(err, domain.ErrUploadNotFound) {
+		t.Errorf("twice: err = %v", err)
+	}
+
+	late := start("late.png")
+	e.objects.post(late.Fields["key"], []byte("PNG"))
+	e.now = e.now.Add(UploadExpiry)
+	if _, err := e.service.CompleteFigureUpload(ctx, fEditor, pid, late.ID); !errors.Is(err, domain.ErrUploadNotFound) {
+		t.Errorf("expired: err = %v", err)
+	}
+
+	removed := start("gone.png")
+	e.objects.post(removed.Fields["key"], []byte("PNG"))
+	e.withMember(pid, fEditor, domain.RoleNone)
+	if _, err := e.service.CompleteFigureUpload(ctx, fEditor, pid, removed.ID); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("removed member: err = %v", err)
+	}
+	if _, err := e.service.StartFigureUpload(ctx, fViewer, pid, "v.png", 3); !errors.Is(err, domain.ErrForbidden) {
+		t.Errorf("viewer start: err = %v", err)
+	}
+}
+
+// A second POST to the upload's key after the check is noticed by its ETag: the figure is
+// not recorded from a file nobody checked.
+func TestCompleteFigureUploadObjectChanged(t *testing.T) {
+	e := newFileEnv()
+	pid := e.project(t)
+	ctx := t.Context()
+	tk, err := e.service.StartFigureUpload(ctx, fEditor, pid, "a.png", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.objects.post(tk.Fields["key"], []byte("PNGMETAabc"))
+	opens := 0
+	e.objects.beforeOpen = func(key string) {
+		if opens++; opens == 2 { // between the check and the copy that stores it
+			e.objects.post(key, []byte("MZ program"))
+		}
+	}
+	if _, err := e.service.CompleteFigureUpload(ctx, fEditor, pid, tk.ID); !errors.Is(err, domain.ErrUploadIncomplete) {
+		t.Errorf("err = %v, want ErrUploadIncomplete", err)
+	}
+	for k := range e.objects.objects {
+		if strings.Contains(k, "/files/") {
+			t.Errorf("figure object %s stored from an unchecked file", k)
+		}
+	}
+	if len(e.paths(t, pid)) != 1 {
+		t.Errorf("tree = %v", e.paths(t, pid))
+	}
+}
+
+// Uploads never completed expire and are deleted; the database queues their objects.
+func TestExpireUploads(t *testing.T) {
+	e := newFileEnv()
+	pid := e.project(t)
+	ctx := t.Context()
+	for _, p := range []string{"a.png", "b.png"} {
+		if _, err := e.service.StartFigureUpload(ctx, fEditor, pid, p, 3); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n, err := e.service.ExpireUploads(ctx); n != 0 || err != nil {
+		t.Errorf("before expiry: %d, %v", n, err)
+	}
+	e.now = e.now.Add(UploadExpiry)
+	if n, err := e.service.ExpireUploads(ctx); n != 2 || err != nil || len(e.files.uploads) != 0 {
+		t.Errorf("after expiry: %d, %v, %d left", n, err, len(e.files.uploads))
 	}
 }
 
@@ -515,7 +734,7 @@ func TestFigureDownload(t *testing.T) {
 	e := newFileEnv()
 	pid := e.project(t)
 	ctx := t.Context()
-	f, err := e.service.UploadFigure(ctx, fEditor, pid, "figures/plot.png", []byte("PNG"))
+	f, err := e.upload(ctx, fEditor, pid, "figures/plot.png", []byte("PNG"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -565,9 +784,10 @@ func TestCreateProjectAddsMainTex(t *testing.T) {
 func TestDeleteProjectRemovesFigureObjects(t *testing.T) {
 	e := newFileEnv()
 	pid := e.project(t)
-	if _, err := e.service.UploadFigure(t.Context(), fOwner, pid, "p.png", []byte("PNG")); err != nil {
+	if _, err := e.upload(t.Context(), fOwner, pid, "p.png", []byte("PNG")); err != nil {
 		t.Fatal(err)
 	}
+	e.remover.keys = nil // the upload's own object
 	if err := e.service.Delete(t.Context(), fOwner, pid, ptr("Graph learning")); err != nil {
 		t.Fatal(err)
 	}

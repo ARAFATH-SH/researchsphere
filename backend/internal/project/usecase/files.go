@@ -1,7 +1,6 @@
 package usecase
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"errors"
@@ -30,17 +29,31 @@ const (
 // FileDeps is what the file operations need besides Deps. Files is required; without a
 // FigureIntake or FileObjects figures cannot be uploaded or downloaded; without a Remover the
 // storage cleanup alone deletes the objects of deleted figures; without limiters nothing is
-// counted.
+// counted. FigureMaxBytes and StorageMaxBytes are FIGURE_MAX_BYTES and
+// PROJECT_STORAGE_MAX_BYTES (FR-12.2); 0 means their defaults. Now is the clock, time.Now
+// when nil.
 type FileDeps struct {
-	Files         domain.FileStore
-	Figures       domain.FigureIntake
-	Objects       domain.FileObjects
-	Remover       domain.ObjectRemover
-	FigureLimiter domain.Limiter
-	SaveLimiter   domain.Limiter
+	Files           domain.FileStore
+	Figures         domain.FigureIntake
+	Objects         domain.FileObjects
+	Remover         domain.ObjectRemover
+	FigureLimiter   domain.Limiter
+	SaveLimiter     domain.Limiter
+	FigureMaxBytes  int64
+	StorageMaxBytes int64
+	Now             func() time.Time
 }
 
 func (d *FileDeps) defaults() {
+	if d.FigureMaxBytes <= 0 {
+		d.FigureMaxBytes = DefaultFigureMaxBytes
+	}
+	if d.StorageMaxBytes <= 0 {
+		d.StorageMaxBytes = DefaultStorageMaxBytes
+	}
+	if d.Now == nil {
+		d.Now = time.Now
+	}
 	if d.Remover == nil {
 		d.Remover = noRemover{}
 	}
@@ -104,12 +117,21 @@ func (s *Service) fileAccess(ctx context.Context, userID, projectID string, acti
 	return nil
 }
 
-// Files lists the project's files for a member (FR-12.1).
+// Files lists the project's files for a member (FR-12.1), with its storage (FR-12.2).
 func (s *Service) Files(ctx context.Context, userID, projectID string) (domain.FileTree, error) {
 	if err := s.fileAccess(ctx, userID, projectID, domain.ActReadFiles, lockNone); err != nil {
 		return domain.FileTree{}, err
 	}
-	return s.d.Files.Tree(ctx, projectID)
+	t, err := s.d.Files.Tree(ctx, projectID)
+	if err != nil {
+		return domain.FileTree{}, err
+	}
+	used, err := s.d.Files.StorageUsed(ctx, projectID)
+	if err != nil {
+		return domain.FileTree{}, err
+	}
+	t.Storage = domain.Storage{UsedBytes: used, LimitBytes: s.d.StorageMaxBytes, FigureMaxBytes: s.d.FigureMaxBytes}
+	return t, nil
 }
 
 // FileContent is one file with its text or, for a clean figure, a download URL.
@@ -385,85 +407,6 @@ func (s *Service) SaveContent(ctx context.Context, userID, projectID, fileID, co
 		s.d.Logger.WarnContext(ctx, "file save limit not recorded", slog.Any("error", err))
 	}
 	return s.fileByID(ctx, projectID, fileID)
-}
-
-// UploadFigure stores a figure at path (FR-12.2): PNG, JPEG or PDF by its content, up to
-// MaxFigureBytes, an image encoded again without EXIF. Its malware scan runs after. Errors,
-// in order: domain.ErrInvalidPath (also without a figure's extension); the access errors;
-// *domain.RateLimitedError; ErrFileTooLarge; ErrUnsupportedType, ErrImageTooLarge,
-// ErrInvalidImage; ErrTypeMismatch; ErrPathTaken, ErrParentNotFolder, ErrFileLimit.
-func (s *Service) UploadFigure(ctx context.Context, userID, projectID, path string, data []byte) (domain.File, error) {
-	if s.d.Figures == nil || s.d.Objects == nil {
-		return domain.File{}, errors.New("upload figure: no file storage configured")
-	}
-	p, err := CleanPath(path)
-	if err != nil {
-		return domain.File{}, err
-	}
-	wantType, figure := figureType(p)
-	if !figure {
-		return domain.File{}, domain.ErrInvalidPath
-	}
-	// Checked before the work, and again in the transaction that records the figure.
-	if err := s.fileAccess(ctx, userID, projectID, domain.ActEditFiles, lockNone); err != nil {
-		return domain.File{}, err
-	}
-	if err := s.underLimit(ctx, s.d.FigureLimiter, userID, FiguresPerWindow, "figure upload"); err != nil {
-		return domain.File{}, err
-	}
-	if len(data) > MaxFigureBytes {
-		return domain.File{}, domain.ErrFileTooLarge
-	}
-	if len(data) == 0 {
-		return domain.File{}, domain.ErrUnsupportedType
-	}
-	prepared, err := s.d.Figures.PrepareFigure(ctx, data)
-	if err != nil {
-		return domain.File{}, err
-	}
-	if len(prepared.Data) > MaxFigureBytes {
-		return domain.File{}, domain.ErrFileTooLarge
-	}
-	if prepared.ContentType != wantType {
-		return domain.File{}, domain.ErrTypeMismatch
-	}
-
-	storedID, err := newUUID()
-	if err != nil {
-		return domain.File{}, err
-	}
-	key := "projects/" + projectID + "/files/" + storedID
-	if err := s.d.Objects.Put(ctx, key, bytes.NewReader(prepared.Data), int64(len(prepared.Data)), prepared.ContentType); err != nil {
-		return domain.File{}, fmt.Errorf("store figure: %w", err)
-	}
-	var id string
-	err = s.d.Tx.InTx(ctx, func(ctx context.Context) error {
-		if err := s.fileAccess(ctx, userID, projectID, domain.ActEditFiles, lockExclusive); err != nil {
-			return err
-		}
-		if err := s.makeRoom(ctx, projectID, p, "", userID); err != nil {
-			return err
-		}
-		var err error
-		id, err = s.d.Files.InsertFigure(ctx, domain.NewFigure{
-			StoredFileID: storedID, ProjectID: projectID, Path: p, ObjectKey: key,
-			ContentType: prepared.ContentType, Size: int64(len(prepared.Data)),
-			Width: prepared.Width, Height: prepared.Height, UploadedBy: userID,
-		})
-		return err
-	})
-	if err != nil {
-		// No row points at the object, so the cleanup queue does not know it.
-		if derr := s.d.Objects.Delete(context.WithoutCancel(ctx), key); derr != nil {
-			s.d.Logger.ErrorContext(ctx, "orphaned object after a failed figure upload",
-				slog.String("object_key", key), slog.Any("error", derr))
-		}
-		return domain.File{}, err
-	}
-	if err := s.d.FigureLimiter.Record(ctx, userID, FigureWindow); err != nil {
-		s.d.Logger.WarnContext(ctx, "figure upload limit not recorded", slog.Any("error", err))
-	}
-	return s.fileByID(ctx, projectID, id)
 }
 
 // addMainFile writes the starting main.tex of a project (FR-10.4), with the owner's profile

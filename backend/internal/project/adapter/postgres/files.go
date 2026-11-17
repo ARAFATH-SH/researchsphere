@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -164,8 +165,8 @@ func (s *Store) InsertFigure(ctx context.Context, f domain.NewFigure) (string, e
 		ContentType: f.ContentType, SizeBytes: f.Size,
 	}
 	if f.Width > 0 && f.Height > 0 {
-		p.Width = pgtype.Int4{Int32: int32(f.Width), Valid: true}   //nolint:gosec // at most 8000 (media)
-		p.Height = pgtype.Int4{Int32: int32(f.Height), Valid: true} //nolint:gosec // at most 8000 (media)
+		p.Width = pgtype.Int4{Int32: int32(f.Width), Valid: true}   //nolint:gosec // at most 2^31-1 (media's figure check)
+		p.Height = pgtype.Int4{Int32: int32(f.Height), Valid: true} //nolint:gosec // at most 2^31-1 (media's figure check)
 	}
 	if err := q.InsertFigureObject(ctx, p); err != nil {
 		return "", fmt.Errorf("record figure object: %w", err)
@@ -309,6 +310,94 @@ func (s *Store) LockShared(ctx context.Context, projectID, userID string) (domai
 		return domain.RoleNone, fmt.Errorf("lock project shared: %w", err)
 	}
 	return domain.Role(role), nil
+}
+
+// StorageUsed is the bytes of the project's stored files, except those removed as malware.
+func (s *Store) StorageUsed(ctx context.Context, projectID string) (int64, error) {
+	pid, ok := parseUUID(projectID)
+	if !ok {
+		return 0, domain.ErrNotFound
+	}
+	n, err := s.q(ctx).ProjectStorageUsed(ctx, pid)
+	if err != nil {
+		return 0, fmt.Errorf("project storage used: %w", err)
+	}
+	return n, nil
+}
+
+// PendingUploadBytes is the bytes of the project's uploads started after since.
+func (s *Store) PendingUploadBytes(ctx context.Context, projectID string, since time.Time) (int64, error) {
+	pid, ok := parseUUID(projectID)
+	if !ok {
+		return 0, domain.ErrNotFound
+	}
+	n, err := s.q(ctx).PendingUploadBytes(ctx, sqlcgen.PendingUploadBytesParams{
+		ProjectID: pid, Since: pgtype.Timestamptz{Time: since, Valid: true},
+	})
+	if err != nil {
+		return 0, fmt.Errorf("pending upload bytes: %w", err)
+	}
+	return n, nil
+}
+
+// InsertUpload records an upload.
+func (s *Store) InsertUpload(ctx context.Context, u domain.Upload) (string, error) {
+	pid, ok1 := parseUUID(u.ProjectID)
+	uid, ok2 := parseUUID(u.UserID)
+	if !ok1 || !ok2 {
+		return "", fmt.Errorf("record upload: project %q or user %q is not a UUID", u.ProjectID, u.UserID)
+	}
+	id, err := s.q(ctx).InsertFigureUpload(ctx, sqlcgen.InsertFigureUploadParams{
+		ProjectID: pid, UserID: uid, ObjectKey: u.ObjectKey, Path: u.Path, SizeBytes: u.Size,
+		ExpiresAt: pgtype.Timestamptz{Time: u.ExpiresAt, Valid: true},
+	})
+	if err != nil {
+		return "", fmt.Errorf("record upload: %w", err)
+	}
+	return id.String(), nil
+}
+
+// Upload reads the user's upload in the project while it has not expired.
+func (s *Store) Upload(ctx context.Context, projectID, uploadID, userID string) (domain.Upload, error) {
+	pid, ok1 := parseUUID(projectID)
+	id, ok2 := parseUUID(uploadID)
+	uid, ok3 := parseUUID(userID)
+	if !ok1 || !ok2 || !ok3 {
+		return domain.Upload{}, domain.ErrUploadNotFound
+	}
+	r, err := s.q(ctx).FigureUpload(ctx, sqlcgen.FigureUploadParams{ID: id, ProjectID: pid, UserID: uid})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Upload{}, domain.ErrUploadNotFound
+	}
+	if err != nil {
+		return domain.Upload{}, fmt.Errorf("read upload: %w", err)
+	}
+	return domain.Upload{
+		ID: r.ID.String(), ProjectID: projectID, UserID: userID, ObjectKey: r.ObjectKey,
+		Path: r.Path, Size: r.SizeBytes, ExpiresAt: r.ExpiresAt.Time,
+	}, nil
+}
+
+// ClaimUpload deletes the upload if it is still there and not expired.
+func (s *Store) ClaimUpload(ctx context.Context, uploadID string) (bool, error) {
+	id, ok := parseUUID(uploadID)
+	if !ok {
+		return false, nil
+	}
+	n, err := s.q(ctx).ClaimFigureUpload(ctx, id)
+	if err != nil {
+		return false, fmt.Errorf("claim upload: %w", err)
+	}
+	return n == 1, nil
+}
+
+// DeleteExpiredUploads deletes up to limit expired uploads.
+func (s *Store) DeleteExpiredUploads(ctx context.Context, limit int) (int, error) {
+	n, err := s.q(ctx).DeleteExpiredFigureUploads(ctx, int32(min(limit, 10000))) //nolint:gosec // bounded above
+	if err != nil {
+		return 0, fmt.Errorf("delete expired uploads: %w", err)
+	}
+	return int(n), nil
 }
 
 func scanStatus(t pgtype.Text) *domain.ScanStatus {

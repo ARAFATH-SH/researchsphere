@@ -3,9 +3,8 @@ package http
 import (
 	"context"
 	"errors"
-	"io"
-	"mime/multipart"
-	"net/http"
+	"fmt"
+	"math"
 
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/api/gen"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpx"
@@ -15,28 +14,22 @@ import (
 
 // Error codes of the file operations (FR-12.1, FR-12.2, FR-12.6, docs/openapi.yaml).
 const (
-	CodeInvalidPath     = "invalid_path"
-	CodeInvalidMove     = "invalid_move"
-	CodePathTaken       = "path_taken"
-	CodeParentNotFolder = "parent_not_folder"
-	CodeFileLimit       = "file_limit_reached"
-	CodeNotTextFile     = "not_a_text_file"
-	CodeVersionConflict = "version_conflict"
-	CodeFileTooLarge    = "file_too_large"
-	CodeUnsupportedType = "unsupported_type"
-	CodeTypeMismatch    = "type_mismatch"
-	CodeImageTooLarge   = "image_too_large"
-	CodeInvalidImage    = "invalid_image"
-	CodeScanPending     = "scan_pending"
-	CodeScanFailed      = "scan_failed"
-	CodeFileRemoved     = "file_removed"
-)
-
-// Multipart parts of a figure upload.
-const (
-	pathPart     = "path"
-	filePart     = "file"
-	maxPathBytes = 1024
+	CodeInvalidPath      = "invalid_path"
+	CodeInvalidMove      = "invalid_move"
+	CodePathTaken        = "path_taken"
+	CodeParentNotFolder  = "parent_not_folder"
+	CodeFileLimit        = "file_limit_reached"
+	CodeNotTextFile      = "not_a_text_file"
+	CodeVersionConflict  = "version_conflict"
+	CodeFileTooLarge     = "file_too_large"
+	CodeUnsupportedType  = "unsupported_type"
+	CodeTypeMismatch     = "type_mismatch"
+	CodeInvalidImage     = "invalid_image"
+	CodeStorageLimit     = "storage_limit_reached"
+	CodeUploadIncomplete = "upload_incomplete"
+	CodeScanPending      = "scan_pending"
+	CodeScanFailed       = "scan_failed"
+	CodeFileRemoved      = "file_removed"
 )
 
 // FileService is what the file handlers need from the usecase.
@@ -47,7 +40,8 @@ type FileService interface {
 	MoveFile(ctx context.Context, userID, projectID, fileID, path string) (domain.File, error)
 	DeleteFile(ctx context.Context, userID, projectID, fileID string) error
 	SaveContent(ctx context.Context, userID, projectID, fileID, content string, version int) (domain.File, error)
-	UploadFigure(ctx context.Context, userID, projectID, path string, data []byte) (domain.File, error)
+	StartFigureUpload(ctx context.Context, userID, projectID, path string, size int64) (usecase.UploadTicket, error)
+	CompleteFigureUpload(ctx context.Context, userID, projectID, uploadID string) (domain.File, error)
 }
 
 var (
@@ -69,6 +63,8 @@ type fileError struct {
 	body   gen.Error
 	susp   *domain.SuspendedError
 	limit  *domain.RateLimitedError
+	// size is the body of a 413 about a figure: the limit, and the storage in use.
+	size *gen.StorageLimitError
 }
 
 func classifyFile(err error) fileError {
@@ -76,8 +72,26 @@ func classifyFile(err error) fileError {
 		field     *domain.FieldError
 		suspended *domain.SuspendedError
 		limited   *domain.RateLimitedError
+		tooLarge  *domain.FigureTooLargeError
+		full      *domain.StorageLimitError
 	)
 	switch {
+	case errors.As(err, &tooLarge):
+		return fileError{status: 413, size: &gen.StorageLimitError{
+			Code: CodeFileTooLarge, Message: fmt.Sprintf("A figure may be at most %s.", formatBytes(tooLarge.LimitBytes)),
+			LimitBytes: ptr(tooLarge.LimitBytes),
+		}}
+	case errors.As(err, &full):
+		return fileError{status: 413, size: &gen.StorageLimitError{
+			Code: CodeStorageLimit,
+			Message: fmt.Sprintf("This project uses %s of %s, so a figure of %s does not fit. Delete figures it no longer needs to make room.",
+				formatBytes(full.UsedBytes), formatBytes(full.LimitBytes), formatBytes(full.NeedBytes)),
+			UsedBytes: ptr(full.UsedBytes), LimitBytes: ptr(full.LimitBytes),
+		}}
+	case errors.Is(err, domain.ErrUploadNotFound):
+		return fileError{status: 404, body: gen.Error{Code: httpx.CodeNotFound, Message: "This upload does not exist or has expired. Upload the file again."}}
+	case errors.Is(err, domain.ErrUploadIncomplete):
+		return fileError{status: 409, body: gen.Error{Code: CodeUploadIncomplete, Message: "The file has not reached storage yet. Send it, then try again."}}
 	case errors.Is(err, domain.ErrInvalidPath):
 		return fileError{status: 400, body: invalidPath}
 	case errors.As(err, &field):
@@ -87,8 +101,6 @@ func classifyFile(err error) fileError {
 	case errors.Is(err, domain.ErrTypeMismatch):
 		return fileError{status: 400, body: gen.Error{Code: CodeTypeMismatch,
 			Message: "The file's content does not match its extension: use .png for a PNG, .jpg or .jpeg for a JPEG, .pdf for a PDF."}}
-	case errors.Is(err, domain.ErrImageTooLarge):
-		return fileError{status: 400, body: gen.Error{Code: CodeImageTooLarge, Message: "The image may be at most 8000 pixels wide and high."}}
 	case errors.Is(err, domain.ErrInvalidImage):
 		return fileError{status: 400, body: gen.Error{Code: CodeInvalidImage, Message: "The image could not be read. It may be damaged."}}
 	case errors.As(err, &suspended):
@@ -110,7 +122,7 @@ func classifyFile(err error) fileError {
 		return fileError{status: 409, body: gen.Error{Code: CodeNotTextFile, Message: "Only a text file has content to save."}}
 	case errors.Is(err, domain.ErrFileTooLarge):
 		return fileError{status: 413, body: gen.Error{Code: CodeFileTooLarge,
-			Message: "A text file may be at most 1 MB, and a figure at most 5 MB."}}
+			Message: "A text file may be at most 1 MB."}}
 	case errors.Is(err, domain.ErrUnsupportedType):
 		return fileError{status: 415, body: gen.Error{Code: CodeUnsupportedType, Message: "Upload a PNG, JPEG or PDF file."}}
 	case errors.As(err, &limited):
@@ -156,7 +168,12 @@ func (h *Handler) ListProjectFiles(ctx context.Context, req gen.ListProjectFiles
 		}
 		items = append(items, b)
 	}
-	return gen.ListProjectFiles200JSONResponse{MainFilePath: tree.MainFilePath, Items: items}, nil
+	return gen.ListProjectFiles200JSONResponse{
+		MainFilePath: tree.MainFilePath, Items: items,
+		Storage: gen.ProjectStorage{
+			UsedBytes: tree.Storage.UsedBytes, LimitBytes: tree.Storage.LimitBytes, FigureMaxBytes: tree.Storage.FigureMaxBytes,
+		},
+	}, nil
 }
 
 // GetProjectFile reads one file: a text file's content or a clean figure's download.
@@ -321,45 +338,66 @@ func (h *Handler) SaveProjectFileContent(ctx context.Context, req gen.SaveProjec
 	return gen.SaveProjectFileContent200JSONResponse(body), nil
 }
 
-// UploadProjectFigure stores a figure (FR-12.2).
-func (h *Handler) UploadProjectFigure(ctx context.Context, req gen.UploadProjectFigureRequestObject) (gen.UploadProjectFigureResponseObject, error) {
+// StartFigureUpload signs a POST that sends a figure straight to storage (FR-12.2).
+func (h *Handler) StartFigureUpload(ctx context.Context, req gen.StartFigureUploadRequestObject) (gen.StartFigureUploadResponseObject, error) {
 	id, ok := httpx.UserID(ctx)
 	if !ok {
-		return gen.UploadProjectFigure401JSONResponse{UnauthorizedJSONResponse: unauthenticated}, nil
+		return gen.StartFigureUpload401JSONResponse{UnauthorizedJSONResponse: unauthenticated}, nil
 	}
-	badParts := gen.UploadProjectFigure400JSONResponse{InvalidProjectFileJSONResponse: gen.InvalidProjectFileJSONResponse{
-		Code: httpx.CodeBadRequest, Message: "Send the figure as multipart form data with the parts path and file.",
-	}}
 	if req.Body == nil {
-		return badParts, nil
+		return gen.StartFigureUpload400JSONResponse{InvalidProjectFileJSONResponse: gen.InvalidProjectFileJSONResponse(fieldError("path"))}, nil
 	}
-	path, data, err := readFigureParts(req.Body)
-	if _, tooLarge := errors.AsType[*http.MaxBytesError](err); tooLarge {
-		return gen.UploadProjectFigure413JSONResponse{FileTooLargeJSONResponse: gen.FileTooLargeJSONResponse{
-			Code: CodeFileTooLarge, Message: "A figure may be at most 5 MB."}}, nil
+	if req.Body.Size < 1 {
+		return gen.StartFigureUpload400JSONResponse{InvalidProjectFileJSONResponse: gen.InvalidProjectFileJSONResponse{
+			Code: httpx.CodeBadRequest, Message: "The file is empty.", Field: ptr("size")}}, nil
 	}
-	if err != nil {
-		return badParts, nil
-	}
-	f, err := h.files.UploadFigure(ctx, id, req.ProjectId, path, data)
+	t, err := h.files.StartFigureUpload(ctx, id, req.ProjectId, req.Body.Path, req.Body.Size)
 	switch e := classifyFile(err); e.status {
 	case 400:
-		return gen.UploadProjectFigure400JSONResponse{InvalidProjectFileJSONResponse: gen.InvalidProjectFileJSONResponse(e.body)}, nil
+		return gen.StartFigureUpload400JSONResponse{InvalidProjectFileJSONResponse: gen.InvalidProjectFileJSONResponse(e.body)}, nil
 	case 403:
-		return gen.UploadProjectFigure403JSONResponse{AccountSuspendedOrForbiddenJSONResponse: e.forbidden()}, nil
+		return gen.StartFigureUpload403JSONResponse{AccountSuspendedOrForbiddenJSONResponse: e.forbidden()}, nil
 	case 404:
-		return gen.UploadProjectFigure404JSONResponse{NotFoundJSONResponse: gen.NotFoundJSONResponse(e.body)}, nil
+		return gen.StartFigureUpload404JSONResponse{NotFoundJSONResponse: gen.NotFoundJSONResponse(e.body)}, nil
 	case 409:
-		return gen.UploadProjectFigure409JSONResponse{ProjectFileConflictJSONResponse: gen.ProjectFileConflictJSONResponse(e.body)}, nil
+		return gen.StartFigureUpload409JSONResponse{ProjectFileConflictJSONResponse: gen.ProjectFileConflictJSONResponse(e.body)}, nil
 	case 413:
-		return gen.UploadProjectFigure413JSONResponse{FileTooLargeJSONResponse: gen.FileTooLargeJSONResponse{
-			Code: CodeFileTooLarge, Message: "A figure may be at most 5 MB."}}, nil
-	case 415:
-		return gen.UploadProjectFigure415JSONResponse{UnsupportedFigureTypeJSONResponse: gen.UnsupportedFigureTypeJSONResponse(e.body)}, nil
+		return gen.StartFigureUpload413JSONResponse{FigureTooLargeJSONResponse: gen.FigureTooLargeJSONResponse(*e.size)}, nil
 	case 429:
-		return gen.UploadProjectFigure429JSONResponse{
+		return gen.StartFigureUpload429JSONResponse{
 			ProjectFileRateLimitedJSONResponse: e.rateLimited("You have uploaded 30 figures this hour. Try again later."),
 		}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	uid, err := uuidOf(t.ID)
+	if err != nil {
+		return nil, err
+	}
+	return gen.StartFigureUpload201JSONResponse{Id: uid, Url: t.URL.String(), Fields: t.Fields, ExpiresAt: t.ExpiresAt}, nil
+}
+
+// CompleteFigureUpload records a figure the browser sent to storage (FR-12.2).
+func (h *Handler) CompleteFigureUpload(ctx context.Context, req gen.CompleteFigureUploadRequestObject) (gen.CompleteFigureUploadResponseObject, error) {
+	id, ok := httpx.UserID(ctx)
+	if !ok {
+		return gen.CompleteFigureUpload401JSONResponse{UnauthorizedJSONResponse: unauthenticated}, nil
+	}
+	f, err := h.files.CompleteFigureUpload(ctx, id, req.ProjectId, req.UploadId)
+	switch e := classifyFile(err); e.status {
+	case 400:
+		return gen.CompleteFigureUpload400JSONResponse{InvalidProjectFileJSONResponse: gen.InvalidProjectFileJSONResponse(e.body)}, nil
+	case 403:
+		return gen.CompleteFigureUpload403JSONResponse{AccountSuspendedOrForbiddenJSONResponse: e.forbidden()}, nil
+	case 404:
+		return gen.CompleteFigureUpload404JSONResponse{NotFoundJSONResponse: gen.NotFoundJSONResponse(e.body)}, nil
+	case 409:
+		return gen.CompleteFigureUpload409JSONResponse{ProjectFileConflictJSONResponse: gen.ProjectFileConflictJSONResponse(e.body)}, nil
+	case 413:
+		return gen.CompleteFigureUpload413JSONResponse{FigureTooLargeJSONResponse: gen.FigureTooLargeJSONResponse(*e.size)}, nil
+	case 415:
+		return gen.CompleteFigureUpload415JSONResponse{UnsupportedFigureTypeJSONResponse: gen.UnsupportedFigureTypeJSONResponse(e.body)}, nil
 	}
 	if err != nil {
 		return nil, err
@@ -368,46 +406,21 @@ func (h *Handler) UploadProjectFigure(ctx context.Context, req gen.UploadProject
 	if err != nil {
 		return nil, err
 	}
-	return gen.UploadProjectFigure201JSONResponse(body), nil
+	return gen.CompleteFigureUpload201JSONResponse(body), nil
 }
 
-// readFigureParts reads the path part (at most maxPathBytes) and the file part (at most one
-// byte over the figure limit, so the usecase can tell it is too large), in either order.
-// Other parts are skipped. An error from the body itself, such as the cap set in cmd/api, is
-// returned unchanged.
-func readFigureParts(body *multipart.Reader) (string, []byte, error) {
-	var (
-		path             string
-		data             []byte
-		gotPath, gotFile bool
-	)
-	for !gotPath || !gotFile {
-		p, err := body.NextPart()
-		if errors.Is(err, io.EOF) {
-			return "", nil, errors.New("missing part")
-		}
-		if err != nil {
-			return "", nil, err
-		}
-		switch p.FormName() {
-		case pathPart:
-			b, err := io.ReadAll(io.LimitReader(p, maxPathBytes+1))
-			if err != nil {
-				return "", nil, err
-			}
-			if len(b) > maxPathBytes {
-				b = b[:maxPathBytes] // fails the path rules
-			}
-			path, gotPath = string(b), true
-		case filePart:
-			b, err := io.ReadAll(io.LimitReader(p, usecase.MaxFigureBytes+1))
-			if err != nil {
-				return "", nil, err
-			}
-			data, gotFile = b, true
-		}
+// formatBytes writes a size in MB (2^20 bytes), as the limits are set: "50 MB", "12.5 MB";
+// under 1 MB in KB. The web client writes sizes the same way.
+func formatBytes(n int64) string {
+	const mb = 1 << 20
+	if n < mb {
+		return fmt.Sprintf("%d KB", (n+1023)/1024)
 	}
-	return path, data, nil
+	if n%mb == 0 {
+		return fmt.Sprintf("%d MB", n/mb)
+	}
+	// Rounded down, so a project just under its limit never reads as full.
+	return fmt.Sprintf("%.1f MB", math.Floor(float64(n)*10/mb)/10)
 }
 
 func fileBody(f domain.File) (gen.ProjectFile, error) {

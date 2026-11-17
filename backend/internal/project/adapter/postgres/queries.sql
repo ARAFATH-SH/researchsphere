@@ -637,6 +637,45 @@ WHERE p.id > coalesce(sqlc.narg(after)::uuid, '00000000-0000-0000-0000-000000000
 ORDER BY p.id
 LIMIT @max_rows;
 
+-- name: ProjectStorageUsed :one
+-- The bytes of the project's stored files (FR-12.2 quota), except those removed as malware,
+-- whose objects are gone.
+SELECT coalesce(sum(size_bytes), 0)::bigint
+FROM stored_files
+WHERE project_id = @project_id AND scan_status <> 'infected';
+
+-- name: PendingUploadBytes :one
+-- The bytes of the project's uploads still being sent (started after @since), held against
+-- the quota so several uploads at once cannot pass it.
+SELECT coalesce(sum(size_bytes), 0)::bigint
+FROM project_figure_uploads
+WHERE project_id = @project_id AND created_at > @since AND expires_at > now();
+
+-- name: InsertFigureUpload :one
+INSERT INTO project_figure_uploads (project_id, user_id, object_key, path, size_bytes, expires_at)
+VALUES (@project_id, @user_id, @object_key, @path, @size_bytes, @expires_at)
+RETURNING id;
+
+-- name: FigureUpload :one
+-- The user's own upload in the project, while it has not expired.
+SELECT id, object_key, path, size_bytes, expires_at
+FROM project_figure_uploads
+WHERE id = @id AND project_id = @project_id AND user_id = @user_id AND expires_at > now();
+
+-- name: ClaimFigureUpload :execrows
+-- Completing takes the upload in the transaction that records the figure: a second
+-- completion finds nothing. The trigger queues the upload's object for deletion.
+DELETE FROM project_figure_uploads WHERE id = @id AND expires_at > now();
+
+-- name: DeleteExpiredFigureUploads :execrows
+-- Abandoned uploads, a batch at a time; the trigger queues each object for deletion.
+DELETE FROM project_figure_uploads
+WHERE id IN (SELECT id FROM project_figure_uploads
+             WHERE expires_at <= now()
+             ORDER BY expires_at
+             LIMIT @max_rows
+             FOR UPDATE SKIP LOCKED);
+
 -- name: ShareLockProjectRole :one
 -- The user's role, '' when not a member, with the project row locked shared: content saves
 -- run side by side, and wait for a membership change (which locks the row for update).

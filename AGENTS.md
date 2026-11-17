@@ -42,7 +42,7 @@ Run these from the repository root. `make help` prints the current list.
 | Command | What it does |
 | --- | --- |
 | `make up` / `make down` | Start or stop PostgreSQL, Redis, Mailpit (local email inbox at http://localhost:8025), MinIO and ClamAV; `make up` also creates the private bucket, and starts ClamAV last without waiting for it (clamd takes 30 to 90 seconds and 1.5 to 3 GB of memory to load its signatures; attachments stay pending until it answers). `make up CLAMAV=0` leaves ClamAV out, as the CI stack job does. It also starts the AI service without waiting (building its image the first time; the first start downloads the model, and `GET /health` says `degraded` until it is loaded); `AI=0` leaves it out |
-| `make check` | Confirm that PostgreSQL, pgvector, Redis and storage respond, and that the bucket refuses anonymous access; show whether ClamAV and the AI service answer yet (not a failure) |
+| `make check` | Confirm that PostgreSQL, pgvector, Redis and storage respond, that the bucket refuses anonymous access and that storage accepts uploads from the web client (CORS for `http://localhost:3000`, set by `make up`); show whether ClamAV and the AI service answer yet (not a failure) |
 | `make psql` | Open a psql prompt in the database |
 | `make migrate` / `make migrate-down` | Apply all migrations, or undo the latest one |
 | `make migrate-new name=add_users` | Create a new migration pair |
@@ -182,7 +182,9 @@ do not rename them.
   straight to the API at `NEXT_PUBLIC_WS_URL`, because a rewrite is not known to carry it
   (`docs/decisions.md`). A second exception is a file upload with progress, which needs
   `XMLHttpRequest`: `uploadFile` in `lib/api/upload.ts` is the only code that uses it (ESLint refuses it
-  elsewhere) and keeps the client's refresh and lost-session handling. Every session refresh goes through `refreshSession` in `lib/api/client.ts`,
+  elsewhere) and keeps the client's refresh and lost-session handling. Beside it, `postToStorage`
+  sends a project figure straight to object storage with the presigned POST the API signed
+  (FR-12.2), without cookies: the one request that leaves the app's origin besides the WebSocket. Every session refresh goes through `refreshSession` in `lib/api/client.ts`,
   so tabs take turns. Jest tests (`*.test.ts(x)`) sit beside the
   code they test and mock the API module, not the network. `frontend/jest.setup.ts` fails any test that
   calls `console.error`; its allowlist is only for documented third-party noise. The default
@@ -194,6 +196,12 @@ do not rename them.
   `design/screens/` is the source of truth for look and spacing; restyled pages use the `rs-*`
   tokens. `cd frontend && npm run ui:compare -- <route> <design-file>` (dev only, needs
   `make web`) screenshots a route beside its design and prints the pixel difference.
+  `cd frontend && npm run e2e:figures` (dev only, needs `make api` and `make web`, signs in with
+  `E2E_EMAIL`/`E2E_PASSWORD` or the `UI_COMPARE_` pair) uploads figures in a real Chrome
+  through the whole flow, MinIO's CORS and the malware scan included, and deletes them after.
+- **Database version:** the API refuses to start on a database whose migrations are not all
+  applied (`requiredSchemaVersion` in `backend/cmd/api/schema.go`; a test keeps it equal to the
+  newest file in `backend/db/migrations`, so a new migration raises it).
 - **API:** JSON under `/api/v1`. Errors have the shape `{"code": "...", "message": "..."}`;
   a `bad_request` about one body field or parameter adds `"field"`, and never repeats the value.
   Lists are paginated and the server caps the page size at 50 (a conversation's messages cap at 100;

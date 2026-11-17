@@ -18,8 +18,10 @@ const (
 	MaxFiles = 200
 	// MaxTextBytes is the largest text file, in bytes of UTF-8.
 	MaxTextBytes = 1 << 20
-	// MaxFigureBytes is the largest figure, as uploaded and as stored (FR-12.2).
-	MaxFigureBytes = 5 << 20
+	// DefaultFigureMaxBytes and DefaultStorageMaxBytes are the figure limits when the
+	// settings give none (FR-12.2; FIGURE_MAX_BYTES, PROJECT_STORAGE_MAX_BYTES).
+	DefaultFigureMaxBytes  = 50 << 20
+	DefaultStorageMaxBytes = 500 << 20
 	// MainFileName is the file every new project starts with (FR-10.4).
 	MainFileName = "main.tex"
 )
