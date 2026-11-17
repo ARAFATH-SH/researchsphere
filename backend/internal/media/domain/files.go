@@ -76,7 +76,8 @@ type ObjectReader interface {
 
 // ScanJob is one stored file a worker has claimed for scanning.
 type ScanJob struct {
-	FileID    string
+	FileID string
+	// OwnerID is the user who owns the file; empty for a file a project owns (a figure).
 	OwnerID   string
 	ObjectKey string
 	Attempts  int    // tries that ended with a ScanFileError so far

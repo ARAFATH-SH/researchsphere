@@ -1,0 +1,327 @@
+package postgres
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
+
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/project/adapter/postgres/sqlcgen"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/project/domain"
+)
+
+var _ domain.FileStore = (*Store)(nil)
+
+// fileError maps the database's file rules (migration 000035) to the domain's errors.
+func fileError(err error, what string) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch {
+		case pgErr.Code == "23505" && pgErr.ConstraintName == "project_files_path_uq":
+			return domain.ErrPathTaken
+		case pgErr.Code == "23514" && pgErr.ConstraintName == "project_files_max":
+			return domain.ErrFileLimit
+		case pgErr.Code == "23514" && pgErr.ConstraintName == "project_files_parent":
+			return domain.ErrParentNotFolder
+		}
+	}
+	return fmt.Errorf("%s: %w", what, err)
+}
+
+// Tree lists the project's files.
+func (s *Store) Tree(ctx context.Context, projectID string) (domain.FileTree, error) {
+	id, ok := parseUUID(projectID)
+	if !ok {
+		return domain.FileTree{}, domain.ErrNotFound
+	}
+	q := s.q(ctx)
+	main, err := q.MainFilePath(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.FileTree{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.FileTree{}, fmt.Errorf("read main file path: %w", err)
+	}
+	rows, err := q.ProjectFiles(ctx, id)
+	if err != nil {
+		return domain.FileTree{}, fmt.Errorf("list project files: %w", err)
+	}
+	files := make([]domain.File, len(rows))
+	for i, r := range rows {
+		files[i] = domain.File{
+			ID: r.ID.String(), ProjectID: projectID, Path: r.Path, Kind: domain.FileKind(r.Kind),
+			Size: r.SizeBytes, Version: int(r.Version), ContentType: textPtr(r.ContentType),
+			ScanStatus: scanStatus(r.ScanStatus), UpdatedAt: r.UpdatedAt.Time,
+			UpdatedBy: updater(r.UpdatedBy, r.UpdaterName, r.UpdaterHeadline, r.UpdaterPhoto),
+		}
+	}
+	return domain.FileTree{MainFilePath: main, Files: files}, nil
+}
+
+// File reads one file of the project.
+func (s *Store) File(ctx context.Context, projectID, fileID string) (domain.StoredFile, error) {
+	pid, ok1 := parseUUID(projectID)
+	fid, ok2 := parseUUID(fileID)
+	if !ok1 || !ok2 {
+		return domain.StoredFile{}, domain.ErrFileNotFound
+	}
+	r, err := s.q(ctx).ProjectFile(ctx, sqlcgen.ProjectFileParams{ProjectID: pid, ID: fid})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.StoredFile{}, domain.ErrFileNotFound
+	}
+	if err != nil {
+		return domain.StoredFile{}, fmt.Errorf("read project file: %w", err)
+	}
+	return domain.StoredFile{
+		File: domain.File{
+			ID: r.ID.String(), ProjectID: projectID, Path: r.Path, Kind: domain.FileKind(r.Kind),
+			Size: r.SizeBytes, Version: int(r.Version), ContentType: textPtr(r.ContentType),
+			ScanStatus: scanStatus(r.ScanStatus), UpdatedAt: r.UpdatedAt.Time,
+			UpdatedBy: updater(r.UpdatedBy, r.UpdaterName, r.UpdaterHeadline, r.UpdaterPhoto),
+		},
+		Content: textPtr(r.Content), ObjectKey: textPtr(r.ObjectKey),
+	}, nil
+}
+
+// LockFile reads one file of the project and locks its row.
+func (s *Store) LockFile(ctx context.Context, projectID, fileID string) (domain.StoredFile, error) {
+	pid, ok1 := parseUUID(projectID)
+	fid, ok2 := parseUUID(fileID)
+	if !ok1 || !ok2 {
+		return domain.StoredFile{}, domain.ErrFileNotFound
+	}
+	r, err := s.q(ctx).LockProjectFile(ctx, sqlcgen.LockProjectFileParams{ProjectID: pid, ID: fid})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.StoredFile{}, domain.ErrFileNotFound
+	}
+	if err != nil {
+		return domain.StoredFile{}, fmt.Errorf("lock project file: %w", err)
+	}
+	return domain.StoredFile{
+		File: domain.File{
+			ID: r.ID.String(), ProjectID: projectID, Path: r.Path, Kind: domain.FileKind(r.Kind),
+			Size: r.SizeBytes, Version: int(r.Version), ContentType: textPtr(r.ContentType), UpdatedAt: r.UpdatedAt.Time,
+		},
+		Content: textPtr(r.Content),
+	}, nil
+}
+
+// FileAt finds the entry at path, ignoring letter case.
+func (s *Store) FileAt(ctx context.Context, projectID, path string) (domain.File, bool, error) {
+	pid, ok := parseUUID(projectID)
+	if !ok {
+		return domain.File{}, false, domain.ErrNotFound
+	}
+	r, err := s.q(ctx).ProjectFileAt(ctx, sqlcgen.ProjectFileAtParams{ProjectID: pid, Path: path})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.File{}, false, nil
+	}
+	if err != nil {
+		return domain.File{}, false, fmt.Errorf("find project file: %w", err)
+	}
+	return domain.File{ID: r.ID.String(), ProjectID: projectID, Kind: domain.FileKind(r.Kind)}, true, nil
+}
+
+// InsertFolder adds a folder.
+func (s *Store) InsertFolder(ctx context.Context, projectID, path, by string) (string, error) {
+	pid, ok := parseUUID(projectID)
+	if !ok {
+		return "", domain.ErrNotFound
+	}
+	id, err := s.q(ctx).InsertProjectFolder(ctx, sqlcgen.InsertProjectFolderParams{ProjectID: pid, Path: path, UpdatedBy: viewerUUID(by)})
+	if err != nil {
+		return "", fileError(err, "create project folder")
+	}
+	return id.String(), nil
+}
+
+// InsertText adds a text file.
+func (s *Store) InsertText(ctx context.Context, projectID, path, content, by string) (string, error) {
+	pid, ok := parseUUID(projectID)
+	if !ok {
+		return "", domain.ErrNotFound
+	}
+	id, err := s.q(ctx).InsertProjectText(ctx, sqlcgen.InsertProjectTextParams{ProjectID: pid, Path: path, Content: content, UpdatedBy: viewerUUID(by)})
+	if err != nil {
+		return "", fileError(err, "create project file")
+	}
+	return id.String(), nil
+}
+
+// InsertFigure adds the figure's stored file, owned by the project, and its project file.
+func (s *Store) InsertFigure(ctx context.Context, f domain.NewFigure) (string, error) {
+	pid, ok1 := parseUUID(f.ProjectID)
+	sid, ok2 := parseUUID(f.StoredFileID)
+	if !ok1 || !ok2 {
+		return "", fmt.Errorf("create figure: project %q or file %q is not a UUID", f.ProjectID, f.StoredFileID)
+	}
+	q := s.q(ctx)
+	p := sqlcgen.InsertFigureObjectParams{
+		ID: sid, ProjectID: pid, UploadedBy: viewerUUID(f.UploadedBy), ObjectKey: f.ObjectKey,
+		ContentType: f.ContentType, SizeBytes: f.Size,
+	}
+	if f.Width > 0 && f.Height > 0 {
+		p.Width = pgtype.Int4{Int32: int32(f.Width), Valid: true}   //nolint:gosec // at most 8000 (media)
+		p.Height = pgtype.Int4{Int32: int32(f.Height), Valid: true} //nolint:gosec // at most 8000 (media)
+	}
+	if err := q.InsertFigureObject(ctx, p); err != nil {
+		return "", fmt.Errorf("record figure object: %w", err)
+	}
+	id, err := q.InsertProjectFigure(ctx, sqlcgen.InsertProjectFigureParams{
+		ProjectID: pid, Path: f.Path, StoredFileID: sid, SizeBytes: f.Size, UpdatedBy: viewerUUID(f.UploadedBy),
+	})
+	if err != nil {
+		return "", fileError(err, "create figure")
+	}
+	return id.String(), nil
+}
+
+// SaveContent stores a text file's content and returns its new version.
+func (s *Store) SaveContent(ctx context.Context, fileID, content, by string) (int, error) {
+	fid, ok := parseUUID(fileID)
+	if !ok {
+		return 0, domain.ErrFileNotFound
+	}
+	v, err := s.q(ctx).SaveProjectFileContent(ctx, sqlcgen.SaveProjectFileContentParams{ID: fid, Content: content, UpdatedBy: viewerUUID(by)})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, domain.ErrNotTextFile
+	}
+	if err != nil {
+		return 0, fmt.Errorf("save project file: %w", err)
+	}
+	return int(v), nil
+}
+
+// Move moves the entry at from, and everything under it, to to; the main file follows.
+func (s *Store) Move(ctx context.Context, projectID, from, to, by string) error {
+	pid, ok := parseUUID(projectID)
+	if !ok {
+		return domain.ErrNotFound
+	}
+	q := s.q(ctx)
+	n, err := q.MoveProjectFiles(ctx, sqlcgen.MoveProjectFilesParams{ProjectID: pid, OldPath: from, NewPath: to, UpdatedBy: viewerUUID(by)})
+	if err != nil {
+		return fileError(err, "move project files")
+	}
+	if n == 0 {
+		return domain.ErrFileNotFound
+	}
+	if err := q.MoveMainFilePath(ctx, sqlcgen.MoveMainFilePathParams{ID: pid, OldPath: from, NewPath: to}); err != nil {
+		return fmt.Errorf("move main file path: %w", err)
+	}
+	return nil
+}
+
+// ObjectKeysUnder returns the object keys of the figures at path and under it.
+func (s *Store) ObjectKeysUnder(ctx context.Context, projectID, path string) ([]string, error) {
+	pid, ok := parseUUID(projectID)
+	if !ok {
+		return nil, domain.ErrNotFound
+	}
+	keys, err := s.q(ctx).FigureKeysUnder(ctx, sqlcgen.FigureKeysUnderParams{ProjectID: pid, Path: path})
+	if err != nil {
+		return nil, fmt.Errorf("read figure keys: %w", err)
+	}
+	return keys, nil
+}
+
+// DeleteTree deletes the entry at path and everything under it.
+func (s *Store) DeleteTree(ctx context.Context, projectID, path string) error {
+	pid, ok := parseUUID(projectID)
+	if !ok {
+		return domain.ErrNotFound
+	}
+	if err := s.q(ctx).DeleteProjectFiles(ctx, sqlcgen.DeleteProjectFilesParams{ProjectID: pid, Path: path}); err != nil {
+		return fileError(err, "delete project files")
+	}
+	return nil
+}
+
+// ObjectKeys returns the object keys of all the project's figures.
+func (s *Store) ObjectKeys(ctx context.Context, projectID string) ([]string, error) {
+	pid, ok := parseUUID(projectID)
+	if !ok {
+		return nil, domain.ErrNotFound
+	}
+	keys, err := s.q(ctx).ProjectFigureKeys(ctx, pid)
+	if err != nil {
+		return nil, fmt.Errorf("read project figure keys: %w", err)
+	}
+	return keys, nil
+}
+
+// FileCount counts the project's entries.
+func (s *Store) FileCount(ctx context.Context, projectID string) (int, error) {
+	pid, ok := parseUUID(projectID)
+	if !ok {
+		return 0, domain.ErrNotFound
+	}
+	n, err := s.q(ctx).CountProjectFiles(ctx, pid)
+	if err != nil {
+		return 0, fmt.Errorf("count project files: %w", err)
+	}
+	return int(n), nil
+}
+
+// FullName is the user's profile name, "" when there is none.
+func (s *Store) FullName(ctx context.Context, userID string) (string, error) {
+	uid, ok := parseUUID(userID)
+	if !ok {
+		return "", nil
+	}
+	name, err := s.q(ctx).ProfileFullName(ctx, uid)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("read profile name: %w", err)
+	}
+	return name, nil
+}
+
+// ProjectsWithoutFiles returns the IDs of up to limit projects with no file, after after.
+func (s *Store) ProjectsWithoutFiles(ctx context.Context, after string, limit int) ([]string, error) {
+	ids, err := s.q(ctx).ProjectsWithoutFiles(ctx, sqlcgen.ProjectsWithoutFilesParams{After: viewerUUID(after), MaxRows: int32(min(limit, 1000))}) //nolint:gosec // bounded
+	if err != nil {
+		return nil, fmt.Errorf("list projects without files: %w", err)
+	}
+	out := make([]string, len(ids))
+	for i, id := range ids {
+		out[i] = id.String()
+	}
+	return out, nil
+}
+
+// LockShared is the user's role with the project row locked shared.
+func (s *Store) LockShared(ctx context.Context, projectID, userID string) (domain.Role, error) {
+	pid, ok := parseUUID(projectID)
+	if !ok {
+		return domain.RoleNone, domain.ErrNotFound
+	}
+	role, err := s.q(ctx).ShareLockProjectRole(ctx, sqlcgen.ShareLockProjectRoleParams{ID: pid, UserID: viewerUUID(userID)})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.RoleNone, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.RoleNone, fmt.Errorf("lock project shared: %w", err)
+	}
+	return domain.Role(role), nil
+}
+
+func scanStatus(t pgtype.Text) *domain.ScanStatus {
+	if !t.Valid {
+		return nil
+	}
+	st := domain.ScanStatus(t.String)
+	return &st
+}
+
+func updater(id pgtype.UUID, name string, headline pgtype.Text, photo pgtype.UUID) *domain.Person {
+	if !id.Valid {
+		return nil
+	}
+	return &domain.Person{UserID: id.String(), FullName: name, Headline: textPtr(headline), PhotoFileID: uuidPtr(photo)}
+}

@@ -63,6 +63,7 @@ import (
 	profileredis "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/redis"
 	profileusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/usecase"
 	projecthttp "github.com/ARAFATH-SH/researchsphere/backend/internal/project/adapter/http"
+	projectusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/project/usecase"
 	realtimehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/realtime/adapter/http"
 	realtimeusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/realtime/usecase"
 	recommendationhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/recommendation/adapter/http"
@@ -104,6 +105,8 @@ type mediaEnv struct {
 	// Redis cache, which social clears on every link change.
 	recommendations *recommendationusecase.Service
 	recCache        *recommendationredis.Cache
+	// projects serves calls the API has no route for, such as the main.tex backfill.
+	projects *projectusecase.Service
 }
 
 func newMediaEnv(t *testing.T) mediaEnv {
@@ -221,7 +224,8 @@ func wireEnv(t *testing.T, pool *pgxpool.Pool, rdb *goredis.Client, files *stora
 		realtime.events, groupNotifier{notifications: notifications}, limits, now, logger)
 	titles.messaging = messaging
 	realtime.bind(messaging, notifications)
-	messaging.UseFiles(messagingusecase.FileDeps{Intake: fileIntake{media: mediausecase.NewAttachments(images, imaging.Codec{})}, Objects: files})
+	fileChecks := mediausecase.NewAttachments(images, imaging.Codec{})
+	messaging.UseFiles(messagingusecase.FileDeps{Intake: fileIntake{media: fileChecks}, Objects: files})
 	memberships := &projectMemberships{}
 	var notifier socialdomain.Notifier = connectionNotifier{notifications: notifications, messaging: messaging, events: realtime.events, memberships: memberships}
 	if opt.wrapNotifier != nil {
@@ -297,7 +301,7 @@ func wireEnv(t *testing.T, pool *pgxpool.Pool, rdb *goredis.Client, files *stora
 		search.embedder = projectQueryEmbedder{q: queryEmbedder{ai: opt.ai}}
 	}
 	projects, projectLimits := newProjects(pool, rdb, standings, search, projectChanges{recs: recommendations, people: recCache, logger: logger},
-		projectNotifier{notifications: notifications}, logger)
+		projectNotifier{notifications: notifications}, files, fileChecks, logger)
 	t.Cleanup(func() { _ = projectLimits.Close() })
 	memberships.projects = projects
 	titles.projects = projects
@@ -317,7 +321,7 @@ func wireEnv(t *testing.T, pool *pgxpool.Pool, rdb *goredis.Client, files *stora
 		recommendationhttp.NewHandler(recommendations),
 		projecthttp.NewHandler(projects),
 		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
-	return mediaEnv{embeddings: embeddings, embedWorker: embedWorker, recommendations: recommendations, recCache: recCache, router: router, pool: pool, files: files, rdb: rdb, auth: auth, moderation: moderation, standings: standings, hub: realtime.hub, events: realtime.events, opt: opt,
+	return mediaEnv{projects: projects, embeddings: embeddings, embedWorker: embedWorker, recommendations: recommendations, recCache: recCache, router: router, pool: pool, files: files, rdb: rdb, auth: auth, moderation: moderation, standings: standings, hub: realtime.hub, events: realtime.events, opt: opt,
 		messaging: messaging, notifier: notifications, digests: digests, digestMail: digestMail}
 }
 

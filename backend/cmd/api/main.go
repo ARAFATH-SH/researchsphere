@@ -190,7 +190,8 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 	titles.messaging = messaging
 	realtime.bind(messaging, notifications)
 	// Attachments (FR-16.7): media checks types and scans, messaging owns who may see a file.
-	messaging.UseFiles(messagingusecase.FileDeps{Intake: fileIntake{media: mediausecase.NewAttachments(images, imaging.Codec{})}, Objects: files})
+	fileChecks := mediausecase.NewAttachments(images, imaging.Codec{})
+	messaging.UseFiles(messagingusecase.FileDeps{Intake: fileIntake{media: fileChecks}, Objects: files})
 	go messaging.RunAttachmentPurge(ctx, attachmentPurgeInterval)
 	go mediausecase.NewScanWorker(mediaStore, postgres.NewTransactor(pool), scanObjects{files: files}, files, clamav.New(cfg.ClamAVAddr),
 		scanListener{messaging: messaging, notifications: notifications, logger: logger}, logger).Run(ctx)
@@ -255,7 +256,7 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 		embedder: projectQueryEmbedder{q: queryEmbedder{ai: ai}},
 		vectors:  projectQueryVectors{cache: lookups.QueryVectors()},
 		timeout:  cfg.SearchAITimeout,
-	}, projectChanges{recs: recommendations, people: recCache, logger: logger}, projectNotifier{notifications: notifications}, logger)
+	}, projectChanges{recs: recommendations, people: recCache, logger: logger}, projectNotifier{notifications: notifications}, files, fileChecks, logger)
 	defer func() { _ = projectLimits.Close() }()
 	memberships.projects = projects
 	titles.projects = projects

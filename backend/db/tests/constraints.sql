@@ -541,10 +541,26 @@ SELECT pg_temp.expect_ok('Stored file: a photo of exactly 2 MB is accepted',
        VALUES ('00000000-0000-0000-0000-000000000001', 'photo', pg_temp.t('photo/ok-1'), 'image/jpeg', 2097152, 400, 400)$s$);
 SELECT pg_temp.expect_true('Stored file: scan status starts as pending', $q$
     SELECT scan_status = 'pending' FROM stored_files WHERE object_key = pg_temp.t('photo/ok-1')$q$);
-SELECT pg_temp.expect_ok('Stored file: every purpose is accepted, a 5 MB pdf too',
+SELECT pg_temp.expect_ok('Stored file: every purpose a user owns is accepted, a 5 MB pdf too',
     $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes)
        SELECT '00000000-0000-0000-0000-000000000001', p, pg_temp.t('any/') || p, 'application/pdf', 5242880
-         FROM unnest(ARRAY['photo', 'cover', 'figure', 'pdf', 'attachment']) AS p WHERE p <> 'photo'$s$);
+         FROM unnest(ARRAY['cover', 'pdf', 'attachment']) AS p$s$);
+SELECT pg_temp.expect_ok('Stored file: a figure belongs to a project, with its uploader (FR-12.2)',
+    $s$INSERT INTO stored_files (project_id, uploaded_by, purpose, object_key, content_type, size_bytes)
+       VALUES ('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000000002', 'figure',
+               pg_temp.t('any/figure'), 'application/pdf', 5242880)$s$);
+SELECT pg_temp.expect_error('Stored file: a figure has no user owner',
+    $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'figure', pg_temp.t('x/f1'), 'image/png', 10)$s$, '23514');
+SELECT pg_temp.expect_error('Stored file: only a figure belongs to a project',
+    $s$INSERT INTO stored_files (project_id, purpose, object_key, content_type, size_bytes)
+       VALUES ('00000000-0000-0000-0000-0000000000a1', 'attachment', pg_temp.t('x/f2'), 'image/png', 10)$s$, '23514');
+SELECT pg_temp.expect_error('Stored file: a user or a project owns it, not both',
+    $s$INSERT INTO stored_files (owner_user_id, project_id, purpose, object_key, content_type, size_bytes)
+       VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-0000000000a1', 'figure', pg_temp.t('x/f3'), 'image/png', 10)$s$, '23514');
+SELECT pg_temp.expect_error('Stored file: somebody owns it',
+    $s$INSERT INTO stored_files (purpose, object_key, content_type, size_bytes)
+       VALUES ('photo', pg_temp.t('x/f4'), 'image/png', 10)$s$, '23514');
 SELECT pg_temp.expect_error('Stored file: unknown purpose',
     $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes)
        VALUES ('00000000-0000-0000-0000-000000000001', 'avatar', pg_temp.t('x/1'), 'image/png', 10)$s$, '23514');
@@ -562,8 +578,8 @@ SELECT pg_temp.expect_error('Stored file: a photo is at most 2 MB (FR-4.6)',
     $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes)
        VALUES ('00000000-0000-0000-0000-000000000001', 'photo', pg_temp.t('x/4'), 'image/png', 2097153)$s$, '23514');
 SELECT pg_temp.expect_error('Stored file: a figure is at most 5 MB (FR-12.2)',
-    $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes)
-       VALUES ('00000000-0000-0000-0000-000000000001', 'figure', pg_temp.t('x/5'), 'image/png', 5242881)$s$, '23514');
+    $s$INSERT INTO stored_files (project_id, purpose, object_key, content_type, size_bytes)
+       VALUES ('00000000-0000-0000-0000-0000000000a1', 'figure', pg_temp.t('x/5'), 'image/png', 5242881)$s$, '23514');
 SELECT pg_temp.expect_error('Stored file: width and height are both set or both empty',
     $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes, width)
        VALUES ('00000000-0000-0000-0000-000000000001', 'photo', pg_temp.t('x/6'), 'image/png', 10, 100)$s$, '23514');
@@ -854,38 +870,109 @@ SELECT pg_temp.expect_error('Invitation: carries no message',
        VALUES ('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000000003', 'invitation', 'rejected', now(), 'viewer', 'Hi')$s$, '23514');
 
 -- ---------------------------------------------------------------------------
--- File (FR-12.1, FR-12.2): path unique within the project and cannot point outside it
+-- File (FR-12.1, FR-12.2, migration 000035): path rules, unique ignoring letter case, every
+-- entry under a folder, at most 200 per project, text at most 1 MiB, figures in storage
 -- ---------------------------------------------------------------------------
+
+-- The tree and count checks run at the end of each statement in the application; this file
+-- defers every constraint (for the owner check), so they are made immediate here.
+SET CONSTRAINTS project_files_parent, project_files_max IMMEDIATE;
 
 SELECT pg_temp.expect_ok('File: a text file at the project root',
     $s$INSERT INTO project_files (project_id, path, content) VALUES ('00000000-0000-0000-0000-0000000000a1', 'main.tex', '')$s$);
+SELECT pg_temp.expect_true('File: a new file is at version 1', $q$
+    SELECT version = 1 FROM project_files WHERE project_id = '00000000-0000-0000-0000-0000000000a1' AND path = 'main.tex'$q$);
 SELECT pg_temp.expect_ok('File: an empty folder (FR-12.1)',
     $s$INSERT INTO project_files (project_id, path, kind) VALUES ('00000000-0000-0000-0000-0000000000a1', 'figures', 'folder')$s$);
-SELECT pg_temp.expect_ok('File: a PNG figure inside a folder (FR-12.2)',
-    $s$INSERT INTO project_files (project_id, path, kind, storage_key, size_bytes)
-       VALUES ('00000000-0000-0000-0000-0000000000a1', 'figures/plot.png', 'binary', 'key-1', 5242880)$s$);
+INSERT INTO stored_files (id, project_id, purpose, object_key, content_type, size_bytes) VALUES
+    ('00000000-0000-0000-0000-0000000000f1', '00000000-0000-0000-0000-0000000000a1', 'figure', pg_temp.t('projects/a1/f1'), 'image/png', 5242880),
+    ('00000000-0000-0000-0000-0000000000f2', '00000000-0000-0000-0000-0000000000a1', 'figure', pg_temp.t('projects/a1/f2'), 'image/png', 10);
+SELECT pg_temp.expect_ok('File: a PNG figure of 5 MB inside a folder (FR-12.2)',
+    $s$INSERT INTO project_files (project_id, path, kind, stored_file_id, size_bytes)
+       VALUES ('00000000-0000-0000-0000-0000000000a1', 'figures/plot.png', 'binary', '00000000-0000-0000-0000-0000000000f1', 5242880)$s$);
 SELECT pg_temp.expect_error('File: path is unique within a project',
-    $s$INSERT INTO project_files (project_id, path) VALUES ('00000000-0000-0000-0000-0000000000a1', 'main.tex')$s$, '23505');
+    $s$INSERT INTO project_files (project_id, path, content) VALUES ('00000000-0000-0000-0000-0000000000a1', 'main.tex', '')$s$, '23505');
+SELECT pg_temp.expect_error('File: path is unique ignoring letter case',
+    $s$INSERT INTO project_files (project_id, path, content) VALUES ('00000000-0000-0000-0000-0000000000a1', 'Main.TEX', '')$s$, '23505');
 SELECT pg_temp.expect_error('File: path with a .. segment is refused',
-    $s$INSERT INTO project_files (project_id, path) VALUES ('00000000-0000-0000-0000-0000000000a1', '../etc/passwd')$s$, '23514');
+    $s$INSERT INTO project_files (project_id, path, content) VALUES ('00000000-0000-0000-0000-0000000000a1', '../etc/passwd', '')$s$, '23514');
 SELECT pg_temp.expect_error('File: path with a .. segment in the middle is refused',
-    $s$INSERT INTO project_files (project_id, path) VALUES ('00000000-0000-0000-0000-0000000000a1', 'a/../../b.tex')$s$, '23514');
+    $s$INSERT INTO project_files (project_id, path, content) VALUES ('00000000-0000-0000-0000-0000000000a1', 'figures/../../b.tex', '')$s$, '23514');
+SELECT pg_temp.expect_error('File: a hidden name is refused',
+    $s$INSERT INTO project_files (project_id, path, content) VALUES ('00000000-0000-0000-0000-0000000000a1', '.latexmkrc', '')$s$, '23514');
 SELECT pg_temp.expect_error('File: absolute path is refused',
-    $s$INSERT INTO project_files (project_id, path) VALUES ('00000000-0000-0000-0000-0000000000a1', '/main.tex')$s$, '23514');
+    $s$INSERT INTO project_files (project_id, path, content) VALUES ('00000000-0000-0000-0000-0000000000a1', '/main.tex', '')$s$, '23514');
 SELECT pg_temp.expect_error('File: empty path segment is refused',
-    $s$INSERT INTO project_files (project_id, path) VALUES ('00000000-0000-0000-0000-0000000000a1', 'a//b.tex')$s$, '23514');
+    $s$INSERT INTO project_files (project_id, path, content) VALUES ('00000000-0000-0000-0000-0000000000a1', 'figures//b.tex', '')$s$, '23514');
 SELECT pg_temp.expect_error('File: backslash is refused',
-    $s$INSERT INTO project_files (project_id, path) VALUES ('00000000-0000-0000-0000-0000000000a1', 'a\b.tex')$s$, '23514');
+    $s$INSERT INTO project_files (project_id, path, content) VALUES ('00000000-0000-0000-0000-0000000000a1', 'a\b.tex', '')$s$, '23514');
+SELECT pg_temp.expect_error('File: a space is refused (LaTeX)',
+    $s$INSERT INTO project_files (project_id, path, content) VALUES ('00000000-0000-0000-0000-0000000000a1', 'my paper.tex', '')$s$, '23514');
+SELECT pg_temp.expect_error('File: at most 8 levels',
+    $s$INSERT INTO project_files (project_id, path, content) VALUES ('00000000-0000-0000-0000-0000000000a1', 'a/b/c/d/e/f/g/h/i.tex', '')$s$, '23514');
+SELECT pg_temp.expect_error('File: a name of at most 100 characters',
+    $s$INSERT INTO project_files (project_id, path, content) VALUES ('00000000-0000-0000-0000-0000000000a1', repeat('a', 101), '')$s$, '23514');
+SELECT pg_temp.expect_error('File: needs its parent folder',
+    $s$INSERT INTO project_files (project_id, path, content) VALUES ('00000000-0000-0000-0000-0000000000a1', 'sections/intro.tex', '')$s$, '23514');
+SELECT pg_temp.expect_error('File: its parent must be a folder',
+    $s$INSERT INTO project_files (project_id, path, content) VALUES ('00000000-0000-0000-0000-0000000000a1', 'main.tex/intro.tex', '')$s$, '23514');
+SELECT pg_temp.expect_ok('File: a parent matches ignoring letter case',
+    $s$INSERT INTO project_files (project_id, path, content) VALUES ('00000000-0000-0000-0000-0000000000a1', 'Figures/notes.tex', '')$s$);
+SELECT pg_temp.expect_error('File: a folder with files in it cannot go alone',
+    $s$DELETE FROM project_files WHERE project_id = '00000000-0000-0000-0000-0000000000a1' AND path = 'figures'$s$, '23514');
+SELECT pg_temp.expect_error('File: a folder cannot move without its files',
+    $s$UPDATE project_files SET path = 'figs' WHERE project_id = '00000000-0000-0000-0000-0000000000a1' AND path = 'figures'$s$, '23514');
+SELECT pg_temp.expect_ok('File: a folder moves with its files in one statement',
+    $s$UPDATE project_files SET path = 'figs' || substr(path, 8)
+       WHERE project_id = '00000000-0000-0000-0000-0000000000a1' AND (path = 'figures' OR lower(path) LIKE 'figures/%')$s$);
+SELECT pg_temp.expect_true('File: the files moved with it', $q$
+    SELECT array_agg(path ORDER BY path) = ARRAY['figs', 'figs/notes.tex', 'figs/plot.png']
+    FROM project_files WHERE project_id = '00000000-0000-0000-0000-0000000000a1' AND path <> 'main.tex'$q$);
+SELECT pg_temp.expect_error('File: text of more than 1 MiB is refused',
+    $s$INSERT INTO project_files (project_id, path, content, size_bytes)
+       VALUES ('00000000-0000-0000-0000-0000000000a1', 'big.tex', repeat('x', 1048577), 1048577)$s$, '23514');
+SELECT pg_temp.expect_error('File: a text file''s size is its length',
+    $s$INSERT INTO project_files (project_id, path, content, size_bytes)
+       VALUES ('00000000-0000-0000-0000-0000000000a1', 'lie.tex', 'abc', 1)$s$, '23514');
+SELECT pg_temp.expect_error('File: a text file has content',
+    $s$INSERT INTO project_files (project_id, path) VALUES ('00000000-0000-0000-0000-0000000000a1', 'none.tex')$s$, '23514');
+SELECT pg_temp.expect_error('File: a text file cannot take a figure''s extension',
+    $s$INSERT INTO project_files (project_id, path, content) VALUES ('00000000-0000-0000-0000-0000000000a1', 'fake.png', '')$s$, '23514');
 SELECT pg_temp.expect_error('File: figure over 5 MB is refused (FR-12.2)',
-    $s$INSERT INTO project_files (project_id, path, kind, storage_key, size_bytes)
-       VALUES ('00000000-0000-0000-0000-0000000000a1', 'big.png', 'binary', 'key-2', 5242881)$s$, '23514');
+    $s$INSERT INTO project_files (project_id, path, kind, stored_file_id, size_bytes)
+       VALUES ('00000000-0000-0000-0000-0000000000a1', 'big.png', 'binary', '00000000-0000-0000-0000-0000000000f2', 5242881)$s$, '23514');
 SELECT pg_temp.expect_error('File: figure must be PNG, JPG or PDF (FR-12.2)',
-    $s$INSERT INTO project_files (project_id, path, kind, storage_key, size_bytes)
-       VALUES ('00000000-0000-0000-0000-0000000000a1', 'anim.gif', 'binary', 'key-3', 10)$s$, '23514');
-SELECT pg_temp.expect_error('File: a binary file needs a storage key',
-    $s$INSERT INTO project_files (project_id, path, kind) VALUES ('00000000-0000-0000-0000-0000000000a1', 'fig.pdf', 'binary')$s$, '23514');
+    $s$INSERT INTO project_files (project_id, path, kind, stored_file_id, size_bytes)
+       VALUES ('00000000-0000-0000-0000-0000000000a1', 'anim.gif', 'binary', '00000000-0000-0000-0000-0000000000f2', 10)$s$, '23514');
+SELECT pg_temp.expect_error('File: a binary file needs a stored file',
+    $s$INSERT INTO project_files (project_id, path, kind, size_bytes) VALUES ('00000000-0000-0000-0000-0000000000a1', 'fig.pdf', 'binary', 10)$s$, '23514');
+SELECT pg_temp.expect_error('File: a figure is a stored file of the same project',
+    $s$INSERT INTO project_files (project_id, path, kind, stored_file_id, size_bytes)
+       SELECT '00000000-0000-0000-0000-0000000000b1', 'x.png', 'binary', '00000000-0000-0000-0000-0000000000f2', 10$s$, '23503');
+SELECT pg_temp.expect_error('File: a stored file backs one figure',
+    $s$INSERT INTO project_files (project_id, path, kind, stored_file_id, size_bytes)
+       VALUES ('00000000-0000-0000-0000-0000000000a1', 'again.png', 'binary', '00000000-0000-0000-0000-0000000000f1', 10)$s$, '23505');
 SELECT pg_temp.expect_error('File: a folder has no content',
     $s$INSERT INTO project_files (project_id, path, kind, content) VALUES ('00000000-0000-0000-0000-0000000000a1', 'sections', 'folder', 'x')$s$, '23514');
+SELECT pg_temp.expect_ok('File: deleting a figure deletes its stored file',
+    $s$DELETE FROM project_files WHERE project_id = '00000000-0000-0000-0000-0000000000a1' AND path = 'figs/plot.png'$s$);
+SELECT pg_temp.expect_true('File: and queues its object', $q$
+    SELECT NOT EXISTS (SELECT 1 FROM stored_files WHERE id = '00000000-0000-0000-0000-0000000000f1')
+       AND EXISTS (SELECT 1 FROM storage_deletions WHERE object_key = pg_temp.t('projects/a1/f1'))$q$);
+SELECT pg_temp.expect_ok('File: a figure again, for the project deletion below',
+    $s$INSERT INTO project_files (project_id, path, kind, stored_file_id, size_bytes)
+       VALUES ('00000000-0000-0000-0000-0000000000a1', 'figs/p2.png', 'binary', '00000000-0000-0000-0000-0000000000f2', 10)$s$);
+
+-- 200 entries at most, folders included: a project of its own, filled to the limit.
+INSERT INTO projects (id, title, description) VALUES ('00000000-0000-0000-0000-0000000000a9', 'Full project', 'Many files');
+INSERT INTO project_members (project_id, user_id, role) VALUES ('00000000-0000-0000-0000-0000000000a9', '00000000-0000-0000-0000-000000000001', 'owner');
+INSERT INTO project_files (project_id, path, kind) VALUES ('00000000-0000-0000-0000-0000000000a9', 'dir', 'folder');
+INSERT INTO project_files (project_id, path, content)
+    SELECT '00000000-0000-0000-0000-0000000000a9', 'dir/f' || i || '.tex', '' FROM generate_series(1, 199) AS i;
+SELECT pg_temp.expect_error('File: at most 200 per project, folders included',
+    $s$INSERT INTO project_files (project_id, path, kind) VALUES ('00000000-0000-0000-0000-0000000000a9', 'more', 'folder')$s$, '23514');
+DELETE FROM projects WHERE id = '00000000-0000-0000-0000-0000000000a9';
+SET CONSTRAINTS ALL DEFERRED;
 
 -- ---------------------------------------------------------------------------
 -- Compile job (FR-13.4)
@@ -1409,6 +1496,9 @@ SELECT pg_temp.expect_true('Project deletion: files, members, requests, compile 
        AND NOT EXISTS (SELECT 1 FROM project_join_requests WHERE project_id = '00000000-0000-0000-0000-0000000000a1')
        AND NOT EXISTS (SELECT 1 FROM compile_jobs          WHERE project_id = '00000000-0000-0000-0000-0000000000a1')
        AND NOT EXISTS (SELECT 1 FROM project_embeddings    WHERE project_id = '00000000-0000-0000-0000-0000000000a1')$q$);
+SELECT pg_temp.expect_true('Project deletion: its figures'' stored files go and their objects are queued', $q$
+    SELECT NOT EXISTS (SELECT 1 FROM stored_files WHERE project_id = '00000000-0000-0000-0000-0000000000a1')
+       AND EXISTS (SELECT 1 FROM storage_deletions WHERE object_key = pg_temp.t('projects/a1/f2'))$q$);
 SELECT pg_temp.expect_true('Project deletion: a post that linked to it stays, without the link', $q$
     SELECT project_id IS NULL FROM posts WHERE id = '00000000-0000-0000-0000-0000000000e4'$q$);
 

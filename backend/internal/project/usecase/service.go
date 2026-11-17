@@ -55,6 +55,10 @@ type Deps struct {
 	Notifier      domain.Notifier
 	JoinLimiter   domain.Limiter
 	InviteLimiter domain.Limiter
+
+	// Files (FR-10.4, FR-12.1, FR-12.2, FR-12.6). Without a FileStore a new project gets no
+	// main.tex and the file operations cannot run.
+	FileDeps
 }
 
 // Service runs the project operations.
@@ -83,6 +87,7 @@ func New(d Deps) *Service {
 	if d.InviteLimiter == nil {
 		d.InviteLimiter = noLimit{}
 	}
+	d.defaults()
 	return &Service{d: d}
 }
 
@@ -122,7 +127,13 @@ func (s *Service) Create(ctx context.Context, userID string, in CreateInput) (do
 		if id, err = s.d.Store.Create(ctx, np); err != nil {
 			return err
 		}
-		return s.d.Store.SetSkills(ctx, id, np.Skills)
+		if err := s.d.Store.SetSkills(ctx, id, np.Skills); err != nil {
+			return err
+		}
+		if s.d.Files == nil {
+			return nil
+		}
+		return s.addMainFile(ctx, id, np.Title, userID)
 	})
 	if err != nil {
 		return domain.Project{}, err
@@ -291,9 +302,18 @@ func (s *Service) Delete(ctx context.Context, viewerID, projectID string, confir
 		if confirm == nil || strings.TrimSpace(*confirm) != strings.TrimSpace(a.Title) {
 			return domain.ErrConfirmMismatch
 		}
+		var keys []string
+		if s.d.Files != nil {
+			if keys, err = s.d.Files.ObjectKeys(ctx, projectID); err != nil {
+				return err
+			}
+		}
 		if err := s.d.Store.Delete(ctx, projectID); err != nil {
 			return err
 		}
+		// The cascade queued the figures' objects in storage_deletions; deleting them after
+		// the commit is quicker than waiting for the cleanup, which stays the backup.
+		s.d.Remover.RemoveAfterCommit(ctx, keys)
 		s.d.Watcher.ProjectChanged(ctx, projectID)
 		return nil
 	})

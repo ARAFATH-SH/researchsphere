@@ -2897,6 +2897,165 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{projectId}/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The project's whole file tree (FR-12.1)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed, events
+         *     and recommendations" (SRS 2.3), then the project action "Open the workspace, read
+         *     files, view the PDF": any member. Anyone else, an administrator included, and a
+         *     project that does not exist get 404 `not_found`; a member who was removed gets it on
+         *     the next request.
+         *
+         *     **Not paginated**, an exception to the list rule of SRS 5.3 (docs/decisions.md,
+         *     2026-11-17): a project holds at most 200 entries, folders included, and the editor
+         *     needs the whole tree at once. Entries are sorted by path, ignoring letter case.
+         */
+        get: operations["listProjectFiles"];
+        put?: never;
+        /**
+         * Create a text file or a folder (FR-12.1)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Checks run in this order: the body (400 `bad_request` with
+         *     `field`, `invalid_path` for a path that breaks the path rules, see `ProjectFilePath`);
+         *     the caller is a member (404 `not_found`) with the project action "Edit files, upload
+         *     figures": editor or owner (403 `forbidden`); the caller's account is not suspended
+         *     (403 `account_suspended`); `content` is at most 1 MiB of UTF-8 (413
+         *     `file_too_large`); the path is free, ignoring letter case (409 `path_taken`); no
+         *     folder on the way is a file (409 `parent_not_folder`); the project stays at 200
+         *     entries or fewer (409 `file_limit_reached`).
+         *
+         *     Missing folders on the way are created, and count toward the 200. A text file may
+         *     not end in `.png`, `.jpg`, `.jpeg` or `.pdf` (`invalid_path`): those are figures,
+         *     uploaded with `uploadProjectFigure`. A folder takes no `content`. A request body over
+         *     3 MiB gets 413 `request_too_large`.
+         */
+        post: operations["createProjectFile"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{projectId}/files/{fileId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read one file (FR-12.1)
+         * @description As `listProjectFiles` for who may read. A file that does not exist in this project
+         *     gets 404 `not_found`. A text file comes with its `content`. A figure comes with a
+         *     `download` URL valid for 5 minutes whose answer carries `Content-Disposition:
+         *     attachment` with the file's name and the stored content type (NFR-13), but only once
+         *     its malware scan says clean: 409 `scan_pending` while it runs, 409 `scan_failed` when
+         *     the scanner could not read it, 410 `file_removed` when malware was found. A folder
+         *     comes with neither.
+         */
+        get: operations["getProjectFile"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete a file, or a folder with everything in it (FR-12.1)
+         * @description Membership, role and standing as `createProjectFile`. A folder is deleted with
+         *     everything in it, in one transaction; the client asks the user to confirm first.
+         *     Figures' objects are deleted from storage after the commit; one that fails is logged
+         *     and retried by the storage cleanup. Deleting the main file is allowed; the project
+         *     then has no main file until one is created at `mainFilePath`.
+         */
+        delete: operations["deleteProjectFile"];
+        options?: never;
+        head?: never;
+        /**
+         * Rename or move a file or folder (FR-12.1)
+         * @description Checks as `createProjectFile`, on the new `path`. A folder moves with everything in it,
+         *     in one transaction. Moving a folder into itself or below itself gets 400
+         *     `invalid_move`; a figure keeps its extension's type (`invalid_path` when the new path
+         *     does not end in an extension of the same kind: `.png`, `.jpg` or `.jpeg` for an image
+         *     of that type, `.pdf` for a PDF). The same path again changes nothing; a path that
+         *     differs only in letter case renames. When the project's main file
+         *     (`mainFilePath`) moves, the project follows it. Missing folders on the way are created.
+         *     The file's `version` does not change.
+         */
+        patch: operations["moveProjectFile"];
+        trace?: never;
+    };
+    "/projects/{projectId}/files/{fileId}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Save a text file's content, if nobody changed it since (FR-12.6)
+         * @description The save the editor sends automatically (FR-12.6), with the `version` of the text it
+         *     started from. Checks run in this order: the body (400 `bad_request` with `field`:
+         *     `content` with control characters other than tab, line feed and carriage return, or
+         *     `version` below 1); the save limit (429 `rate_limited`); membership, role and
+         *     standing as `createProjectFile`; the file is a text file (409 `not_a_text_file`);
+         *     `content` is at most 1 MiB of UTF-8 (413 `file_too_large`). A request body over 3 MiB
+         *     gets 413 `request_too_large`.
+         *
+         *     When `version` is the file's version, the content is stored and the version goes up
+         *     by one. Otherwise nothing is stored and the answer is 409 `version_conflict` with the
+         *     file's `current` version and text, so that two tabs never overwrite each other
+         *     silently. The same content again still counts as a save. Each user may save 120
+         *     times a minute (429 `rate_limited`).
+         */
+        put: operations["saveProjectFileContent"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{projectId}/files/uploads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload a figure, PNG, JPG or PDF of up to 5 MB (FR-12.2)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Multipart with two parts: `path`, where the figure goes,
+         *     and `file`. Checks run in this order: the parts (400 `bad_request`; `invalid_path`
+         *     for a path that breaks the path rules or does not end in `.png`, `.jpg`, `.jpeg` or
+         *     `.pdf`); membership (404 `not_found`), the project action "Edit files, upload
+         *     figures" (403 `forbidden`) and standing (403 `account_suspended`); the upload limit
+         *     (429 `rate_limited`: 30 figures per user per hour, refused files do not count); the
+         *     size (413 `file_too_large`, over 5 MB); the type, **read from the content only**,
+         *     never from the name or the part's header: PNG, JPEG or PDF (415 `unsupported_type`;
+         *     WebP is refused too, pdfLaTeX cannot use it); the path's extension must name the
+         *     type found (400 `type_mismatch`); an image over 8000 pixels a side gets 400
+         *     `image_too_large`, one that does not decode 400 `invalid_image`. Then as
+         *     `createProjectFile`: `path_taken`, `parent_not_folder`, `file_limit_reached`.
+         *
+         *     An image is decoded and encoded again at its own size, so EXIF, GPS and any other data
+         *     in it are dropped; an image that grows over 5 MB that way gets 413. A PDF is stored as
+         *     uploaded. The file is scanned for malware after the upload, as message attachments
+         *     are (FR-16.7); nobody can download it before the scan says clean.
+         */
+        post: operations["uploadProjectFigure"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/me/join-requests": {
         parameters: {
             query?: never;
@@ -4486,6 +4645,103 @@ export interface components {
             /** @description The profile photo as `/api/v1/media/{fileId}`; null when not set. */
             photoUrl: string | null;
         };
+        /**
+         * @description A path inside the project, folders separated by `/` (FR-12.1). Each part is 1 to 100
+         *     characters of letters `A-Z` and `a-z`, digits, `_`, `-` and `.`, and does not start
+         *     with `.`; **no spaces** (LaTeX's `\input` and `\includegraphics` handle them badly). At
+         *     most 8 parts and 255 characters; no `/` at the start or end and no empty part. Unique
+         *     in the project ignoring letter case. A path that breaks these rules gets 400
+         *     `invalid_path` with `field: path`.
+         * @example figures/results-2024.png
+         */
+        ProjectFilePath: string;
+        /**
+         * @description `text`: a text file kept in the database. `binary`: a figure (FR-12.2). `folder`.
+         * @enum {string}
+         */
+        ProjectFileKind: "text" | "binary" | "folder";
+        /** @description A file or folder of a project (FR-12.1). */
+        ProjectFile: {
+            /** Format: uuid */
+            id: string;
+            path: components["schemas"]["ProjectFilePath"];
+            kind: components["schemas"]["ProjectFileKind"];
+            /**
+             * Format: int64
+             * @description Bytes; the UTF-8 length of a text file's content, 0 for a folder.
+             */
+            size: number;
+            /**
+             * @description A text file's version, raised by every save of its content (FR-12.6); send it back
+             *     with `saveProjectFileContent`. 1 for a folder or a figure.
+             */
+            version: number;
+            /** @description A figure's type (`image/png`, `image/jpeg` or `application/pdf`); null otherwise. */
+            contentType: string | null;
+            /** @description A figure's malware scan; null for a text file or folder. */
+            scanStatus: components["schemas"]["AttachmentStatus"] | null;
+            /** Format: date-time */
+            updatedAt: string;
+            /** @description Who last changed the file or its path; null when unknown or the account is gone. */
+            updatedBy: components["schemas"]["ProjectPerson"] | null;
+        };
+        ProjectFileTree: {
+            /** @description The file compile starts from (FR-13.1); it may not exist. */
+            mainFilePath: string;
+            items: components["schemas"]["ProjectFile"][];
+        };
+        ProjectFileCreate: {
+            /** @description See `ProjectFilePath`. */
+            path: string;
+            /** @enum {string} */
+            kind: "text" | "folder";
+            /** @description A text file's first content, at most 1 MiB; empty when left out. Not for a folder. */
+            content?: string;
+        };
+        ProjectFileMove: {
+            /** @description The new path; see `ProjectFilePath`. */
+            path: string;
+        };
+        ProjectFileSave: {
+            /** @description The whole text, at most 1 MiB of UTF-8. */
+            content: string;
+            /** @description The file's version this text was edited from. */
+            version: number;
+        };
+        ProjectFileDownload: {
+            /**
+             * @description A presigned URL to the object, valid for 5 minutes; its answer has
+             *     `Content-Disposition: attachment` and the stored content type.
+             */
+            url: string;
+            /** Format: date-time */
+            expiresAt: string;
+        };
+        ProjectFileDetail: {
+            file: components["schemas"]["ProjectFile"];
+            /** @description A text file's content; null for a figure or folder. */
+            content: string | null;
+            /** @description A clean figure's download; null for a text file or folder. */
+            download: components["schemas"]["ProjectFileDownload"] | null;
+        };
+        ProjectFileCurrent: {
+            version: number;
+            content: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        /**
+         * @description The `Error` shape with one **conflict-specific extension** (docs/decisions.md,
+         *     2026-11-17): on `version_conflict`, `current` holds the file's version and text as
+         *     they are now, so the client can show or merge them without another request. It is
+         *     absent on `not_a_text_file`. No other error carries it.
+         */
+        FileVersionConflict: {
+            /** @example version_conflict */
+            code: string;
+            message: string;
+            current?: components["schemas"]["ProjectFileCurrent"];
+        };
         /** @description A research project's page (FR-10.1, SRS 2.3). */
         Project: {
             /** Format: uuid */
@@ -5662,6 +5918,36 @@ export interface components {
             };
         };
         /**
+         * @description `invalid_path` (`field: path`): the path breaks the path rules (`ProjectFilePath`), or
+         *     names a figure's extension for a text file, or a figure's path does not end in an
+         *     extension of its type. `invalid_move`: a folder cannot move into itself or below
+         *     itself. `type_mismatch`: the figure's content is not the type its extension names.
+         *     `image_too_large` and `invalid_image`: as for message attachments. `bad_request`
+         *     (with `field` when one is at fault): any other invalid body, such as a folder with
+         *     `content` or text with control characters.
+         */
+        InvalidProjectFile: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /**
+         * @description `path_taken`: another entry has this path, ignoring letter case. `parent_not_folder`:
+         *     a part of the path is a file, not a folder. `file_limit_reached`: the project would
+         *     have more than 200 files and folders.
+         */
+        ProjectFileConflict: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /**
          * @description A field is not valid. The code names the first invalid field, in this order:
          *     `invalid_institution`, `invalid_degree`, `invalid_field_of_study`,
          *     `invalid_start_year`, `invalid_end_year` (also when `endYear` is before
@@ -5829,6 +6115,29 @@ export interface components {
         /** @description `file_removed`: the scan found malware and the file was deleted. */
         AttachmentRemoved: {
             headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description The file is not a PNG, JPEG or PDF by its content (`unsupported_type`). */
+        UnsupportedFigureType: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /**
+         * @description `rate_limited`: the caller has uploaded 30 figures in the current hour, or saved 120
+         *     times in the current minute.
+         */
+        ProjectFileRateLimited: {
+            headers: {
+                /** @description Seconds until the window ends. */
+                "Retry-After": number;
                 [name: string]: unknown;
             };
             content: {
@@ -6013,6 +6322,11 @@ export interface components {
          *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
          */
         ProjectId: string;
+        /**
+         * @description The file's or folder's ID, a UUID, declared as a plain string like `projectId`; a
+         *     value that is not a UUID gets 404 `not_found`.
+         */
+        ProjectFileId: string;
         /** @description Items per page, from 1; a larger value than 50 is reduced to 50. Defaults to 20. Below 1 gets 400 `bad_request`. */
         MembershipPageSize: number;
         /**
@@ -6131,6 +6445,20 @@ export interface components {
         AttachmentUpload: {
             content: {
                 "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                };
+            };
+        };
+        /**
+         * @description `path` where the figure goes (see `ProjectFilePath`; it must end in `.png`, `.jpg`,
+         *     `.jpeg` or `.pdf`) and the figure in the part named `file`. The file part's name and
+         *     content type are ignored.
+         */
+        FigureUpload: {
+            content: {
+                "multipart/form-data": {
+                    path: string;
                     /** Format: binary */
                     file: string;
                 };
@@ -10972,6 +11300,275 @@ export interface operations {
             403: components["responses"]["AccountSuspendedOrForbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["MembershipConflict"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listProjectFiles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The project's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                projectId: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every file and folder of the project. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectFileTree"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    createProjectFile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The project's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                projectId: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectFileCreate"];
+            };
+        };
+        responses: {
+            /** @description The new file or folder. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectFile"];
+                };
+            };
+            400: components["responses"]["InvalidProjectFile"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["AccountSuspendedOrForbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["ProjectFileConflict"];
+            413: components["responses"]["FileTooLarge"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getProjectFile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The project's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                projectId: components["parameters"]["ProjectId"];
+                /**
+                 * @description The file's or folder's ID, a UUID, declared as a plain string like `projectId`; a
+                 *     value that is not a UUID gets 404 `not_found`.
+                 */
+                fileId: components["parameters"]["ProjectFileId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The file, with its text or a download URL. */
+            200: {
+                headers: {
+                    /** @description Always `no-store`; the text changes and the URL expires. */
+                    "Cache-Control": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectFileDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["AttachmentNotReady"];
+            410: components["responses"]["AttachmentRemoved"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    deleteProjectFile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The project's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                projectId: components["parameters"]["ProjectId"];
+                /**
+                 * @description The file's or folder's ID, a UUID, declared as a plain string like `projectId`; a
+                 *     value that is not a UUID gets 404 `not_found`.
+                 */
+                fileId: components["parameters"]["ProjectFileId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The file or folder is deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["AccountSuspendedOrForbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    moveProjectFile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The project's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                projectId: components["parameters"]["ProjectId"];
+                /**
+                 * @description The file's or folder's ID, a UUID, declared as a plain string like `projectId`; a
+                 *     value that is not a UUID gets 404 `not_found`.
+                 */
+                fileId: components["parameters"]["ProjectFileId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectFileMove"];
+            };
+        };
+        responses: {
+            /** @description The file or folder at its new path. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectFile"];
+                };
+            };
+            400: components["responses"]["InvalidProjectFile"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["AccountSuspendedOrForbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["ProjectFileConflict"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    saveProjectFileContent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The project's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                projectId: components["parameters"]["ProjectId"];
+                /**
+                 * @description The file's or folder's ID, a UUID, declared as a plain string like `projectId`; a
+                 *     value that is not a UUID gets 404 `not_found`.
+                 */
+                fileId: components["parameters"]["ProjectFileId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectFileSave"];
+            };
+        };
+        responses: {
+            /** @description The file after the save, with its new version. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectFile"];
+                };
+            };
+            400: components["responses"]["InvalidProjectFile"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["AccountSuspendedOrForbidden"];
+            404: components["responses"]["NotFound"];
+            /**
+             * @description `version_conflict`: the file changed since `version`; `current` holds what it is
+             *     now. `not_a_text_file`: the file is a folder or a figure (no `current`).
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FileVersionConflict"];
+                };
+            };
+            413: components["responses"]["FileTooLarge"];
+            429: components["responses"]["ProjectFileRateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    uploadProjectFigure: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The project's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                projectId: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["FigureUpload"];
+        responses: {
+            /** @description The figure is stored and waits for its scan. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectFile"];
+                };
+            };
+            400: components["responses"]["InvalidProjectFile"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["AccountSuspendedOrForbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["ProjectFileConflict"];
+            413: components["responses"]["FileTooLarge"];
+            415: components["responses"]["UnsupportedFigureType"];
+            429: components["responses"]["ProjectFileRateLimited"];
             500: components["responses"]["InternalError"];
         };
     };

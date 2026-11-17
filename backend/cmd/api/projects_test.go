@@ -183,6 +183,53 @@ func (okProjects) MyInvitations(_ context.Context, _ string, page, size int) (pr
 	return projectusecase.MyRequestPage{Items: []projectdomain.MyRequestItem{inv}, Page: page, PageSize: size, Total: 1}, nil
 }
 
+const okProjectFileID = "55555555-5555-4555-8555-555555555555"
+
+var okFile = projectdomain.File{ID: okProjectFileID, ProjectID: okProjectID, Path: "main.tex", Kind: projectdomain.KindText, Size: 3, Version: 2}
+
+func (okProjects) Files(context.Context, string, string) (projectdomain.FileTree, error) {
+	return projectdomain.FileTree{MainFilePath: "main.tex", Files: []projectdomain.File{okFile}}, nil
+}
+
+func (okProjects) File(context.Context, string, string, string) (projectusecase.FileContent, error) {
+	c := "abc"
+	return projectusecase.FileContent{File: okFile, Content: &c}, nil
+}
+
+func (okProjects) CreateFile(_ context.Context, _, _ string, in projectusecase.CreateFileInput) (projectdomain.File, error) {
+	if _, err := projectusecase.CleanPath(in.Path); err != nil {
+		return projectdomain.File{}, err
+	}
+	f := okFile
+	f.Path, f.Kind = in.Path, in.Kind
+	return f, nil
+}
+
+func (okProjects) MoveFile(_ context.Context, _, _, _, path string) (projectdomain.File, error) {
+	f := okFile
+	f.Path = path
+	return f, nil
+}
+
+func (okProjects) DeleteFile(context.Context, string, string, string) error { return nil }
+
+func (okProjects) SaveContent(_ context.Context, _, _, _, _ string, version int) (projectdomain.File, error) {
+	if version != okFile.Version {
+		return projectdomain.File{}, &projectdomain.VersionConflictError{Version: okFile.Version, Content: "abc"}
+	}
+	f := okFile
+	f.Version++
+	return f, nil
+}
+
+func (okProjects) UploadFigure(_ context.Context, _, _, path string, data []byte) (projectdomain.File, error) {
+	if len(data) > projectusecase.MaxFigureBytes {
+		return projectdomain.File{}, projectdomain.ErrFileTooLarge
+	}
+	ct, st := "image/png", projectdomain.ScanPending
+	return projectdomain.File{ID: okProjectFileID, Path: path, Kind: projectdomain.KindBinary, Size: int64(len(data)), Version: 1, ContentType: &ct, ScanStatus: &st}, nil
+}
+
 // Every project route needs the platform action platformGuards names (SRS 2.3): the admin
 // routes refuse a researcher with the one forbidden body, and none of them answers an
 // unverified session (FR-17.3).
@@ -239,6 +286,21 @@ func TestProjectRoutes(t *testing.T) {
 		{"transfer", http.MethodPost, p + "/transfer", `{"userId":"` + okUserID + `"}`, "researcher", http.StatusOK, `"myRole":"editor"`},
 		{"my requests", http.MethodGet, "/api/v1/me/join-requests", "", "researcher", http.StatusOK, `"title":"Graph learning"`},
 		{"my invitations", http.MethodGet, "/api/v1/me/invitations", "", "researcher", http.StatusOK, `"role":"viewer"`},
+		{"file tree", http.MethodGet, p + "/files", "", "researcher", http.StatusOK, `"mainFilePath":"main.tex"`},
+		{"file tree, no session", http.MethodGet, p + "/files", "", "", http.StatusUnauthorized, `"unauthenticated"`},
+		{"read a file", http.MethodGet, p + "/files/" + okProjectFileID, "", "researcher", http.StatusOK, `"content":"abc","download":null`},
+		{"create a file", http.MethodPost, p + "/files", `{"path":"sections/intro.tex","kind":"text"}`, "researcher", http.StatusCreated, `"path":"sections/intro.tex"`},
+		{"create, path with a space", http.MethodPost, p + "/files", `{"path":"my intro.tex","kind":"text"}`, "researcher", http.StatusBadRequest, `"code":"invalid_path"`},
+		{"create, no kind", http.MethodPost, p + "/files", `{"path":"a.tex"}`, "researcher", http.StatusBadRequest, `"field":"kind"`},
+		{"move a file", http.MethodPatch, p + "/files/" + okProjectFileID, `{"path":"paper.tex"}`, "researcher", http.StatusOK, `"path":"paper.tex"`},
+		{"delete a file", http.MethodDelete, p + "/files/" + okProjectFileID, "", "researcher", http.StatusNoContent, ""},
+		{"save", http.MethodPut, p + "/files/" + okProjectFileID + "/content", `{"content":"x","version":2}`, "researcher", http.StatusOK, `"version":3`},
+		{"save, stale version", http.MethodPut, p + "/files/" + okProjectFileID + "/content", `{"content":"x","version":1}`, "researcher", http.StatusConflict,
+			`"code":"version_conflict","current":{"content":"abc"`},
+		{"save, no version", http.MethodPut, p + "/files/" + okProjectFileID + "/content", `{"content":"x"}`, "researcher", http.StatusBadRequest, `"field":"version"`},
+		{"save, body over the cap", http.MethodPut, p + "/files/" + okProjectFileID + "/content",
+			`{"content":"` + strings.Repeat("x", maxFileJSONBody) + `","version":2}`, "researcher", http.StatusRequestEntityTooLarge, `"request_too_large"`},
+		{"upload, not multipart", http.MethodPost, p + "/files/uploads", `{}`, "researcher", http.StatusBadRequest, `"bad_request"`},
 		{"resolve twice", http.MethodPost, "/api/v1/admin/project-reports/" + okProjectReport.ID + "/resolve", `{"outcome":"dismissed"}`, "admin", http.StatusConflict, `"report_already_resolved"`},
 	}
 	for _, tt := range tests {
@@ -298,6 +360,22 @@ func TestProjectPermissions(t *testing.T) {
 	// The table itself is authz's; this only checks the mapping.
 	if !authz.CanInProject(authz.ProjectOwner, authz.TransferOrDeleteProject) {
 		t.Fatal("authz table changed")
+	}
+}
+
+// The file actions map onto SRS 2.3's rows "Open the workspace, read files, view the PDF"
+// (viewer and up) and "Edit files, upload figures" (editor and owner); a non-member has
+// neither, whatever the project's visibility.
+func TestProjectFilePermissions(t *testing.T) {
+	perms := projectPermissions{}
+	for role, want := range map[projectdomain.Role][2]bool{
+		projectdomain.RoleNone: {false, false}, projectdomain.RoleViewer: {true, false},
+		projectdomain.RoleEditor: {true, true}, projectdomain.RoleOwner: {true, true},
+		projectdomain.Role("admin"): {false, false},
+	} {
+		if got := [2]bool{perms.Can(role, projectdomain.ActReadFiles), perms.Can(role, projectdomain.ActEditFiles)}; got != want {
+			t.Errorf("%q: read, edit files = %v, want %v", role, got, want)
+		}
 	}
 }
 

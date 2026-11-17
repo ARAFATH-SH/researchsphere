@@ -8,9 +8,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	goredis "github.com/redis/go-redis/v9"
 
+	mediausecase "github.com/ARAFATH-SH/researchsphere/backend/internal/media/usecase"
 	moderationusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/moderation/usecase"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/authz"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/postgres"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/storage"
 	projectpg "github.com/ARAFATH-SH/researchsphere/backend/internal/project/adapter/postgres"
 	projectredis "github.com/ARAFATH-SH/researchsphere/backend/internal/project/adapter/redis"
 	projectdomain "github.com/ARAFATH-SH/researchsphere/backend/internal/project/domain"
@@ -24,7 +26,9 @@ import (
 // Hybrid project search (AI-5.1) embeds its queries with the AI service and shares the query
 // vectors researcher search keeps; status, owner and membership changes and deletions are
 // passed to watcher, and membership events (FR-9.2) to notifier.
-func newProjects(pool *pgxpool.Pool, rdb *goredis.Client, standings *moderationusecase.Standings, search projectSearch, watcher projectdomain.Watcher, notifier projectdomain.Notifier, logger *slog.Logger) (*projectusecase.Service, *projectredis.Limits) {
+//
+// Project files (FR-12) keep figures in files, checked by figures.
+func newProjects(pool *pgxpool.Pool, rdb *goredis.Client, standings *moderationusecase.Standings, search projectSearch, watcher projectdomain.Watcher, notifier projectdomain.Notifier, files storage.Storage, figures *mediausecase.Attachments, logger *slog.Logger) (*projectusecase.Service, *projectredis.Limits) {
 	limits := projectredis.New(rdb)
 	store := projectpg.NewStore(pool)
 	svc := projectusecase.New(projectusecase.Deps{
@@ -43,6 +47,14 @@ func newProjects(pool *pgxpool.Pool, rdb *goredis.Client, standings *moderationu
 		Notifier:      notifier,
 		JoinLimiter:   limits.Join(),
 		InviteLimiter: limits.Invite(),
+		FileDeps: projectusecase.FileDeps{
+			Files:         store,
+			Figures:       figureIntake{media: figures},
+			Objects:       files,
+			Remover:       objectRemover{files: files, logger: logger},
+			FigureLimiter: limits.Figure(),
+			SaveLimiter:   limits.Save(),
+		},
 	})
 	return svc, limits
 }
@@ -68,6 +80,8 @@ var projectActions = map[projectdomain.Action]authz.ProjectAction{
 	projectdomain.ActDelete:        authz.TransferOrDeleteProject,
 	projectdomain.ActTransfer:      authz.TransferOrDeleteProject,
 	projectdomain.ActRequestToJoin: authz.RequestToJoin,
+	projectdomain.ActReadFiles:     authz.OpenWorkspace,
+	projectdomain.ActEditFiles:     authz.EditFiles,
 	// AI-2.3 (recommended researchers, owner only) has no row of its own; its list is for
 	// finding people to invite (decisions.md 2026-11-16).
 	projectdomain.ActManageMembers: authz.ManageMembers,

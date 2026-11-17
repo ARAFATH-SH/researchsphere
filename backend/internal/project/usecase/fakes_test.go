@@ -214,6 +214,10 @@ func (tablePerms) Can(role domain.Role, a domain.Action) bool {
 		return role == domain.RoleOwner
 	case domain.ActRequestToJoin:
 		return role == domain.RoleNone
+	case domain.ActReadFiles:
+		return role != domain.RoleNone
+	case domain.ActEditFiles:
+		return role == domain.RoleOwner || role == domain.RoleEditor
 	}
 	return false
 }
