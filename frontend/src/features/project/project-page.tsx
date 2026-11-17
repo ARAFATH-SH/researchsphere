@@ -2,13 +2,13 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { type ReactNode, useCallback, useEffect, useId, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from "react";
 
-import { Avatar } from "@/components/avatar";
 import { rsButtonClass } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { rsSelectClass } from "@/components/ui/field";
 import { homeCard } from "@/features/home/cards";
+import { joinRequestsAnchor } from "@/features/notification/types";
 import { Toast, toastDuration } from "@/features/profile/toast";
 import { RecommendationList } from "@/features/recommendation/recommendation-list";
 import { RecommendationsProvider } from "@/features/recommendation/recommendations-provider";
@@ -23,7 +23,12 @@ import {
   updateProject,
 } from "./api";
 import { StatusBadge, statusLabels } from "./badges";
-import { DeleteProjectDialog } from "./delete-project-dialog";
+import { InviteControl } from "./membership/invite-button";
+import { JoinActions } from "./membership/join-actions";
+import { MembersCard } from "./membership/members-card";
+import { OwnershipCard } from "./membership/ownership-card";
+import { InvitationsCard, JoinRequestsCard } from "./membership/requests-card";
+import { useMembership } from "./membership/use-membership";
 import { ProjectForm, valuesOf } from "./project-form";
 import { ReportProjectDialog } from "./report-project-dialog";
 import type { ProjectValues } from "./validation";
@@ -31,11 +36,12 @@ import type { ProjectValues } from "./validation";
 type Load = { status: "loading" } | { status: "notFound" } | { status: "error" } | { status: "ok"; project: Project };
 
 // ProjectPage is /projects/[projectId] (design/screens/ProjectDetail.html): the project's
-// details (FR-10), its members and, for the owner, editing, the status, deleting
-// (FR-10.2, FR-10.6) and the researchers who fit it (AI-2.3). Anyone who is not a member may
-// report it (FR-15.11). A project the caller may not see is "not found", like one that does
-// not exist. Join requests, invitations, ownership transfer, the workspace and venues come
-// with their slices.
+// details (FR-10), its members (FR-11) and, for the owner, editing, the status, join requests,
+// invitations, roles, transferring and deleting (FR-10.2, FR-10.5, FR-10.6, FR-11.2 to 11.4)
+// and the researchers who fit it, to invite (AI-2.3). A non-member may ask to join or answer an
+// invitation (FR-11.1, FR-11.3) and report it (FR-15.11); a member may leave (FR-11.5). A
+// project the caller may not see is "not found", like one that does not exist. The workspace
+// and venues come with their slices.
 export function ProjectPage({ projectId }: { projectId: string }) {
   const [attempt, setAttempt] = useState(0);
   const key = `${projectId}#${attempt}`;
@@ -62,6 +68,25 @@ export function ProjectPage({ projectId }: { projectId: string }) {
     [key],
   );
 
+  // refresh reads the project again without the loading state, after a membership change. A
+  // project the caller can no longer see (they left an archived one) becomes "not found"; any
+  // other failure keeps the page as it is.
+  const refresh = useCallback(() => {
+    void getProject(projectId).then((res) => {
+      if (res.ok) setResult({ key, value: { status: "ok", project: res.data } });
+      else if (res.code === "not_found") setResult({ key, value: { status: "notFound" } });
+    });
+  }, [projectId, key]);
+
+  // The toast lives here so it outlasts a change of role, which rebuilds the view.
+  const [toast, setToast] = useState<string | null>(null);
+  const showToast = useCallback((message: string) => setToast(message), []);
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), toastDuration);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
   const load: Load = result?.key === key ? result.value : { status: "loading" };
   switch (load.status) {
     case "loading":
@@ -87,7 +112,12 @@ export function ProjectPage({ projectId }: { projectId: string }) {
         </StateCard>
       );
     case "ok":
-      return <ProjectView project={load.project} onChange={setProject} />;
+      return (
+        <>
+          <ProjectView project={load.project} onChange={setProject} refresh={refresh} showToast={showToast} />
+          {toast && <Toast message={toast} />}
+        </>
+      );
   }
 }
 
@@ -103,23 +133,39 @@ function StateCard({ title, text, children }: { title: string; text: string; chi
 
 const roleText = { owner: "You are the owner", editor: "You are an editor", viewer: "You are a viewer" } as const;
 
-type Open = "edit" | "delete" | "report" | null;
+type Open = "edit" | "report" | null;
 
-function ProjectView({ project, onChange }: { project: Project; onChange: (project: Project) => void }) {
+function ProjectView({
+  project,
+  onChange,
+  refresh,
+  showToast,
+}: {
+  project: Project;
+  onChange: (project: Project) => void;
+  refresh: () => void;
+  showToast: (message: string) => void;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState<Open>(null);
   const [editDirty, setEditDirty] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
   const isOwner = project.myRole === "owner";
   const isMember = project.myRole !== null;
 
-  useEffect(() => {
-    if (!toast) return;
-    const timer = setTimeout(() => setToast(null), toastDuration);
-    return () => clearTimeout(timer);
-  }, [toast]);
+  const membership = useMembership({ project, refreshProject: refresh, showToast });
+  const shared = { membership, refreshProject: refresh, showToast };
 
-  return (
+  // A join request notification opens the page at the Join requests card; it is there once
+  // the requests have loaded.
+  const scrolled = useRef(false);
+  const requestsStatus = membership.requests.value.status;
+  useEffect(() => {
+    if (scrolled.current || requestsStatus !== "ok" || window.location.hash !== `#${joinRequestsAnchor}`) return;
+    scrolled.current = true;
+    document.getElementById(joinRequestsAnchor)?.scrollIntoView?.({ block: "start" });
+  }, [requestsStatus]);
+
+  const view = (
     <div className="flex flex-wrap items-start gap-6 max-[640px]:gap-4">
       <div className="flex min-w-0 flex-[999_1_560px] flex-col gap-4">
         <section aria-label="Project summary" className={`${homeCard} overflow-hidden`}>
@@ -147,14 +193,17 @@ function ProjectView({ project, onChange }: { project: Project; onChange: (proje
                   <StatusSelect project={project} onChange={onChange} />
                 </>
               ) : (
-                <button
-                  id="report-project"
-                  type="button"
-                  onClick={() => setOpen("report")}
-                  className={`${rsButtonClass({ variant: "secondary", size: "md" })} ml-auto`}
-                >
-                  Report project
-                </button>
+                <>
+                  <JoinActions project={project} {...shared} />
+                  <button
+                    id="report-project"
+                    type="button"
+                    onClick={() => setOpen("report")}
+                    className={`${rsButtonClass({ variant: "secondary", size: "md" })} ml-auto`}
+                  >
+                    Report project
+                  </button>
+                </>
               )}
             </div>
           )}
@@ -191,30 +240,17 @@ function ProjectView({ project, onChange }: { project: Project; onChange: (proje
           </div>
         </section>
 
-        <MembersCard project={project} />
-
+        {isOwner && <JoinRequestsCard projectId={project.id} {...shared} />}
+        <MembersCard project={project} {...shared} />
+        {isOwner && <InvitationsCard projectId={project.id} membership={membership} showToast={showToast} />}
         {isOwner && (
-          <section
-            aria-labelledby="delete-project-h"
-            className="flex flex-col gap-3 rounded-card border border-rs-danger-line bg-rs-surface p-4 shadow-card"
-          >
-            <h2 id="delete-project-h" className="text-rs-lead leading-rs-snug font-medium text-rs-danger-strong">
-              Delete this project
-            </h2>
-            <div className="flex flex-wrap items-center gap-2.5">
-              <p className="min-w-[220px] flex-1 text-rs-body text-rs-text">
-                Delete this project and all its files. Type the project title to confirm.
-              </p>
-              <button
-                id="delete-project"
-                type="button"
-                onClick={() => setOpen("delete")}
-                className={rsButtonClass({ variant: "destructive", size: "md" })}
-              >
-                Delete project
-              </button>
-            </div>
-          </section>
+          <OwnershipCard
+            project={project}
+            membership={membership}
+            showToast={showToast}
+            onTransferred={onChange}
+            onDeleted={() => router.push("/projects")}
+          />
         )}
       </div>
 
@@ -223,9 +259,17 @@ function ProjectView({ project, onChange }: { project: Project; onChange: (proje
           aria-label="Project recommendations"
           className="flex min-w-0 flex-[1_1_300px] max-w-[340px] flex-col gap-3 max-[640px]:max-w-none"
         >
-          <RecommendationsProvider load={() => getRecommendedResearchers(project.id)}>
-            <RecommendationList limit={10} variant="project" />
-          </RecommendationsProvider>
+          <RecommendationList
+            limit={10}
+            variant="project"
+            action={(item) => (
+              <InviteControl
+                person={{ userId: item.userId, fullName: item.fullName, headline: item.headline, photoUrl: item.photoUrl }}
+                state={membership.inviteState(item.userId)}
+                onInvite={membership.invite}
+              />
+            )}
+          />
         </aside>
       )}
 
@@ -239,7 +283,7 @@ function ProjectView({ project, onChange }: { project: Project; onChange: (proje
               onChange(next);
               setOpen(null);
               setEditDirty(false);
-              setToast("Saved");
+              showToast("Saved");
             }}
             actions={(busy) => (
               <div className="flex flex-wrap justify-end gap-2 pt-1">
@@ -258,20 +302,17 @@ function ProjectView({ project, onChange }: { project: Project; onChange: (proje
           />
         </Dialog>
       )}
-      {open === "delete" && (
-        <DeleteProjectDialog
-          projectId={project.id}
-          title={project.title}
-          onClose={() => setOpen(null)}
-          onDeleted={() => router.push("/projects")}
-          returnFocusId="delete-project"
-        />
-      )}
       {open === "report" && (
         <ReportProjectDialog projectId={project.id} onClose={() => setOpen(null)} returnFocusId="report-project" />
       )}
-      {toast && <Toast message={toast} />}
     </div>
+  );
+
+  // The owner's recommendations feed both the side card and the invite dialog's quick picks.
+  return isOwner ? (
+    <RecommendationsProvider load={() => getRecommendedResearchers(project.id)}>{view}</RecommendationsProvider>
+  ) : (
+    view
   );
 }
 
@@ -345,33 +386,5 @@ function StatusSelect({ project, onChange }: { project: Project; onChange: (proj
         </p>
       )}
     </div>
-  );
-}
-
-// MembersCard lists the members. Until membership (slice 20) the owner is the only one.
-function MembersCard({ project }: { project: Project }) {
-  const owner = project.owner;
-  return (
-    <section aria-labelledby="members-h" className={homeCard}>
-      <div className="border-b border-rs-divider px-4 py-3.5">
-        <h2 id="members-h" className="text-rs-lead leading-rs-snug font-medium text-rs-text">
-          Members ({project.memberCount})
-        </h2>
-      </div>
-      <ul aria-label="Members">
-        <li className="flex flex-wrap items-center gap-3 px-4 py-3">
-          <Avatar name={owner.fullName} src={owner.photoUrl} size="post" decorative />
-          <span className="flex min-w-[180px] flex-1 flex-col">
-            <Link href={`/profile/${owner.userId}`} className="text-rs-body font-bold text-rs-text no-underline hover:underline">
-              {owner.fullName}
-            </Link>
-            {owner.headline && <span className="text-rs-caption text-rs-text-muted">{owner.headline}</span>}
-          </span>
-          <span className="rounded-rs-pill bg-rs-accent-strong px-3 py-1 text-rs-caption font-medium text-rs-surface">
-            Owner
-          </span>
-        </li>
-      </ul>
-    </section>
   );
 }

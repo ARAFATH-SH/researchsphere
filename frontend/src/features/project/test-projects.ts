@@ -1,6 +1,13 @@
 import type {
+  MemberRole,
+  MyInvitation,
+  MyJoinRequest,
   PeopleRecommendations,
   Project,
+  ProjectInvitation,
+  ProjectJoinRequest,
+  ProjectMember,
+  ProjectPerson,
   ProjectRecommendation,
   ProjectRecommendations,
   ProjectSummary,
@@ -82,3 +89,77 @@ export const researchersProcessing: { ok: true; data: PeopleRecommendations } = 
 };
 
 export const failed = { ok: false as const, code: "internal_error", message: "Something went wrong on our side." };
+
+// Membership test data (slice 20).
+
+export function person(n: number, extra: Partial<ProjectPerson> = {}): ProjectPerson {
+  return {
+    userId: `7a1d2c3e-0000-4000-8000-0000000004${String(n).padStart(2, "0")}`,
+    fullName: `Person ${n}`,
+    headline: `Headline ${n}`,
+    photoUrl: null,
+    ...extra,
+  };
+}
+
+export const ownerPerson: ProjectPerson = {
+  userId: ownerID,
+  fullName: "Zinat Owner",
+  headline: "MSc student · Explainable ML",
+  photoUrl: null,
+};
+
+export function member(user: ProjectPerson, role: ProjectMember["role"]): ProjectMember {
+  return { user, role, joinedAt: "2026-11-12T10:00:00Z" };
+}
+
+export function joinRequest(n: number, extra: Partial<ProjectJoinRequest> = {}): ProjectJoinRequest {
+  return {
+    id: `7a1d2c3e-0000-4000-8000-0000000005${String(n).padStart(2, "0")}`,
+    status: "pending",
+    message: `I can help, says ${n}.`,
+    user: person(n),
+    createdAt: "2026-11-16T10:00:00Z",
+    decidedAt: null,
+    ...extra,
+  };
+}
+
+export function invitation(n: number, role: MemberRole = "editor", extra: Partial<ProjectInvitation> = {}): ProjectInvitation {
+  return {
+    id: `7a1d2c3e-0000-4000-8000-0000000006${String(n).padStart(2, "0")}`,
+    status: "pending",
+    role,
+    user: person(n),
+    createdAt: "2026-11-16T10:00:00Z",
+    decidedAt: null,
+    ...extra,
+  };
+}
+
+export function myInvitation(n: number, extra: Partial<MyInvitation> = {}): MyInvitation {
+  return {
+    id: `7a1d2c3e-0000-4000-8000-0000000007${String(n).padStart(2, "0")}`,
+    role: "editor",
+    project: { id: n === 0 ? projectID : `7a1d2c3e-0000-4000-8000-0000000008${String(n).padStart(2, "0")}`, title: `Invited project ${n}`, status: "open", owner: person(90 + n) },
+    createdAt: "2026-11-16T10:00:00Z",
+    ...extra,
+  };
+}
+
+export function myRequest(n: number, extra: Partial<MyJoinRequest> = {}): MyJoinRequest {
+  return {
+    id: `7a1d2c3e-0000-4000-8000-0000000009${String(n).padStart(2, "0")}`,
+    status: "pending",
+    message: null,
+    project: { id: n === 0 ? projectID : `7a1d2c3e-0000-4000-8000-0000000010${String(n).padStart(2, "0")}`, title: `Requested project ${n}`, status: "open", owner: person(80 + n) },
+    createdAt: "2026-11-16T10:00:00Z",
+    decidedAt: null,
+    ...extra,
+  };
+}
+
+// page wraps items as one page of a membership list.
+export function page<T>(items: T[]) {
+  return { ok: true as const, data: { items, page: 1, pageSize: 50, total: items.length } };
+}

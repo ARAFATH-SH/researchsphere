@@ -45,3 +45,21 @@ export function sentenceFor(n: Notification): string | null {
 export function hasPendingRequest(n: Notification): n is Notification & { requestId: string } {
   return n.type === "connection_request_received" && n.requestPending === true && !!n.requestId;
 }
+
+// joinRequestsAnchor is the id of the owner's Join requests card on a project page.
+export const joinRequestsAnchor = "join-requests";
+
+// linkFor is where a notification leads: the server's link, except that a join request takes
+// the owner straight to the project's Join requests card (FR-11.2).
+export function linkFor(n: Notification): string {
+  return n.type === "project_join_request" ? `${n.link}#${joinRequestsAnchor}` : n.link;
+}
+
+// projectIdOf is the project a project notification is about: its subject, or the project in
+// its link when the subject is hidden; null for other types.
+export function projectIdOf(n: Notification): string | null {
+  if (!(n.type as string).startsWith("project_")) return null;
+  if (n.subject?.type === "project") return n.subject.id;
+  const m = /^\/projects\/([^/#?]+)/.exec(n.link);
+  return m ? m[1] : null;
+}
