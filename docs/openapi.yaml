@@ -4368,6 +4368,573 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /projects/{projectId}/join-requests:
+    post:
+      operationId: createJoinRequest
+      summary: Ask to join an open project, with a short message (FR-11.1)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3), then the project action "Request to join" (non-members).
+        Checks run in this order: the project must be one the caller can see and there must
+        be no block either way between the caller and the owner (else 404 `not_found`); the
+        caller's account must not be suspended (403 `account_suspended`); `message` (trimmed;
+        at most 500 characters, empty means none; else 400 `bad_request` with `field`); the
+        caller must not be a member (409 `already_member`); the project must be `open` (409
+        `project_not_open`); the caller may have one pending request per project (409
+        `request_pending`) and none while invited (409 `invitation_pending`: accept the
+        invitation instead). Each user may send 20 join requests a day; only sent requests
+        count. The owner is notified (`project_join_request`).
+      tags: [projects]
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JoinRequestCreate"
+      responses:
+        "201":
+          description: The request, pending.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MyJoinRequest"
+        "400":
+          $ref: "#/components/responses/MembershipInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/AccountSuspendedOrForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/MembershipConflict"
+        "429":
+          $ref: "#/components/responses/MembershipRateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    get:
+      operationId: listProjectJoinRequests
+      summary: The project's join requests, pending first (FR-11.2)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed, events
+        and recommendations" (SRS 2.3); a project the caller cannot see gets 404 `not_found`.
+        Then the project action "Invite, decide join requests, change roles, remove members"
+        (owner only), else 403 `forbidden`. Pending requests come first, oldest first; then
+        decided ones, most recently decided first. A request whose sender is now unverified or
+        suspended is left out.
+      tags: [projects]
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/PageFromOne"
+        - $ref: "#/components/parameters/MembershipPageSize"
+      responses:
+        "200":
+          description: One page of requests.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectJoinRequestPage"
+        "400":
+          $ref: "#/components/responses/MembershipInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/join-requests/{requestId}:
+    delete:
+      operationId: cancelJoinRequest
+      summary: Cancel the caller's own pending join request (FR-11.1)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Only the sender may cancel, also while suspended, and only
+        while the request is pending; anything else gets 404 `not_found`. The request is
+        deleted, and so is the owner's notification of it.
+      tags: [projects]
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/JoinRequestId"
+      responses:
+        "204":
+          description: The request is cancelled.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/join-requests/{requestId}/accept:
+    post:
+      operationId: acceptJoinRequest
+      summary: Accept a join request as editor or viewer (FR-11.2)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Checks run in this order: `role` is `editor` or `viewer`
+        (400 `bad_request`, `field: role`); the project must be one the caller can see (404
+        `not_found`); the project action "Invite, decide join requests, change roles, remove
+        members" (owner only, 403 `forbidden`); the caller's account is not suspended (403
+        `account_suspended`); the request must exist in this project and its sender must be
+        verified, not suspended and not blocked either way with the caller (404 `not_found`);
+        it must still be pending (409 `request_not_pending`, also for a second accept). The
+        project's status does not matter: a request sent while it was open can be accepted
+        after it closed. The sender becomes a member in the same transaction and is notified
+        (`project_join_request_accepted`); the owner's notification of the request is removed.
+      tags: [projects]
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/JoinRequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MemberRoleBody"
+      responses:
+        "200":
+          description: The new member.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectMember"
+        "400":
+          $ref: "#/components/responses/MembershipInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/AccountSuspendedOrForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/MembershipConflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/join-requests/{requestId}/reject:
+    post:
+      operationId: rejectJoinRequest
+      summary: Reject a join request (FR-11.2)
+      description: |
+        As `acceptJoinRequest`, without a body, and a request from a sender who is now
+        unverified, suspended or blocked can be rejected too. The sender is notified
+        (`project_join_request_rejected`, FR-9.2) and may ask again.
+      tags: [projects]
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/JoinRequestId"
+      responses:
+        "204":
+          description: The request is rejected.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/AccountSuspendedOrForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/MembershipConflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/invitations:
+    post:
+      operationId: createInvitation
+      summary: Invite a user to the project as editor or viewer (FR-11.3)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Checks run in this order: the body (`userId`, `role`
+        `editor` or `viewer`; 400 `bad_request` with `field`); the project must be one the
+        caller can see (404 `not_found`); the project action "Invite, decide join requests,
+        change roles, remove members" (owner only, 403 `forbidden`); the caller's account is
+        not suspended (403 `account_suspended`); the project must be `open` (409
+        `project_not_open`); the user must exist, be verified, not suspended and not blocked
+        either way with the caller (404 `user_not_found`, which does not say which); the user
+        must not be a member (409 `already_member`), nor invited already (409
+        `already_invited`), nor have a pending request (409 `request_pending`: accept the
+        request instead). Each owner may send 20 invitations a day; only sent invitations
+        count. The user is notified (`project_invitation`).
+      tags: [projects]
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InvitationCreate"
+      responses:
+        "201":
+          description: The invitation, pending.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectInvitation"
+        "400":
+          $ref: "#/components/responses/MembershipInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/AccountSuspendedOrForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/MembershipConflict"
+        "429":
+          $ref: "#/components/responses/MembershipRateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    get:
+      operationId: listProjectInvitations
+      summary: The project's invitations, pending first (FR-11.3)
+      description: |
+        As `listProjectJoinRequests` (owner only), for invitations. An invitation to a user who
+        is now unverified or suspended is left out.
+      tags: [projects]
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/PageFromOne"
+        - $ref: "#/components/parameters/MembershipPageSize"
+      responses:
+        "200":
+          description: One page of invitations.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectInvitationPage"
+        "400":
+          $ref: "#/components/responses/MembershipInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/invitations/{invitationId}:
+    delete:
+      operationId: cancelInvitation
+      summary: Cancel a pending invitation (FR-11.3)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). The project must be one the caller can see (404
+        `not_found`); owner only (403 `forbidden`); the caller's account is not suspended (403
+        `account_suspended`); the invitation must exist in this project (404 `not_found`) and
+        be pending (409 `invitation_not_pending`). The invitation is deleted, and so is the
+        user's notification of it.
+      tags: [projects]
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/InvitationId"
+      responses:
+        "204":
+          description: The invitation is cancelled.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/AccountSuspendedOrForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/MembershipConflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/invitations/{invitationId}/accept:
+    post:
+      operationId: acceptInvitation
+      summary: Accept an invitation and join the project (FR-11.3)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Checks run in this order: the invitation must exist in this
+        project and be addressed to the caller (404 `not_found`); it must be pending (409
+        `invitation_not_pending`, also for a second accept); the caller's account is not
+        suspended (403 `account_suspended`); the owner must be verified, not suspended and not
+        blocked either way with the caller (404 `not_found`). The project's status does not
+        matter. The caller joins with the invitation's role in the same transaction; the owner
+        is notified (`project_invitation_accepted`) and the caller's notification of the
+        invitation is removed.
+      tags: [projects]
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/InvitationId"
+      responses:
+        "200":
+          description: The caller as a member.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectMember"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/AccountSuspendedOrForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/MembershipConflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/invitations/{invitationId}/reject:
+    post:
+      operationId: rejectInvitation
+      summary: Reject an invitation (FR-11.3)
+      description: |
+        As `acceptInvitation`, but allowed while suspended and whoever the owner is now. The
+        owner is notified (`project_invitation_rejected`, FR-9.2).
+      tags: [projects]
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/InvitationId"
+      responses:
+        "204":
+          description: The invitation is rejected.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/MembershipConflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/members:
+    get:
+      operationId: listProjectMembers
+      summary: The project's members with their roles (SRS 2.3, FR-11)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed, events
+        and recommendations" (SRS 2.3); a project the caller cannot see gets 404 `not_found`
+        (the row "View the project page (title, description, skills, members)"). The owner
+        comes first, then the others in the order they joined.
+      tags: [projects]
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/PageFromOne"
+        - $ref: "#/components/parameters/MembershipPageSize"
+      responses:
+        "200":
+          description: One page of members.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectMemberPage"
+        "400":
+          $ref: "#/components/responses/MembershipInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/members/{userId}:
+    patch:
+      operationId: updateProjectMember
+      summary: Change a member's role (FR-11.4)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Checks run in this order: `role` is `editor` or `viewer`
+        (400 `bad_request`, `field: role`); the project must be one the caller can see (404
+        `not_found`); owner only (403 `forbidden`); the caller's account is not suspended (403
+        `account_suspended`); the user must be a member (404 `not_found`) other than the owner
+        (409 `use_transfer`: ownership moves only by `transferProject`). The member's own
+        role again changes nothing and notifies nobody; otherwise the member is notified
+        (`project_member_role_changed`).
+      tags: [projects]
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/MemberUserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MemberRoleBody"
+      responses:
+        "200":
+          description: The member after the change.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectMember"
+        "400":
+          $ref: "#/components/responses/MembershipInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/AccountSuspendedOrForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/MembershipConflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: removeProjectMember
+      summary: Remove a member from the project (FR-11.4)
+      description: |
+        As `updateProjectMember`, without a body; the owner cannot be removed, themselves
+        included (409 `cannot_remove_owner`). The member is notified
+        (`project_member_removed`).
+      tags: [projects]
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/MemberUserId"
+      responses:
+        "204":
+          description: The member is removed.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/AccountSuspendedOrForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/MembershipConflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/leave:
+    post:
+      operationId: leaveProject
+      summary: Leave a project the caller is a member of, not as its owner (FR-11.5)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Allowed while suspended. A caller who is not a member gets
+        404 `not_found`; the owner gets 409 `owner_must_transfer` (transfer ownership first,
+        or delete the project). Nobody is notified.
+      tags: [projects]
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "204":
+          description: The caller is no longer a member.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/MembershipConflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/transfer:
+    post:
+      operationId: transferProject
+      summary: Make another member the owner; the caller becomes an editor (FR-10.5)
+      description: |
+        Needs the access cookie and the platform action "Edit own profile, connect, post,
+        like, comment" (SRS 2.3). Checks run in this order: `userId` (400 `bad_request`); the
+        project must be one the caller can see (404 `not_found`); the project action
+        "Transfer ownership, delete the project" (owner only, 403 `forbidden`); the caller's
+        account is not suspended (403 `account_suspended`); the user must be a member (409
+        `not_a_member`) other than the caller (409 `already_owner`), verified and not
+        suspended (409 `member_unavailable`). In one transaction the caller becomes an
+        `editor` and the user the `owner`. The new owner is notified
+        (`project_ownership_transferred`).
+      tags: [projects]
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OwnershipTransfer"
+      responses:
+        "200":
+          description: The project as the caller, now an editor, sees it.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "400":
+          $ref: "#/components/responses/MembershipInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/AccountSuspendedOrForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/MembershipConflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /me/join-requests:
+    get:
+      operationId: listMyJoinRequests
+      summary: The caller's own join requests, with their status (FR-11.1)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed, events
+        and recommendations" (SRS 2.3). Every request the caller sent and did not cancel,
+        newest first.
+      tags: [projects]
+      parameters:
+        - $ref: "#/components/parameters/PageFromOne"
+        - $ref: "#/components/parameters/MembershipPageSize"
+      responses:
+        "200":
+          description: One page of requests.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MyJoinRequestPage"
+        "400":
+          $ref: "#/components/responses/MembershipInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /me/invitations:
+    get:
+      operationId: listMyInvitations
+      summary: The caller's pending invitations (FR-11.3)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed, events
+        and recommendations" (SRS 2.3). Pending invitations to the caller, newest first. One
+        whose project's owner is now unverified or suspended, or blocked either way with the
+        caller, is left out until that changes.
+      tags: [projects]
+      parameters:
+        - $ref: "#/components/parameters/PageFromOne"
+        - $ref: "#/components/parameters/MembershipPageSize"
+      responses:
+        "200":
+          description: One page of invitations.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MyInvitationPage"
+        "400":
+          $ref: "#/components/responses/MembershipInvalid"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /search/projects:
     get:
       operationId: searchProjects
@@ -4872,6 +5439,45 @@ components:
       description: |
         The project's ID, a UUID. It is declared as a plain string so that the login and role
         checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+      schema:
+        type: string
+    MembershipPageSize:
+      name: pageSize
+      in: query
+      required: false
+      description: Items per page, from 1; a larger value than 50 is reduced to 50. Defaults to 20. Below 1 gets 400 `bad_request`.
+      schema:
+        type: integer
+        minimum: 1
+        default: 20
+    JoinRequestId:
+      name: requestId
+      in: path
+      required: true
+      description: |
+        The join request's ID, a UUID. It is declared as a plain string so that the login and
+        role checks run before it is read (FR-3.1); a value that is not a UUID gets 404
+        `not_found`.
+      schema:
+        type: string
+    InvitationId:
+      name: invitationId
+      in: path
+      required: true
+      description: |
+        The invitation's ID, a UUID. It is declared as a plain string so that the login and
+        role checks run before it is read (FR-3.1); a value that is not a UUID gets 404
+        `not_found`.
+      schema:
+        type: string
+    MemberUserId:
+      name: userId
+      in: path
+      required: true
+      description: |
+        The member's user ID, a UUID. It is declared as a plain string so that the login and
+        role checks run before it is read (FR-3.1); a value that is not a UUID gets 404
+        `not_found`.
       schema:
         type: string
     ReportId:
@@ -5958,8 +6564,30 @@ components:
         with no actor. `group_added`: the actor, the group's owner, added the caller to a
         group (FR-16.6). `attachment_blocked`: the malware scan found something in a file the
         caller attached, and it was deleted (FR-16.7); a system notification, with no actor.
-        Later slices add the project, comment and like types.
-      enum: [connection_request_received, connection_request_accepted, account_warning, group_added, attachment_blocked]
+        The project types (FR-9.2, FR-11, FR-10.5) all have the project as their `subject`:
+        `project_join_request`: the actor asked to join the caller's project.
+        `project_join_request_accepted` / `project_join_request_rejected`: the actor, the
+        owner, decided the caller's request. `project_invitation`: the actor, the owner,
+        invited the caller. `project_invitation_accepted` / `project_invitation_rejected`: the
+        actor answered the caller's invitation. `project_member_role_changed`: the actor, the
+        owner, changed the caller's role. `project_member_removed`: the actor, the owner,
+        removed the caller. `project_ownership_transferred`: the actor made the caller the
+        owner. Later slices add the comment and like types.
+      enum:
+        - connection_request_received
+        - connection_request_accepted
+        - account_warning
+        - group_added
+        - attachment_blocked
+        - project_join_request
+        - project_join_request_accepted
+        - project_join_request_rejected
+        - project_invitation
+        - project_invitation_accepted
+        - project_invitation_rejected
+        - project_member_role_changed
+        - project_member_removed
+        - project_ownership_transferred
 
     NotificationActor:
       type: object
@@ -5999,7 +6627,7 @@ components:
             The web client path of the item it is about (FR-9.5):
             `/network` for a received request, `/profile/{actorId}` for an accepted one,
             `/warnings/{warningId}` for a warning, `/messaging/{conversationId}` for a group
-            and for a blocked attachment.
+            and for a blocked attachment, `/projects/{projectId}` for every project type.
         actor:
           $ref: "#/components/schemas/NotificationActor"
         subject:
@@ -6019,14 +6647,16 @@ components:
       required: [type, id, title]
       description: |
         The item a notification is about, as it is now, for types whose sentence names it
-        (`group_added`: the group, with its current name). Read when the notification is
-        listed or sent, so a rename shows. Left out for the other types, and when the item no
-        longer exists or the recipient cannot see it (they left the group); the client then
-        uses a sentence without the title ("added you to a group").
+        (`group_added`: the group, with its current name; every project type: the project,
+        with its current title). Read when the notification is listed or sent, so a rename
+        shows. Left out for the other types, and when the item no longer exists or the
+        recipient cannot see it (they left the group, or the project is archived and they are
+        not a member); the client then uses a sentence without the title ("added you to a
+        group").
       properties:
         type:
           type: string
-          enum: [conversation]
+          enum: [conversation, project]
         id:
           type: string
           format: uuid
@@ -6858,6 +7488,235 @@ components:
       type: string
       description: A member's role in one project (SRS 2.3).
       enum: [owner, editor, viewer]
+
+    MemberRole:
+      type: string
+      description: A role the owner can give a member (FR-11.2 to FR-11.4); ownership moves only by transfer (FR-10.5).
+      enum: [editor, viewer]
+
+    JoinRequestStatus:
+      type: string
+      enum: [pending, accepted, rejected]
+
+    JoinRequestCreate:
+      type: object
+      properties:
+        message:
+          type: string
+          nullable: true
+          description: A short note to the owner, at most 500 characters after trimming; empty or null means none.
+
+    MemberRoleBody:
+      type: object
+      required: [role]
+      properties:
+        role:
+          $ref: "#/components/schemas/MemberRole"
+
+    InvitationCreate:
+      type: object
+      required: [userId, role]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        role:
+          $ref: "#/components/schemas/MemberRole"
+
+    OwnershipTransfer:
+      type: object
+      required: [userId]
+      properties:
+        userId:
+          type: string
+          format: uuid
+          description: The member who becomes the owner.
+
+    MembershipProject:
+      type: object
+      description: The project a request or invitation is about, as its sender or invitee sees it.
+      required: [id, title, status, owner]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        status:
+          $ref: "#/components/schemas/ProjectStatus"
+        owner:
+          $ref: "#/components/schemas/ProjectPerson"
+
+    ProjectJoinRequest:
+      type: object
+      description: A join request as the project's owner sees it.
+      required: [id, status, message, user, createdAt, decidedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/JoinRequestStatus"
+        message:
+          type: string
+          nullable: true
+        user:
+          $ref: "#/components/schemas/ProjectPerson"
+        createdAt:
+          type: string
+          format: date-time
+        decidedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    ProjectJoinRequestPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProjectJoinRequest"
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+
+    MyJoinRequest:
+      type: object
+      description: A join request as its sender sees it.
+      required: [id, status, message, project, createdAt, decidedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/JoinRequestStatus"
+        message:
+          type: string
+          nullable: true
+        project:
+          $ref: "#/components/schemas/MembershipProject"
+        createdAt:
+          type: string
+          format: date-time
+        decidedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    MyJoinRequestPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/MyJoinRequest"
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+
+    ProjectInvitation:
+      type: object
+      description: An invitation as the project's owner sees it.
+      required: [id, status, role, user, createdAt, decidedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/JoinRequestStatus"
+        role:
+          $ref: "#/components/schemas/MemberRole"
+        user:
+          $ref: "#/components/schemas/ProjectPerson"
+        createdAt:
+          type: string
+          format: date-time
+        decidedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    ProjectInvitationPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProjectInvitation"
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+
+    MyInvitation:
+      type: object
+      description: A pending invitation as the invitee sees it.
+      required: [id, role, project, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        role:
+          $ref: "#/components/schemas/MemberRole"
+        project:
+          $ref: "#/components/schemas/MembershipProject"
+        createdAt:
+          type: string
+          format: date-time
+
+    MyInvitationPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/MyInvitation"
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+
+    ProjectMember:
+      type: object
+      required: [user, role, joinedAt]
+      properties:
+        user:
+          $ref: "#/components/schemas/ProjectPerson"
+        role:
+          $ref: "#/components/schemas/ProjectRole"
+        joinedAt:
+          type: string
+          format: date-time
+
+    ProjectMemberPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProjectMember"
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
 
     ProjectPerson:
       type: object
@@ -9068,6 +9927,39 @@ components:
       headers:
         Retry-After:
           description: Seconds until the minute ends and searches are accepted again.
+          required: true
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    MembershipInvalid:
+      description: |
+        A body field or parameter is not valid (`bad_request`, with `field` when one field is
+        at fault: `message`, `role`, `userId`, `page` or `pageSize`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    MembershipConflict:
+      description: |
+        The project's membership does not allow the change (FR-11), and nothing is changed:
+        `already_member`, `project_not_open`, `request_pending`, `invitation_pending`,
+        `already_invited`, `request_not_pending`, `invitation_not_pending`, `use_transfer`,
+        `cannot_remove_owner`, `owner_must_transfer`, `not_a_member`, `already_owner` or
+        `member_unavailable`. Each operation says which of them it returns.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    MembershipRateLimited:
+      description: |
+        `rate_limited`: the caller has sent 20 join requests, or 20 invitations, in the current
+        day.
+      headers:
+        Retry-After:
+          description: Seconds until sending is accepted again.
           required: true
           schema:
             type: integer

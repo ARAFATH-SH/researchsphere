@@ -51,12 +51,75 @@ func (q *Queries) AnyVisibleTitleContains(ctx context.Context, arg AnyVisibleTit
 	return exists, err
 }
 
+const countMyInvitations = `-- name: CountMyInvitations :one
+SELECT count(*)::int
+FROM project_join_requests j
+JOIN project_members o ON o.project_id = j.project_id AND o.role = 'owner'
+JOIN users ou ON ou.id = o.user_id
+WHERE j.user_id = $1 AND j.kind = 'invitation' AND j.status = 'pending'
+  AND ou.email_verified_at IS NOT NULL
+  AND (ou.suspended_at IS NULL OR (ou.suspended_until IS NOT NULL AND ou.suspended_until <= now()))
+  AND NOT EXISTS (SELECT 1 FROM blocks b
+                  WHERE (b.blocker_id = o.user_id AND b.blocked_id = j.user_id)
+                     OR (b.blocker_id = j.user_id AND b.blocked_id = o.user_id))
+`
+
+func (q *Queries) CountMyInvitations(ctx context.Context, userID pgtype.UUID) (int32, error) {
+	row := q.db.QueryRow(ctx, countMyInvitations, userID)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const countMyJoinRequests = `-- name: CountMyJoinRequests :one
+SELECT count(*)::int FROM project_join_requests WHERE user_id = $1 AND kind = 'request'
+`
+
+func (q *Queries) CountMyJoinRequests(ctx context.Context, userID pgtype.UUID) (int32, error) {
+	row := q.db.QueryRow(ctx, countMyJoinRequests, userID)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const countMyProjects = `-- name: CountMyProjects :one
 SELECT count(*)::int FROM project_members WHERE user_id = $1
 `
 
 func (q *Queries) CountMyProjects(ctx context.Context, userID pgtype.UUID) (int32, error) {
 	row := q.db.QueryRow(ctx, countMyProjects, userID)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const countProjectJoinRequests = `-- name: CountProjectJoinRequests :one
+SELECT count(*)::int
+FROM project_join_requests j
+JOIN users u ON u.id = j.user_id
+WHERE j.project_id = $1 AND j.kind = ($2::text)::join_request_kind
+  AND u.email_verified_at IS NOT NULL
+  AND (u.suspended_at IS NULL OR (u.suspended_until IS NOT NULL AND u.suspended_until <= now()))
+`
+
+type CountProjectJoinRequestsParams struct {
+	ProjectID pgtype.UUID
+	Kind      string
+}
+
+func (q *Queries) CountProjectJoinRequests(ctx context.Context, arg CountProjectJoinRequestsParams) (int32, error) {
+	row := q.db.QueryRow(ctx, countProjectJoinRequests, arg.ProjectID, arg.Kind)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const countProjectMembers = `-- name: CountProjectMembers :one
+SELECT count(*)::int FROM project_members WHERE project_id = $1
+`
+
+func (q *Queries) CountProjectMembers(ctx context.Context, projectID pgtype.UUID) (int32, error) {
+	row := q.db.QueryRow(ctx, countProjectMembers, projectID)
 	var column_1 int32
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -71,6 +134,45 @@ func (q *Queries) CountProjectReports(ctx context.Context, open bool) (int32, er
 	var column_1 int32
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const decideJoinRequest = `-- name: DecideJoinRequest :exec
+UPDATE project_join_requests
+SET status = ($1::text)::join_request_status, decided_at = clock_timestamp()
+WHERE id = $2 AND status = 'pending'
+`
+
+type DecideJoinRequestParams struct {
+	Status string
+	ID     pgtype.UUID
+}
+
+func (q *Queries) DecideJoinRequest(ctx context.Context, arg DecideJoinRequestParams) error {
+	_, err := q.db.Exec(ctx, decideJoinRequest, arg.Status, arg.ID)
+	return err
+}
+
+const deleteJoinRequest = `-- name: DeleteJoinRequest :exec
+DELETE FROM project_join_requests WHERE id = $1
+`
+
+func (q *Queries) DeleteJoinRequest(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteJoinRequest, id)
+	return err
+}
+
+const deleteMember = `-- name: DeleteMember :exec
+DELETE FROM project_members WHERE project_id = $1 AND user_id = $2
+`
+
+type DeleteMemberParams struct {
+	ProjectID pgtype.UUID
+	UserID    pgtype.UUID
+}
+
+func (q *Queries) DeleteMember(ctx context.Context, arg DeleteMemberParams) error {
+	_, err := q.db.Exec(ctx, deleteMember, arg.ProjectID, arg.UserID)
+	return err
 }
 
 const deleteProject = `-- name: DeleteProject :exec
@@ -213,6 +315,74 @@ func (q *Queries) GetProjectReport(ctx context.Context, id pgtype.UUID) (GetProj
 		&i.OwnerRole,
 	)
 	return i, err
+}
+
+const insertJoinRequest = `-- name: InsertJoinRequest :one
+INSERT INTO project_join_requests (project_id, user_id, kind, message, role)
+VALUES ($1, $2, ($3::text)::join_request_kind, $4, ($5::text)::project_role)
+RETURNING id, project_id, user_id, kind::text AS kind, status::text AS status, message, coalesce(role::text, '')::text AS role, created_at, decided_at
+`
+
+type InsertJoinRequestParams struct {
+	ProjectID pgtype.UUID
+	UserID    pgtype.UUID
+	Kind      string
+	Message   pgtype.Text
+	Role      pgtype.Text
+}
+
+type InsertJoinRequestRow struct {
+	ID        pgtype.UUID
+	ProjectID pgtype.UUID
+	UserID    pgtype.UUID
+	Kind      string
+	Status    string
+	Message   pgtype.Text
+	Role      string
+	CreatedAt pgtype.Timestamptz
+	DecidedAt pgtype.Timestamptz
+}
+
+func (q *Queries) InsertJoinRequest(ctx context.Context, arg InsertJoinRequestParams) (InsertJoinRequestRow, error) {
+	row := q.db.QueryRow(ctx, insertJoinRequest,
+		arg.ProjectID,
+		arg.UserID,
+		arg.Kind,
+		arg.Message,
+		arg.Role,
+	)
+	var i InsertJoinRequestRow
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.UserID,
+		&i.Kind,
+		&i.Status,
+		&i.Message,
+		&i.Role,
+		&i.CreatedAt,
+		&i.DecidedAt,
+	)
+	return i, err
+}
+
+const insertMember = `-- name: InsertMember :one
+INSERT INTO project_members (project_id, user_id, role)
+VALUES ($1, $2, ($3::text)::project_role)
+RETURNING joined_at
+`
+
+type InsertMemberParams struct {
+	ProjectID pgtype.UUID
+	UserID    pgtype.UUID
+	Role      string
+}
+
+func (q *Queries) InsertMember(ctx context.Context, arg InsertMemberParams) (pgtype.Timestamptz, error) {
+	row := q.db.QueryRow(ctx, insertMember, arg.ProjectID, arg.UserID, arg.Role)
+	var joined_at pgtype.Timestamptz
+	err := row.Scan(&joined_at)
+	return joined_at, err
 }
 
 const insertOwner = `-- name: InsertOwner :exec
@@ -385,6 +555,48 @@ func (q *Queries) ListProjectReports(ctx context.Context, arg ListProjectReports
 	return items, nil
 }
 
+const lockJoinRequest = `-- name: LockJoinRequest :one
+SELECT id, project_id, user_id, kind::text AS kind, status::text AS status, message, coalesce(role::text, '')::text AS role, created_at, decided_at
+FROM project_join_requests
+WHERE id = $1 AND project_id = $2 AND kind = ($3::text)::join_request_kind
+FOR UPDATE
+`
+
+type LockJoinRequestParams struct {
+	ID        pgtype.UUID
+	ProjectID pgtype.UUID
+	Kind      string
+}
+
+type LockJoinRequestRow struct {
+	ID        pgtype.UUID
+	ProjectID pgtype.UUID
+	UserID    pgtype.UUID
+	Kind      string
+	Status    string
+	Message   pgtype.Text
+	Role      string
+	CreatedAt pgtype.Timestamptz
+	DecidedAt pgtype.Timestamptz
+}
+
+func (q *Queries) LockJoinRequest(ctx context.Context, arg LockJoinRequestParams) (LockJoinRequestRow, error) {
+	row := q.db.QueryRow(ctx, lockJoinRequest, arg.ID, arg.ProjectID, arg.Kind)
+	var i LockJoinRequestRow
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.UserID,
+		&i.Kind,
+		&i.Status,
+		&i.Message,
+		&i.Role,
+		&i.CreatedAt,
+		&i.DecidedAt,
+	)
+	return i, err
+}
+
 const lockProject = `-- name: LockProject :one
 SELECT p.title, p.status::text AS status, o.user_id AS owner_id,
        (ou.email_verified_at IS NOT NULL AND ou.suspended_at IS NULL)::boolean AS owner_available,
@@ -441,6 +653,208 @@ func (q *Queries) MemberRole(ctx context.Context, arg MemberRoleParams) (string,
 	var role string
 	err := row.Scan(&role)
 	return role, err
+}
+
+const membershipRelation = `-- name: MembershipRelation :one
+
+SELECT EXISTS (SELECT 1 FROM users u WHERE u.id = $1::uuid)::boolean AS user_exists,
+       EXISTS (SELECT 1 FROM users u
+               WHERE u.id = $1::uuid AND u.email_verified_at IS NOT NULL
+                 AND (u.suspended_at IS NULL OR (u.suspended_until IS NOT NULL AND u.suspended_until <= now())))::boolean AS available,
+       EXISTS (SELECT 1 FROM blocks b
+               JOIN project_members o ON o.project_id = $2::uuid AND o.role = 'owner'
+               WHERE (b.blocker_id = o.user_id AND b.blocked_id = $1::uuid)
+                  OR (b.blocker_id = $1::uuid AND b.blocked_id = o.user_id))::boolean AS blocked,
+       coalesce((SELECT m.role::text FROM project_members m
+                 WHERE m.project_id = $2::uuid AND m.user_id = $1::uuid), '')::text AS role
+`
+
+type MembershipRelationParams struct {
+	UserID    pgtype.UUID
+	ProjectID pgtype.UUID
+}
+
+type MembershipRelationRow struct {
+	UserExists bool
+	Available  bool
+	Blocked    bool
+	Role       string
+}
+
+// Membership (FR-11.1 to FR-11.5, FR-10.5; slice 20, chunk 20.1). A join request and an
+// invitation are project_join_requests rows of kind 'request' and 'invitation'; one row per
+// user and project may be pending (project_join_requests_pending_uq). The writes run in the
+// usecase's transaction after LockProject. "Available" means verified and not suspended now
+// (a suspension whose end has passed no longer counts).
+// What decides whether the user may ask to join or be invited: the account, a block either
+// way with the owner, the role, and the pending request or invitation (if any).
+func (q *Queries) MembershipRelation(ctx context.Context, arg MembershipRelationParams) (MembershipRelationRow, error) {
+	row := q.db.QueryRow(ctx, membershipRelation, arg.UserID, arg.ProjectID)
+	var i MembershipRelationRow
+	err := row.Scan(
+		&i.UserExists,
+		&i.Available,
+		&i.Blocked,
+		&i.Role,
+	)
+	return i, err
+}
+
+const myInvitations = `-- name: MyInvitations :many
+SELECT j.id, j.project_id, j.user_id, j.kind::text AS kind, j.status::text AS status, j.message, coalesce(j.role::text, '')::text AS role,
+       j.created_at, j.decided_at,
+       pr.title, pr.status::text AS project_status, o.user_id AS owner_id,
+       coalesce(op.full_name, '')::text AS owner_name, op.headline AS owner_headline, op.photo_file_id AS owner_photo
+FROM project_join_requests j
+JOIN projects pr ON pr.id = j.project_id
+JOIN project_members o ON o.project_id = pr.id AND o.role = 'owner'
+JOIN users ou ON ou.id = o.user_id
+LEFT JOIN profiles op ON op.user_id = o.user_id
+WHERE j.user_id = $1 AND j.kind = 'invitation' AND j.status = 'pending'
+  AND ou.email_verified_at IS NOT NULL
+  AND (ou.suspended_at IS NULL OR (ou.suspended_until IS NOT NULL AND ou.suspended_until <= now()))
+  AND NOT EXISTS (SELECT 1 FROM blocks b
+                  WHERE (b.blocker_id = o.user_id AND b.blocked_id = j.user_id)
+                     OR (b.blocker_id = j.user_id AND b.blocked_id = o.user_id))
+ORDER BY j.created_at DESC, j.id DESC
+LIMIT $3 OFFSET $2
+`
+
+type MyInvitationsParams struct {
+	UserID pgtype.UUID
+	Off    int32
+	Lim    int32
+}
+
+type MyInvitationsRow struct {
+	ID            pgtype.UUID
+	ProjectID     pgtype.UUID
+	UserID        pgtype.UUID
+	Kind          string
+	Status        string
+	Message       pgtype.Text
+	Role          string
+	CreatedAt     pgtype.Timestamptz
+	DecidedAt     pgtype.Timestamptz
+	Title         string
+	ProjectStatus string
+	OwnerID       pgtype.UUID
+	OwnerName     string
+	OwnerHeadline pgtype.Text
+	OwnerPhoto    pgtype.UUID
+}
+
+// The user's pending invitations, newest first; one whose owner is now unverified, suspended
+// or blocked either way is left out until that changes.
+func (q *Queries) MyInvitations(ctx context.Context, arg MyInvitationsParams) ([]MyInvitationsRow, error) {
+	rows, err := q.db.Query(ctx, myInvitations, arg.UserID, arg.Off, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MyInvitationsRow
+	for rows.Next() {
+		var i MyInvitationsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.UserID,
+			&i.Kind,
+			&i.Status,
+			&i.Message,
+			&i.Role,
+			&i.CreatedAt,
+			&i.DecidedAt,
+			&i.Title,
+			&i.ProjectStatus,
+			&i.OwnerID,
+			&i.OwnerName,
+			&i.OwnerHeadline,
+			&i.OwnerPhoto,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const myJoinRequests = `-- name: MyJoinRequests :many
+SELECT j.id, j.project_id, j.user_id, j.kind::text AS kind, j.status::text AS status, j.message, coalesce(j.role::text, '')::text AS role,
+       j.created_at, j.decided_at,
+       pr.title, pr.status::text AS project_status, o.user_id AS owner_id,
+       coalesce(op.full_name, '')::text AS owner_name, op.headline AS owner_headline, op.photo_file_id AS owner_photo
+FROM project_join_requests j
+JOIN projects pr ON pr.id = j.project_id
+JOIN project_members o ON o.project_id = pr.id AND o.role = 'owner'
+LEFT JOIN profiles op ON op.user_id = o.user_id
+WHERE j.user_id = $1 AND j.kind = 'request'
+ORDER BY j.created_at DESC, j.id DESC
+LIMIT $3 OFFSET $2
+`
+
+type MyJoinRequestsParams struct {
+	UserID pgtype.UUID
+	Off    int32
+	Lim    int32
+}
+
+type MyJoinRequestsRow struct {
+	ID            pgtype.UUID
+	ProjectID     pgtype.UUID
+	UserID        pgtype.UUID
+	Kind          string
+	Status        string
+	Message       pgtype.Text
+	Role          string
+	CreatedAt     pgtype.Timestamptz
+	DecidedAt     pgtype.Timestamptz
+	Title         string
+	ProjectStatus string
+	OwnerID       pgtype.UUID
+	OwnerName     string
+	OwnerHeadline pgtype.Text
+	OwnerPhoto    pgtype.UUID
+}
+
+// The user's own requests, newest first, with the project they are about.
+func (q *Queries) MyJoinRequests(ctx context.Context, arg MyJoinRequestsParams) ([]MyJoinRequestsRow, error) {
+	rows, err := q.db.Query(ctx, myJoinRequests, arg.UserID, arg.Off, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MyJoinRequestsRow
+	for rows.Next() {
+		var i MyJoinRequestsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.UserID,
+			&i.Kind,
+			&i.Status,
+			&i.Message,
+			&i.Role,
+			&i.CreatedAt,
+			&i.DecidedAt,
+			&i.Title,
+			&i.ProjectStatus,
+			&i.OwnerID,
+			&i.OwnerName,
+			&i.OwnerHeadline,
+			&i.OwnerPhoto,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const myProjects = `-- name: MyProjects :many
@@ -508,6 +922,239 @@ func (q *Queries) MyProjects(ctx context.Context, arg MyProjectsParams) ([]MyPro
 		return nil, err
 	}
 	return items, nil
+}
+
+const pendingJoinRequest = `-- name: PendingJoinRequest :one
+SELECT id, project_id, user_id, kind::text AS kind, status::text AS status, message, coalesce(role::text, '')::text AS role, created_at, decided_at
+FROM project_join_requests
+WHERE project_id = $1 AND user_id = $2 AND status = 'pending'
+`
+
+type PendingJoinRequestParams struct {
+	ProjectID pgtype.UUID
+	UserID    pgtype.UUID
+}
+
+type PendingJoinRequestRow struct {
+	ID        pgtype.UUID
+	ProjectID pgtype.UUID
+	UserID    pgtype.UUID
+	Kind      string
+	Status    string
+	Message   pgtype.Text
+	Role      string
+	CreatedAt pgtype.Timestamptz
+	DecidedAt pgtype.Timestamptz
+}
+
+func (q *Queries) PendingJoinRequest(ctx context.Context, arg PendingJoinRequestParams) (PendingJoinRequestRow, error) {
+	row := q.db.QueryRow(ctx, pendingJoinRequest, arg.ProjectID, arg.UserID)
+	var i PendingJoinRequestRow
+	err := row.Scan(
+		&i.ID,
+		&i.ProjectID,
+		&i.UserID,
+		&i.Kind,
+		&i.Status,
+		&i.Message,
+		&i.Role,
+		&i.CreatedAt,
+		&i.DecidedAt,
+	)
+	return i, err
+}
+
+const projectJoinRequests = `-- name: ProjectJoinRequests :many
+SELECT j.id, j.project_id, j.user_id, j.kind::text AS kind, j.status::text AS status, j.message, coalesce(j.role::text, '')::text AS role,
+       j.created_at, j.decided_at,
+       coalesce(p.full_name, '')::text AS full_name, p.headline, p.photo_file_id
+FROM project_join_requests j
+JOIN users u ON u.id = j.user_id
+LEFT JOIN profiles p ON p.user_id = j.user_id
+WHERE j.project_id = $1 AND j.kind = ($2::text)::join_request_kind
+  AND u.email_verified_at IS NOT NULL
+  AND (u.suspended_at IS NULL OR (u.suspended_until IS NOT NULL AND u.suspended_until <= now()))
+ORDER BY (j.status = 'pending') DESC,
+         CASE WHEN j.status = 'pending' THEN j.created_at END ASC,
+         j.decided_at DESC, j.id
+LIMIT $4 OFFSET $3
+`
+
+type ProjectJoinRequestsParams struct {
+	ProjectID pgtype.UUID
+	Kind      string
+	Off       int32
+	Lim       int32
+}
+
+type ProjectJoinRequestsRow struct {
+	ID          pgtype.UUID
+	ProjectID   pgtype.UUID
+	UserID      pgtype.UUID
+	Kind        string
+	Status      string
+	Message     pgtype.Text
+	Role        string
+	CreatedAt   pgtype.Timestamptz
+	DecidedAt   pgtype.Timestamptz
+	FullName    string
+	Headline    pgtype.Text
+	PhotoFileID pgtype.UUID
+}
+
+// Pending first, oldest first (the order they arrived); then decided, most recently decided
+// first. Rows of users who are now unverified or suspended are left out.
+func (q *Queries) ProjectJoinRequests(ctx context.Context, arg ProjectJoinRequestsParams) ([]ProjectJoinRequestsRow, error) {
+	rows, err := q.db.Query(ctx, projectJoinRequests,
+		arg.ProjectID,
+		arg.Kind,
+		arg.Off,
+		arg.Lim,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ProjectJoinRequestsRow
+	for rows.Next() {
+		var i ProjectJoinRequestsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.UserID,
+			&i.Kind,
+			&i.Status,
+			&i.Message,
+			&i.Role,
+			&i.CreatedAt,
+			&i.DecidedAt,
+			&i.FullName,
+			&i.Headline,
+			&i.PhotoFileID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const projectMember = `-- name: ProjectMember :one
+SELECT m.user_id, m.role::text AS role, m.joined_at,
+       coalesce(p.full_name, '')::text AS full_name, p.headline, p.photo_file_id
+FROM project_members m
+LEFT JOIN profiles p ON p.user_id = m.user_id
+WHERE m.project_id = $1 AND m.user_id = $2
+`
+
+type ProjectMemberParams struct {
+	ProjectID pgtype.UUID
+	UserID    pgtype.UUID
+}
+
+type ProjectMemberRow struct {
+	UserID      pgtype.UUID
+	Role        string
+	JoinedAt    pgtype.Timestamptz
+	FullName    string
+	Headline    pgtype.Text
+	PhotoFileID pgtype.UUID
+}
+
+func (q *Queries) ProjectMember(ctx context.Context, arg ProjectMemberParams) (ProjectMemberRow, error) {
+	row := q.db.QueryRow(ctx, projectMember, arg.ProjectID, arg.UserID)
+	var i ProjectMemberRow
+	err := row.Scan(
+		&i.UserID,
+		&i.Role,
+		&i.JoinedAt,
+		&i.FullName,
+		&i.Headline,
+		&i.PhotoFileID,
+	)
+	return i, err
+}
+
+const projectMembers = `-- name: ProjectMembers :many
+SELECT m.user_id, m.role::text AS role, m.joined_at,
+       coalesce(p.full_name, '')::text AS full_name, p.headline, p.photo_file_id
+FROM project_members m
+LEFT JOIN profiles p ON p.user_id = m.user_id
+WHERE m.project_id = $1
+ORDER BY (m.role = 'owner') DESC, m.joined_at, m.user_id
+LIMIT $3 OFFSET $2
+`
+
+type ProjectMembersParams struct {
+	ProjectID pgtype.UUID
+	Off       int32
+	Lim       int32
+}
+
+type ProjectMembersRow struct {
+	UserID      pgtype.UUID
+	Role        string
+	JoinedAt    pgtype.Timestamptz
+	FullName    string
+	Headline    pgtype.Text
+	PhotoFileID pgtype.UUID
+}
+
+// The owner first, then in the order they joined.
+func (q *Queries) ProjectMembers(ctx context.Context, arg ProjectMembersParams) ([]ProjectMembersRow, error) {
+	rows, err := q.db.Query(ctx, projectMembers, arg.ProjectID, arg.Off, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ProjectMembersRow
+	for rows.Next() {
+		var i ProjectMembersRow
+		if err := rows.Scan(
+			&i.UserID,
+			&i.Role,
+			&i.JoinedAt,
+			&i.FullName,
+			&i.Headline,
+			&i.PhotoFileID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const projectPerson = `-- name: ProjectPerson :one
+SELECT u.id, coalesce(p.full_name, '')::text AS full_name, p.headline, p.photo_file_id
+FROM users u
+LEFT JOIN profiles p ON p.user_id = u.id
+WHERE u.id = $1
+`
+
+type ProjectPersonRow struct {
+	ID          pgtype.UUID
+	FullName    string
+	Headline    pgtype.Text
+	PhotoFileID pgtype.UUID
+}
+
+func (q *Queries) ProjectPerson(ctx context.Context, userID pgtype.UUID) (ProjectPersonRow, error) {
+	row := q.db.QueryRow(ctx, projectPerson, userID)
+	var i ProjectPersonRow
+	err := row.Scan(
+		&i.ID,
+		&i.FullName,
+		&i.Headline,
+		&i.PhotoFileID,
+	)
+	return i, err
 }
 
 const projectReportExists = `-- name: ProjectReportExists :one
@@ -908,6 +1555,24 @@ func (q *Queries) SetHNSWIterativeScan(ctx context.Context) error {
 	return err
 }
 
+const setMemberRole = `-- name: SetMemberRole :exec
+UPDATE project_members SET role = ($1::text)::project_role
+WHERE project_id = $2 AND user_id = $3
+`
+
+type SetMemberRoleParams struct {
+	Role      string
+	ProjectID pgtype.UUID
+	UserID    pgtype.UUID
+}
+
+// During a transfer the owner is demoted first: project_members_one_owner_uq is checked at
+// every statement, the owner trigger at commit.
+func (q *Queries) SetMemberRole(ctx context.Context, arg SetMemberRoleParams) error {
+	_, err := q.db.Exec(ctx, setMemberRole, arg.Role, arg.ProjectID, arg.UserID)
+	return err
+}
+
 const setWordSimilarityThreshold = `-- name: SetWordSimilarityThreshold :exec
 
 SELECT set_config('pg_trgm.word_similarity_threshold', $1::text, true)
@@ -1079,4 +1744,88 @@ func (q *Queries) UpdateProject(ctx context.Context, arg UpdateProjectParams) er
 		arg.ID,
 	)
 	return err
+}
+
+const visibleProjectTitles = `-- name: VisibleProjectTitles :many
+SELECT p.id, p.title
+FROM projects p
+JOIN project_members o ON o.project_id = p.id AND o.role = 'owner'
+JOIN users ou ON ou.id = o.user_id
+WHERE p.id = ANY ($1::uuid[])
+  AND (EXISTS (SELECT 1 FROM project_members m WHERE m.project_id = p.id AND m.user_id = $2::uuid)
+       OR (p.status <> 'archived' AND ou.email_verified_at IS NOT NULL AND ou.suspended_at IS NULL
+           AND NOT EXISTS (SELECT 1 FROM blocks x WHERE x.blocker_id = o.user_id AND x.blocked_id = $2::uuid)))
+`
+
+type VisibleProjectTitlesParams struct {
+	Ids      []pgtype.UUID
+	ViewerID pgtype.UUID
+}
+
+type VisibleProjectTitlesRow struct {
+	ID    pgtype.UUID
+	Title string
+}
+
+// The titles of the projects viewer_id may see (domain.Access.Visible): a member sees any;
+// anyone else an open or closed project whose owner is verified, not suspended and has not
+// blocked them.
+func (q *Queries) VisibleProjectTitles(ctx context.Context, arg VisibleProjectTitlesParams) ([]VisibleProjectTitlesRow, error) {
+	rows, err := q.db.Query(ctx, visibleProjectTitles, arg.Ids, arg.ViewerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []VisibleProjectTitlesRow
+	for rows.Next() {
+		var i VisibleProjectTitlesRow
+		if err := rows.Scan(&i.ID, &i.Title); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const withdrawJoinRequestsBetween = `-- name: WithdrawJoinRequestsBetween :many
+DELETE FROM project_join_requests j
+USING project_members o
+WHERE o.project_id = j.project_id AND o.role = 'owner' AND j.status = 'pending'
+  AND ((j.user_id = $1 AND o.user_id = $2) OR (j.user_id = $2 AND o.user_id = $1))
+RETURNING j.project_id, j.user_id
+`
+
+type WithdrawJoinRequestsBetweenParams struct {
+	A pgtype.UUID
+	B pgtype.UUID
+}
+
+type WithdrawJoinRequestsBetweenRow struct {
+	ProjectID pgtype.UUID
+	UserID    pgtype.UUID
+}
+
+// After a block (FR-16.9): the pending requests and invitations of either user on a project
+// the other owns.
+func (q *Queries) WithdrawJoinRequestsBetween(ctx context.Context, arg WithdrawJoinRequestsBetweenParams) ([]WithdrawJoinRequestsBetweenRow, error) {
+	rows, err := q.db.Query(ctx, withdrawJoinRequestsBetween, arg.A, arg.B)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []WithdrawJoinRequestsBetweenRow
+	for rows.Next() {
+		var i WithdrawJoinRequestsBetweenRow
+		if err := rows.Scan(&i.ProjectID, &i.UserID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

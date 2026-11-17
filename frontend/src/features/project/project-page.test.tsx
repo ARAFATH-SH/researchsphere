@@ -7,10 +7,21 @@ import { suggestTags } from "@/features/profile/api";
 import { processingRetryMs } from "@/features/recommendation/recommendations-provider";
 import { failed as recsFailed, people, ready } from "@/features/recommendation/test-recommendations";
 
-import { deleteProject, getProject, getRecommendedResearchers, reportProject, updateProject } from "./api";
+import {
+  deleteProject,
+  findMyInvitation,
+  findMyPendingRequest,
+  getProject,
+  getRecommendedResearchers,
+  listProjectInvitations,
+  listProjectJoinRequests,
+  listProjectMembers,
+  reportProject,
+  updateProject,
+} from "./api";
 import { mismatchMessage } from "./delete-project-dialog";
 import { ProjectPage } from "./project-page";
-import { failed, project, projectID, researchersProcessing } from "./test-projects";
+import { failed, member, ownerPerson, page, project, projectID, researchersProcessing } from "./test-projects";
 
 jest.mock("./api", () => ({
   ...jest.requireActual("./api"),
@@ -19,7 +30,13 @@ jest.mock("./api", () => ({
   deleteProject: jest.fn(),
   reportProject: jest.fn(),
   getRecommendedResearchers: jest.fn(),
+  listProjectMembers: jest.fn(),
+  listProjectJoinRequests: jest.fn(),
+  listProjectInvitations: jest.fn(),
+  findMyPendingRequest: jest.fn(),
+  findMyInvitation: jest.fn(),
 }));
+jest.mock("@/features/realtime/use-realtime", () => ({ useRealtimeEvent: jest.fn(), useOnConnected: jest.fn() }));
 jest.mock("@/features/profile/api");
 jest.mock("@/features/social/api");
 jest.mock("@/features/notification/badges");
@@ -43,6 +60,11 @@ beforeEach(() => {
   });
   jest.mocked(suggestTags).mockResolvedValue({ ok: true, data: [] });
   mockResearchers.mockResolvedValue(ready(people(1, 2)));
+  jest.mocked(listProjectMembers).mockResolvedValue(page([member(ownerPerson, "owner")]));
+  jest.mocked(listProjectJoinRequests).mockResolvedValue(page([]));
+  jest.mocked(listProjectInvitations).mockResolvedValue(page([]));
+  jest.mocked(findMyPendingRequest).mockResolvedValue({ ok: true, data: null });
+  jest.mocked(findMyInvitation).mockResolvedValue({ ok: true, data: null });
 });
 afterEach(() => {
   // No act() or other React warnings.
@@ -56,6 +78,8 @@ async function renderProject(p = project()) {
   mockGet.mockResolvedValue({ ok: true, data: p });
   render(<ProjectPage projectId={p.id} />);
   await screen.findByRole("heading", { level: 1, name: p.title });
+  // The membership parts load after the project.
+  await screen.findByRole("list", { name: "Members", busy: false });
 }
 
 function summaryCard() {
@@ -86,10 +110,11 @@ describe("ProjectPage for the owner", () => {
     expect(screen.getByRole("combobox", { name: "Status" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Delete project" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Report project" })).toBeNull();
-    // Membership, workspace and venues come with their slices.
+    expect(screen.getByRole("button", { name: "+ Invite" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Transfer" })).toHaveProperty("disabled", true);
+    // No request or invitation yet; the workspace and venues come with their slices.
     expect(screen.queryByText(/Join requests/)).toBeNull();
-    expect(screen.queryByText(/Invite/)).toBeNull();
-    expect(screen.queryByText(/Transfer/)).toBeNull();
+    expect(screen.queryByRole("region", { name: "Invitations" })).toBeNull();
     expect(screen.queryByText(/Open workspace/)).toBeNull();
     expect(screen.queryByText(/Where to submit/)).toBeNull();
   });
@@ -189,7 +214,7 @@ describe("ProjectPage for the owner", () => {
     expect(mockPush).not.toHaveBeenCalled();
   });
 
-  it("shows the researchers who fit the project, with Connect", async () => {
+  it("shows the researchers who fit the project, with Invite in place of Connect", async () => {
     await renderProject();
     const card = await screen.findByRole("region", { name: "Researchers who fit this project" });
     expect(mockResearchers).toHaveBeenCalledTimes(1);
@@ -197,7 +222,9 @@ describe("ProjectPage for the owner", () => {
     const list = await within(card).findByRole("list", { name: "Recommended researchers" });
     expect(within(list).getByRole("link", { name: "Researcher 1" })).toBeTruthy();
     expect(within(list).getAllByText("99% match")).toHaveLength(1);
-    expect(within(list).getByRole("button", { name: "Connect with Researcher 1" })).toBeTruthy();
+    expect(within(list).getByRole("button", { name: "Invite Researcher 1" })).toBeTruthy();
+    expect(within(list).getByRole("combobox", { name: "Role for Researcher 1" })).toBeTruthy();
+    expect(within(list).queryByRole("button", { name: /Connect/ })).toBeNull();
   });
 
   it("says when the project's matches are being prepared, and asks once more after a minute", async () => {

@@ -2,38 +2,94 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 
 import { rsButtonClass } from "@/components/ui/button";
 import { FormError } from "@/components/ui/field";
 import { PageNav } from "@/components/ui/page-nav";
 import { homeCard } from "@/features/home/cards";
 import { relativeTime } from "@/features/notification/format";
+import { Toast, toastDuration } from "@/features/profile/toast";
+import { useOnConnected, useRealtimeEvent } from "@/features/realtime/use-realtime";
 import type { Result } from "@/lib/api/call";
 
-import { createProject, listMyProjects, myProjectsPageSize, type ProjectPage, type ProjectSummary } from "./api";
+import {
+  createProject,
+  listMyInvitations,
+  listMyJoinRequests,
+  listMyProjects,
+  myProjectsPageSize,
+  type ProjectPage,
+  type ProjectSummary,
+} from "./api";
 import { ProjectIcon, RoleBadge, StatusBadge } from "./badges";
+import { MyInvitationsCard, MyRequestsCard } from "./membership/my-membership";
+import { useResource } from "./membership/resource";
 import { emptyProject, ProjectForm } from "./project-form";
 
 // createTitleId is the Create card's title field, which "New project" focuses.
 const createCardId = "create-project";
 
 // ProjectsPage is /projects (design/screens/Projects.html): the caller's projects with
-// their role and status (FR-11.6), and the Create a project card (FR-10.1) beside them, or
-// under them on a phone. Invitations come with membership (slice 20).
+// their role and status (FR-11.6), the invitations they have (FR-11.3) and the join requests
+// they sent (FR-11.1) under them, and the Create a project card (FR-10.1) beside them, or under
+// them on a phone. A project notification refreshes the parts it changes.
 export function ProjectsPage() {
+  const [projectsVersion, setProjectsVersion] = useState(0);
+  const reloadProjects = useCallback(() => setProjectsVersion((v) => v + 1), []);
+  const invitations = useResource("me", () => listMyInvitations());
+  const requests = useResource("me", () => listMyJoinRequests());
+  const [toast, setToast] = useState<string | null>(null);
+  const showToast = useCallback((message: string) => setToast(message), []);
+  const { reload: reloadInvitations } = invitations;
+  const { reload: reloadRequests } = requests;
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), toastDuration);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
+  useRealtimeEvent((event) => {
+    if (event.type !== "notification.created") return;
+    switch (event.data.type) {
+      case "project_invitation":
+        reloadInvitations();
+        break;
+      case "project_join_request_accepted":
+      case "project_join_request_rejected":
+        reloadRequests();
+        reloadProjects();
+        break;
+      case "project_member_role_changed":
+      case "project_member_removed":
+      case "project_ownership_transferred":
+        reloadProjects();
+        break;
+    }
+  });
+  useOnConnected(() => {
+    reloadProjects();
+    reloadInvitations();
+    reloadRequests();
+  });
+
   return (
     <div className="flex flex-wrap items-start gap-6 max-[640px]:gap-4">
       <div className="flex min-w-0 flex-[999_1_520px] flex-col gap-4">
-        <MyProjects />
+        <MyProjects version={projectsVersion} />
+        <MyInvitationsCard invitations={invitations} onJoined={reloadProjects} showToast={showToast} />
+        <MyRequestsCard requests={requests} showToast={showToast} />
       </div>
       <CreateProjectCard />
+      {toast && <Toast message={toast} />}
     </div>
   );
 }
 
-// MyProjects lists one page of the caller's projects, most recently changed first.
-function MyProjects() {
+// MyProjects lists one page of the caller's projects, most recently changed first. A new
+// version reads the page again and keeps showing it until the answer comes.
+function MyProjects({ version }: { version: number }) {
   const [page, setPage] = useState(1);
   const [attempt, setAttempt] = useState(0);
   const key = `${page}#${attempt}`;
@@ -42,12 +98,12 @@ function MyProjects() {
   useEffect(() => {
     let current = true;
     void listMyProjects(page).then((value) => {
-      if (current) setResult({ key, value });
+      if (current) setResult((prev) => (!value.ok && prev?.key === key && prev.value.ok ? prev : { key, value }));
     });
     return () => {
       current = false;
     };
-  }, [page, key]);
+  }, [page, key, version]);
 
   const value = result?.key === key ? result.value : null;
 

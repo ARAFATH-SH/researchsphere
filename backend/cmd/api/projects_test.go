@@ -103,6 +103,86 @@ func (okProjects) ResolveReport(context.Context, string, string, string, *string
 	return projectdomain.Report{}, projectdomain.ErrAlreadyResolved
 }
 
+const okJoinRequestID = "55555555-5555-4555-8555-555555555555"
+
+var (
+	okMember  = projectdomain.Member{Person: projectdomain.Person{UserID: okUserID, FullName: "Ada"}, Role: projectdomain.RoleEditor}
+	okRequest = projectdomain.JoinRequest{ID: okJoinRequestID, ProjectID: okProjectID, Kind: projectdomain.KindRequest, Status: projectdomain.RequestPending, UserID: okUserID}
+	okMine    = projectdomain.MyRequestItem{JoinRequest: okRequest, Project: projectdomain.MembershipProject{
+		ID: okProjectID, Title: "Graph learning", Status: projectdomain.StatusOpen, Owner: projectdomain.Person{UserID: okUserID, FullName: "Ada"},
+	}}
+)
+
+// The membership operations answer with fixed values, or a refusal where a test needs one:
+// a role other than editor or viewer, and the owner leaving.
+func (okProjects) RequestToJoin(context.Context, string, string, *string) (projectdomain.MyRequestItem, error) {
+	return okMine, nil
+}
+
+func (okProjects) CancelRequest(context.Context, string, string, string) error { return nil }
+
+func (okProjects) DecideRequest(_ context.Context, _, _, _ string, accept bool, role projectdomain.Role) (projectdomain.Member, error) {
+	if accept && !projectdomain.MemberRoleValid(role) {
+		return projectdomain.Member{}, &projectdomain.FieldError{Field: "role"}
+	}
+	return okMember, nil
+}
+
+func (okProjects) Invite(context.Context, string, string, projectusecase.InviteInput) (projectdomain.RequestItem, error) {
+	inv := okRequest
+	inv.Kind, inv.Role = projectdomain.KindInvitation, projectdomain.RoleViewer
+	return projectdomain.RequestItem{JoinRequest: inv, User: okMember.Person}, nil
+}
+
+func (okProjects) CancelInvitation(context.Context, string, string, string) error {
+	return projectdomain.ErrInvitationNotPending
+}
+
+func (okProjects) AnswerInvitation(context.Context, string, string, string, bool) (projectdomain.Member, error) {
+	return okMember, nil
+}
+
+func (okProjects) ChangeRole(context.Context, string, string, string, projectdomain.Role) (projectdomain.Member, error) {
+	return okMember, nil
+}
+
+func (okProjects) RemoveMember(context.Context, string, string, string) error { return nil }
+
+func (okProjects) Leave(context.Context, string, string) error {
+	return projectdomain.ErrOwnerMustTransfer
+}
+
+func (okProjects) Transfer(context.Context, string, string, string) (projectdomain.Project, error) {
+	p := okProject
+	p.MyRole = projectdomain.RoleEditor
+	return p, nil
+}
+
+func (okProjects) Members(_ context.Context, _, _ string, page, size int) (projectusecase.MemberPage, error) {
+	if page < 1 {
+		return projectusecase.MemberPage{}, projectdomain.ErrInvalidPage
+	}
+	return projectusecase.MemberPage{Items: []projectdomain.Member{okMember}, Page: page, PageSize: size, Total: 1}, nil
+}
+
+func (okProjects) ProjectRequests(_ context.Context, _, _ string, kind projectdomain.RequestKind, page, size int) (projectusecase.RequestPage, error) {
+	r := okRequest
+	if kind == projectdomain.KindInvitation {
+		r.Kind, r.Role = kind, projectdomain.RoleViewer
+	}
+	return projectusecase.RequestPage{Items: []projectdomain.RequestItem{{JoinRequest: r, User: okMember.Person}}, Page: page, PageSize: size, Total: 1}, nil
+}
+
+func (okProjects) MyRequests(_ context.Context, _ string, page, size int) (projectusecase.MyRequestPage, error) {
+	return projectusecase.MyRequestPage{Items: []projectdomain.MyRequestItem{okMine}, Page: page, PageSize: size, Total: 1}, nil
+}
+
+func (okProjects) MyInvitations(_ context.Context, _ string, page, size int) (projectusecase.MyRequestPage, error) {
+	inv := okMine
+	inv.Kind, inv.Role = projectdomain.KindInvitation, projectdomain.RoleViewer
+	return projectusecase.MyRequestPage{Items: []projectdomain.MyRequestItem{inv}, Page: page, PageSize: size, Total: 1}, nil
+}
+
 // Every project route needs the platform action platformGuards names (SRS 2.3): the admin
 // routes refuse a researcher with the one forbidden body, and none of them answers an
 // unverified session (FR-17.3).
@@ -138,6 +218,27 @@ func TestProjectRoutes(t *testing.T) {
 		{"report, researcher", http.MethodGet, "/api/v1/admin/project-reports/" + okProjectReport.ID, "", "researcher", http.StatusForbidden, `"forbidden"`},
 		{"report, administrator", http.MethodGet, "/api/v1/admin/project-reports/" + okProjectReport.ID, "", "admin", http.StatusOK, `"status":"archived"`},
 		{"resolve, researcher", http.MethodPost, "/api/v1/admin/project-reports/" + okProjectReport.ID + "/resolve", `{"outcome":"dismissed"}`, "researcher", http.StatusForbidden, `"forbidden"`},
+		{"ask to join", http.MethodPost, p + "/join-requests", `{"message":"Hi"}`, "researcher", http.StatusCreated, `"status":"pending"`},
+		{"ask to join, no session", http.MethodPost, p + "/join-requests", `{}`, "", http.StatusUnauthorized, `"unauthenticated"`},
+		{"cancel a request", http.MethodDelete, p + "/join-requests/" + okJoinRequestID, "", "researcher", http.StatusNoContent, ""},
+		{"accept a request", http.MethodPost, p + "/join-requests/" + okJoinRequestID + "/accept", `{"role":"editor"}`, "researcher", http.StatusOK, `"role":"editor"`},
+		{"accept as owner", http.MethodPost, p + "/join-requests/" + okJoinRequestID + "/accept", `{"role":"owner"}`, "researcher", http.StatusBadRequest, `"field":"role"`},
+		{"reject a request", http.MethodPost, p + "/join-requests/" + okJoinRequestID + "/reject", "", "researcher", http.StatusNoContent, ""},
+		{"project requests", http.MethodGet, p + "/join-requests", "", "researcher", http.StatusOK, `"status":"pending"`},
+		{"invite", http.MethodPost, p + "/invitations", `{"userId":"` + okUserID + `","role":"viewer"}`, "researcher", http.StatusCreated, `"role":"viewer"`},
+		{"invite, no user", http.MethodPost, p + "/invitations", `{"role":"viewer"}`, "researcher", http.StatusBadRequest, `"bad_request"`},
+		{"project invitations", http.MethodGet, p + "/invitations", "", "researcher", http.StatusOK, `"role":"viewer"`},
+		{"cancel an answered invitation", http.MethodDelete, p + "/invitations/" + okJoinRequestID, "", "researcher", http.StatusConflict, `"invitation_not_pending"`},
+		{"accept an invitation", http.MethodPost, p + "/invitations/" + okJoinRequestID + "/accept", "", "researcher", http.StatusOK, `"role":"editor"`},
+		{"reject an invitation", http.MethodPost, p + "/invitations/" + okJoinRequestID + "/reject", "", "researcher", http.StatusNoContent, ""},
+		{"members", http.MethodGet, p + "/members", "", "researcher", http.StatusOK, `"total":1`},
+		{"members, page 0", http.MethodGet, p + "/members?page=0", "", "researcher", http.StatusBadRequest, `"bad_request"`},
+		{"change a role", http.MethodPatch, p + "/members/" + okUserID, `{"role":"editor"}`, "researcher", http.StatusOK, `"role":"editor"`},
+		{"remove a member", http.MethodDelete, p + "/members/" + okUserID, "", "researcher", http.StatusNoContent, ""},
+		{"owner leaves", http.MethodPost, p + "/leave", "", "researcher", http.StatusConflict, `"owner_must_transfer"`},
+		{"transfer", http.MethodPost, p + "/transfer", `{"userId":"` + okUserID + `"}`, "researcher", http.StatusOK, `"myRole":"editor"`},
+		{"my requests", http.MethodGet, "/api/v1/me/join-requests", "", "researcher", http.StatusOK, `"title":"Graph learning"`},
+		{"my invitations", http.MethodGet, "/api/v1/me/invitations", "", "researcher", http.StatusOK, `"role":"viewer"`},
 		{"resolve twice", http.MethodPost, "/api/v1/admin/project-reports/" + okProjectReport.ID + "/resolve", `{"outcome":"dismissed"}`, "admin", http.StatusConflict, `"report_already_resolved"`},
 	}
 	for _, tt := range tests {
@@ -180,6 +281,15 @@ func TestProjectPermissions(t *testing.T) {
 			if got := perms.Can(tt.role, action); got != want {
 				t.Errorf("Can(%q, %q) = %v, want %v", tt.role, action, got, want)
 			}
+		}
+	}
+	// Requesting to join is for non-members only; transferring for the owner only.
+	for role, want := range map[projectdomain.Role][2]bool{
+		projectdomain.RoleNone: {true, false}, projectdomain.RoleViewer: {false, false},
+		projectdomain.RoleEditor: {false, false}, projectdomain.RoleOwner: {false, true},
+	} {
+		if got := [2]bool{perms.Can(role, projectdomain.ActRequestToJoin), perms.Can(role, projectdomain.ActTransfer)}; got != want {
+			t.Errorf("%q: request to join, transfer = %v, want %v", role, got, want)
 		}
 	}
 	if perms.Can(projectdomain.RoleOwner, projectdomain.Action("unknown")) {

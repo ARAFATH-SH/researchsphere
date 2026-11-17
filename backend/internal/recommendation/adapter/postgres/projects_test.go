@@ -58,7 +58,7 @@ func projectIDs(cands []domain.ProjectCandidate) []string {
 }
 
 // AI-3.1: each kind of project that must be left out is, alone: the caller's own, one they
-// belong to, one they asked to join (a pending request row, as slice 20 will write it),
+// belong to, one they asked to join (a pending request row, as the project module writes it),
 // closed and archived ones, a suspended or unverified owner, a block either way, another
 // model and no embedding. A rejected join request, an invitation and an ended timed
 // suspension leave a project in.
@@ -129,10 +129,10 @@ func TestRankProjectsExclusions(t *testing.T) {
 	add("no embedding", func() string { return d.project(owner, "Not embedded", "open") })
 
 	rejected := d.project(owner, "Rejected request", "open")
-	d.exec("INSERT INTO project_join_requests (project_id, user_id, kind, status) VALUES ($1, $2, 'request', 'rejected')", rejected, me)
+	d.exec("INSERT INTO project_join_requests (project_id, user_id, kind, status, decided_at) VALUES ($1, $2, 'request', 'rejected', now())", rejected, me)
 	d.embedProject(rejected, 0.7, modelA)
 	invited := d.project(owner, "Invited", "open")
-	d.exec("INSERT INTO project_join_requests (project_id, user_id, kind) VALUES ($1, $2, 'invitation')", invited, me)
+	d.exec("INSERT INTO project_join_requests (project_id, user_id, kind, role) VALUES ($1, $2, 'invitation', 'viewer')", invited, me)
 	d.embedProject(invited, 0.6, modelA)
 	ended := d.user("Ended suspension")
 	d.exec("UPDATE users SET suspended_at = now() - interval '2 days', suspended_until = now() - interval '1 hour', suspension_reason = 'reason long enough' WHERE id = $1", ended)

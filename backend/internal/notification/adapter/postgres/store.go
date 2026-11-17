@@ -48,9 +48,17 @@ func (s *Store) Put(ctx context.Context, n domain.Notification) (string, error) 
 	if !ok1 || !ok2 || !ok3 {
 		return "", fmt.Errorf("store notification: recipient %q, actor %q or subject %q is not a UUID", n.RecipientID, n.ActorID, n.SubjectID)
 	}
-	id, err := s.q(ctx).PutNotification(ctx, sqlcgen.PutNotificationParams{
-		UserID: user, ActorID: actor, Type: sqlcgen.NotificationType(n.Type), EntityID: subject,
-	})
+	var id pgtype.UUID
+	var err error
+	if domain.IsProjectType(n.Type) {
+		id, err = s.q(ctx).PutProjectNotification(ctx, sqlcgen.PutProjectNotificationParams{
+			UserID: user, ActorID: actor, Type: sqlcgen.NotificationType(n.Type), EntityID: subject,
+		})
+	} else {
+		id, err = s.q(ctx).PutNotification(ctx, sqlcgen.PutNotificationParams{
+			UserID: user, ActorID: actor, Type: sqlcgen.NotificationType(n.Type), EntityID: subject,
+		})
+	}
 	if err != nil {
 		return "", fmt.Errorf("store notification: %w", err)
 	}
@@ -90,6 +98,26 @@ func (s *Store) DeleteFor(ctx context.Context, t domain.Type, subjectID, recipie
 		return false, fmt.Errorf("delete notifications: %w", err)
 	}
 	return n > 0, nil
+}
+
+// DeleteFrom deletes nothing for a subject or actor that is not a UUID.
+func (s *Store) DeleteFrom(ctx context.Context, t domain.Type, subjectID, actorID string) ([]string, error) {
+	subject, ok1 := parseUUID(subjectID)
+	actor, ok2 := parseUUID(actorID)
+	if !ok1 || !ok2 {
+		return nil, nil
+	}
+	rows, err := s.q(ctx).DeleteNotificationsFrom(ctx, sqlcgen.DeleteNotificationsFromParams{
+		Type: sqlcgen.NotificationType(t), EntityID: subject, ActorID: actor,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("delete notifications: %w", err)
+	}
+	out := make([]string, len(rows))
+	for i, r := range rows {
+		out[i] = r.String()
+	}
+	return out, nil
 }
 
 // Find answers ErrNotFound for an ID that is not a UUID.

@@ -15,6 +15,17 @@ export type ProjectRecommendations = components["schemas"]["ProjectRecommendatio
 export type ProjectRecommendation = components["schemas"]["ProjectRecommendation"];
 export type PeopleRecommendations = components["schemas"]["PeopleRecommendations"];
 export type ReportReason = components["schemas"]["ReportReason"];
+export type MemberRole = components["schemas"]["MemberRole"];
+export type ProjectMember = components["schemas"]["ProjectMember"];
+export type ProjectMemberPage = components["schemas"]["ProjectMemberPage"];
+export type ProjectJoinRequest = components["schemas"]["ProjectJoinRequest"];
+export type ProjectJoinRequestPage = components["schemas"]["ProjectJoinRequestPage"];
+export type MyJoinRequest = components["schemas"]["MyJoinRequest"];
+export type MyJoinRequestPage = components["schemas"]["MyJoinRequestPage"];
+export type ProjectInvitation = components["schemas"]["ProjectInvitation"];
+export type ProjectInvitationPage = components["schemas"]["ProjectInvitationPage"];
+export type MyInvitation = components["schemas"]["MyInvitation"];
+export type MyInvitationPage = components["schemas"]["MyInvitationPage"];
 
 // myProjectsPageSize is how many of the caller's projects one page of /projects lists.
 export const myProjectsPageSize = 20;
@@ -109,4 +120,232 @@ export async function getRecommendedResearchers(projectId: string): Promise<Resu
       api.GET("/projects/{projectId}/recommended-researchers", { params: { path: { projectId } } }),
     ),
   );
+}
+
+// membershipPageSize is how many members, requests or invitations one membership list reads:
+// the server's cap (FR-11).
+export const membershipPageSize = 50;
+
+// maxJoinMessageLength is the most a join request's message may hold (FR-11.1).
+export const maxJoinMessageLength = 500;
+
+// myRequestPages is how many pages of the caller's own join requests findMyPendingRequest
+// reads at most: 250 requests, more than a year of the 20-a-day limit is unlikely to reach.
+export const myRequestPages = 5;
+
+function done(res: Result<unknown>): Result<undefined> {
+  return res.ok ? { ok: true, data: undefined } : res;
+}
+
+const pageQuery = (page: number) => ({ page, pageSize: membershipPageSize });
+
+// createJoinRequest asks to join an open project; an empty message means none (FR-11.1).
+export async function createJoinRequest(projectId: string, message: string): Promise<Result<MyJoinRequest>> {
+  const body = { message: message.trim() === "" ? null : message.trim() };
+  return withData(
+    await call(() => api.POST("/projects/{projectId}/join-requests", { params: { path: { projectId } }, body })),
+  );
+}
+
+// cancelJoinRequest withdraws the caller's own pending request (FR-11.1).
+export async function cancelJoinRequest(projectId: string, requestId: string): Promise<Result<undefined>> {
+  return done(
+    await call(() =>
+      api.DELETE("/projects/{projectId}/join-requests/{requestId}", { params: { path: { projectId, requestId } } }),
+    ),
+  );
+}
+
+// listProjectJoinRequests reads the project's join requests, pending first, for its owner
+// (FR-11.2).
+export async function listProjectJoinRequests(projectId: string, page = 1): Promise<Result<ProjectJoinRequestPage>> {
+  return withData(
+    await call(() =>
+      api.GET("/projects/{projectId}/join-requests", { params: { path: { projectId }, query: pageQuery(page) } }),
+    ),
+  );
+}
+
+// acceptJoinRequest makes the request's sender a member with role (FR-11.2).
+export async function acceptJoinRequest(
+  projectId: string,
+  requestId: string,
+  role: MemberRole,
+): Promise<Result<ProjectMember>> {
+  return withData(
+    await call(() =>
+      api.POST("/projects/{projectId}/join-requests/{requestId}/accept", {
+        params: { path: { projectId, requestId } },
+        body: { role },
+      }),
+    ),
+  );
+}
+
+// rejectJoinRequest turns the request down (FR-11.2).
+export async function rejectJoinRequest(projectId: string, requestId: string): Promise<Result<undefined>> {
+  return done(
+    await call(() =>
+      api.POST("/projects/{projectId}/join-requests/{requestId}/reject", { params: { path: { projectId, requestId } } }),
+    ),
+  );
+}
+
+// createInvitation invites a user to the project as editor or viewer (FR-11.3).
+export async function createInvitation(
+  projectId: string,
+  userId: string,
+  role: MemberRole,
+): Promise<Result<ProjectInvitation>> {
+  return withData(
+    await call(() =>
+      api.POST("/projects/{projectId}/invitations", { params: { path: { projectId } }, body: { userId, role } }),
+    ),
+  );
+}
+
+// listProjectInvitations reads the project's invitations, pending first, for its owner
+// (FR-11.3).
+export async function listProjectInvitations(projectId: string, page = 1): Promise<Result<ProjectInvitationPage>> {
+  return withData(
+    await call(() =>
+      api.GET("/projects/{projectId}/invitations", { params: { path: { projectId }, query: pageQuery(page) } }),
+    ),
+  );
+}
+
+// cancelInvitation withdraws a pending invitation (FR-11.3).
+export async function cancelInvitation(projectId: string, invitationId: string): Promise<Result<undefined>> {
+  return done(
+    await call(() =>
+      api.DELETE("/projects/{projectId}/invitations/{invitationId}", {
+        params: { path: { projectId, invitationId } },
+      }),
+    ),
+  );
+}
+
+// acceptInvitation joins the project with the invitation's role (FR-11.3).
+export async function acceptInvitation(projectId: string, invitationId: string): Promise<Result<ProjectMember>> {
+  return withData(
+    await call(() =>
+      api.POST("/projects/{projectId}/invitations/{invitationId}/accept", {
+        params: { path: { projectId, invitationId } },
+      }),
+    ),
+  );
+}
+
+// rejectInvitation declines an invitation (FR-11.3).
+export async function rejectInvitation(projectId: string, invitationId: string): Promise<Result<undefined>> {
+  return done(
+    await call(() =>
+      api.POST("/projects/{projectId}/invitations/{invitationId}/reject", {
+        params: { path: { projectId, invitationId } },
+      }),
+    ),
+  );
+}
+
+// listProjectMembers reads the members, the owner first (SRS 2.3).
+export async function listProjectMembers(projectId: string, page = 1): Promise<Result<ProjectMemberPage>> {
+  return withData(
+    await call(() =>
+      api.GET("/projects/{projectId}/members", { params: { path: { projectId }, query: pageQuery(page) } }),
+    ),
+  );
+}
+
+// updateProjectMember changes a member's role (FR-11.4).
+export async function updateProjectMember(
+  projectId: string,
+  userId: string,
+  role: MemberRole,
+): Promise<Result<ProjectMember>> {
+  return withData(
+    await call(() =>
+      api.PATCH("/projects/{projectId}/members/{userId}", { params: { path: { projectId, userId } }, body: { role } }),
+    ),
+  );
+}
+
+// removeProjectMember removes a member (FR-11.4).
+export async function removeProjectMember(projectId: string, userId: string): Promise<Result<undefined>> {
+  return done(
+    await call(() => api.DELETE("/projects/{projectId}/members/{userId}", { params: { path: { projectId, userId } } })),
+  );
+}
+
+// leaveProject takes the caller, a member other than the owner, out of the project (FR-11.5).
+export async function leaveProject(projectId: string): Promise<Result<undefined>> {
+  return done(await call(() => api.POST("/projects/{projectId}/leave", { params: { path: { projectId } } })));
+}
+
+// transferProject makes another member the owner; the caller becomes an editor (FR-10.5). It
+// answers with the project as the caller now sees it.
+export async function transferProject(projectId: string, userId: string): Promise<Result<Project>> {
+  return withData(
+    await call(() => api.POST("/projects/{projectId}/transfer", { params: { path: { projectId } }, body: { userId } })),
+  );
+}
+
+// listMyJoinRequests reads the caller's own join requests, newest first (FR-11.1).
+export async function listMyJoinRequests(page = 1): Promise<Result<MyJoinRequestPage>> {
+  return withData(await call(() => api.GET("/me/join-requests", { params: { query: pageQuery(page) } })));
+}
+
+// listMyInvitations reads the caller's pending invitations, newest first (FR-11.3).
+export async function listMyInvitations(page = 1): Promise<Result<MyInvitationPage>> {
+  return withData(await call(() => api.GET("/me/invitations", { params: { query: pageQuery(page) } })));
+}
+
+// findMyPendingRequest finds the caller's pending join request to the project, or null. The
+// project page has no field for it, so it reads the caller's requests, newest first, at most
+// myRequestPages pages.
+export async function findMyPendingRequest(projectId: string): Promise<Result<MyJoinRequest | null>> {
+  for (let page = 1; page <= myRequestPages; page++) {
+    const res = await listMyJoinRequests(page);
+    if (!res.ok) return res;
+    const found = res.data.items.find((r) => r.project.id === projectId && r.status === "pending");
+    if (found) return { ok: true, data: found };
+    if (page * res.data.pageSize >= res.data.total) break;
+  }
+  return { ok: true, data: null };
+}
+
+// findMyInvitation finds the caller's pending invitation to the project, or null.
+export async function findMyInvitation(projectId: string): Promise<Result<MyInvitation | null>> {
+  for (let page = 1; page <= myRequestPages; page++) {
+    const res = await listMyInvitations(page);
+    if (!res.ok) return res;
+    const found = res.data.items.find((i) => i.project.id === projectId);
+    if (found) return { ok: true, data: found };
+    if (page * res.data.pageSize >= res.data.total) break;
+  }
+  return { ok: true, data: null };
+}
+
+const membershipErrors: Record<string, string> = {
+  already_member: "They are already a member of this project.",
+  project_not_open: "This project is not accepting members.",
+  request_pending: "There is already a pending join request.",
+  invitation_pending: "You have an invitation to this project. Accept it instead.",
+  already_invited: "They are already invited.",
+  request_not_pending: "This request was already decided.",
+  invitation_not_pending: "This invitation was already answered.",
+  use_transfer: "Use Transfer ownership to change the owner.",
+  cannot_remove_owner: "The owner cannot be removed.",
+  owner_must_transfer: "Transfer ownership before you leave, or delete the project.",
+  not_a_member: "They are no longer a member.",
+  already_owner: "They already own this project.",
+  member_unavailable: "This member cannot take over the project right now.",
+  user_not_found: "This researcher cannot be invited.",
+  rate_limited: "You have reached today’s limit of 20. Try again tomorrow.",
+  account_suspended: "Your account is suspended, so you can’t do this now.",
+  network_error: "Could not reach the server. Check your connection and try again.",
+};
+
+// membershipErrorText is the sentence for a failed membership action, or fallback.
+export function membershipErrorText(code: string, fallback = "Something went wrong. Try again."): string {
+  return membershipErrors[code] ?? fallback;
 }

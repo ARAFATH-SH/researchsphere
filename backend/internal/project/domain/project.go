@@ -44,12 +44,16 @@ type Action string
 const (
 	// ActView is the row "View the project page (title, description, skills, members)".
 	ActView Action = "view"
+	// ActRequestToJoin is the row "Request to join" (non-members, FR-11.1).
+	ActRequestToJoin Action = "request_to_join"
 	// ActEditDetails is the row "Edit project details and status".
 	ActEditDetails Action = "edit_details"
 	// ActEditAbstract is the row "Compile, use the assistant, edit the abstract".
 	ActEditAbstract Action = "edit_abstract"
-	// ActDelete is the row "Transfer ownership, delete the project".
+	// ActDelete is the row "Transfer ownership, delete the project", for deleting.
 	ActDelete Action = "delete"
+	// ActTransfer is the same row, for transferring ownership (FR-10.5).
+	ActTransfer Action = "transfer"
 	// ActManageMembers is the row "Invite, decide join requests, change roles, remove
 	// members". AI-2.3 ("show a project's owner the researchers most similar to it") has no
 	// row of its own in SRS 2.3; its list exists to find people to invite, so it uses this

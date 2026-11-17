@@ -53,7 +53,8 @@ func (s *fakeStore) Put(_ context.Context, n domain.Notification) (string, error
 	s.clock = s.clock.Add(time.Second)
 	for _, r := range s.rows {
 		connection := n.Type == domain.TypeConnectionRequestReceived || n.Type == domain.TypeConnectionRequestAccepted
-		if connection && r.RecipientID == n.RecipientID && r.ActorID == n.ActorID && r.Type == n.Type {
+		project := domain.IsProjectType(n.Type) && r.SubjectID == n.SubjectID
+		if (connection || project) && r.RecipientID == n.RecipientID && r.ActorID == n.ActorID && r.Type == n.Type {
 			r.SubjectID, r.CreatedAt, r.ReadAt = n.SubjectID, s.clock, nil
 			return r.ID, nil
 		}
@@ -83,6 +84,21 @@ func (s *fakeStore) DeleteFor(_ context.Context, t domain.Type, subjectID, recip
 		return r.Type == t && r.SubjectID == subjectID && r.RecipientID == recipientID
 	})
 	return len(s.rows) < before, nil
+}
+
+func (s *fakeStore) DeleteFrom(_ context.Context, t domain.Type, subjectID, actorID string) ([]string, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	var recipients []string
+	s.rows = slices.DeleteFunc(s.rows, func(r *domain.Notification) bool {
+		hit := r.Type == t && r.SubjectID == subjectID && r.ActorID == actorID
+		if hit {
+			recipients = append(recipients, r.RecipientID)
+		}
+		return hit
+	})
+	return recipients, nil
 }
 
 func (s *fakeStore) DeleteBySubject(_ context.Context, t domain.Type, subjectID string) ([]string, error) {
@@ -214,7 +230,10 @@ func count(t *testing.T, svc *Service, user string) int {
 
 // Every type has a registry entry with a subject kind and a link (FR-9.5).
 func TestRegistryCoversEveryType(t *testing.T) {
-	for _, typ := range []domain.Type{domain.TypeConnectionRequestReceived, domain.TypeConnectionRequestAccepted, domain.TypeAccountWarning, domain.TypeGroupAdded} {
+	for _, typ := range []domain.Type{domain.TypeConnectionRequestReceived, domain.TypeConnectionRequestAccepted, domain.TypeAccountWarning, domain.TypeGroupAdded,
+		domain.TypeAttachmentBlocked, domain.TypeProjectJoinRequest, domain.TypeProjectJoinRequestAccepted, domain.TypeProjectJoinRequestRejected,
+		domain.TypeProjectInvitation, domain.TypeProjectInvitationAccepted, domain.TypeProjectInvitationRejected,
+		domain.TypeProjectMemberRoleChanged, domain.TypeProjectMemberRemoved, domain.TypeProjectOwnershipTransferred} {
 		spec, ok := domain.Registry[typ]
 		if !ok || spec.SubjectKind == "" || spec.Link == nil {
 			t.Errorf("type %s has no complete registry entry", typ)
@@ -754,5 +773,98 @@ func TestSubjects(t *testing.T) {
 	}
 	if it := list(t, plain, bob); it[0].Subject != nil {
 		t.Errorf("subject without a reader: %+v", it[0].Subject)
+	}
+}
+
+// FR-9.2: every project type names the project, links to its page and carries its current
+// title; telling the same thing again replaces the earlier notification; only project types
+// are accepted.
+func TestProjectEvents(t *testing.T) {
+	const p1, p2 = "00000000-0000-0000-0000-0000000000d1", "00000000-0000-0000-0000-0000000000d2"
+	titles := &fakeTitles{titles: map[string]string{bob + "|project|" + p1: "Corpus"}}
+	pub := &fakePublisher{}
+	svc := New(newFakeStore(), WithSubjectTitles(titles), WithPublisher(pub))
+	types := []domain.Type{
+		domain.TypeProjectJoinRequest, domain.TypeProjectJoinRequestAccepted, domain.TypeProjectJoinRequestRejected,
+		domain.TypeProjectInvitation, domain.TypeProjectInvitationAccepted, domain.TypeProjectInvitationRejected,
+		domain.TypeProjectMemberRoleChanged, domain.TypeProjectMemberRemoved, domain.TypeProjectOwnershipTransferred,
+	}
+	for _, typ := range types {
+		if err := svc.ProjectEvent(ctx, typ, p1, bob, ada); err != nil {
+			t.Fatalf("%s: %v", typ, err)
+		}
+	}
+	items := list(t, svc, bob)
+	if len(items) != len(types) {
+		t.Fatalf("bob has %d notifications, want %d", len(items), len(types))
+	}
+	for _, it := range items {
+		if it.ActorID != ada || it.SubjectID != p1 || it.Link != "/projects/"+p1 ||
+			it.Subject == nil || it.Subject.Kind != domain.SubjectProject || it.Subject.Title != "Corpus" {
+			t.Errorf("%s: %+v subject %+v", it.Type, it.Notification, it.Subject)
+		}
+	}
+	// Again: replaced, not added. About another project: a second one, without a title the
+	// recipient may see.
+	if err := svc.ProjectEvent(ctx, domain.TypeProjectMemberRoleChanged, p1, bob, ada); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ProjectEvent(ctx, domain.TypeProjectMemberRoleChanged, p2, bob, ada); err != nil {
+		t.Fatal(err)
+	}
+	items = list(t, svc, bob)
+	if len(items) != len(types)+1 {
+		t.Errorf("bob has %d notifications, want %d", len(items), len(types)+1)
+	}
+	if items[0].SubjectID != p2 || items[0].Subject != nil || items[1].Type != domain.TypeProjectMemberRoleChanged {
+		t.Errorf("newest = %+v, next = %+v", items[0], items[1])
+	}
+	if err := svc.ProjectEvent(ctx, domain.TypeGroupAdded, p1, bob, ada); err == nil {
+		t.Error("a type that is not a project type was stored")
+	}
+}
+
+// A cancelled or decided request takes back the notice of whoever was owner; an answered or
+// cancelled invitation takes back the invitee's.
+func TestProjectNoticesTakenBack(t *testing.T) {
+	const p1 = "00000000-0000-0000-0000-0000000000d1"
+	pub := &fakePublisher{}
+	svc := New(newFakeStore(), WithPublisher(pub))
+	for _, n := range []struct {
+		typ              domain.Type
+		recipient, actor string
+	}{
+		{domain.TypeProjectJoinRequest, ada, bob}, // bob asked ada's project
+		{domain.TypeProjectJoinRequest, ada, cy},  // cy too
+		{domain.TypeProjectInvitation, bob, ada},  // ada invited bob
+		{domain.TypeProjectInvitation, cy, ada},   // and cy
+	} {
+		if err := svc.ProjectEvent(ctx, n.typ, p1, n.recipient, n.actor); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pub.events = nil
+	if err := svc.ProjectRequestHandled(ctx, p1, bob); err != nil {
+		t.Fatal(err)
+	}
+	if got := list(t, svc, ada); len(got) != 1 || got[0].ActorID != cy {
+		t.Errorf("ada keeps %+v, want only cy's request", got)
+	}
+	if !slices.Equal(pub.events, []string{"unread " + ada}) {
+		t.Errorf("events = %v", pub.events)
+	}
+	pub.events = nil
+	if err := svc.ProjectInvitationHandled(ctx, p1, bob); err != nil {
+		t.Fatal(err)
+	}
+	if len(list(t, svc, bob)) != 0 || len(list(t, svc, cy)) != 1 {
+		t.Error("the wrong invitation was taken back")
+	}
+	if !slices.Equal(pub.events, []string{"unread " + bob}) {
+		t.Errorf("events = %v", pub.events)
+	}
+	pub.events = nil
+	if err := svc.ProjectInvitationHandled(ctx, p1, bob); err != nil || len(pub.events) != 0 {
+		t.Errorf("nothing to take back: %v %v", err, pub.events)
 	}
 }

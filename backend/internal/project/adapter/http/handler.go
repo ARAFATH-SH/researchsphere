@@ -1,5 +1,5 @@
 // Package http implements the project operations of docs/openapi.yaml (FR-10.1 to FR-10.3,
-// FR-10.6, FR-15.11). cmd/api checks the platform action before a request reaches these
+// FR-10.5, FR-10.6, FR-11, FR-15.11). cmd/api checks the platform action before a request reaches these
 // handlers (platformGuards); the usecase checks the project role.
 package http
 
@@ -40,16 +40,18 @@ type Service interface {
 	ListReports(ctx context.Context, status *string, page int) (usecase.ReportPage, error)
 	GetReport(ctx context.Context, reportID string) (domain.Report, domain.ReportedProject, error)
 	ResolveReport(ctx context.Context, adminID, reportID, outcome string, note *string) (domain.Report, error)
+	MembershipService
 }
 
 // Handler serves the project operations.
 type Handler struct {
-	svc Service
+	svc     Service
+	members MembershipService
 }
 
 // NewHandler returns a Handler.
 func NewHandler(svc Service) *Handler {
-	return &Handler{svc: svc}
+	return &Handler{svc: svc, members: svc}
 }
 
 var (

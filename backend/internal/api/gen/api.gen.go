@@ -26,22 +26,22 @@ const (
 
 // Defines values for AttachmentStatus.
 const (
-	Clean    AttachmentStatus = "clean"
-	Failed   AttachmentStatus = "failed"
-	Infected AttachmentStatus = "infected"
-	Pending  AttachmentStatus = "pending"
+	AttachmentStatusClean    AttachmentStatus = "clean"
+	AttachmentStatusFailed   AttachmentStatus = "failed"
+	AttachmentStatusInfected AttachmentStatus = "infected"
+	AttachmentStatusPending  AttachmentStatus = "pending"
 )
 
 // Valid indicates whether the value is a known member of the AttachmentStatus enum.
 func (e AttachmentStatus) Valid() bool {
 	switch e {
-	case Clean:
+	case AttachmentStatusClean:
 		return true
-	case Failed:
+	case AttachmentStatusFailed:
 		return true
-	case Infected:
+	case AttachmentStatusInfected:
 		return true
-	case Pending:
+	case AttachmentStatusPending:
 		return true
 	default:
 		return false
@@ -297,6 +297,27 @@ func (e HealthStorage) Valid() bool {
 	}
 }
 
+// Defines values for JoinRequestStatus.
+const (
+	JoinRequestStatusAccepted JoinRequestStatus = "accepted"
+	JoinRequestStatusPending  JoinRequestStatus = "pending"
+	JoinRequestStatusRejected JoinRequestStatus = "rejected"
+)
+
+// Valid indicates whether the value is a known member of the JoinRequestStatus enum.
+func (e JoinRequestStatus) Valid() bool {
+	switch e {
+	case JoinRequestStatusAccepted:
+		return true
+	case JoinRequestStatusPending:
+		return true
+	case JoinRequestStatusRejected:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for LanguageProficiency.
 const (
 	Elementary          LanguageProficiency = "elementary"
@@ -369,6 +390,24 @@ func (e LocationType) Valid() bool {
 	case LocationTypeOnSite:
 		return true
 	case LocationTypeRemote:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MemberRole.
+const (
+	MemberRoleEditor MemberRole = "editor"
+	MemberRoleViewer MemberRole = "viewer"
+)
+
+// Valid indicates whether the value is a known member of the MemberRole enum.
+func (e MemberRole) Valid() bool {
+	switch e {
+	case MemberRoleEditor:
+		return true
+	case MemberRoleViewer:
 		return true
 	default:
 		return false
@@ -513,12 +552,15 @@ func (e ModerationLinkedReportOutcome) Valid() bool {
 // Defines values for NotificationSubjectType.
 const (
 	NotificationSubjectTypeConversation NotificationSubjectType = "conversation"
+	NotificationSubjectTypeProject      NotificationSubjectType = "project"
 )
 
 // Valid indicates whether the value is a known member of the NotificationSubjectType enum.
 func (e NotificationSubjectType) Valid() bool {
 	switch e {
 	case NotificationSubjectTypeConversation:
+		return true
+	case NotificationSubjectTypeProject:
 		return true
 	default:
 		return false
@@ -527,11 +569,20 @@ func (e NotificationSubjectType) Valid() bool {
 
 // Defines values for NotificationType.
 const (
-	NotificationTypeAccountWarning            NotificationType = "account_warning"
-	NotificationTypeAttachmentBlocked         NotificationType = "attachment_blocked"
-	NotificationTypeConnectionRequestAccepted NotificationType = "connection_request_accepted"
-	NotificationTypeConnectionRequestReceived NotificationType = "connection_request_received"
-	NotificationTypeGroupAdded                NotificationType = "group_added"
+	NotificationTypeAccountWarning              NotificationType = "account_warning"
+	NotificationTypeAttachmentBlocked           NotificationType = "attachment_blocked"
+	NotificationTypeConnectionRequestAccepted   NotificationType = "connection_request_accepted"
+	NotificationTypeConnectionRequestReceived   NotificationType = "connection_request_received"
+	NotificationTypeGroupAdded                  NotificationType = "group_added"
+	NotificationTypeProjectInvitation           NotificationType = "project_invitation"
+	NotificationTypeProjectInvitationAccepted   NotificationType = "project_invitation_accepted"
+	NotificationTypeProjectInvitationRejected   NotificationType = "project_invitation_rejected"
+	NotificationTypeProjectJoinRequest          NotificationType = "project_join_request"
+	NotificationTypeProjectJoinRequestAccepted  NotificationType = "project_join_request_accepted"
+	NotificationTypeProjectJoinRequestRejected  NotificationType = "project_join_request_rejected"
+	NotificationTypeProjectMemberRemoved        NotificationType = "project_member_removed"
+	NotificationTypeProjectMemberRoleChanged    NotificationType = "project_member_role_changed"
+	NotificationTypeProjectOwnershipTransferred NotificationType = "project_ownership_transferred"
 )
 
 // Valid indicates whether the value is a known member of the NotificationType enum.
@@ -546,6 +597,24 @@ func (e NotificationType) Valid() bool {
 	case NotificationTypeConnectionRequestReceived:
 		return true
 	case NotificationTypeGroupAdded:
+		return true
+	case NotificationTypeProjectInvitation:
+		return true
+	case NotificationTypeProjectInvitationAccepted:
+		return true
+	case NotificationTypeProjectInvitationRejected:
+		return true
+	case NotificationTypeProjectJoinRequest:
+		return true
+	case NotificationTypeProjectJoinRequestAccepted:
+		return true
+	case NotificationTypeProjectJoinRequestRejected:
+		return true
+	case NotificationTypeProjectMemberRemoved:
+		return true
+	case NotificationTypeProjectMemberRoleChanged:
+		return true
+	case NotificationTypeProjectOwnershipTransferred:
 		return true
 	default:
 		return false
@@ -1799,6 +1868,22 @@ type HealthStatus string
 // HealthStorage defines model for Health.Storage.
 type HealthStorage string
 
+// InvitationCreate defines model for InvitationCreate.
+type InvitationCreate struct {
+	// Role A role the owner can give a member (FR-11.2 to FR-11.4); ownership moves only by transfer (FR-10.5).
+	Role   MemberRole         `json:"role"`
+	UserId openapi_types.UUID `json:"userId"`
+}
+
+// JoinRequestCreate defines model for JoinRequestCreate.
+type JoinRequestCreate struct {
+	// Message A short note to the owner, at most 500 characters after trimming; empty or null means none.
+	Message *string `json:"message,omitempty"`
+}
+
+// JoinRequestStatus defines model for JoinRequestStatus.
+type JoinRequestStatus string
+
 // Language One language the user knows (FR-4.9).
 type Language struct {
 	Id openapi_types.UUID `json:"id"`
@@ -1861,6 +1946,25 @@ type Me struct {
 	// Role The platform role (SRS 2.2). Administrators are made only from the command line
 	// (`make admin`); no operation changes a role.
 	Role Role `json:"role"`
+}
+
+// MemberRole A role the owner can give a member (FR-11.2 to FR-11.4); ownership moves only by transfer (FR-10.5).
+type MemberRole string
+
+// MemberRoleBody defines model for MemberRoleBody.
+type MemberRoleBody struct {
+	// Role A role the owner can give a member (FR-11.2 to FR-11.4); ownership moves only by transfer (FR-10.5).
+	Role MemberRole `json:"role"`
+}
+
+// MembershipProject The project a request or invitation is about, as its sender or invitee sees it.
+type MembershipProject struct {
+	Id    openapi_types.UUID `json:"id"`
+	Owner ProjectPerson      `json:"owner"`
+
+	// Status `open` projects are found by search (FR-10.3); `archived` projects are seen by members only.
+	Status ProjectStatus `json:"status"`
+	Title  string        `json:"title"`
 }
 
 // Message defines model for Message.
@@ -2201,6 +2305,46 @@ type ModerationReason = string
 // `field`, already resolved 409 `report_already_resolved`; each undoes the action.
 type ModerationReportId = string
 
+// MyInvitation A pending invitation as the invitee sees it.
+type MyInvitation struct {
+	CreatedAt time.Time          `json:"createdAt"`
+	Id        openapi_types.UUID `json:"id"`
+
+	// Project The project a request or invitation is about, as its sender or invitee sees it.
+	Project MembershipProject `json:"project"`
+
+	// Role A role the owner can give a member (FR-11.2 to FR-11.4); ownership moves only by transfer (FR-10.5).
+	Role MemberRole `json:"role"`
+}
+
+// MyInvitationPage defines model for MyInvitationPage.
+type MyInvitationPage struct {
+	Items    []MyInvitation `json:"items"`
+	Page     int            `json:"page"`
+	PageSize int            `json:"pageSize"`
+	Total    int            `json:"total"`
+}
+
+// MyJoinRequest A join request as its sender sees it.
+type MyJoinRequest struct {
+	CreatedAt time.Time          `json:"createdAt"`
+	DecidedAt *time.Time         `json:"decidedAt"`
+	Id        openapi_types.UUID `json:"id"`
+	Message   *string            `json:"message"`
+
+	// Project The project a request or invitation is about, as its sender or invitee sees it.
+	Project MembershipProject `json:"project"`
+	Status  JoinRequestStatus `json:"status"`
+}
+
+// MyJoinRequestPage defines model for MyJoinRequestPage.
+type MyJoinRequestPage struct {
+	Items    []MyJoinRequest `json:"items"`
+	Page     int             `json:"page"`
+	PageSize int             `json:"pageSize"`
+	Total    int             `json:"total"`
+}
+
 // Notification defines model for Notification.
 type Notification struct {
 	// Actor The user who caused the notification. A system notification comes from ResearchSphere
@@ -2212,7 +2356,7 @@ type Notification struct {
 	// Link The web client path of the item it is about (FR-9.5):
 	// `/network` for a received request, `/profile/{actorId}` for an accepted one,
 	// `/warnings/{warningId}` for a warning, `/messaging/{conversationId}` for a group
-	// and for a blocked attachment.
+	// and for a blocked attachment, `/projects/{projectId}` for every project type.
 	Link string `json:"link"`
 	Read bool   `json:"read"`
 
@@ -2224,10 +2368,12 @@ type Notification struct {
 	RequestPending *bool `json:"requestPending,omitempty"`
 
 	// Subject The item a notification is about, as it is now, for types whose sentence names it
-	// (`group_added`: the group, with its current name). Read when the notification is
-	// listed or sent, so a rename shows. Left out for the other types, and when the item no
-	// longer exists or the recipient cannot see it (they left the group); the client then
-	// uses a sentence without the title ("added you to a group").
+	// (`group_added`: the group, with its current name; every project type: the project,
+	// with its current title). Read when the notification is listed or sent, so a rename
+	// shows. Left out for the other types, and when the item no longer exists or the
+	// recipient cannot see it (they left the group, or the project is archived and they are
+	// not a member); the client then uses a sentence without the title ("added you to a
+	// group").
 	Subject *NotificationSubject `json:"subject,omitempty"`
 
 	// Type What happened (FR-9.1). `connection_request_received`: the actor sent the caller a
@@ -2236,7 +2382,15 @@ type Notification struct {
 	// with no actor. `group_added`: the actor, the group's owner, added the caller to a
 	// group (FR-16.6). `attachment_blocked`: the malware scan found something in a file the
 	// caller attached, and it was deleted (FR-16.7); a system notification, with no actor.
-	// Later slices add the project, comment and like types.
+	// The project types (FR-9.2, FR-11, FR-10.5) all have the project as their `subject`:
+	// `project_join_request`: the actor asked to join the caller's project.
+	// `project_join_request_accepted` / `project_join_request_rejected`: the actor, the
+	// owner, decided the caller's request. `project_invitation`: the actor, the owner,
+	// invited the caller. `project_invitation_accepted` / `project_invitation_rejected`: the
+	// actor answered the caller's invitation. `project_member_role_changed`: the actor, the
+	// owner, changed the caller's role. `project_member_removed`: the actor, the owner,
+	// removed the caller. `project_ownership_transferred`: the actor made the caller the
+	// owner. Later slices add the comment and like types.
 	Type NotificationType `json:"type"`
 }
 
@@ -2259,10 +2413,12 @@ type NotificationPage struct {
 }
 
 // NotificationSubject The item a notification is about, as it is now, for types whose sentence names it
-// (`group_added`: the group, with its current name). Read when the notification is
-// listed or sent, so a rename shows. Left out for the other types, and when the item no
-// longer exists or the recipient cannot see it (they left the group); the client then
-// uses a sentence without the title ("added you to a group").
+// (`group_added`: the group, with its current name; every project type: the project,
+// with its current title). Read when the notification is listed or sent, so a rename
+// shows. Left out for the other types, and when the item no longer exists or the
+// recipient cannot see it (they left the group, or the project is archived and they are
+// not a member); the client then uses a sentence without the title ("added you to a
+// group").
 type NotificationSubject struct {
 	Id    openapi_types.UUID      `json:"id"`
 	Title string                  `json:"title"`
@@ -2278,7 +2434,15 @@ type NotificationSubjectType string
 // with no actor. `group_added`: the actor, the group's owner, added the caller to a
 // group (FR-16.6). `attachment_blocked`: the malware scan found something in a file the
 // caller attached, and it was deleted (FR-16.7); a system notification, with no actor.
-// Later slices add the project, comment and like types.
+// The project types (FR-9.2, FR-11, FR-10.5) all have the project as their `subject`:
+// `project_join_request`: the actor asked to join the caller's project.
+// `project_join_request_accepted` / `project_join_request_rejected`: the actor, the
+// owner, decided the caller's request. `project_invitation`: the actor, the owner,
+// invited the caller. `project_invitation_accepted` / `project_invitation_rejected`: the
+// actor answered the caller's invitation. `project_member_role_changed`: the actor, the
+// owner, changed the caller's role. `project_member_removed`: the actor, the owner,
+// removed the caller. `project_ownership_transferred`: the actor made the caller the
+// owner. Later slices add the comment and like types.
 type NotificationType string
 
 // NotificationsMarked defines model for NotificationsMarked.
@@ -2360,6 +2524,12 @@ type OrcidWorkList struct {
 	//
 	// Example: 0000-0002-1825-0097
 	OrcidId string `json:"orcidId"`
+}
+
+// OwnershipTransfer defines model for OwnershipTransfer.
+type OwnershipTransfer struct {
+	// UserId The member who becomes the owner.
+	UserId openapi_types.UUID `json:"userId"`
 }
 
 // OwnsSharedProjectError The error shape with the projects that block an account deletion (FR-2.9).
@@ -2718,6 +2888,61 @@ type ProjectCreate struct {
 
 	// Title 3 to 150 characters after trimming.
 	Title string `json:"title"`
+}
+
+// ProjectInvitation An invitation as the project's owner sees it.
+type ProjectInvitation struct {
+	CreatedAt time.Time          `json:"createdAt"`
+	DecidedAt *time.Time         `json:"decidedAt"`
+	Id        openapi_types.UUID `json:"id"`
+
+	// Role A role the owner can give a member (FR-11.2 to FR-11.4); ownership moves only by transfer (FR-10.5).
+	Role   MemberRole        `json:"role"`
+	Status JoinRequestStatus `json:"status"`
+	User   ProjectPerson     `json:"user"`
+}
+
+// ProjectInvitationPage defines model for ProjectInvitationPage.
+type ProjectInvitationPage struct {
+	Items    []ProjectInvitation `json:"items"`
+	Page     int                 `json:"page"`
+	PageSize int                 `json:"pageSize"`
+	Total    int                 `json:"total"`
+}
+
+// ProjectJoinRequest A join request as the project's owner sees it.
+type ProjectJoinRequest struct {
+	CreatedAt time.Time          `json:"createdAt"`
+	DecidedAt *time.Time         `json:"decidedAt"`
+	Id        openapi_types.UUID `json:"id"`
+	Message   *string            `json:"message"`
+	Status    JoinRequestStatus  `json:"status"`
+	User      ProjectPerson      `json:"user"`
+}
+
+// ProjectJoinRequestPage defines model for ProjectJoinRequestPage.
+type ProjectJoinRequestPage struct {
+	Items    []ProjectJoinRequest `json:"items"`
+	Page     int                  `json:"page"`
+	PageSize int                  `json:"pageSize"`
+	Total    int                  `json:"total"`
+}
+
+// ProjectMember defines model for ProjectMember.
+type ProjectMember struct {
+	JoinedAt time.Time `json:"joinedAt"`
+
+	// Role A member's role in one project (SRS 2.3).
+	Role ProjectRole   `json:"role"`
+	User ProjectPerson `json:"user"`
+}
+
+// ProjectMemberPage defines model for ProjectMemberPage.
+type ProjectMemberPage struct {
+	Items    []ProjectMember `json:"items"`
+	Page     int             `json:"page"`
+	PageSize int             `json:"pageSize"`
+	Total    int             `json:"total"`
 }
 
 // ProjectPage defines model for ProjectPage.
@@ -3556,11 +3781,23 @@ type ExperienceID = string
 // FileID defines model for FileID.
 type FileID = string
 
+// InvitationId defines model for InvitationId.
+type InvitationId = string
+
+// JoinRequestId defines model for JoinRequestId.
+type JoinRequestId = string
+
 // LanguageID defines model for LanguageID.
 type LanguageID = string
 
 // LinkID defines model for LinkID.
 type LinkID = string
+
+// MemberUserId defines model for MemberUserId.
+type MemberUserId = string
+
+// MembershipPageSize defines model for MembershipPageSize.
+type MembershipPageSize = int
 
 // MessageId defines model for MessageId.
 type MessageId = string
@@ -3663,6 +3900,15 @@ type InvalidPublication = Error
 
 // LookupRateLimited The shape of every error response (SRS 5.3).
 type LookupRateLimited = Error
+
+// MembershipConflict The shape of every error response (SRS 5.3).
+type MembershipConflict = Error
+
+// MembershipInvalid The shape of every error response (SRS 5.3).
+type MembershipInvalid = Error
+
+// MembershipRateLimited The shape of every error response (SRS 5.3).
+type MembershipRateLimited = Error
 
 // MessageEditRefused The shape of every error response (SRS 5.3).
 type MessageEditRefused = Error
@@ -3855,6 +4101,24 @@ type ListMessagesParams struct {
 	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// ListMyInvitationsParams defines parameters for ListMyInvitations.
+type ListMyInvitationsParams struct {
+	// Page The page to return, from 1. Defaults to 1. A value below 1 gets 400 `bad_request`.
+	Page *PageFromOne `form:"page,omitempty" json:"page,omitempty"`
+
+	// PageSize Items per page, from 1; a larger value than 50 is reduced to 50. Defaults to 20. Below 1 gets 400 `bad_request`.
+	PageSize *MembershipPageSize `form:"pageSize,omitempty" json:"pageSize,omitempty"`
+}
+
+// ListMyJoinRequestsParams defines parameters for ListMyJoinRequests.
+type ListMyJoinRequestsParams struct {
+	// Page The page to return, from 1. Defaults to 1. A value below 1 gets 400 `bad_request`.
+	Page *PageFromOne `form:"page,omitempty" json:"page,omitempty"`
+
+	// PageSize Items per page, from 1; a larger value than 50 is reduced to 50. Defaults to 20. Below 1 gets 400 `bad_request`.
+	PageSize *MembershipPageSize `form:"pageSize,omitempty" json:"pageSize,omitempty"`
+}
+
 // ListMyProjectsParams defines parameters for ListMyProjects.
 type ListMyProjectsParams struct {
 	// Page The page to return, from 1. Defaults to 1. A value below 1 gets 400 `bad_request`.
@@ -3955,6 +4219,33 @@ type DeleteProjectParams struct {
 	// so that a missing value gets 400 `confirmation_mismatch` instead of the generic
 	// `bad_request`.
 	Confirm *string `form:"confirm,omitempty" json:"confirm,omitempty"`
+}
+
+// ListProjectInvitationsParams defines parameters for ListProjectInvitations.
+type ListProjectInvitationsParams struct {
+	// Page The page to return, from 1. Defaults to 1. A value below 1 gets 400 `bad_request`.
+	Page *PageFromOne `form:"page,omitempty" json:"page,omitempty"`
+
+	// PageSize Items per page, from 1; a larger value than 50 is reduced to 50. Defaults to 20. Below 1 gets 400 `bad_request`.
+	PageSize *MembershipPageSize `form:"pageSize,omitempty" json:"pageSize,omitempty"`
+}
+
+// ListProjectJoinRequestsParams defines parameters for ListProjectJoinRequests.
+type ListProjectJoinRequestsParams struct {
+	// Page The page to return, from 1. Defaults to 1. A value below 1 gets 400 `bad_request`.
+	Page *PageFromOne `form:"page,omitempty" json:"page,omitempty"`
+
+	// PageSize Items per page, from 1; a larger value than 50 is reduced to 50. Defaults to 20. Below 1 gets 400 `bad_request`.
+	PageSize *MembershipPageSize `form:"pageSize,omitempty" json:"pageSize,omitempty"`
+}
+
+// ListProjectMembersParams defines parameters for ListProjectMembers.
+type ListProjectMembersParams struct {
+	// Page The page to return, from 1. Defaults to 1. A value below 1 gets 400 `bad_request`.
+	Page *PageFromOne `form:"page,omitempty" json:"page,omitempty"`
+
+	// PageSize Items per page, from 1; a larger value than 50 is reduced to 50. Defaults to 20. Below 1 gets 400 `bad_request`.
+	PageSize *MembershipPageSize `form:"pageSize,omitempty" json:"pageSize,omitempty"`
 }
 
 // LookupPublicationByDOIParams defines parameters for LookupPublicationByDOI.
@@ -4193,8 +4484,23 @@ type CreateProjectJSONRequestBody = ProjectCreate
 // UpdateProjectJSONRequestBody defines body for UpdateProject for application/json ContentType.
 type UpdateProjectJSONRequestBody = ProjectUpdate
 
+// CreateInvitationJSONRequestBody defines body for CreateInvitation for application/json ContentType.
+type CreateInvitationJSONRequestBody = InvitationCreate
+
+// CreateJoinRequestJSONRequestBody defines body for CreateJoinRequest for application/json ContentType.
+type CreateJoinRequestJSONRequestBody = JoinRequestCreate
+
+// AcceptJoinRequestJSONRequestBody defines body for AcceptJoinRequest for application/json ContentType.
+type AcceptJoinRequestJSONRequestBody = MemberRoleBody
+
+// UpdateProjectMemberJSONRequestBody defines body for UpdateProjectMember for application/json ContentType.
+type UpdateProjectMemberJSONRequestBody = MemberRoleBody
+
 // ReportProjectJSONRequestBody defines body for ReportProject for application/json ContentType.
 type ReportProjectJSONRequestBody = ReportProjectRequest
+
+// TransferProjectJSONRequestBody defines body for TransferProject for application/json ContentType.
+type TransferProjectJSONRequestBody = OwnershipTransfer
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
@@ -4366,6 +4672,12 @@ type ServerInterface interface {
 	// GetHealth Report whether the database, Redis, object storage and the AI service respond
 	// (GET /health)
 	GetHealth(w http.ResponseWriter, r *http.Request)
+	// ListMyInvitations The caller's pending invitations (FR-11.3)
+	// (GET /me/invitations)
+	ListMyInvitations(w http.ResponseWriter, r *http.Request, params ListMyInvitationsParams)
+	// ListMyJoinRequests The caller's own join requests, with their status (FR-11.1)
+	// (GET /me/join-requests)
+	ListMyJoinRequests(w http.ResponseWriter, r *http.Request, params ListMyJoinRequestsParams)
 	// ListMyProjects The caller's own projects with the caller's role in each (FR-10, FR-11.6)
 	// (GET /me/projects)
 	ListMyProjects(w http.ResponseWriter, r *http.Request, params ListMyProjectsParams)
@@ -4525,12 +4837,57 @@ type ServerInterface interface {
 	// UpdateProject Change a project's details or status (FR-10.2)
 	// (PATCH /projects/{projectId})
 	UpdateProject(w http.ResponseWriter, r *http.Request, projectId ProjectId)
+	// ListProjectInvitations The project's invitations, pending first (FR-11.3)
+	// (GET /projects/{projectId}/invitations)
+	ListProjectInvitations(w http.ResponseWriter, r *http.Request, projectId ProjectId, params ListProjectInvitationsParams)
+	// CreateInvitation Invite a user to the project as editor or viewer (FR-11.3)
+	// (POST /projects/{projectId}/invitations)
+	CreateInvitation(w http.ResponseWriter, r *http.Request, projectId ProjectId)
+	// CancelInvitation Cancel a pending invitation (FR-11.3)
+	// (DELETE /projects/{projectId}/invitations/{invitationId})
+	CancelInvitation(w http.ResponseWriter, r *http.Request, projectId ProjectId, invitationId InvitationId)
+	// AcceptInvitation Accept an invitation and join the project (FR-11.3)
+	// (POST /projects/{projectId}/invitations/{invitationId}/accept)
+	AcceptInvitation(w http.ResponseWriter, r *http.Request, projectId ProjectId, invitationId InvitationId)
+	// RejectInvitation Reject an invitation (FR-11.3)
+	// (POST /projects/{projectId}/invitations/{invitationId}/reject)
+	RejectInvitation(w http.ResponseWriter, r *http.Request, projectId ProjectId, invitationId InvitationId)
+	// ListProjectJoinRequests The project's join requests, pending first (FR-11.2)
+	// (GET /projects/{projectId}/join-requests)
+	ListProjectJoinRequests(w http.ResponseWriter, r *http.Request, projectId ProjectId, params ListProjectJoinRequestsParams)
+	// CreateJoinRequest Ask to join an open project, with a short message (FR-11.1)
+	// (POST /projects/{projectId}/join-requests)
+	CreateJoinRequest(w http.ResponseWriter, r *http.Request, projectId ProjectId)
+	// CancelJoinRequest Cancel the caller's own pending join request (FR-11.1)
+	// (DELETE /projects/{projectId}/join-requests/{requestId})
+	CancelJoinRequest(w http.ResponseWriter, r *http.Request, projectId ProjectId, requestId JoinRequestId)
+	// AcceptJoinRequest Accept a join request as editor or viewer (FR-11.2)
+	// (POST /projects/{projectId}/join-requests/{requestId}/accept)
+	AcceptJoinRequest(w http.ResponseWriter, r *http.Request, projectId ProjectId, requestId JoinRequestId)
+	// RejectJoinRequest Reject a join request (FR-11.2)
+	// (POST /projects/{projectId}/join-requests/{requestId}/reject)
+	RejectJoinRequest(w http.ResponseWriter, r *http.Request, projectId ProjectId, requestId JoinRequestId)
+	// LeaveProject Leave a project the caller is a member of, not as its owner (FR-11.5)
+	// (POST /projects/{projectId}/leave)
+	LeaveProject(w http.ResponseWriter, r *http.Request, projectId ProjectId)
+	// ListProjectMembers The project's members with their roles (SRS 2.3, FR-11)
+	// (GET /projects/{projectId}/members)
+	ListProjectMembers(w http.ResponseWriter, r *http.Request, projectId ProjectId, params ListProjectMembersParams)
+	// RemoveProjectMember Remove a member from the project (FR-11.4)
+	// (DELETE /projects/{projectId}/members/{userId})
+	RemoveProjectMember(w http.ResponseWriter, r *http.Request, projectId ProjectId, userId MemberUserId)
+	// UpdateProjectMember Change a member's role (FR-11.4)
+	// (PATCH /projects/{projectId}/members/{userId})
+	UpdateProjectMember(w http.ResponseWriter, r *http.Request, projectId ProjectId, userId MemberUserId)
 	// RecommendProjectResearchers Researchers whose profiles are most similar to a project, for its owner (AI-2.3, AI-2.4)
 	// (GET /projects/{projectId}/recommended-researchers)
 	RecommendProjectResearchers(w http.ResponseWriter, r *http.Request, projectId ProjectId)
 	// ReportProject Report a project to the administrators (FR-15.11)
 	// (POST /projects/{projectId}/reports)
 	ReportProject(w http.ResponseWriter, r *http.Request, projectId ProjectId)
+	// TransferProject Make another member the owner; the caller becomes an editor (FR-10.5)
+	// (POST /projects/{projectId}/transfer)
+	TransferProject(w http.ResponseWriter, r *http.Request, projectId ProjectId)
 	// LookupPublicationByDOI Preview the metadata of a publication by its DOI (FR-5.2, FR-5.6)
 	// (GET /publications/lookup)
 	LookupPublicationByDOI(w http.ResponseWriter, r *http.Request, params LookupPublicationByDOIParams)
@@ -6423,6 +6780,110 @@ func (siw *ServerInterfaceWrapper) GetHealth(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
+// ListMyInvitations operation middleware
+func (siw *ServerInterfaceWrapper) ListMyInvitations(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListMyInvitationsParams
+
+	// ------------- Optional query parameter "page" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "page", r.URL.Query(), &params.Page, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "page"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "pageSize" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "pageSize", r.URL.Query(), &params.PageSize, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "pageSize"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "pageSize", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListMyInvitations(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListMyJoinRequests operation middleware
+func (siw *ServerInterfaceWrapper) ListMyJoinRequests(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListMyJoinRequestsParams
+
+	// ------------- Optional query parameter "page" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "page", r.URL.Query(), &params.Page, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "page"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "pageSize" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "pageSize", r.URL.Query(), &params.PageSize, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "pageSize"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "pageSize", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListMyJoinRequests(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListMyProjects operation middleware
 func (siw *ServerInterfaceWrapper) ListMyProjects(w http.ResponseWriter, r *http.Request) {
 
@@ -8008,6 +8469,613 @@ func (siw *ServerInterfaceWrapper) UpdateProject(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// ListProjectInvitations operation middleware
+func (siw *ServerInterfaceWrapper) ListProjectInvitations(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", r.PathValue("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListProjectInvitationsParams
+
+	// ------------- Optional query parameter "page" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "page", r.URL.Query(), &params.Page, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "page"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "pageSize" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "pageSize", r.URL.Query(), &params.PageSize, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "pageSize"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "pageSize", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListProjectInvitations(w, r, projectId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateInvitation operation middleware
+func (siw *ServerInterfaceWrapper) CreateInvitation(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", r.PathValue("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateInvitation(w, r, projectId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CancelInvitation operation middleware
+func (siw *ServerInterfaceWrapper) CancelInvitation(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", r.PathValue("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "invitationId" -------------
+	var invitationId InvitationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "invitationId", r.PathValue("invitationId"), &invitationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "invitationId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CancelInvitation(w, r, projectId, invitationId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AcceptInvitation operation middleware
+func (siw *ServerInterfaceWrapper) AcceptInvitation(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", r.PathValue("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "invitationId" -------------
+	var invitationId InvitationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "invitationId", r.PathValue("invitationId"), &invitationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "invitationId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AcceptInvitation(w, r, projectId, invitationId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RejectInvitation operation middleware
+func (siw *ServerInterfaceWrapper) RejectInvitation(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", r.PathValue("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "invitationId" -------------
+	var invitationId InvitationId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "invitationId", r.PathValue("invitationId"), &invitationId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "invitationId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RejectInvitation(w, r, projectId, invitationId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListProjectJoinRequests operation middleware
+func (siw *ServerInterfaceWrapper) ListProjectJoinRequests(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", r.PathValue("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListProjectJoinRequestsParams
+
+	// ------------- Optional query parameter "page" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "page", r.URL.Query(), &params.Page, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "page"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "pageSize" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "pageSize", r.URL.Query(), &params.PageSize, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "pageSize"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "pageSize", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListProjectJoinRequests(w, r, projectId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateJoinRequest operation middleware
+func (siw *ServerInterfaceWrapper) CreateJoinRequest(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", r.PathValue("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateJoinRequest(w, r, projectId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CancelJoinRequest operation middleware
+func (siw *ServerInterfaceWrapper) CancelJoinRequest(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", r.PathValue("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "requestId" -------------
+	var requestId JoinRequestId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "requestId", r.PathValue("requestId"), &requestId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "requestId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CancelJoinRequest(w, r, projectId, requestId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AcceptJoinRequest operation middleware
+func (siw *ServerInterfaceWrapper) AcceptJoinRequest(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", r.PathValue("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "requestId" -------------
+	var requestId JoinRequestId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "requestId", r.PathValue("requestId"), &requestId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "requestId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AcceptJoinRequest(w, r, projectId, requestId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RejectJoinRequest operation middleware
+func (siw *ServerInterfaceWrapper) RejectJoinRequest(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", r.PathValue("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "requestId" -------------
+	var requestId JoinRequestId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "requestId", r.PathValue("requestId"), &requestId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "requestId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RejectJoinRequest(w, r, projectId, requestId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// LeaveProject operation middleware
+func (siw *ServerInterfaceWrapper) LeaveProject(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", r.PathValue("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.LeaveProject(w, r, projectId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListProjectMembers operation middleware
+func (siw *ServerInterfaceWrapper) ListProjectMembers(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", r.PathValue("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListProjectMembersParams
+
+	// ------------- Optional query parameter "page" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "page", r.URL.Query(), &params.Page, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "page"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "page", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "pageSize" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "pageSize", r.URL.Query(), &params.PageSize, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "pageSize"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "pageSize", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListProjectMembers(w, r, projectId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RemoveProjectMember operation middleware
+func (siw *ServerInterfaceWrapper) RemoveProjectMember(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", r.PathValue("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "userId" -------------
+	var userId MemberUserId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", r.PathValue("userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "userId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RemoveProjectMember(w, r, projectId, userId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateProjectMember operation middleware
+func (siw *ServerInterfaceWrapper) UpdateProjectMember(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", r.PathValue("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "userId" -------------
+	var userId MemberUserId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", r.PathValue("userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "userId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateProjectMember(w, r, projectId, userId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // RecommendProjectResearchers operation middleware
 func (siw *ServerInterfaceWrapper) RecommendProjectResearchers(w http.ResponseWriter, r *http.Request) {
 
@@ -8063,6 +9131,38 @@ func (siw *ServerInterfaceWrapper) ReportProject(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ReportProject(w, r, projectId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// TransferProject operation middleware
+func (siw *ServerInterfaceWrapper) TransferProject(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", r.PathValue("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.TransferProject(w, r, projectId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -8735,6 +9835,23 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/projects/{projectId}", wrapper.UpdateProject)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/projects/{projectId}/reports", wrapper.ReportProject)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/me/projects", wrapper.ListMyProjects)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/projects/{projectId}/join-requests", wrapper.ListProjectJoinRequests)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/projects/{projectId}/join-requests", wrapper.CreateJoinRequest)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/projects/{projectId}/join-requests/{requestId}", wrapper.CancelJoinRequest)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/projects/{projectId}/join-requests/{requestId}/accept", wrapper.AcceptJoinRequest)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/projects/{projectId}/join-requests/{requestId}/reject", wrapper.RejectJoinRequest)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/projects/{projectId}/invitations", wrapper.ListProjectInvitations)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/projects/{projectId}/invitations", wrapper.CreateInvitation)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/projects/{projectId}/invitations/{invitationId}", wrapper.CancelInvitation)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/projects/{projectId}/invitations/{invitationId}/accept", wrapper.AcceptInvitation)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/projects/{projectId}/invitations/{invitationId}/reject", wrapper.RejectInvitation)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/projects/{projectId}/members", wrapper.ListProjectMembers)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/projects/{projectId}/members/{userId}", wrapper.RemoveProjectMember)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/projects/{projectId}/members/{userId}", wrapper.UpdateProjectMember)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/projects/{projectId}/leave", wrapper.LeaveProject)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/projects/{projectId}/transfer", wrapper.TransferProject)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/me/join-requests", wrapper.ListMyJoinRequests)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/me/invitations", wrapper.ListMyInvitations)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/search/projects", wrapper.SearchProjects)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/search/people", wrapper.SearchPeople)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/recommendations/people", wrapper.RecommendPeople)
@@ -8816,6 +9933,19 @@ type LookupRateLimitedJSONResponse struct {
 	Body Error
 
 	Headers LookupRateLimitedResponseHeaders
+}
+
+type MembershipConflictJSONResponse Error
+
+type MembershipInvalidJSONResponse Error
+
+type MembershipRateLimitedResponseHeaders struct {
+	RetryAfter int
+}
+type MembershipRateLimitedJSONResponse struct {
+	Body Error
+
+	Headers MembershipRateLimitedResponseHeaders
 }
 
 type MessageEditRefusedJSONResponse Error
@@ -13708,6 +14838,162 @@ func (response GetHealth503JSONResponse) VisitGetHealthResponse(w http.ResponseW
 	return err
 }
 
+type ListMyInvitationsRequestObject struct {
+	Params ListMyInvitationsParams
+}
+
+type ListMyInvitationsResponseObject interface {
+	VisitListMyInvitationsResponse(w http.ResponseWriter) error
+}
+
+type ListMyInvitations200JSONResponse MyInvitationPage
+
+func (response ListMyInvitations200JSONResponse) VisitListMyInvitationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMyInvitations400JSONResponse struct{ MembershipInvalidJSONResponse }
+
+func (response ListMyInvitations400JSONResponse) VisitListMyInvitationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMyInvitations401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListMyInvitations401JSONResponse) VisitListMyInvitationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMyInvitations403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListMyInvitations403JSONResponse) VisitListMyInvitationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMyInvitations500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ListMyInvitations500JSONResponse) VisitListMyInvitationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMyJoinRequestsRequestObject struct {
+	Params ListMyJoinRequestsParams
+}
+
+type ListMyJoinRequestsResponseObject interface {
+	VisitListMyJoinRequestsResponse(w http.ResponseWriter) error
+}
+
+type ListMyJoinRequests200JSONResponse MyJoinRequestPage
+
+func (response ListMyJoinRequests200JSONResponse) VisitListMyJoinRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMyJoinRequests400JSONResponse struct{ MembershipInvalidJSONResponse }
+
+func (response ListMyJoinRequests400JSONResponse) VisitListMyJoinRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMyJoinRequests401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListMyJoinRequests401JSONResponse) VisitListMyJoinRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMyJoinRequests403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListMyJoinRequests403JSONResponse) VisitListMyJoinRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMyJoinRequests500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ListMyJoinRequests500JSONResponse) VisitListMyJoinRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListMyProjectsRequestObject struct {
 	Params ListMyProjectsParams
 }
@@ -18313,6 +19599,1365 @@ func (response UpdateProject500JSONResponse) VisitUpdateProjectResponse(w http.R
 	return err
 }
 
+type ListProjectInvitationsRequestObject struct {
+	ProjectId ProjectId `json:"projectId"`
+	Params    ListProjectInvitationsParams
+}
+
+type ListProjectInvitationsResponseObject interface {
+	VisitListProjectInvitationsResponse(w http.ResponseWriter) error
+}
+
+type ListProjectInvitations200JSONResponse ProjectInvitationPage
+
+func (response ListProjectInvitations200JSONResponse) VisitListProjectInvitationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListProjectInvitations400JSONResponse struct{ MembershipInvalidJSONResponse }
+
+func (response ListProjectInvitations400JSONResponse) VisitListProjectInvitationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListProjectInvitations401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListProjectInvitations401JSONResponse) VisitListProjectInvitationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListProjectInvitations403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListProjectInvitations403JSONResponse) VisitListProjectInvitationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListProjectInvitations404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListProjectInvitations404JSONResponse) VisitListProjectInvitationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListProjectInvitations500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ListProjectInvitations500JSONResponse) VisitListProjectInvitationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateInvitationRequestObject struct {
+	ProjectId ProjectId `json:"projectId"`
+	Body      *CreateInvitationJSONRequestBody
+}
+
+type CreateInvitationResponseObject interface {
+	VisitCreateInvitationResponse(w http.ResponseWriter) error
+}
+
+type CreateInvitation201JSONResponse ProjectInvitation
+
+func (response CreateInvitation201JSONResponse) VisitCreateInvitationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateInvitation400JSONResponse struct{ MembershipInvalidJSONResponse }
+
+func (response CreateInvitation400JSONResponse) VisitCreateInvitationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateInvitation401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateInvitation401JSONResponse) VisitCreateInvitationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateInvitation403JSONResponse struct {
+	AccountSuspendedOrForbiddenJSONResponse
+}
+
+func (response CreateInvitation403JSONResponse) VisitCreateInvitationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateInvitation404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateInvitation404JSONResponse) VisitCreateInvitationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateInvitation409JSONResponse struct{ MembershipConflictJSONResponse }
+
+func (response CreateInvitation409JSONResponse) VisitCreateInvitationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateInvitation429JSONResponse struct {
+	MembershipRateLimitedJSONResponse
+}
+
+func (response CreateInvitation429JSONResponse) VisitCreateInvitationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateInvitation500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response CreateInvitation500JSONResponse) VisitCreateInvitationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelInvitationRequestObject struct {
+	ProjectId    ProjectId    `json:"projectId"`
+	InvitationId InvitationId `json:"invitationId"`
+}
+
+type CancelInvitationResponseObject interface {
+	VisitCancelInvitationResponse(w http.ResponseWriter) error
+}
+
+type CancelInvitation204Response struct {
+}
+
+func (response CancelInvitation204Response) VisitCancelInvitationResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type CancelInvitation401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CancelInvitation401JSONResponse) VisitCancelInvitationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelInvitation403JSONResponse struct {
+	AccountSuspendedOrForbiddenJSONResponse
+}
+
+func (response CancelInvitation403JSONResponse) VisitCancelInvitationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelInvitation404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CancelInvitation404JSONResponse) VisitCancelInvitationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelInvitation409JSONResponse struct{ MembershipConflictJSONResponse }
+
+func (response CancelInvitation409JSONResponse) VisitCancelInvitationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelInvitation500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response CancelInvitation500JSONResponse) VisitCancelInvitationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptInvitationRequestObject struct {
+	ProjectId    ProjectId    `json:"projectId"`
+	InvitationId InvitationId `json:"invitationId"`
+}
+
+type AcceptInvitationResponseObject interface {
+	VisitAcceptInvitationResponse(w http.ResponseWriter) error
+}
+
+type AcceptInvitation200JSONResponse ProjectMember
+
+func (response AcceptInvitation200JSONResponse) VisitAcceptInvitationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptInvitation401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response AcceptInvitation401JSONResponse) VisitAcceptInvitationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptInvitation403JSONResponse struct {
+	AccountSuspendedOrForbiddenJSONResponse
+}
+
+func (response AcceptInvitation403JSONResponse) VisitAcceptInvitationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptInvitation404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response AcceptInvitation404JSONResponse) VisitAcceptInvitationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptInvitation409JSONResponse struct{ MembershipConflictJSONResponse }
+
+func (response AcceptInvitation409JSONResponse) VisitAcceptInvitationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptInvitation500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response AcceptInvitation500JSONResponse) VisitAcceptInvitationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectInvitationRequestObject struct {
+	ProjectId    ProjectId    `json:"projectId"`
+	InvitationId InvitationId `json:"invitationId"`
+}
+
+type RejectInvitationResponseObject interface {
+	VisitRejectInvitationResponse(w http.ResponseWriter) error
+}
+
+type RejectInvitation204Response struct {
+}
+
+func (response RejectInvitation204Response) VisitRejectInvitationResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RejectInvitation401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RejectInvitation401JSONResponse) VisitRejectInvitationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectInvitation403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response RejectInvitation403JSONResponse) VisitRejectInvitationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectInvitation404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RejectInvitation404JSONResponse) VisitRejectInvitationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectInvitation409JSONResponse struct{ MembershipConflictJSONResponse }
+
+func (response RejectInvitation409JSONResponse) VisitRejectInvitationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectInvitation500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RejectInvitation500JSONResponse) VisitRejectInvitationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListProjectJoinRequestsRequestObject struct {
+	ProjectId ProjectId `json:"projectId"`
+	Params    ListProjectJoinRequestsParams
+}
+
+type ListProjectJoinRequestsResponseObject interface {
+	VisitListProjectJoinRequestsResponse(w http.ResponseWriter) error
+}
+
+type ListProjectJoinRequests200JSONResponse ProjectJoinRequestPage
+
+func (response ListProjectJoinRequests200JSONResponse) VisitListProjectJoinRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListProjectJoinRequests400JSONResponse struct{ MembershipInvalidJSONResponse }
+
+func (response ListProjectJoinRequests400JSONResponse) VisitListProjectJoinRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListProjectJoinRequests401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListProjectJoinRequests401JSONResponse) VisitListProjectJoinRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListProjectJoinRequests403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListProjectJoinRequests403JSONResponse) VisitListProjectJoinRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListProjectJoinRequests404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListProjectJoinRequests404JSONResponse) VisitListProjectJoinRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListProjectJoinRequests500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ListProjectJoinRequests500JSONResponse) VisitListProjectJoinRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateJoinRequestRequestObject struct {
+	ProjectId ProjectId `json:"projectId"`
+	Body      *CreateJoinRequestJSONRequestBody
+}
+
+type CreateJoinRequestResponseObject interface {
+	VisitCreateJoinRequestResponse(w http.ResponseWriter) error
+}
+
+type CreateJoinRequest201JSONResponse MyJoinRequest
+
+func (response CreateJoinRequest201JSONResponse) VisitCreateJoinRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateJoinRequest400JSONResponse struct{ MembershipInvalidJSONResponse }
+
+func (response CreateJoinRequest400JSONResponse) VisitCreateJoinRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateJoinRequest401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateJoinRequest401JSONResponse) VisitCreateJoinRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateJoinRequest403JSONResponse struct {
+	AccountSuspendedOrForbiddenJSONResponse
+}
+
+func (response CreateJoinRequest403JSONResponse) VisitCreateJoinRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateJoinRequest404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateJoinRequest404JSONResponse) VisitCreateJoinRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateJoinRequest409JSONResponse struct{ MembershipConflictJSONResponse }
+
+func (response CreateJoinRequest409JSONResponse) VisitCreateJoinRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateJoinRequest429JSONResponse struct {
+	MembershipRateLimitedJSONResponse
+}
+
+func (response CreateJoinRequest429JSONResponse) VisitCreateJoinRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateJoinRequest500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response CreateJoinRequest500JSONResponse) VisitCreateJoinRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelJoinRequestRequestObject struct {
+	ProjectId ProjectId     `json:"projectId"`
+	RequestId JoinRequestId `json:"requestId"`
+}
+
+type CancelJoinRequestResponseObject interface {
+	VisitCancelJoinRequestResponse(w http.ResponseWriter) error
+}
+
+type CancelJoinRequest204Response struct {
+}
+
+func (response CancelJoinRequest204Response) VisitCancelJoinRequestResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type CancelJoinRequest401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CancelJoinRequest401JSONResponse) VisitCancelJoinRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelJoinRequest403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CancelJoinRequest403JSONResponse) VisitCancelJoinRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelJoinRequest404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CancelJoinRequest404JSONResponse) VisitCancelJoinRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelJoinRequest500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response CancelJoinRequest500JSONResponse) VisitCancelJoinRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptJoinRequestRequestObject struct {
+	ProjectId ProjectId     `json:"projectId"`
+	RequestId JoinRequestId `json:"requestId"`
+	Body      *AcceptJoinRequestJSONRequestBody
+}
+
+type AcceptJoinRequestResponseObject interface {
+	VisitAcceptJoinRequestResponse(w http.ResponseWriter) error
+}
+
+type AcceptJoinRequest200JSONResponse ProjectMember
+
+func (response AcceptJoinRequest200JSONResponse) VisitAcceptJoinRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptJoinRequest400JSONResponse struct{ MembershipInvalidJSONResponse }
+
+func (response AcceptJoinRequest400JSONResponse) VisitAcceptJoinRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptJoinRequest401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response AcceptJoinRequest401JSONResponse) VisitAcceptJoinRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptJoinRequest403JSONResponse struct {
+	AccountSuspendedOrForbiddenJSONResponse
+}
+
+func (response AcceptJoinRequest403JSONResponse) VisitAcceptJoinRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptJoinRequest404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response AcceptJoinRequest404JSONResponse) VisitAcceptJoinRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptJoinRequest409JSONResponse struct{ MembershipConflictJSONResponse }
+
+func (response AcceptJoinRequest409JSONResponse) VisitAcceptJoinRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptJoinRequest500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response AcceptJoinRequest500JSONResponse) VisitAcceptJoinRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectJoinRequestRequestObject struct {
+	ProjectId ProjectId     `json:"projectId"`
+	RequestId JoinRequestId `json:"requestId"`
+}
+
+type RejectJoinRequestResponseObject interface {
+	VisitRejectJoinRequestResponse(w http.ResponseWriter) error
+}
+
+type RejectJoinRequest204Response struct {
+}
+
+func (response RejectJoinRequest204Response) VisitRejectJoinRequestResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RejectJoinRequest401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RejectJoinRequest401JSONResponse) VisitRejectJoinRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectJoinRequest403JSONResponse struct {
+	AccountSuspendedOrForbiddenJSONResponse
+}
+
+func (response RejectJoinRequest403JSONResponse) VisitRejectJoinRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectJoinRequest404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RejectJoinRequest404JSONResponse) VisitRejectJoinRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectJoinRequest409JSONResponse struct{ MembershipConflictJSONResponse }
+
+func (response RejectJoinRequest409JSONResponse) VisitRejectJoinRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RejectJoinRequest500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RejectJoinRequest500JSONResponse) VisitRejectJoinRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LeaveProjectRequestObject struct {
+	ProjectId ProjectId `json:"projectId"`
+}
+
+type LeaveProjectResponseObject interface {
+	VisitLeaveProjectResponse(w http.ResponseWriter) error
+}
+
+type LeaveProject204Response struct {
+}
+
+func (response LeaveProject204Response) VisitLeaveProjectResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type LeaveProject401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response LeaveProject401JSONResponse) VisitLeaveProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LeaveProject403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response LeaveProject403JSONResponse) VisitLeaveProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LeaveProject404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response LeaveProject404JSONResponse) VisitLeaveProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LeaveProject409JSONResponse struct{ MembershipConflictJSONResponse }
+
+func (response LeaveProject409JSONResponse) VisitLeaveProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LeaveProject500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response LeaveProject500JSONResponse) VisitLeaveProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListProjectMembersRequestObject struct {
+	ProjectId ProjectId `json:"projectId"`
+	Params    ListProjectMembersParams
+}
+
+type ListProjectMembersResponseObject interface {
+	VisitListProjectMembersResponse(w http.ResponseWriter) error
+}
+
+type ListProjectMembers200JSONResponse ProjectMemberPage
+
+func (response ListProjectMembers200JSONResponse) VisitListProjectMembersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListProjectMembers400JSONResponse struct{ MembershipInvalidJSONResponse }
+
+func (response ListProjectMembers400JSONResponse) VisitListProjectMembersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListProjectMembers401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListProjectMembers401JSONResponse) VisitListProjectMembersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListProjectMembers403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response ListProjectMembers403JSONResponse) VisitListProjectMembersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListProjectMembers404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListProjectMembers404JSONResponse) VisitListProjectMembersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListProjectMembers500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ListProjectMembers500JSONResponse) VisitListProjectMembersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveProjectMemberRequestObject struct {
+	ProjectId ProjectId    `json:"projectId"`
+	UserId    MemberUserId `json:"userId"`
+}
+
+type RemoveProjectMemberResponseObject interface {
+	VisitRemoveProjectMemberResponse(w http.ResponseWriter) error
+}
+
+type RemoveProjectMember204Response struct {
+}
+
+func (response RemoveProjectMember204Response) VisitRemoveProjectMemberResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RemoveProjectMember401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RemoveProjectMember401JSONResponse) VisitRemoveProjectMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveProjectMember403JSONResponse struct {
+	AccountSuspendedOrForbiddenJSONResponse
+}
+
+func (response RemoveProjectMember403JSONResponse) VisitRemoveProjectMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveProjectMember404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RemoveProjectMember404JSONResponse) VisitRemoveProjectMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveProjectMember409JSONResponse struct{ MembershipConflictJSONResponse }
+
+func (response RemoveProjectMember409JSONResponse) VisitRemoveProjectMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveProjectMember500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RemoveProjectMember500JSONResponse) VisitRemoveProjectMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateProjectMemberRequestObject struct {
+	ProjectId ProjectId    `json:"projectId"`
+	UserId    MemberUserId `json:"userId"`
+	Body      *UpdateProjectMemberJSONRequestBody
+}
+
+type UpdateProjectMemberResponseObject interface {
+	VisitUpdateProjectMemberResponse(w http.ResponseWriter) error
+}
+
+type UpdateProjectMember200JSONResponse ProjectMember
+
+func (response UpdateProjectMember200JSONResponse) VisitUpdateProjectMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateProjectMember400JSONResponse struct{ MembershipInvalidJSONResponse }
+
+func (response UpdateProjectMember400JSONResponse) VisitUpdateProjectMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateProjectMember401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response UpdateProjectMember401JSONResponse) VisitUpdateProjectMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateProjectMember403JSONResponse struct {
+	AccountSuspendedOrForbiddenJSONResponse
+}
+
+func (response UpdateProjectMember403JSONResponse) VisitUpdateProjectMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateProjectMember404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response UpdateProjectMember404JSONResponse) VisitUpdateProjectMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateProjectMember409JSONResponse struct{ MembershipConflictJSONResponse }
+
+func (response UpdateProjectMember409JSONResponse) VisitUpdateProjectMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateProjectMember500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response UpdateProjectMember500JSONResponse) VisitUpdateProjectMemberResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type RecommendProjectResearchersRequestObject struct {
 	ProjectId ProjectId `json:"projectId"`
 }
@@ -18489,6 +21134,115 @@ func (response ReportProject409JSONResponse) VisitReportProjectResponse(w http.R
 type ReportProject500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response ReportProject500JSONResponse) VisitReportProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type TransferProjectRequestObject struct {
+	ProjectId ProjectId `json:"projectId"`
+	Body      *TransferProjectJSONRequestBody
+}
+
+type TransferProjectResponseObject interface {
+	VisitTransferProjectResponse(w http.ResponseWriter) error
+}
+
+type TransferProject200JSONResponse Project
+
+func (response TransferProject200JSONResponse) VisitTransferProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type TransferProject400JSONResponse struct{ MembershipInvalidJSONResponse }
+
+func (response TransferProject400JSONResponse) VisitTransferProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type TransferProject401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response TransferProject401JSONResponse) VisitTransferProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type TransferProject403JSONResponse struct {
+	AccountSuspendedOrForbiddenJSONResponse
+}
+
+func (response TransferProject403JSONResponse) VisitTransferProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type TransferProject404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response TransferProject404JSONResponse) VisitTransferProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type TransferProject409JSONResponse struct{ MembershipConflictJSONResponse }
+
+func (response TransferProject409JSONResponse) VisitTransferProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type TransferProject500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response TransferProject500JSONResponse) VisitTransferProjectResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -19420,6 +22174,12 @@ type StrictServerInterface interface {
 	// GetHealth Report whether the database, Redis, object storage and the AI service respond
 	// (GET /health)
 	GetHealth(ctx context.Context, request GetHealthRequestObject) (GetHealthResponseObject, error)
+	// ListMyInvitations The caller's pending invitations (FR-11.3)
+	// (GET /me/invitations)
+	ListMyInvitations(ctx context.Context, request ListMyInvitationsRequestObject) (ListMyInvitationsResponseObject, error)
+	// ListMyJoinRequests The caller's own join requests, with their status (FR-11.1)
+	// (GET /me/join-requests)
+	ListMyJoinRequests(ctx context.Context, request ListMyJoinRequestsRequestObject) (ListMyJoinRequestsResponseObject, error)
 	// ListMyProjects The caller's own projects with the caller's role in each (FR-10, FR-11.6)
 	// (GET /me/projects)
 	ListMyProjects(ctx context.Context, request ListMyProjectsRequestObject) (ListMyProjectsResponseObject, error)
@@ -19579,12 +22339,57 @@ type StrictServerInterface interface {
 	// UpdateProject Change a project's details or status (FR-10.2)
 	// (PATCH /projects/{projectId})
 	UpdateProject(ctx context.Context, request UpdateProjectRequestObject) (UpdateProjectResponseObject, error)
+	// ListProjectInvitations The project's invitations, pending first (FR-11.3)
+	// (GET /projects/{projectId}/invitations)
+	ListProjectInvitations(ctx context.Context, request ListProjectInvitationsRequestObject) (ListProjectInvitationsResponseObject, error)
+	// CreateInvitation Invite a user to the project as editor or viewer (FR-11.3)
+	// (POST /projects/{projectId}/invitations)
+	CreateInvitation(ctx context.Context, request CreateInvitationRequestObject) (CreateInvitationResponseObject, error)
+	// CancelInvitation Cancel a pending invitation (FR-11.3)
+	// (DELETE /projects/{projectId}/invitations/{invitationId})
+	CancelInvitation(ctx context.Context, request CancelInvitationRequestObject) (CancelInvitationResponseObject, error)
+	// AcceptInvitation Accept an invitation and join the project (FR-11.3)
+	// (POST /projects/{projectId}/invitations/{invitationId}/accept)
+	AcceptInvitation(ctx context.Context, request AcceptInvitationRequestObject) (AcceptInvitationResponseObject, error)
+	// RejectInvitation Reject an invitation (FR-11.3)
+	// (POST /projects/{projectId}/invitations/{invitationId}/reject)
+	RejectInvitation(ctx context.Context, request RejectInvitationRequestObject) (RejectInvitationResponseObject, error)
+	// ListProjectJoinRequests The project's join requests, pending first (FR-11.2)
+	// (GET /projects/{projectId}/join-requests)
+	ListProjectJoinRequests(ctx context.Context, request ListProjectJoinRequestsRequestObject) (ListProjectJoinRequestsResponseObject, error)
+	// CreateJoinRequest Ask to join an open project, with a short message (FR-11.1)
+	// (POST /projects/{projectId}/join-requests)
+	CreateJoinRequest(ctx context.Context, request CreateJoinRequestRequestObject) (CreateJoinRequestResponseObject, error)
+	// CancelJoinRequest Cancel the caller's own pending join request (FR-11.1)
+	// (DELETE /projects/{projectId}/join-requests/{requestId})
+	CancelJoinRequest(ctx context.Context, request CancelJoinRequestRequestObject) (CancelJoinRequestResponseObject, error)
+	// AcceptJoinRequest Accept a join request as editor or viewer (FR-11.2)
+	// (POST /projects/{projectId}/join-requests/{requestId}/accept)
+	AcceptJoinRequest(ctx context.Context, request AcceptJoinRequestRequestObject) (AcceptJoinRequestResponseObject, error)
+	// RejectJoinRequest Reject a join request (FR-11.2)
+	// (POST /projects/{projectId}/join-requests/{requestId}/reject)
+	RejectJoinRequest(ctx context.Context, request RejectJoinRequestRequestObject) (RejectJoinRequestResponseObject, error)
+	// LeaveProject Leave a project the caller is a member of, not as its owner (FR-11.5)
+	// (POST /projects/{projectId}/leave)
+	LeaveProject(ctx context.Context, request LeaveProjectRequestObject) (LeaveProjectResponseObject, error)
+	// ListProjectMembers The project's members with their roles (SRS 2.3, FR-11)
+	// (GET /projects/{projectId}/members)
+	ListProjectMembers(ctx context.Context, request ListProjectMembersRequestObject) (ListProjectMembersResponseObject, error)
+	// RemoveProjectMember Remove a member from the project (FR-11.4)
+	// (DELETE /projects/{projectId}/members/{userId})
+	RemoveProjectMember(ctx context.Context, request RemoveProjectMemberRequestObject) (RemoveProjectMemberResponseObject, error)
+	// UpdateProjectMember Change a member's role (FR-11.4)
+	// (PATCH /projects/{projectId}/members/{userId})
+	UpdateProjectMember(ctx context.Context, request UpdateProjectMemberRequestObject) (UpdateProjectMemberResponseObject, error)
 	// RecommendProjectResearchers Researchers whose profiles are most similar to a project, for its owner (AI-2.3, AI-2.4)
 	// (GET /projects/{projectId}/recommended-researchers)
 	RecommendProjectResearchers(ctx context.Context, request RecommendProjectResearchersRequestObject) (RecommendProjectResearchersResponseObject, error)
 	// ReportProject Report a project to the administrators (FR-15.11)
 	// (POST /projects/{projectId}/reports)
 	ReportProject(ctx context.Context, request ReportProjectRequestObject) (ReportProjectResponseObject, error)
+	// TransferProject Make another member the owner; the caller becomes an editor (FR-10.5)
+	// (POST /projects/{projectId}/transfer)
+	TransferProject(ctx context.Context, request TransferProjectRequestObject) (TransferProjectResponseObject, error)
 	// LookupPublicationByDOI Preview the metadata of a publication by its DOI (FR-5.2, FR-5.6)
 	// (GET /publications/lookup)
 	LookupPublicationByDOI(ctx context.Context, request LookupPublicationByDOIRequestObject) (LookupPublicationByDOIResponseObject, error)
@@ -21263,6 +24068,58 @@ func (sh *strictHandler) GetHealth(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// ListMyInvitations operation middleware
+func (sh *strictHandler) ListMyInvitations(w http.ResponseWriter, r *http.Request, params ListMyInvitationsParams) {
+	var request ListMyInvitationsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListMyInvitations(ctx, request.(ListMyInvitationsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListMyInvitations")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListMyInvitationsResponseObject); ok {
+		if err := validResponse.VisitListMyInvitationsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListMyJoinRequests operation middleware
+func (sh *strictHandler) ListMyJoinRequests(w http.ResponseWriter, r *http.Request, params ListMyJoinRequestsParams) {
+	var request ListMyJoinRequestsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListMyJoinRequests(ctx, request.(ListMyJoinRequestsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListMyJoinRequests")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListMyJoinRequestsResponseObject); ok {
+		if err := validResponse.VisitListMyJoinRequestsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListMyProjects operation middleware
 func (sh *strictHandler) ListMyProjects(w http.ResponseWriter, r *http.Request, params ListMyProjectsParams) {
 	var request ListMyProjectsRequestObject
@@ -22744,6 +25601,409 @@ func (sh *strictHandler) UpdateProject(w http.ResponseWriter, r *http.Request, p
 	}
 }
 
+// ListProjectInvitations operation middleware
+func (sh *strictHandler) ListProjectInvitations(w http.ResponseWriter, r *http.Request, projectId ProjectId, params ListProjectInvitationsParams) {
+	var request ListProjectInvitationsRequestObject
+
+	request.ProjectId = projectId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListProjectInvitations(ctx, request.(ListProjectInvitationsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListProjectInvitations")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListProjectInvitationsResponseObject); ok {
+		if err := validResponse.VisitListProjectInvitationsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateInvitation operation middleware
+func (sh *strictHandler) CreateInvitation(w http.ResponseWriter, r *http.Request, projectId ProjectId) {
+	var request CreateInvitationRequestObject
+
+	request.ProjectId = projectId
+
+	var body CreateInvitationJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateInvitation(ctx, request.(CreateInvitationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateInvitation")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateInvitationResponseObject); ok {
+		if err := validResponse.VisitCreateInvitationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CancelInvitation operation middleware
+func (sh *strictHandler) CancelInvitation(w http.ResponseWriter, r *http.Request, projectId ProjectId, invitationId InvitationId) {
+	var request CancelInvitationRequestObject
+
+	request.ProjectId = projectId
+	request.InvitationId = invitationId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CancelInvitation(ctx, request.(CancelInvitationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CancelInvitation")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CancelInvitationResponseObject); ok {
+		if err := validResponse.VisitCancelInvitationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AcceptInvitation operation middleware
+func (sh *strictHandler) AcceptInvitation(w http.ResponseWriter, r *http.Request, projectId ProjectId, invitationId InvitationId) {
+	var request AcceptInvitationRequestObject
+
+	request.ProjectId = projectId
+	request.InvitationId = invitationId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AcceptInvitation(ctx, request.(AcceptInvitationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AcceptInvitation")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AcceptInvitationResponseObject); ok {
+		if err := validResponse.VisitAcceptInvitationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RejectInvitation operation middleware
+func (sh *strictHandler) RejectInvitation(w http.ResponseWriter, r *http.Request, projectId ProjectId, invitationId InvitationId) {
+	var request RejectInvitationRequestObject
+
+	request.ProjectId = projectId
+	request.InvitationId = invitationId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RejectInvitation(ctx, request.(RejectInvitationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RejectInvitation")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RejectInvitationResponseObject); ok {
+		if err := validResponse.VisitRejectInvitationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListProjectJoinRequests operation middleware
+func (sh *strictHandler) ListProjectJoinRequests(w http.ResponseWriter, r *http.Request, projectId ProjectId, params ListProjectJoinRequestsParams) {
+	var request ListProjectJoinRequestsRequestObject
+
+	request.ProjectId = projectId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListProjectJoinRequests(ctx, request.(ListProjectJoinRequestsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListProjectJoinRequests")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListProjectJoinRequestsResponseObject); ok {
+		if err := validResponse.VisitListProjectJoinRequestsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateJoinRequest operation middleware
+func (sh *strictHandler) CreateJoinRequest(w http.ResponseWriter, r *http.Request, projectId ProjectId) {
+	var request CreateJoinRequestRequestObject
+
+	request.ProjectId = projectId
+
+	var body CreateJoinRequestJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateJoinRequest(ctx, request.(CreateJoinRequestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateJoinRequest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateJoinRequestResponseObject); ok {
+		if err := validResponse.VisitCreateJoinRequestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CancelJoinRequest operation middleware
+func (sh *strictHandler) CancelJoinRequest(w http.ResponseWriter, r *http.Request, projectId ProjectId, requestId JoinRequestId) {
+	var request CancelJoinRequestRequestObject
+
+	request.ProjectId = projectId
+	request.RequestId = requestId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CancelJoinRequest(ctx, request.(CancelJoinRequestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CancelJoinRequest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CancelJoinRequestResponseObject); ok {
+		if err := validResponse.VisitCancelJoinRequestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AcceptJoinRequest operation middleware
+func (sh *strictHandler) AcceptJoinRequest(w http.ResponseWriter, r *http.Request, projectId ProjectId, requestId JoinRequestId) {
+	var request AcceptJoinRequestRequestObject
+
+	request.ProjectId = projectId
+	request.RequestId = requestId
+
+	var body AcceptJoinRequestJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AcceptJoinRequest(ctx, request.(AcceptJoinRequestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AcceptJoinRequest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AcceptJoinRequestResponseObject); ok {
+		if err := validResponse.VisitAcceptJoinRequestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RejectJoinRequest operation middleware
+func (sh *strictHandler) RejectJoinRequest(w http.ResponseWriter, r *http.Request, projectId ProjectId, requestId JoinRequestId) {
+	var request RejectJoinRequestRequestObject
+
+	request.ProjectId = projectId
+	request.RequestId = requestId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RejectJoinRequest(ctx, request.(RejectJoinRequestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RejectJoinRequest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RejectJoinRequestResponseObject); ok {
+		if err := validResponse.VisitRejectJoinRequestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// LeaveProject operation middleware
+func (sh *strictHandler) LeaveProject(w http.ResponseWriter, r *http.Request, projectId ProjectId) {
+	var request LeaveProjectRequestObject
+
+	request.ProjectId = projectId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.LeaveProject(ctx, request.(LeaveProjectRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "LeaveProject")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(LeaveProjectResponseObject); ok {
+		if err := validResponse.VisitLeaveProjectResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListProjectMembers operation middleware
+func (sh *strictHandler) ListProjectMembers(w http.ResponseWriter, r *http.Request, projectId ProjectId, params ListProjectMembersParams) {
+	var request ListProjectMembersRequestObject
+
+	request.ProjectId = projectId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListProjectMembers(ctx, request.(ListProjectMembersRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListProjectMembers")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListProjectMembersResponseObject); ok {
+		if err := validResponse.VisitListProjectMembersResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RemoveProjectMember operation middleware
+func (sh *strictHandler) RemoveProjectMember(w http.ResponseWriter, r *http.Request, projectId ProjectId, userId MemberUserId) {
+	var request RemoveProjectMemberRequestObject
+
+	request.ProjectId = projectId
+	request.UserId = userId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RemoveProjectMember(ctx, request.(RemoveProjectMemberRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RemoveProjectMember")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RemoveProjectMemberResponseObject); ok {
+		if err := validResponse.VisitRemoveProjectMemberResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateProjectMember operation middleware
+func (sh *strictHandler) UpdateProjectMember(w http.ResponseWriter, r *http.Request, projectId ProjectId, userId MemberUserId) {
+	var request UpdateProjectMemberRequestObject
+
+	request.ProjectId = projectId
+	request.UserId = userId
+
+	var body UpdateProjectMemberJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateProjectMember(ctx, request.(UpdateProjectMemberRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateProjectMember")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateProjectMemberResponseObject); ok {
+		if err := validResponse.VisitUpdateProjectMemberResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // RecommendProjectResearchers operation middleware
 func (sh *strictHandler) RecommendProjectResearchers(w http.ResponseWriter, r *http.Request, projectId ProjectId) {
 	var request RecommendProjectResearchersRequestObject
@@ -22796,6 +26056,39 @@ func (sh *strictHandler) ReportProject(w http.ResponseWriter, r *http.Request, p
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ReportProjectResponseObject); ok {
 		if err := validResponse.VisitReportProjectResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// TransferProject operation middleware
+func (sh *strictHandler) TransferProject(w http.ResponseWriter, r *http.Request, projectId ProjectId) {
+	var request TransferProjectRequestObject
+
+	request.ProjectId = projectId
+
+	var body TransferProjectJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.TransferProject(ctx, request.(TransferProjectRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "TransferProject")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(TransferProjectResponseObject); ok {
+		if err := validResponse.VisitTransferProjectResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

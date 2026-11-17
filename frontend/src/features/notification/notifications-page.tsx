@@ -14,7 +14,7 @@ import { markAllNotificationsRead, markNotificationRead, type Notification } fro
 import { refreshBadges } from "./badges";
 import { relativeTime } from "./format";
 import { type NotificationList, useNotificationList } from "./notification-list";
-import { hasPendingRequest, senderName, sentenceFor } from "./types";
+import { hasPendingRequest, linkFor, senderName, sentenceFor } from "./types";
 import { setUnreadNotifications, useUnreadNotifications } from "./unread-count";
 
 const headingId = "notifications-heading";
@@ -183,7 +183,7 @@ function Row({ n, connected, onRead, onAccepted, onIgnored, onGone }: RowProps) 
     // A modified or middle click opens the link the browser's way.
     if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     e.preventDefault();
-    router.push(n.link);
+    router.push(linkFor(n));
   }
 
   return (
@@ -194,7 +194,7 @@ function Row({ n, connected, onRead, onAccepted, onIgnored, onGone }: RowProps) 
       {n.actor ? <Avatar name={name} src={n.actor.photoUrl} size="list" decorative /> : <LogoSquare size="lg" />}
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <a
-          href={n.link}
+          href={linkFor(n)}
           onClick={open}
           className="text-rs-body text-rs-text no-underline after:absolute after:inset-0 hover:text-rs-text focus-visible:outline-none focus-visible:after:shadow-focus"
         >

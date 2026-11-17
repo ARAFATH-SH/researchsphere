@@ -19,6 +19,8 @@ import (
 const (
 	createPrefix = "project:create:"
 	searchPrefix = "project:search:"
+	joinPrefix   = "project:join:"
+	invitePrefix = "project:invite:"
 )
 
 // callTimeout bounds each call. A request waits at most this long for Redis before going on
@@ -51,6 +53,12 @@ func (l *Limits) Create() domain.Limiter { return counter{client: l.client, pref
 
 // Search counts a user's project searches.
 func (l *Limits) Search() domain.Limiter { return counter{client: l.client, prefix: searchPrefix} }
+
+// Join counts the join requests a user sends (FR-11.1).
+func (l *Limits) Join() domain.Limiter { return counter{client: l.client, prefix: joinPrefix} }
+
+// Invite counts the invitations an owner sends (FR-11.3).
+func (l *Limits) Invite() domain.Limiter { return counter{client: l.client, prefix: invitePrefix} }
 
 // Close closes the own client.
 func (l *Limits) Close() error { return l.client.Close() }

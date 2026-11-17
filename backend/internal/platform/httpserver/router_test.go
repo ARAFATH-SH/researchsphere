@@ -494,6 +494,74 @@ func (fakeAPI) ListMyProjects(context.Context, gen.ListMyProjectsRequestObject) 
 	return nil, nil
 }
 
+func (fakeAPI) CreateJoinRequest(context.Context, gen.CreateJoinRequestRequestObject) (gen.CreateJoinRequestResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) CancelJoinRequest(context.Context, gen.CancelJoinRequestRequestObject) (gen.CancelJoinRequestResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) AcceptJoinRequest(context.Context, gen.AcceptJoinRequestRequestObject) (gen.AcceptJoinRequestResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) RejectJoinRequest(context.Context, gen.RejectJoinRequestRequestObject) (gen.RejectJoinRequestResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) ListProjectJoinRequests(context.Context, gen.ListProjectJoinRequestsRequestObject) (gen.ListProjectJoinRequestsResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) CreateInvitation(context.Context, gen.CreateInvitationRequestObject) (gen.CreateInvitationResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) ListProjectInvitations(context.Context, gen.ListProjectInvitationsRequestObject) (gen.ListProjectInvitationsResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) CancelInvitation(context.Context, gen.CancelInvitationRequestObject) (gen.CancelInvitationResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) AcceptInvitation(context.Context, gen.AcceptInvitationRequestObject) (gen.AcceptInvitationResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) RejectInvitation(context.Context, gen.RejectInvitationRequestObject) (gen.RejectInvitationResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) ListProjectMembers(context.Context, gen.ListProjectMembersRequestObject) (gen.ListProjectMembersResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) UpdateProjectMember(context.Context, gen.UpdateProjectMemberRequestObject) (gen.UpdateProjectMemberResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) RemoveProjectMember(context.Context, gen.RemoveProjectMemberRequestObject) (gen.RemoveProjectMemberResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) LeaveProject(context.Context, gen.LeaveProjectRequestObject) (gen.LeaveProjectResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) TransferProject(context.Context, gen.TransferProjectRequestObject) (gen.TransferProjectResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) ListMyJoinRequests(context.Context, gen.ListMyJoinRequestsRequestObject) (gen.ListMyJoinRequestsResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) ListMyInvitations(context.Context, gen.ListMyInvitationsRequestObject) (gen.ListMyInvitationsResponseObject, error) {
+	return nil, nil
+}
+
 func (fakeAPI) SearchProjects(context.Context, gen.SearchProjectsRequestObject) (gen.SearchProjectsResponseObject, error) {
 	return nil, nil
 }
@@ -884,8 +952,8 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 
 func TestRoutes(t *testing.T) {
 	got := Routes()
-	if len(got) != 120 {
-		t.Errorf("Routes() returned %d routes, want the 120 operations in the contract: %v", len(got), got)
+	if len(got) != 137 {
+		t.Errorf("Routes() returned %d routes, want the 137 operations in the contract: %v", len(got), got)
 	}
 	seen := map[string]bool{}
 	for _, p := range got {

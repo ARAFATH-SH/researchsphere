@@ -222,7 +222,8 @@ func wireEnv(t *testing.T, pool *pgxpool.Pool, rdb *goredis.Client, files *stora
 	titles.messaging = messaging
 	realtime.bind(messaging, notifications)
 	messaging.UseFiles(messagingusecase.FileDeps{Intake: fileIntake{media: mediausecase.NewAttachments(images, imaging.Codec{})}, Objects: files})
-	var notifier socialdomain.Notifier = connectionNotifier{notifications: notifications, messaging: messaging, events: realtime.events}
+	memberships := &projectMemberships{}
+	var notifier socialdomain.Notifier = connectionNotifier{notifications: notifications, messaging: messaging, events: realtime.events, memberships: memberships}
 	if opt.wrapNotifier != nil {
 		notifier = opt.wrapNotifier(notifier)
 	}
@@ -295,8 +296,11 @@ func wireEnv(t *testing.T, pool *pgxpool.Pool, rdb *goredis.Client, files *stora
 	if opt.ai != nil {
 		search.embedder = projectQueryEmbedder{q: queryEmbedder{ai: opt.ai}}
 	}
-	projects, projectLimits := newProjects(pool, rdb, standings, search, projectChanges{recs: recommendations}, logger)
+	projects, projectLimits := newProjects(pool, rdb, standings, search, projectChanges{recs: recommendations, people: recCache, logger: logger},
+		projectNotifier{notifications: notifications}, logger)
 	t.Cleanup(func() { _ = projectLimits.Close() })
+	memberships.projects = projects
+	titles.projects = projects
 	if err := enableProjectMatching(recommendations, recStore, recCache, projects, recsCfg); err != nil {
 		t.Fatal(err)
 	}

@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 
 import { suggestTags } from "@/features/profile/api";
 
-import { createProject, listMyProjects, type ProjectPage } from "./api";
+import { createProject, listMyInvitations, listMyJoinRequests, listMyProjects, type ProjectPage } from "./api";
 import { ProjectsPage } from "./projects-page";
 import { failed, project, summary } from "./test-projects";
 import { projectMessages } from "./validation";
@@ -11,7 +11,10 @@ jest.mock("./api", () => ({
   ...jest.requireActual("./api"),
   listMyProjects: jest.fn(),
   createProject: jest.fn(),
+  listMyInvitations: jest.fn(),
+  listMyJoinRequests: jest.fn(),
 }));
+jest.mock("@/features/realtime/use-realtime", () => ({ useRealtimeEvent: jest.fn(), useOnConnected: jest.fn() }));
 jest.mock("@/features/profile/api");
 const mockPush = jest.fn();
 jest.mock("next/navigation", () => ({ useRouter: () => ({ push: mockPush }) }));
@@ -29,6 +32,9 @@ beforeEach(() => {
   consoleError = jest.spyOn(console, "error");
   jest.mocked(suggestTags).mockResolvedValue({ ok: true, data: [] });
   mockList.mockResolvedValue(page([]));
+  const none = { ok: true as const, data: { items: [], page: 1, pageSize: 50, total: 0 } };
+  jest.mocked(listMyInvitations).mockResolvedValue(none);
+  jest.mocked(listMyJoinRequests).mockResolvedValue(none);
 });
 afterEach(() => {
   // No act() or other React warnings.

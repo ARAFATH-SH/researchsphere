@@ -22,11 +22,13 @@ import (
 // returned limits at shutdown.
 //
 // Hybrid project search (AI-5.1) embeds its queries with the AI service and shares the query
-// vectors researcher search keeps; status changes and deletions are passed to watcher.
-func newProjects(pool *pgxpool.Pool, rdb *goredis.Client, standings *moderationusecase.Standings, search projectSearch, watcher projectdomain.Watcher, logger *slog.Logger) (*projectusecase.Service, *projectredis.Limits) {
+// vectors researcher search keeps; status, owner and membership changes and deletions are
+// passed to watcher, and membership events (FR-9.2) to notifier.
+func newProjects(pool *pgxpool.Pool, rdb *goredis.Client, standings *moderationusecase.Standings, search projectSearch, watcher projectdomain.Watcher, notifier projectdomain.Notifier, logger *slog.Logger) (*projectusecase.Service, *projectredis.Limits) {
 	limits := projectredis.New(rdb)
+	store := projectpg.NewStore(pool)
 	svc := projectusecase.New(projectusecase.Deps{
-		Store:         projectpg.NewStore(pool),
+		Store:         store,
 		Tx:            postgres.NewTransactor(pool),
 		Permissions:   projectPermissions{},
 		Actors:        projectActors{standings: standings},
@@ -37,6 +39,10 @@ func newProjects(pool *pgxpool.Pool, rdb *goredis.Client, standings *moderationu
 		AITimeout:     search.timeout,
 		Watcher:       watcher,
 		Logger:        logger,
+		Members:       store,
+		Notifier:      notifier,
+		JoinLimiter:   limits.Join(),
+		InviteLimiter: limits.Invite(),
 	})
 	return svc, limits
 }
@@ -56,10 +62,12 @@ var _ projectdomain.Permissions = projectPermissions{}
 
 // projectActions maps the module's actions to the rows of the project table.
 var projectActions = map[projectdomain.Action]authz.ProjectAction{
-	projectdomain.ActView:         authz.ViewProjectPage,
-	projectdomain.ActEditDetails:  authz.EditProjectDetails,
-	projectdomain.ActEditAbstract: authz.CompileAndAssist,
-	projectdomain.ActDelete:       authz.TransferOrDeleteProject,
+	projectdomain.ActView:          authz.ViewProjectPage,
+	projectdomain.ActEditDetails:   authz.EditProjectDetails,
+	projectdomain.ActEditAbstract:  authz.CompileAndAssist,
+	projectdomain.ActDelete:        authz.TransferOrDeleteProject,
+	projectdomain.ActTransfer:      authz.TransferOrDeleteProject,
+	projectdomain.ActRequestToJoin: authz.RequestToJoin,
 	// AI-2.3 (recommended researchers, owner only) has no row of its own; its list is for
 	// finding people to invite (decisions.md 2026-11-16).
 	projectdomain.ActManageMembers: authz.ManageMembers,

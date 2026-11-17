@@ -43,7 +43,7 @@ const variants: Record<RecommendationVariant, VariantConfig> = {
   },
   network: { title: "Researchers to work with", level: 3, intro: excludesNote, wide: true },
   page: { title: "Researchers to work with", level: 2, intro: excludesNote, wide: true },
-  // slice 20: the project rows offer Invite (FR-11.3) in place of Connect.
+  // The project rows offer the owner's Invite (FR-11.3) in place of Connect, through action.
   project: {
     title: "Researchers who fit this project",
     level: 2,
@@ -65,8 +65,17 @@ const heading = "text-rs-lead leading-rs-snug font-medium text-rs-text";
 // RecommendationList is a card of collaborator recommendations (AI-2) showing the first
 // limit rows of the page's shared list (RecommendationsProvider). Without a profile to match
 // on it asks for one (AI-4.2), while the profile's embedding is made it says so, and an
-// error offers a retry. The profile variant shows only when there is someone to show.
-export function RecommendationList({ limit, variant }: { limit: number; variant: RecommendationVariant }) {
+// error offers a retry. The profile variant shows only when there is someone to show. action,
+// when given, replaces each row's Connect (the project page's Invite).
+export function RecommendationList({
+  limit,
+  variant,
+  action,
+}: {
+  limit: number;
+  variant: RecommendationVariant;
+  action?: (item: PersonRecommendation) => ReactNode;
+}) {
   const recs = useRecommendations();
   const config = variants[variant];
   if (!recs) return null;
@@ -120,6 +129,7 @@ export function RecommendationList({ limit, variant }: { limit: number; variant:
                     status={link?.status ?? item.connectionStatus}
                     requestId={link?.requestId ?? null}
                     onLinkChange={(next) => recs.onLinkChange(item.userId, next)}
+                    action={action?.(item)}
                   />
                 </li>
               );
@@ -214,19 +224,21 @@ function Card({ config, busy, children }: { config: VariantConfig; busy: boolean
 }
 
 // Row is one recommended researcher: photo, name to their profile, headline, the match
-// score, the interests and skills both have, and Connect.
+// score, the interests and skills both have, and Connect (or action in its place).
 function Row({
   item,
   wide,
   status,
   requestId,
   onLinkChange,
+  action,
 }: {
   item: PersonRecommendation;
   wide: boolean;
   status: PersonRecommendation["connectionStatus"];
   requestId: string | null;
   onLinkChange: Parameters<typeof ConnectButton>[0]["onChange"];
+  action?: ReactNode;
 }) {
   const subtitle = item.headline ?? item.institution;
   const name = (
@@ -237,7 +249,7 @@ function Row({
       {item.fullName}
     </Link>
   );
-  const connect = (
+  const connect = action ?? (
     <ConnectButton
       userId={item.userId}
       name={item.fullName}
