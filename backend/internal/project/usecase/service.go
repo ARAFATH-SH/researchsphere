@@ -1,6 +1,6 @@
 // Package usecase holds the project module's business logic: creating, reading, editing,
-// listing, searching and deleting research projects (FR-10.1 to FR-10.3, FR-10.6), and
-// reporting them (FR-15.11).
+// listing, searching and deleting research projects (FR-10.1 to FR-10.3, FR-10.6),
+// membership and ownership (FR-11.1 to FR-11.5, FR-10.5), and reporting them (FR-15.11).
 package usecase
 
 import (
@@ -48,6 +48,13 @@ type Deps struct {
 	AITimeout     time.Duration
 	Watcher       domain.Watcher
 	Logger        *slog.Logger
+
+	// Membership (FR-11, FR-10.5). Members is required for the membership operations;
+	// without a Notifier nobody is told, without a limiter nothing is counted.
+	Members       domain.MemberStore
+	Notifier      domain.Notifier
+	JoinLimiter   domain.Limiter
+	InviteLimiter domain.Limiter
 }
 
 // Service runs the project operations.
@@ -66,6 +73,15 @@ func New(d Deps) *Service {
 	}
 	if d.Watcher == nil {
 		d.Watcher = noWatcher{}
+	}
+	if d.Notifier == nil {
+		d.Notifier = noNotifier{}
+	}
+	if d.JoinLimiter == nil {
+		d.JoinLimiter = noLimit{}
+	}
+	if d.InviteLimiter == nil {
+		d.InviteLimiter = noLimit{}
 	}
 	return &Service{d: d}
 }

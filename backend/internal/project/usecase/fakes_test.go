@@ -210,8 +210,10 @@ func (tablePerms) Can(role domain.Role, a domain.Action) bool {
 		return true
 	case domain.ActEditAbstract:
 		return role == domain.RoleOwner || role == domain.RoleEditor
-	case domain.ActEditDetails, domain.ActDelete, domain.ActManageMembers:
+	case domain.ActEditDetails, domain.ActDelete, domain.ActManageMembers, domain.ActTransfer:
 		return role == domain.RoleOwner
+	case domain.ActRequestToJoin:
+		return role == domain.RoleNone
 	}
 	return false
 }
@@ -257,18 +259,29 @@ func (a memActors) Standing(_ context.Context, user string) (domain.Standing, er
 }
 
 type env struct {
-	store   *memStore
-	create  *memLimiter
-	search  *memLimiter
-	actors  memActors
-	service *Service
+	store    *memStore
+	create   *memLimiter
+	search   *memLimiter
+	join     *memLimiter
+	invite   *memLimiter
+	actors   memActors
+	members  *memMembers
+	notifier *memNotifier
+	watcher  *memWatcher
+	service  *Service
 }
 
 func newEnv() *env {
-	e := &env{store: newMemStore(), create: &memLimiter{}, search: &memLimiter{}, actors: memActors{suspended: map[string]bool{}}}
+	s := newMemStore()
+	e := &env{
+		store: s, create: &memLimiter{}, search: &memLimiter{}, join: &memLimiter{}, invite: &memLimiter{},
+		actors: memActors{suspended: map[string]bool{}}, members: newMemMembers(s),
+		notifier: &memNotifier{}, watcher: &memWatcher{},
+	}
 	e.service = New(Deps{
 		Store: e.store, Tx: memTx{s: e.store}, Permissions: tablePerms{}, Actors: e.actors,
-		CreateLimiter: e.create, SearchLimiter: e.search,
+		CreateLimiter: e.create, SearchLimiter: e.search, Watcher: e.watcher,
+		Members: e.members, Notifier: e.notifier, JoinLimiter: e.join, InviteLimiter: e.invite,
 	})
 	return e
 }

@@ -299,9 +299,9 @@ func (s *Service) ProjectChanged(ctx context.Context, projectID string) {
 	}
 }
 
-// MembersChanged is told, after the commit, that userIDs joined or left the project: their
-// project lists and the project's researcher list are dropped.
-// slice 20: joining, leaving, removal and ownership transfer call it.
+// MembersChanged is told, after the commit, that userIDs' membership of the project or a
+// join request or invitation between them and it changed (FR-11, FR-10.5): their project
+// lists and the project's researcher list are dropped.
 func (s *Service) MembersChanged(ctx context.Context, projectID string, userIDs ...string) {
 	if s.projects == nil {
 		return

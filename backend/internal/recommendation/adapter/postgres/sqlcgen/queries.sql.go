@@ -383,8 +383,9 @@ type RankProjectsRow struct {
 // another model; projects the caller is a member of; projects the caller has a pending
 // request to join; projects whose owner is unverified or suspended now; a block either way
 // between the caller and the owner (FR-16.9).
-// slice 20: join requests are written there (project_join_requests exists since 000001);
-// the filter below already leaves a pending request of kind 'request' out.
+// The project module writes the join requests (FR-11.1); a pending one of kind 'request'
+// leaves the project out, and the module clears the caller's kept list on every request
+// change so the filter shows at once.
 func (q *Queries) RankProjects(ctx context.Context, arg RankProjectsParams) ([]RankProjectsRow, error) {
 	rows, err := q.db.Query(ctx, rankProjects, arg.UserID, arg.Lim)
 	if err != nil {

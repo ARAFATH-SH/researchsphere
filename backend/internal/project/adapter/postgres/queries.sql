@@ -330,3 +330,184 @@ JOIN projects p ON p.id = cand.project_id
 JOIN project_members o ON o.project_id = p.id AND o.role = 'owner'
 LEFT JOIN profiles op ON op.user_id = o.user_id
 ORDER BY cand.distance, cand.project_id;
+
+-- Membership (FR-11.1 to FR-11.5, FR-10.5; slice 20, chunk 20.1). A join request and an
+-- invitation are project_join_requests rows of kind 'request' and 'invitation'; one row per
+-- user and project may be pending (project_join_requests_pending_uq). The writes run in the
+-- usecase's transaction after LockProject. "Available" means verified and not suspended now
+-- (a suspension whose end has passed no longer counts).
+
+-- name: MembershipRelation :one
+-- What decides whether the user may ask to join or be invited: the account, a block either
+-- way with the owner, the role, and the pending request or invitation (if any).
+SELECT EXISTS (SELECT 1 FROM users u WHERE u.id = @user_id::uuid)::boolean AS user_exists,
+       EXISTS (SELECT 1 FROM users u
+               WHERE u.id = @user_id::uuid AND u.email_verified_at IS NOT NULL
+                 AND (u.suspended_at IS NULL OR (u.suspended_until IS NOT NULL AND u.suspended_until <= now())))::boolean AS available,
+       EXISTS (SELECT 1 FROM blocks b
+               JOIN project_members o ON o.project_id = @project_id::uuid AND o.role = 'owner'
+               WHERE (b.blocker_id = o.user_id AND b.blocked_id = @user_id::uuid)
+                  OR (b.blocker_id = @user_id::uuid AND b.blocked_id = o.user_id))::boolean AS blocked,
+       coalesce((SELECT m.role::text FROM project_members m
+                 WHERE m.project_id = @project_id::uuid AND m.user_id = @user_id::uuid), '')::text AS role;
+
+-- name: PendingJoinRequest :one
+SELECT id, project_id, user_id, kind::text AS kind, status::text AS status, message, coalesce(role::text, '')::text AS role, created_at, decided_at
+FROM project_join_requests
+WHERE project_id = @project_id AND user_id = @user_id AND status = 'pending';
+
+-- name: InsertJoinRequest :one
+INSERT INTO project_join_requests (project_id, user_id, kind, message, role)
+VALUES (@project_id, @user_id, (@kind::text)::join_request_kind, sqlc.narg(message), (sqlc.narg(role)::text)::project_role)
+RETURNING id, project_id, user_id, kind::text AS kind, status::text AS status, message, coalesce(role::text, '')::text AS role, created_at, decided_at;
+
+-- name: LockJoinRequest :one
+SELECT id, project_id, user_id, kind::text AS kind, status::text AS status, message, coalesce(role::text, '')::text AS role, created_at, decided_at
+FROM project_join_requests
+WHERE id = @id AND project_id = @project_id AND kind = (@kind::text)::join_request_kind
+FOR UPDATE;
+
+-- name: DecideJoinRequest :exec
+UPDATE project_join_requests
+SET status = (@status::text)::join_request_status, decided_at = clock_timestamp()
+WHERE id = @id AND status = 'pending';
+
+-- name: DeleteJoinRequest :exec
+DELETE FROM project_join_requests WHERE id = @id;
+
+-- name: InsertMember :one
+INSERT INTO project_members (project_id, user_id, role)
+VALUES (@project_id, @user_id, (@role::text)::project_role)
+RETURNING joined_at;
+
+-- name: ProjectPerson :one
+SELECT u.id, coalesce(p.full_name, '')::text AS full_name, p.headline, p.photo_file_id
+FROM users u
+LEFT JOIN profiles p ON p.user_id = u.id
+WHERE u.id = @user_id;
+
+-- name: ProjectMember :one
+SELECT m.user_id, m.role::text AS role, m.joined_at,
+       coalesce(p.full_name, '')::text AS full_name, p.headline, p.photo_file_id
+FROM project_members m
+LEFT JOIN profiles p ON p.user_id = m.user_id
+WHERE m.project_id = @project_id AND m.user_id = @user_id;
+
+-- name: SetMemberRole :exec
+-- During a transfer the owner is demoted first: project_members_one_owner_uq is checked at
+-- every statement, the owner trigger at commit.
+UPDATE project_members SET role = (@role::text)::project_role
+WHERE project_id = @project_id AND user_id = @user_id;
+
+-- name: DeleteMember :exec
+DELETE FROM project_members WHERE project_id = @project_id AND user_id = @user_id;
+
+-- name: CountProjectMembers :one
+SELECT count(*)::int FROM project_members WHERE project_id = @project_id;
+
+-- name: ProjectMembers :many
+-- The owner first, then in the order they joined.
+SELECT m.user_id, m.role::text AS role, m.joined_at,
+       coalesce(p.full_name, '')::text AS full_name, p.headline, p.photo_file_id
+FROM project_members m
+LEFT JOIN profiles p ON p.user_id = m.user_id
+WHERE m.project_id = @project_id
+ORDER BY (m.role = 'owner') DESC, m.joined_at, m.user_id
+LIMIT @lim OFFSET @off;
+
+-- name: CountProjectJoinRequests :one
+SELECT count(*)::int
+FROM project_join_requests j
+JOIN users u ON u.id = j.user_id
+WHERE j.project_id = @project_id AND j.kind = (@kind::text)::join_request_kind
+  AND u.email_verified_at IS NOT NULL
+  AND (u.suspended_at IS NULL OR (u.suspended_until IS NOT NULL AND u.suspended_until <= now()));
+
+-- name: ProjectJoinRequests :many
+-- Pending first, oldest first (the order they arrived); then decided, most recently decided
+-- first. Rows of users who are now unverified or suspended are left out.
+SELECT j.id, j.project_id, j.user_id, j.kind::text AS kind, j.status::text AS status, j.message, coalesce(j.role::text, '')::text AS role,
+       j.created_at, j.decided_at,
+       coalesce(p.full_name, '')::text AS full_name, p.headline, p.photo_file_id
+FROM project_join_requests j
+JOIN users u ON u.id = j.user_id
+LEFT JOIN profiles p ON p.user_id = j.user_id
+WHERE j.project_id = @project_id AND j.kind = (@kind::text)::join_request_kind
+  AND u.email_verified_at IS NOT NULL
+  AND (u.suspended_at IS NULL OR (u.suspended_until IS NOT NULL AND u.suspended_until <= now()))
+ORDER BY (j.status = 'pending') DESC,
+         CASE WHEN j.status = 'pending' THEN j.created_at END ASC,
+         j.decided_at DESC, j.id
+LIMIT @lim OFFSET @off;
+
+-- name: CountMyJoinRequests :one
+SELECT count(*)::int FROM project_join_requests WHERE user_id = @user_id AND kind = 'request';
+
+-- name: MyJoinRequests :many
+-- The user's own requests, newest first, with the project they are about.
+SELECT j.id, j.project_id, j.user_id, j.kind::text AS kind, j.status::text AS status, j.message, coalesce(j.role::text, '')::text AS role,
+       j.created_at, j.decided_at,
+       pr.title, pr.status::text AS project_status, o.user_id AS owner_id,
+       coalesce(op.full_name, '')::text AS owner_name, op.headline AS owner_headline, op.photo_file_id AS owner_photo
+FROM project_join_requests j
+JOIN projects pr ON pr.id = j.project_id
+JOIN project_members o ON o.project_id = pr.id AND o.role = 'owner'
+LEFT JOIN profiles op ON op.user_id = o.user_id
+WHERE j.user_id = @user_id AND j.kind = 'request'
+ORDER BY j.created_at DESC, j.id DESC
+LIMIT @lim OFFSET @off;
+
+-- name: CountMyInvitations :one
+SELECT count(*)::int
+FROM project_join_requests j
+JOIN project_members o ON o.project_id = j.project_id AND o.role = 'owner'
+JOIN users ou ON ou.id = o.user_id
+WHERE j.user_id = @user_id AND j.kind = 'invitation' AND j.status = 'pending'
+  AND ou.email_verified_at IS NOT NULL
+  AND (ou.suspended_at IS NULL OR (ou.suspended_until IS NOT NULL AND ou.suspended_until <= now()))
+  AND NOT EXISTS (SELECT 1 FROM blocks b
+                  WHERE (b.blocker_id = o.user_id AND b.blocked_id = j.user_id)
+                     OR (b.blocker_id = j.user_id AND b.blocked_id = o.user_id));
+
+-- name: MyInvitations :many
+-- The user's pending invitations, newest first; one whose owner is now unverified, suspended
+-- or blocked either way is left out until that changes.
+SELECT j.id, j.project_id, j.user_id, j.kind::text AS kind, j.status::text AS status, j.message, coalesce(j.role::text, '')::text AS role,
+       j.created_at, j.decided_at,
+       pr.title, pr.status::text AS project_status, o.user_id AS owner_id,
+       coalesce(op.full_name, '')::text AS owner_name, op.headline AS owner_headline, op.photo_file_id AS owner_photo
+FROM project_join_requests j
+JOIN projects pr ON pr.id = j.project_id
+JOIN project_members o ON o.project_id = pr.id AND o.role = 'owner'
+JOIN users ou ON ou.id = o.user_id
+LEFT JOIN profiles op ON op.user_id = o.user_id
+WHERE j.user_id = @user_id AND j.kind = 'invitation' AND j.status = 'pending'
+  AND ou.email_verified_at IS NOT NULL
+  AND (ou.suspended_at IS NULL OR (ou.suspended_until IS NOT NULL AND ou.suspended_until <= now()))
+  AND NOT EXISTS (SELECT 1 FROM blocks b
+                  WHERE (b.blocker_id = o.user_id AND b.blocked_id = j.user_id)
+                     OR (b.blocker_id = j.user_id AND b.blocked_id = o.user_id))
+ORDER BY j.created_at DESC, j.id DESC
+LIMIT @lim OFFSET @off;
+
+-- name: WithdrawJoinRequestsBetween :many
+-- After a block (FR-16.9): the pending requests and invitations of either user on a project
+-- the other owns.
+DELETE FROM project_join_requests j
+USING project_members o
+WHERE o.project_id = j.project_id AND o.role = 'owner' AND j.status = 'pending'
+  AND ((j.user_id = @a AND o.user_id = @b) OR (j.user_id = @b AND o.user_id = @a))
+RETURNING j.project_id, j.user_id;
+
+-- name: VisibleProjectTitles :many
+-- The titles of the projects viewer_id may see (domain.Access.Visible): a member sees any;
+-- anyone else an open or closed project whose owner is verified, not suspended and has not
+-- blocked them.
+SELECT p.id, p.title
+FROM projects p
+JOIN project_members o ON o.project_id = p.id AND o.role = 'owner'
+JOIN users ou ON ou.id = o.user_id
+WHERE p.id = ANY (@ids::uuid[])
+  AND (EXISTS (SELECT 1 FROM project_members m WHERE m.project_id = p.id AND m.user_id = @viewer_id::uuid)
+       OR (p.status <> 'archived' AND ou.email_verified_at IS NOT NULL AND ou.suspended_at IS NULL
+           AND NOT EXISTS (SELECT 1 FROM blocks x WHERE x.blocker_id = o.user_id AND x.blocked_id = @viewer_id::uuid)));

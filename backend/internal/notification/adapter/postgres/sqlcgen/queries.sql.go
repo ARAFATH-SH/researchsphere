@@ -91,6 +91,37 @@ func (q *Queries) DeleteNotificationsFor(ctx context.Context, arg DeleteNotifica
 	return result.RowsAffected(), nil
 }
 
+const deleteNotificationsFrom = `-- name: DeleteNotificationsFrom :many
+DELETE FROM notifications WHERE type = $1 AND entity_id = $2 AND actor_id = $3
+RETURNING user_id
+`
+
+type DeleteNotificationsFromParams struct {
+	Type     NotificationType
+	EntityID pgtype.UUID
+	ActorID  pgtype.UUID
+}
+
+func (q *Queries) DeleteNotificationsFrom(ctx context.Context, arg DeleteNotificationsFromParams) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, deleteNotificationsFrom, arg.Type, arg.EntityID, arg.ActorID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var user_id pgtype.UUID
+		if err := rows.Scan(&user_id); err != nil {
+			return nil, err
+		}
+		items = append(items, user_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const findNotification = `-- name: FindNotification :one
 SELECT n.id, n.actor_id, n.type, n.entity_id, n.created_at, n.read_at,
        COALESCE(p.full_name, '')::text AS full_name, p.photo_file_id,
@@ -279,6 +310,38 @@ type PutNotificationParams struct {
 // are not covered by that index and are simply inserted.
 func (q *Queries) PutNotification(ctx context.Context, arg PutNotificationParams) (pgtype.UUID, error) {
 	row := q.db.QueryRow(ctx, putNotification,
+		arg.UserID,
+		arg.ActorID,
+		arg.Type,
+		arg.EntityID,
+	)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
+const putProjectNotification = `-- name: PutProjectNotification :one
+INSERT INTO notifications (user_id, actor_id, type, entity_id)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (user_id, actor_id, type, entity_id)
+    WHERE type IN ('project_join_request', 'project_join_request_accepted', 'project_join_request_rejected',
+                   'project_invitation', 'project_invitation_accepted', 'project_invitation_rejected',
+                   'project_member_role_changed', 'project_member_removed', 'project_ownership_transferred')
+    DO UPDATE SET created_at = clock_timestamp(), read_at = NULL
+RETURNING id
+`
+
+type PutProjectNotificationParams struct {
+	UserID   pgtype.UUID
+	ActorID  pgtype.UUID
+	Type     NotificationType
+	EntityID pgtype.UUID
+}
+
+// For the project types notifications_project_uq allows one per recipient, actor, type and
+// project: a new one replaces the old (created now, unread).
+func (q *Queries) PutProjectNotification(ctx context.Context, arg PutProjectNotificationParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, putProjectNotification,
 		arg.UserID,
 		arg.ActorID,
 		arg.Type,

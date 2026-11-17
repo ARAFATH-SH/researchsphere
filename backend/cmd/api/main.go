@@ -180,8 +180,12 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 			EditWindow: cfg.MessageEditWindow, SearchesPerMinute: cfg.SearchesPerMinute,
 		}, time.Now, logger)
 	// A connection change and its notification are written in one transaction (FR-9.1).
+	// A block also withdraws pending project join requests and invitations between the two;
+	// the project usecase is set below, once built.
+	memberships := &projectMemberships{}
 	social := socialusecase.New(socialpg.NewStore(pool), postgres.NewTransactor(pool), connectLimiter,
-		connectionNotifier{notifications: notifications, messaging: messaging, events: realtime.events}, socialActors{standings: standings}, logger)
+		connectionNotifier{notifications: notifications, messaging: messaging, events: realtime.events, memberships: memberships},
+		socialActors{standings: standings}, logger)
 	connected.social = social
 	titles.messaging = messaging
 	realtime.bind(messaging, notifications)
@@ -244,14 +248,17 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 		return err
 	}
 	defer func() { _ = recCache.Close() }()
-	// Research projects (FR-10), with hybrid search (AI-5.1); their status changes and
-	// deletions renew the project recommendations.
+	// Research projects (FR-10), with hybrid search (AI-5.1) and membership (FR-11); their
+	// status, owner and membership changes and deletions renew the recommendations, and
+	// membership events are notified (FR-9.2).
 	projects, projectLimits := newProjects(pool, rdb, standings, projectSearch{
 		embedder: projectQueryEmbedder{q: queryEmbedder{ai: ai}},
 		vectors:  projectQueryVectors{cache: lookups.QueryVectors()},
 		timeout:  cfg.SearchAITimeout,
-	}, projectChanges{recs: recommendations}, logger)
+	}, projectChanges{recs: recommendations, people: recCache, logger: logger}, projectNotifier{notifications: notifications}, logger)
 	defer func() { _ = projectLimits.Close() }()
+	memberships.projects = projects
+	titles.projects = projects
 	// Project matching (AI-3.1, AI-2.3); new project embeddings renew its lists. The worker
 	// starts only now, so it never tells a service that is still being wired.
 	if err := enableProjectMatching(recommendations, recStore, recCache, projects, cfg); err != nil {

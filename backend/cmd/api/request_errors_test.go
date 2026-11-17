@@ -62,6 +62,11 @@ var jsonBodyRoutes = []struct {
 	{http.MethodPatch, "/api/v1/projects/" + okProjectID, "", `{"requiredSkills":"Go"}`, "requiredSkills", "requiredSkills must be a list."},
 	{http.MethodPost, "/api/v1/projects/" + okProjectID + "/reports", "reason", `{"reason":5}`, "reason", "reason must be a string."},
 	{http.MethodPost, "/api/v1/admin/project-reports/" + okUserID + "/resolve", "outcome", `{"outcome":5}`, "outcome", "outcome must be a string."},
+	{http.MethodPost, "/api/v1/projects/" + okProjectID + "/join-requests", "", `{"message":5}`, "message", "message must be a string."},
+	{http.MethodPost, "/api/v1/projects/" + okProjectID + "/join-requests/" + okJoinRequestID + "/accept", "role", `{"role":5}`, "role", "role must be a string."},
+	{http.MethodPost, "/api/v1/projects/" + okProjectID + "/invitations", "role", `{"role":"viewer","userId":5}`, "userId", "userId must be a UUID."},
+	{http.MethodPatch, "/api/v1/projects/" + okProjectID + "/members/" + okUserID, "role", `{"role":5}`, "role", "role must be a string."},
+	{http.MethodPost, "/api/v1/projects/" + okProjectID + "/transfer", "userId", `{"userId":5}`, "userId", "userId must be a UUID."},
 }
 
 // Every operation with a JSON body goes through the same decoder and the same error shape.

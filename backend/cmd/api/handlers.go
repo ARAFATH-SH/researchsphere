@@ -184,6 +184,29 @@ var platformGuards = map[string]authz.Action{
 	"GET /api/v1/me/projects":                   authz.ViewContent,
 	"GET /api/v1/search/projects":               authz.ViewContent,
 
+	// Project membership (FR-11, FR-10.5). Asking, inviting, answering, deciding, changing
+	// roles, removing, leaving and transferring are the row "Edit own profile, connect, ...",
+	// like connections; the lists are viewing content. The usecase then checks the project
+	// action ("Request to join", "Invite, decide join requests, ...", "Transfer ownership,
+	// ...") or, for answering an invitation and leaving, that the caller is its subject.
+	"POST /api/v1/projects/{projectId}/join-requests":                     authz.ActAsMember,
+	"GET /api/v1/projects/{projectId}/join-requests":                      authz.ViewContent,
+	"DELETE /api/v1/projects/{projectId}/join-requests/{requestId}":       authz.ActAsMember,
+	"POST /api/v1/projects/{projectId}/join-requests/{requestId}/accept":  authz.ActAsMember,
+	"POST /api/v1/projects/{projectId}/join-requests/{requestId}/reject":  authz.ActAsMember,
+	"POST /api/v1/projects/{projectId}/invitations":                       authz.ActAsMember,
+	"GET /api/v1/projects/{projectId}/invitations":                        authz.ViewContent,
+	"DELETE /api/v1/projects/{projectId}/invitations/{invitationId}":      authz.ActAsMember,
+	"POST /api/v1/projects/{projectId}/invitations/{invitationId}/accept": authz.ActAsMember,
+	"POST /api/v1/projects/{projectId}/invitations/{invitationId}/reject": authz.ActAsMember,
+	"GET /api/v1/projects/{projectId}/members":                            authz.ViewContent,
+	"PATCH /api/v1/projects/{projectId}/members/{userId}":                 authz.ActAsMember,
+	"DELETE /api/v1/projects/{projectId}/members/{userId}":                authz.ActAsMember,
+	"POST /api/v1/projects/{projectId}/leave":                             authz.ActAsMember,
+	"POST /api/v1/projects/{projectId}/transfer":                          authz.ActAsMember,
+	"GET /api/v1/me/join-requests":                                        authz.ViewContent,
+	"GET /api/v1/me/invitations":                                          authz.ViewContent,
+
 	// Connections (FR-7): sending and answering requests and removing a connection are
 	// the row "Edit own profile, connect, ..."; the lists are viewing content.
 	"POST /api/v1/connections/requests":                    authz.ActAsMember,

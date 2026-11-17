@@ -727,6 +727,20 @@ SELECT pg_temp.expect_ok('Notification: other types are not limited per pair',
     $s$INSERT INTO notifications (user_id, type, actor_id, entity_id)
        VALUES ('00000000-0000-0000-0000-000000000002', 'post_like', '00000000-0000-0000-0000-000000000001', gen_random_uuid()),
               ('00000000-0000-0000-0000-000000000002', 'post_like', '00000000-0000-0000-0000-000000000001', gen_random_uuid())$s$);
+INSERT INTO notifications (user_id, type, actor_id, entity_id) VALUES
+    ('00000000-0000-0000-0000-000000000002', 'project_member_role_changed',
+     '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-0000000000a1');
+SELECT pg_temp.expect_error('Notification: one of each project type per recipient, actor and project (FR-11)',
+    $s$INSERT INTO notifications (user_id, type, actor_id, entity_id)
+       VALUES ('00000000-0000-0000-0000-000000000002', 'project_member_role_changed',
+               '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-0000000000a1')$s$, '23505');
+SELECT pg_temp.expect_ok('Notification: the same project type about another project',
+    $s$INSERT INTO notifications (user_id, type, actor_id, entity_id)
+       VALUES ('00000000-0000-0000-0000-000000000002', 'project_member_role_changed',
+               '00000000-0000-0000-0000-000000000001', gen_random_uuid())$s$);
+SELECT pg_temp.expect_error('Notification: a project type has an actor',
+    $s$INSERT INTO notifications (user_id, type, entity_id)
+       VALUES ('00000000-0000-0000-0000-000000000002', 'project_ownership_transferred', gen_random_uuid())$s$, '23514');
 
 -- ---------------------------------------------------------------------------
 -- Post, like, comment (FR-8, FR-15.2)
@@ -801,12 +815,43 @@ SELECT pg_temp.expect_error('Join request: one pending request per user per proj
     $s$INSERT INTO project_join_requests (project_id, user_id, kind)
        VALUES ('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000000003', 'request')$s$, '23505');
 SELECT pg_temp.expect_error('Join request: no invitation while a request is pending',
-    $s$INSERT INTO project_join_requests (project_id, user_id, kind)
-       VALUES ('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000000003', 'invitation')$s$, '23505');
+    $s$INSERT INTO project_join_requests (project_id, user_id, kind, role)
+       VALUES ('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000000003', 'invitation', 'viewer')$s$, '23505');
 UPDATE project_join_requests SET status = 'rejected', decided_at = now() WHERE id = '00000000-0000-0000-0000-0000000000f1';
 SELECT pg_temp.expect_ok('Join request: a new request is allowed after a rejection',
     $s$INSERT INTO project_join_requests (project_id, user_id, kind)
        VALUES ('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000000003', 'request')$s$);
+SELECT pg_temp.expect_error('Join request: a decided request has its decision time',
+    $s$UPDATE project_join_requests SET status = 'accepted'
+       WHERE project_id = '00000000-0000-0000-0000-0000000000a1' AND user_id = '00000000-0000-0000-0000-000000000003'
+         AND status = 'pending'$s$, '23514');
+SELECT pg_temp.expect_error('Join request: a pending request has no decision time',
+    $s$UPDATE project_join_requests SET decided_at = now()
+       WHERE project_id = '00000000-0000-0000-0000-0000000000a1' AND user_id = '00000000-0000-0000-0000-000000000003'
+         AND status = 'pending'$s$, '23514');
+SELECT pg_temp.expect_error('Join request: a request has no role (FR-11.2)',
+    $s$INSERT INTO project_join_requests (project_id, user_id, kind, role)
+       VALUES ('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000000003', 'request', 'editor')$s$, '23514');
+SELECT pg_temp.expect_error('Join request: a message is at most 500 characters (FR-11.1)',
+    $s$INSERT INTO project_join_requests (project_id, user_id, kind, status, decided_at, message)
+       VALUES ('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000000003', 'request', 'rejected', now(),
+               repeat('x', 501))$s$, '23514');
+SELECT pg_temp.expect_error('Join request: an empty message is stored as none',
+    $s$INSERT INTO project_join_requests (project_id, user_id, kind, status, decided_at, message)
+       VALUES ('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000000003', 'request', 'rejected', now(), '')$s$, '23514');
+SELECT pg_temp.expect_ok('Join request: a message of 500 characters',
+    $s$INSERT INTO project_join_requests (project_id, user_id, kind, status, decided_at, message)
+       VALUES ('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000000003', 'request', 'rejected', now(),
+               repeat('é', 500))$s$);
+SELECT pg_temp.expect_error('Invitation: offers a role (FR-11.3)',
+    $s$INSERT INTO project_join_requests (project_id, user_id, kind, status, decided_at)
+       VALUES ('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000000003', 'invitation', 'rejected', now())$s$, '23514');
+SELECT pg_temp.expect_error('Invitation: never offers ownership (FR-10.5)',
+    $s$INSERT INTO project_join_requests (project_id, user_id, kind, status, decided_at, role)
+       VALUES ('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000000003', 'invitation', 'rejected', now(), 'owner')$s$, '23514');
+SELECT pg_temp.expect_error('Invitation: carries no message',
+    $s$INSERT INTO project_join_requests (project_id, user_id, kind, status, decided_at, role, message)
+       VALUES ('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000000003', 'invitation', 'rejected', now(), 'viewer', 'Hi')$s$, '23514');
 
 -- ---------------------------------------------------------------------------
 -- File (FR-12.1, FR-12.2): path unique within the project and cannot point outside it

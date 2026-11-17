@@ -98,7 +98,7 @@ Each frame is JSON text with `type` and `data`.
 | `unread.changed` | The user whose counts may have changed | `{total, requests}` |
 | `typing` | The other member; in a group, every other member with no block either way | `{conversationId, userId, isTyping}` |
 | `presence` | Allowed viewers | `{userId, online}` |
-| `notification.created` | The recipient | `Notification`, as the list shows it, with its `subject` (the group's current name for `group_added`) |
+| `notification.created` | The recipient | `Notification`, as the list shows it, with its `subject` (the group's current name for `group_added`; the project's current title for the project types, left out when the recipient cannot see the project) |
 | `notifications.unread` | The recipient | `{count}` |
 
 `clientId` appears only in the copy sent to the sender. `message` is the REST `Message`.

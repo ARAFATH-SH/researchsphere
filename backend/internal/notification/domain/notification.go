@@ -11,8 +11,8 @@ import (
 // Type says what happened. The values are those of the notification_type enum.
 type Type string
 
-// Types (FR-9.1). Later slices add the project (FR-9.2), comment (FR-9.3) and like
-// (FR-9.7) types: each is a constant here and an entry in Registry.
+// Types (FR-9.1, FR-9.2). Later slices add the comment (FR-9.3) and like (FR-9.7) types:
+// each is a constant here and an entry in Registry.
 const (
 	// TypeConnectionRequestReceived: the actor sent the recipient a connection request.
 	// The subject is the request.
@@ -30,6 +30,28 @@ const (
 	// and it was deleted (FR-16.7). A system notification: it has no actor. The subject is the
 	// conversation the file was uploaded to.
 	TypeAttachmentBlocked Type = "attachment_blocked"
+
+	// Project membership (FR-9.2, FR-11, FR-10.5). The subject is the project; the actor is
+	// who acted and the recipient who is told.
+	//
+	// TypeProjectJoinRequest: the actor asked to join the recipient's project.
+	TypeProjectJoinRequest Type = "project_join_request"
+	// TypeProjectJoinRequestAccepted, TypeProjectJoinRequestRejected: the actor, the owner,
+	// decided the recipient's request.
+	TypeProjectJoinRequestAccepted Type = "project_join_request_accepted"
+	TypeProjectJoinRequestRejected Type = "project_join_request_rejected"
+	// TypeProjectInvitation: the actor, the owner, invited the recipient.
+	TypeProjectInvitation Type = "project_invitation"
+	// TypeProjectInvitationAccepted, TypeProjectInvitationRejected: the actor answered the
+	// recipient's invitation.
+	TypeProjectInvitationAccepted Type = "project_invitation_accepted"
+	TypeProjectInvitationRejected Type = "project_invitation_rejected"
+	// TypeProjectMemberRoleChanged, TypeProjectMemberRemoved: the actor, the owner, changed
+	// the recipient's role or removed them.
+	TypeProjectMemberRoleChanged Type = "project_member_role_changed"
+	TypeProjectMemberRemoved     Type = "project_member_removed"
+	// TypeProjectOwnershipTransferred: the actor made the recipient the owner.
+	TypeProjectOwnershipTransferred Type = "project_ownership_transferred"
 )
 
 // Subject kinds: what a notification's SubjectID names.
@@ -37,6 +59,7 @@ const (
 	SubjectConnectionRequest = "connection_request"
 	SubjectWarning           = "warning"
 	SubjectConversation      = "conversation"
+	SubjectProject           = "project"
 )
 
 // Spec describes one Type.
@@ -74,6 +97,28 @@ var Registry = map[Type]Spec{
 		SubjectKind: SubjectConversation,
 		Link:        func(n Notification) string { return "/messaging/" + n.SubjectID },
 	},
+	TypeProjectJoinRequest:          projectSpec,
+	TypeProjectJoinRequestAccepted:  projectSpec,
+	TypeProjectJoinRequestRejected:  projectSpec,
+	TypeProjectInvitation:           projectSpec,
+	TypeProjectInvitationAccepted:   projectSpec,
+	TypeProjectInvitationRejected:   projectSpec,
+	TypeProjectMemberRoleChanged:    projectSpec,
+	TypeProjectMemberRemoved:        projectSpec,
+	TypeProjectOwnershipTransferred: projectSpec,
+}
+
+// projectSpec is the Spec of every project type: the subject is the project, named by its
+// current title, and the link its page.
+var projectSpec = Spec{
+	SubjectKind:  SubjectProject,
+	Link:         func(n Notification) string { return "/projects/" + n.SubjectID },
+	ShowsSubject: true,
+}
+
+// IsProjectType reports whether t is one of the project types.
+func IsProjectType(t Type) bool {
+	return Registry[t].SubjectKind == SubjectProject
 }
 
 // Notification is one stored notification.
@@ -151,7 +196,8 @@ type Publisher interface {
 // every read and every mark-as-read leaves the others out, so the count matches the list.
 type Store interface {
 	// Put stores n (ID, CreatedAt and ReadAt are ignored). Where the schema allows one
-	// notification of n.Type per recipient and actor, it replaces the existing one: the
+	// notification of n.Type per recipient and actor (the connection types), or per
+	// recipient, actor and subject (the project types), it replaces the existing one: the
 	// new subject, created now, unread.
 	// It returns the stored notification's ID.
 	Put(ctx context.Context, n Notification) (string, error)
@@ -161,6 +207,9 @@ type Store interface {
 	// DeleteFor deletes recipientID's notifications of type t about subjectID and reports
 	// whether there were any.
 	DeleteFor(ctx context.Context, t Type, subjectID, recipientID string) (bool, error)
+	// DeleteFrom deletes the notifications of type t about subjectID that actorID caused and
+	// returns their recipients.
+	DeleteFrom(ctx context.Context, t Type, subjectID, actorID string) ([]string, error)
 	// Find returns one visible notification of recipientID, otherwise ErrNotFound.
 	Find(ctx context.Context, recipientID, id string) (Item, error)
 	// DeleteBetween deletes everything a and b were told about each other, of any type.

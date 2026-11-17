@@ -12,19 +12,22 @@ import (
 type NotificationType string
 
 const (
-	NotificationTypeConnectionRequestReceived  NotificationType = "connection_request_received"
-	NotificationTypeConnectionRequestAccepted  NotificationType = "connection_request_accepted"
-	NotificationTypeProjectJoinRequest         NotificationType = "project_join_request"
-	NotificationTypeProjectInvitation          NotificationType = "project_invitation"
-	NotificationTypeProjectJoinRequestAccepted NotificationType = "project_join_request_accepted"
-	NotificationTypeProjectJoinRequestRejected NotificationType = "project_join_request_rejected"
-	NotificationTypeProjectInvitationAccepted  NotificationType = "project_invitation_accepted"
-	NotificationTypeProjectInvitationRejected  NotificationType = "project_invitation_rejected"
-	NotificationTypePostComment                NotificationType = "post_comment"
-	NotificationTypePostLike                   NotificationType = "post_like"
-	NotificationTypeAccountWarning             NotificationType = "account_warning"
-	NotificationTypeGroupAdded                 NotificationType = "group_added"
-	NotificationTypeAttachmentBlocked          NotificationType = "attachment_blocked"
+	NotificationTypeConnectionRequestReceived   NotificationType = "connection_request_received"
+	NotificationTypeConnectionRequestAccepted   NotificationType = "connection_request_accepted"
+	NotificationTypeProjectJoinRequest          NotificationType = "project_join_request"
+	NotificationTypeProjectInvitation           NotificationType = "project_invitation"
+	NotificationTypeProjectJoinRequestAccepted  NotificationType = "project_join_request_accepted"
+	NotificationTypeProjectJoinRequestRejected  NotificationType = "project_join_request_rejected"
+	NotificationTypeProjectInvitationAccepted   NotificationType = "project_invitation_accepted"
+	NotificationTypeProjectInvitationRejected   NotificationType = "project_invitation_rejected"
+	NotificationTypePostComment                 NotificationType = "post_comment"
+	NotificationTypePostLike                    NotificationType = "post_like"
+	NotificationTypeAccountWarning              NotificationType = "account_warning"
+	NotificationTypeGroupAdded                  NotificationType = "group_added"
+	NotificationTypeAttachmentBlocked           NotificationType = "attachment_blocked"
+	NotificationTypeProjectMemberRoleChanged    NotificationType = "project_member_role_changed"
+	NotificationTypeProjectMemberRemoved        NotificationType = "project_member_removed"
+	NotificationTypeProjectOwnershipTransferred NotificationType = "project_ownership_transferred"
 )
 
 func (e *NotificationType) Scan(src interface{}) error {

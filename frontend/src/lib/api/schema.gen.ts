@@ -2566,6 +2566,382 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{projectId}/join-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The project's join requests, pending first (FR-11.2)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed, events
+         *     and recommendations" (SRS 2.3); a project the caller cannot see gets 404 `not_found`.
+         *     Then the project action "Invite, decide join requests, change roles, remove members"
+         *     (owner only), else 403 `forbidden`. Pending requests come first, oldest first; then
+         *     decided ones, most recently decided first. A request whose sender is now unverified or
+         *     suspended is left out.
+         */
+        get: operations["listProjectJoinRequests"];
+        put?: never;
+        /**
+         * Ask to join an open project, with a short message (FR-11.1)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3), then the project action "Request to join" (non-members).
+         *     Checks run in this order: the project must be one the caller can see and there must
+         *     be no block either way between the caller and the owner (else 404 `not_found`); the
+         *     caller's account must not be suspended (403 `account_suspended`); `message` (trimmed;
+         *     at most 500 characters, empty means none; else 400 `bad_request` with `field`); the
+         *     caller must not be a member (409 `already_member`); the project must be `open` (409
+         *     `project_not_open`); the caller may have one pending request per project (409
+         *     `request_pending`) and none while invited (409 `invitation_pending`: accept the
+         *     invitation instead). Each user may send 20 join requests a day; only sent requests
+         *     count. The owner is notified (`project_join_request`).
+         */
+        post: operations["createJoinRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{projectId}/join-requests/{requestId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Cancel the caller's own pending join request (FR-11.1)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Only the sender may cancel, also while suspended, and only
+         *     while the request is pending; anything else gets 404 `not_found`. The request is
+         *     deleted, and so is the owner's notification of it.
+         */
+        delete: operations["cancelJoinRequest"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{projectId}/join-requests/{requestId}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Accept a join request as editor or viewer (FR-11.2)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Checks run in this order: `role` is `editor` or `viewer`
+         *     (400 `bad_request`, `field: role`); the project must be one the caller can see (404
+         *     `not_found`); the project action "Invite, decide join requests, change roles, remove
+         *     members" (owner only, 403 `forbidden`); the caller's account is not suspended (403
+         *     `account_suspended`); the request must exist in this project and its sender must be
+         *     verified, not suspended and not blocked either way with the caller (404 `not_found`);
+         *     it must still be pending (409 `request_not_pending`, also for a second accept). The
+         *     project's status does not matter: a request sent while it was open can be accepted
+         *     after it closed. The sender becomes a member in the same transaction and is notified
+         *     (`project_join_request_accepted`); the owner's notification of the request is removed.
+         */
+        post: operations["acceptJoinRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{projectId}/join-requests/{requestId}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reject a join request (FR-11.2)
+         * @description As `acceptJoinRequest`, without a body, and a request from a sender who is now
+         *     unverified, suspended or blocked can be rejected too. The sender is notified
+         *     (`project_join_request_rejected`, FR-9.2) and may ask again.
+         */
+        post: operations["rejectJoinRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{projectId}/invitations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The project's invitations, pending first (FR-11.3)
+         * @description As `listProjectJoinRequests` (owner only), for invitations. An invitation to a user who
+         *     is now unverified or suspended is left out.
+         */
+        get: operations["listProjectInvitations"];
+        put?: never;
+        /**
+         * Invite a user to the project as editor or viewer (FR-11.3)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Checks run in this order: the body (`userId`, `role`
+         *     `editor` or `viewer`; 400 `bad_request` with `field`); the project must be one the
+         *     caller can see (404 `not_found`); the project action "Invite, decide join requests,
+         *     change roles, remove members" (owner only, 403 `forbidden`); the caller's account is
+         *     not suspended (403 `account_suspended`); the project must be `open` (409
+         *     `project_not_open`); the user must exist, be verified, not suspended and not blocked
+         *     either way with the caller (404 `user_not_found`, which does not say which); the user
+         *     must not be a member (409 `already_member`), nor invited already (409
+         *     `already_invited`), nor have a pending request (409 `request_pending`: accept the
+         *     request instead). Each owner may send 20 invitations a day; only sent invitations
+         *     count. The user is notified (`project_invitation`).
+         */
+        post: operations["createInvitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{projectId}/invitations/{invitationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Cancel a pending invitation (FR-11.3)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). The project must be one the caller can see (404
+         *     `not_found`); owner only (403 `forbidden`); the caller's account is not suspended (403
+         *     `account_suspended`); the invitation must exist in this project (404 `not_found`) and
+         *     be pending (409 `invitation_not_pending`). The invitation is deleted, and so is the
+         *     user's notification of it.
+         */
+        delete: operations["cancelInvitation"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{projectId}/invitations/{invitationId}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Accept an invitation and join the project (FR-11.3)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Checks run in this order: the invitation must exist in this
+         *     project and be addressed to the caller (404 `not_found`); it must be pending (409
+         *     `invitation_not_pending`, also for a second accept); the caller's account is not
+         *     suspended (403 `account_suspended`); the owner must be verified, not suspended and not
+         *     blocked either way with the caller (404 `not_found`). The project's status does not
+         *     matter. The caller joins with the invitation's role in the same transaction; the owner
+         *     is notified (`project_invitation_accepted`) and the caller's notification of the
+         *     invitation is removed.
+         */
+        post: operations["acceptInvitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{projectId}/invitations/{invitationId}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reject an invitation (FR-11.3)
+         * @description As `acceptInvitation`, but allowed while suspended and whoever the owner is now. The
+         *     owner is notified (`project_invitation_rejected`, FR-9.2).
+         */
+        post: operations["rejectInvitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{projectId}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The project's members with their roles (SRS 2.3, FR-11)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed, events
+         *     and recommendations" (SRS 2.3); a project the caller cannot see gets 404 `not_found`
+         *     (the row "View the project page (title, description, skills, members)"). The owner
+         *     comes first, then the others in the order they joined.
+         */
+        get: operations["listProjectMembers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{projectId}/members/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a member from the project (FR-11.4)
+         * @description As `updateProjectMember`, without a body; the owner cannot be removed, themselves
+         *     included (409 `cannot_remove_owner`). The member is notified
+         *     (`project_member_removed`).
+         */
+        delete: operations["removeProjectMember"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a member's role (FR-11.4)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Checks run in this order: `role` is `editor` or `viewer`
+         *     (400 `bad_request`, `field: role`); the project must be one the caller can see (404
+         *     `not_found`); owner only (403 `forbidden`); the caller's account is not suspended (403
+         *     `account_suspended`); the user must be a member (404 `not_found`) other than the owner
+         *     (409 `use_transfer`: ownership moves only by `transferProject`). The member's own
+         *     role again changes nothing and notifies nobody; otherwise the member is notified
+         *     (`project_member_role_changed`).
+         */
+        patch: operations["updateProjectMember"];
+        trace?: never;
+    };
+    "/projects/{projectId}/leave": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Leave a project the caller is a member of, not as its owner (FR-11.5)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Allowed while suspended. A caller who is not a member gets
+         *     404 `not_found`; the owner gets 409 `owner_must_transfer` (transfer ownership first,
+         *     or delete the project). Nobody is notified.
+         */
+        post: operations["leaveProject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{projectId}/transfer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Make another member the owner; the caller becomes an editor (FR-10.5)
+         * @description Needs the access cookie and the platform action "Edit own profile, connect, post,
+         *     like, comment" (SRS 2.3). Checks run in this order: `userId` (400 `bad_request`); the
+         *     project must be one the caller can see (404 `not_found`); the project action
+         *     "Transfer ownership, delete the project" (owner only, 403 `forbidden`); the caller's
+         *     account is not suspended (403 `account_suspended`); the user must be a member (409
+         *     `not_a_member`) other than the caller (409 `already_owner`), verified and not
+         *     suspended (409 `member_unavailable`). In one transaction the caller becomes an
+         *     `editor` and the user the `owner`. The new owner is notified
+         *     (`project_ownership_transferred`).
+         */
+        post: operations["transferProject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/join-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The caller's own join requests, with their status (FR-11.1)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed, events
+         *     and recommendations" (SRS 2.3). Every request the caller sent and did not cancel,
+         *     newest first.
+         */
+        get: operations["listMyJoinRequests"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/invitations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The caller's pending invitations (FR-11.3)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed, events
+         *     and recommendations" (SRS 2.3). Pending invitations to the caller, newest first. One
+         *     whose project's owner is now unverified or suspended, or blocked either way with the
+         *     caller, is left out until that changes.
+         */
+        get: operations["listMyInvitations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/search/projects": {
         parameters: {
             query?: never;
@@ -3395,10 +3771,18 @@ export interface components {
          *     with no actor. `group_added`: the actor, the group's owner, added the caller to a
          *     group (FR-16.6). `attachment_blocked`: the malware scan found something in a file the
          *     caller attached, and it was deleted (FR-16.7); a system notification, with no actor.
-         *     Later slices add the project, comment and like types.
+         *     The project types (FR-9.2, FR-11, FR-10.5) all have the project as their `subject`:
+         *     `project_join_request`: the actor asked to join the caller's project.
+         *     `project_join_request_accepted` / `project_join_request_rejected`: the actor, the
+         *     owner, decided the caller's request. `project_invitation`: the actor, the owner,
+         *     invited the caller. `project_invitation_accepted` / `project_invitation_rejected`: the
+         *     actor answered the caller's invitation. `project_member_role_changed`: the actor, the
+         *     owner, changed the caller's role. `project_member_removed`: the actor, the owner,
+         *     removed the caller. `project_ownership_transferred`: the actor made the caller the
+         *     owner. Later slices add the comment and like types.
          * @enum {string}
          */
-        NotificationType: "connection_request_received" | "connection_request_accepted" | "account_warning" | "group_added" | "attachment_blocked";
+        NotificationType: "connection_request_received" | "connection_request_accepted" | "account_warning" | "group_added" | "attachment_blocked" | "project_join_request" | "project_join_request_accepted" | "project_join_request_rejected" | "project_invitation" | "project_invitation_accepted" | "project_invitation_rejected" | "project_member_role_changed" | "project_member_removed" | "project_ownership_transferred";
         /**
          * @description The user who caused the notification. A system notification comes from ResearchSphere
          *     and has no actor: the field is left out, and a client treats null the same way.
@@ -3421,7 +3805,7 @@ export interface components {
              * @description The web client path of the item it is about (FR-9.5):
              *     `/network` for a received request, `/profile/{actorId}` for an accepted one,
              *     `/warnings/{warningId}` for a warning, `/messaging/{conversationId}` for a group
-             *     and for a blocked attachment.
+             *     and for a blocked attachment, `/projects/{projectId}` for every project type.
              */
             link: string;
             actor?: components["schemas"]["NotificationActor"];
@@ -3439,14 +3823,16 @@ export interface components {
         };
         /**
          * @description The item a notification is about, as it is now, for types whose sentence names it
-         *     (`group_added`: the group, with its current name). Read when the notification is
-         *     listed or sent, so a rename shows. Left out for the other types, and when the item no
-         *     longer exists or the recipient cannot see it (they left the group); the client then
-         *     uses a sentence without the title ("added you to a group").
+         *     (`group_added`: the group, with its current name; every project type: the project,
+         *     with its current title). Read when the notification is listed or sent, so a rename
+         *     shows. Left out for the other types, and when the item no longer exists or the
+         *     recipient cannot see it (they left the group, or the project is archived and they are
+         *     not a member); the client then uses a sentence without the title ("added you to a
+         *     group").
          */
         NotificationSubject: {
             /** @enum {string} */
-            type: "conversation";
+            type: "conversation" | "project";
             /** Format: uuid */
             id: string;
             title: string;
@@ -3977,6 +4363,121 @@ export interface components {
          * @enum {string}
          */
         ProjectRole: "owner" | "editor" | "viewer";
+        /**
+         * @description A role the owner can give a member (FR-11.2 to FR-11.4); ownership moves only by transfer (FR-10.5).
+         * @enum {string}
+         */
+        MemberRole: "editor" | "viewer";
+        /** @enum {string} */
+        JoinRequestStatus: "pending" | "accepted" | "rejected";
+        JoinRequestCreate: {
+            /** @description A short note to the owner, at most 500 characters after trimming; empty or null means none. */
+            message?: string | null;
+        };
+        MemberRoleBody: {
+            role: components["schemas"]["MemberRole"];
+        };
+        InvitationCreate: {
+            /** Format: uuid */
+            userId: string;
+            role: components["schemas"]["MemberRole"];
+        };
+        OwnershipTransfer: {
+            /**
+             * Format: uuid
+             * @description The member who becomes the owner.
+             */
+            userId: string;
+        };
+        /** @description The project a request or invitation is about, as its sender or invitee sees it. */
+        MembershipProject: {
+            /** Format: uuid */
+            id: string;
+            title: string;
+            status: components["schemas"]["ProjectStatus"];
+            owner: components["schemas"]["ProjectPerson"];
+        };
+        /** @description A join request as the project's owner sees it. */
+        ProjectJoinRequest: {
+            /** Format: uuid */
+            id: string;
+            status: components["schemas"]["JoinRequestStatus"];
+            message: string | null;
+            user: components["schemas"]["ProjectPerson"];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            decidedAt: string | null;
+        };
+        ProjectJoinRequestPage: {
+            items: components["schemas"]["ProjectJoinRequest"][];
+            page: number;
+            pageSize: number;
+            total: number;
+        };
+        /** @description A join request as its sender sees it. */
+        MyJoinRequest: {
+            /** Format: uuid */
+            id: string;
+            status: components["schemas"]["JoinRequestStatus"];
+            message: string | null;
+            project: components["schemas"]["MembershipProject"];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            decidedAt: string | null;
+        };
+        MyJoinRequestPage: {
+            items: components["schemas"]["MyJoinRequest"][];
+            page: number;
+            pageSize: number;
+            total: number;
+        };
+        /** @description An invitation as the project's owner sees it. */
+        ProjectInvitation: {
+            /** Format: uuid */
+            id: string;
+            status: components["schemas"]["JoinRequestStatus"];
+            role: components["schemas"]["MemberRole"];
+            user: components["schemas"]["ProjectPerson"];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            decidedAt: string | null;
+        };
+        ProjectInvitationPage: {
+            items: components["schemas"]["ProjectInvitation"][];
+            page: number;
+            pageSize: number;
+            total: number;
+        };
+        /** @description A pending invitation as the invitee sees it. */
+        MyInvitation: {
+            /** Format: uuid */
+            id: string;
+            role: components["schemas"]["MemberRole"];
+            project: components["schemas"]["MembershipProject"];
+            /** Format: date-time */
+            createdAt: string;
+        };
+        MyInvitationPage: {
+            items: components["schemas"]["MyInvitation"][];
+            page: number;
+            pageSize: number;
+            total: number;
+        };
+        ProjectMember: {
+            user: components["schemas"]["ProjectPerson"];
+            role: components["schemas"]["ProjectRole"];
+            /** Format: date-time */
+            joinedAt: string;
+        };
+        ProjectMemberPage: {
+            items: components["schemas"]["ProjectMember"][];
+            page: number;
+            pageSize: number;
+            total: number;
+        };
         ProjectPerson: {
             /** Format: uuid */
             userId: string;
@@ -5443,6 +5944,47 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
+        /**
+         * @description A body field or parameter is not valid (`bad_request`, with `field` when one field is
+         *     at fault: `message`, `role`, `userId`, `page` or `pageSize`).
+         */
+        MembershipInvalid: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /**
+         * @description The project's membership does not allow the change (FR-11), and nothing is changed:
+         *     `already_member`, `project_not_open`, `request_pending`, `invitation_pending`,
+         *     `already_invited`, `request_not_pending`, `invitation_not_pending`, `use_transfer`,
+         *     `cannot_remove_owner`, `owner_must_transfer`, `not_a_member`, `already_owner` or
+         *     `member_unavailable`. Each operation says which of them it returns.
+         */
+        MembershipConflict: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /**
+         * @description `rate_limited`: the caller has sent 20 join requests, or 20 invitations, in the current
+         *     day.
+         */
+        MembershipRateLimited: {
+            headers: {
+                /** @description Seconds until sending is accepted again. */
+                "Retry-After": number;
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
         /** @description An unexpected error on the server. */
         InternalError: {
             headers: {
@@ -5471,6 +6013,26 @@ export interface components {
          *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
          */
         ProjectId: string;
+        /** @description Items per page, from 1; a larger value than 50 is reduced to 50. Defaults to 20. Below 1 gets 400 `bad_request`. */
+        MembershipPageSize: number;
+        /**
+         * @description The join request's ID, a UUID. It is declared as a plain string so that the login and
+         *     role checks run before it is read (FR-3.1); a value that is not a UUID gets 404
+         *     `not_found`.
+         */
+        JoinRequestId: string;
+        /**
+         * @description The invitation's ID, a UUID. It is declared as a plain string so that the login and
+         *     role checks run before it is read (FR-3.1); a value that is not a UUID gets 404
+         *     `not_found`.
+         */
+        InvitationId: string;
+        /**
+         * @description The member's user ID, a UUID. It is declared as a plain string so that the login and
+         *     role checks run before it is read (FR-3.1); a value that is not a UUID gets 404
+         *     `not_found`.
+         */
+        MemberUserId: string;
         /**
          * @description The report's ID, a UUID. It is declared as a plain string so that the login and role
          *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
@@ -9866,6 +10428,606 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listProjectJoinRequests: {
+        parameters: {
+            query?: {
+                /** @description The page to return, from 1. Defaults to 1. A value below 1 gets 400 `bad_request`. */
+                page?: components["parameters"]["PageFromOne"];
+                /** @description Items per page, from 1; a larger value than 50 is reduced to 50. Defaults to 20. Below 1 gets 400 `bad_request`. */
+                pageSize?: components["parameters"]["MembershipPageSize"];
+            };
+            header?: never;
+            path: {
+                /**
+                 * @description The project's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                projectId: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of requests. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectJoinRequestPage"];
+                };
+            };
+            400: components["responses"]["MembershipInvalid"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    createJoinRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The project's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                projectId: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JoinRequestCreate"];
+            };
+        };
+        responses: {
+            /** @description The request, pending. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyJoinRequest"];
+                };
+            };
+            400: components["responses"]["MembershipInvalid"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["AccountSuspendedOrForbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["MembershipConflict"];
+            429: components["responses"]["MembershipRateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    cancelJoinRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The project's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                projectId: components["parameters"]["ProjectId"];
+                /**
+                 * @description The join request's ID, a UUID. It is declared as a plain string so that the login and
+                 *     role checks run before it is read (FR-3.1); a value that is not a UUID gets 404
+                 *     `not_found`.
+                 */
+                requestId: components["parameters"]["JoinRequestId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The request is cancelled. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    acceptJoinRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The project's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                projectId: components["parameters"]["ProjectId"];
+                /**
+                 * @description The join request's ID, a UUID. It is declared as a plain string so that the login and
+                 *     role checks run before it is read (FR-3.1); a value that is not a UUID gets 404
+                 *     `not_found`.
+                 */
+                requestId: components["parameters"]["JoinRequestId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemberRoleBody"];
+            };
+        };
+        responses: {
+            /** @description The new member. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectMember"];
+                };
+            };
+            400: components["responses"]["MembershipInvalid"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["AccountSuspendedOrForbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["MembershipConflict"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    rejectJoinRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The project's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                projectId: components["parameters"]["ProjectId"];
+                /**
+                 * @description The join request's ID, a UUID. It is declared as a plain string so that the login and
+                 *     role checks run before it is read (FR-3.1); a value that is not a UUID gets 404
+                 *     `not_found`.
+                 */
+                requestId: components["parameters"]["JoinRequestId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The request is rejected. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["AccountSuspendedOrForbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["MembershipConflict"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listProjectInvitations: {
+        parameters: {
+            query?: {
+                /** @description The page to return, from 1. Defaults to 1. A value below 1 gets 400 `bad_request`. */
+                page?: components["parameters"]["PageFromOne"];
+                /** @description Items per page, from 1; a larger value than 50 is reduced to 50. Defaults to 20. Below 1 gets 400 `bad_request`. */
+                pageSize?: components["parameters"]["MembershipPageSize"];
+            };
+            header?: never;
+            path: {
+                /**
+                 * @description The project's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                projectId: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of invitations. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectInvitationPage"];
+                };
+            };
+            400: components["responses"]["MembershipInvalid"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    createInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The project's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                projectId: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InvitationCreate"];
+            };
+        };
+        responses: {
+            /** @description The invitation, pending. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectInvitation"];
+                };
+            };
+            400: components["responses"]["MembershipInvalid"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["AccountSuspendedOrForbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["MembershipConflict"];
+            429: components["responses"]["MembershipRateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    cancelInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The project's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                projectId: components["parameters"]["ProjectId"];
+                /**
+                 * @description The invitation's ID, a UUID. It is declared as a plain string so that the login and
+                 *     role checks run before it is read (FR-3.1); a value that is not a UUID gets 404
+                 *     `not_found`.
+                 */
+                invitationId: components["parameters"]["InvitationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The invitation is cancelled. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["AccountSuspendedOrForbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["MembershipConflict"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    acceptInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The project's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                projectId: components["parameters"]["ProjectId"];
+                /**
+                 * @description The invitation's ID, a UUID. It is declared as a plain string so that the login and
+                 *     role checks run before it is read (FR-3.1); a value that is not a UUID gets 404
+                 *     `not_found`.
+                 */
+                invitationId: components["parameters"]["InvitationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller as a member. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectMember"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["AccountSuspendedOrForbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["MembershipConflict"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    rejectInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The project's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                projectId: components["parameters"]["ProjectId"];
+                /**
+                 * @description The invitation's ID, a UUID. It is declared as a plain string so that the login and
+                 *     role checks run before it is read (FR-3.1); a value that is not a UUID gets 404
+                 *     `not_found`.
+                 */
+                invitationId: components["parameters"]["InvitationId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The invitation is rejected. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["MembershipConflict"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listProjectMembers: {
+        parameters: {
+            query?: {
+                /** @description The page to return, from 1. Defaults to 1. A value below 1 gets 400 `bad_request`. */
+                page?: components["parameters"]["PageFromOne"];
+                /** @description Items per page, from 1; a larger value than 50 is reduced to 50. Defaults to 20. Below 1 gets 400 `bad_request`. */
+                pageSize?: components["parameters"]["MembershipPageSize"];
+            };
+            header?: never;
+            path: {
+                /**
+                 * @description The project's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                projectId: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of members. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectMemberPage"];
+                };
+            };
+            400: components["responses"]["MembershipInvalid"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    removeProjectMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The project's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                projectId: components["parameters"]["ProjectId"];
+                /**
+                 * @description The member's user ID, a UUID. It is declared as a plain string so that the login and
+                 *     role checks run before it is read (FR-3.1); a value that is not a UUID gets 404
+                 *     `not_found`.
+                 */
+                userId: components["parameters"]["MemberUserId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The member is removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["AccountSuspendedOrForbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["MembershipConflict"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    updateProjectMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The project's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                projectId: components["parameters"]["ProjectId"];
+                /**
+                 * @description The member's user ID, a UUID. It is declared as a plain string so that the login and
+                 *     role checks run before it is read (FR-3.1); a value that is not a UUID gets 404
+                 *     `not_found`.
+                 */
+                userId: components["parameters"]["MemberUserId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemberRoleBody"];
+            };
+        };
+        responses: {
+            /** @description The member after the change. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectMember"];
+                };
+            };
+            400: components["responses"]["MembershipInvalid"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["AccountSuspendedOrForbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["MembershipConflict"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    leaveProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The project's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                projectId: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller is no longer a member. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["MembershipConflict"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    transferProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The project's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                projectId: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OwnershipTransfer"];
+            };
+        };
+        responses: {
+            /** @description The project as the caller, now an editor, sees it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+            400: components["responses"]["MembershipInvalid"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["AccountSuspendedOrForbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["MembershipConflict"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listMyJoinRequests: {
+        parameters: {
+            query?: {
+                /** @description The page to return, from 1. Defaults to 1. A value below 1 gets 400 `bad_request`. */
+                page?: components["parameters"]["PageFromOne"];
+                /** @description Items per page, from 1; a larger value than 50 is reduced to 50. Defaults to 20. Below 1 gets 400 `bad_request`. */
+                pageSize?: components["parameters"]["MembershipPageSize"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of requests. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyJoinRequestPage"];
+                };
+            };
+            400: components["responses"]["MembershipInvalid"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listMyInvitations: {
+        parameters: {
+            query?: {
+                /** @description The page to return, from 1. Defaults to 1. A value below 1 gets 400 `bad_request`. */
+                page?: components["parameters"]["PageFromOne"];
+                /** @description Items per page, from 1; a larger value than 50 is reduced to 50. Defaults to 20. Below 1 gets 400 `bad_request`. */
+                pageSize?: components["parameters"]["MembershipPageSize"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of invitations. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyInvitationPage"];
+                };
+            };
+            400: components["responses"]["MembershipInvalid"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             500: components["responses"]["InternalError"];

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"time"
 
 	embeddingdomain "github.com/ARAFATH-SH/researchsphere/backend/internal/embedding/domain"
@@ -59,9 +60,15 @@ func (a recommendationProjectAccess) CanSeeRecommendedResearchers(ctx context.Co
 }
 
 // projectChanges tells the recommendation module about project changes once they commit: a
-// rollback renews nothing.
+// rollback renews nothing. A membership change (a join request, an invitation, a member
+// joining, leaving or removed, a role change, a transfer) clears the users' project lists
+// and the project's researcher list (AI-3.1, AI-2.3), and the users' people lists too
+// (AI-2.1): those do not read memberships today, so this costs one DEL and keeps them right
+// if they ever do.
 type projectChanges struct {
-	recs *recommendationusecase.Service
+	recs   *recommendationusecase.Service
+	people recommendationdomain.Cache
+	logger *slog.Logger
 }
 
 var _ projectdomain.Watcher = projectChanges{}
@@ -71,7 +78,15 @@ func (w projectChanges) ProjectChanged(ctx context.Context, projectID string) {
 }
 
 func (w projectChanges) MembersChanged(ctx context.Context, projectID string, userIDs ...string) {
-	postgres.AfterCommit(ctx, func(ctx context.Context) { w.recs.MembersChanged(ctx, projectID, userIDs...) })
+	postgres.AfterCommit(ctx, func(ctx context.Context) {
+		w.recs.MembersChanged(ctx, projectID, userIDs...)
+		if w.people == nil {
+			return
+		}
+		if err := w.people.Delete(ctx, userIDs...); err != nil {
+			w.logger.WarnContext(ctx, "recommendation lists not cleared after a membership change", slog.Any("error", err))
+		}
+	})
 }
 
 // embeddingChanges renews the project lists when the embedding worker stores or deletes a

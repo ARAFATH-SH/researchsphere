@@ -15,6 +15,22 @@ ON CONFLICT (user_id, actor_id, type)
     DO UPDATE SET entity_id = EXCLUDED.entity_id, created_at = clock_timestamp(), read_at = NULL
 RETURNING id;
 
+-- name: PutProjectNotification :one
+-- For the project types notifications_project_uq allows one per recipient, actor, type and
+-- project: a new one replaces the old (created now, unread).
+INSERT INTO notifications (user_id, actor_id, type, entity_id)
+VALUES (@user_id, @actor_id, @type, @entity_id)
+ON CONFLICT (user_id, actor_id, type, entity_id)
+    WHERE type IN ('project_join_request', 'project_join_request_accepted', 'project_join_request_rejected',
+                   'project_invitation', 'project_invitation_accepted', 'project_invitation_rejected',
+                   'project_member_role_changed', 'project_member_removed', 'project_ownership_transferred')
+    DO UPDATE SET created_at = clock_timestamp(), read_at = NULL
+RETURNING id;
+
+-- name: DeleteNotificationsFrom :many
+DELETE FROM notifications WHERE type = @type AND entity_id = @entity_id AND actor_id = @actor_id
+RETURNING user_id;
+
 -- name: DeleteNotificationsBySubject :many
 DELETE FROM notifications WHERE type = @type AND entity_id = @entity_id
 RETURNING user_id;

@@ -127,6 +127,42 @@ func (s *Service) GroupAccessLost(ctx context.Context, conversationID, userID st
 	return nil
 }
 
+// ProjectEvent tells recipientID that actorID did t on project projectID (FR-9.2, FR-11,
+// FR-10.5). t must be a project type. Telling the same thing again replaces the earlier
+// notification.
+func (s *Service) ProjectEvent(ctx context.Context, t domain.Type, projectID, recipientID, actorID string) error {
+	if !domain.IsProjectType(t) {
+		return fmt.Errorf("notification type %q is not a project type", t)
+	}
+	return s.put(ctx, domain.Notification{RecipientID: recipientID, ActorID: actorID, Type: t, SubjectID: projectID})
+}
+
+// ProjectRequestHandled takes back the notification of senderID's request to join
+// projectID, once it was cancelled or decided: whoever owned the project then.
+func (s *Service) ProjectRequestHandled(ctx context.Context, projectID, senderID string) error {
+	recipients, err := s.store.DeleteFrom(ctx, domain.TypeProjectJoinRequest, projectID, senderID)
+	if err != nil {
+		return err
+	}
+	for _, r := range recipients {
+		s.publisher.UnreadChanged(ctx, r)
+	}
+	return nil
+}
+
+// ProjectInvitationHandled takes back inviteeID's notification of an invitation to
+// projectID, once it was cancelled or answered.
+func (s *Service) ProjectInvitationHandled(ctx context.Context, projectID, inviteeID string) error {
+	deleted, err := s.store.DeleteFor(ctx, domain.TypeProjectInvitation, projectID, inviteeID)
+	if err != nil {
+		return err
+	}
+	if deleted {
+		s.publisher.UnreadChanged(ctx, inviteeID)
+	}
+	return nil
+}
+
 // ConnectionRequestWithdrawn removes the notification of request requestID after the
 // sender cancelled it or the receiver rejected it, so no stale Accept remains. Nobody is
 // told about a rejection (FR-7.6).

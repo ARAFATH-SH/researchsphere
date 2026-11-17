@@ -154,9 +154,9 @@ func FuseProjects(strong []string, keyword []KeywordCandidate, meaning []string)
 // recommendations, AI-3.1 and AI-2.3). It is called inside the change's transaction; the
 // implementation acts after the commit.
 type Watcher interface {
-	// ProjectChanged: the project's status changed or it was deleted.
+	// ProjectChanged: the project's status or owner changed, or it was deleted.
 	ProjectChanged(ctx context.Context, projectID string)
-	// MembersChanged: userIDs joined or left the project.
-	// slice 20: joining, leaving, removal and ownership transfer call it.
+	// MembersChanged: userIDs' membership of the project, their role in it, or a join
+	// request or invitation between them and it changed (FR-11, FR-10.5).
 	MembersChanged(ctx context.Context, projectID string, userIDs ...string)
 }
