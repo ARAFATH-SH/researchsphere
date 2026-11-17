@@ -1,5 +1,5 @@
 import { refreshSession, reportSessionLost } from "./client";
-import { uploadFile } from "./upload";
+import { postToStorage, uploadFile } from "./upload";
 
 jest.mock("./client", () => ({ refreshSession: jest.fn(), reportSessionLost: jest.fn() }));
 
@@ -123,5 +123,40 @@ describe("uploadFile", () => {
     const cancelled = uploadFile("/x", file, { signal: controller.signal });
     controller.abort();
     await expect(cancelled).resolves.toMatchObject({ ok: false, status: 0, code: "aborted" });
+  });
+});
+
+describe("postToStorage", () => {
+  const fields = { key: "projects/p1/uploads/u1", policy: "signed", "Content-Type": "application/octet-stream" };
+
+  it("posts the fields, then the file, to storage without cookies, with progress", async () => {
+    const progress = jest.fn();
+    const result = postToStorage("http://localhost:9000/researchsphere", fields, file, { onProgress: progress });
+    const xhr = latest();
+    expect(xhr.method).toBe("POST");
+    expect(xhr.url).toBe("http://localhost:9000/researchsphere");
+    expect(xhr.withCredentials).toBe(false);
+    expect([...xhr.body!.keys()]).toEqual(["key", "policy", "Content-Type", "file"]);
+    expect(xhr.body?.get("file")).toBe(file);
+    xhr.progress(30, 120);
+    expect(progress).toHaveBeenLastCalledWith(0.25);
+    xhr.respond(204, undefined);
+    await expect(result).resolves.toEqual({ ok: true });
+    expect(refreshSession).not.toHaveBeenCalled();
+  });
+
+  it("reports storage's refusal, a network failure and a cancel", async () => {
+    let result = postToStorage("http://s3/b", fields, file);
+    latest().respond(403, undefined);
+    await expect(result).resolves.toMatchObject({ ok: false, status: 403, code: "storage_failed" });
+
+    result = postToStorage("http://s3/b", fields, file);
+    latest().emit("error");
+    await expect(result).resolves.toMatchObject({ ok: false, status: 0, code: "network_error" });
+
+    const controller = new AbortController();
+    result = postToStorage("http://s3/b", fields, file, { signal: controller.signal });
+    controller.abort();
+    await expect(result).resolves.toMatchObject({ ok: false, code: "aborted" });
   });
 });

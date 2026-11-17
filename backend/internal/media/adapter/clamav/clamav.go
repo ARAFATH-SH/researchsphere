@@ -31,15 +31,22 @@ const (
 
 // Client talks to one clamd.
 type Client struct {
-	addr string
+	addr     string
+	maxBytes int64
 }
 
 var _ domain.VirusScanner = (*Client)(nil)
 
 // New returns a Client for clamd at addr (host:port). It does not connect until used.
-func New(addr string) *Client {
-	return &Client{addr: addr}
+// maxBytes is the client limit (CLAMAV_MAX_BYTES, docs/decisions.md 2026-11-18), the size
+// clamd is configured to scan whole: a longer file is refused as an error about the file
+// before clamd sees more of it, never passed as clean. 0 or less sets no limit.
+func New(addr string, maxBytes int64) *Client {
+	return &Client{addr: addr, maxBytes: maxBytes}
 }
+
+// errOverLimit stops a stream at the client limit.
+var errOverLimit = errors.New("over the client limit")
 
 func (c *Client) dial(ctx context.Context) (net.Conn, error) {
 	d := net.Dialer{Timeout: dialTimeout}
@@ -94,7 +101,10 @@ func (c *Client) Scan(ctx context.Context, r io.Reader) (domain.ScanVerdict, err
 	}
 	defer func() { _ = conn.Close() }()
 
-	writeErr := stream(conn, r)
+	writeErr := stream(conn, r, c.maxBytes)
+	if errors.Is(writeErr, errOverLimit) {
+		return domain.ScanVerdict{}, &domain.ScanFileError{Reason: fmt.Sprintf("file over the scanner's size limit of %d bytes", c.maxBytes)}
+	}
 	var src *sourceError
 	if errors.As(writeErr, &src) {
 		return domain.ScanVerdict{}, src
@@ -109,14 +119,20 @@ func (c *Client) Scan(ctx context.Context, r io.Reader) (domain.ScanVerdict, err
 	return parse(reply)
 }
 
-// stream writes the INSTREAM command, the chunks and the zero length.
-func stream(w io.Writer, r io.Reader) error {
+// stream writes the INSTREAM command, the chunks and the zero length. It stops with
+// errOverLimit, before the zero length, once more than maxBytes (when over 0) were read.
+func stream(w io.Writer, r io.Reader, maxBytes int64) error {
 	if _, err := w.Write([]byte("zINSTREAM\x00")); err != nil {
 		return err
 	}
 	buf := make([]byte, 4+chunkSize)
+	var total int64
 	for {
 		n, rerr := io.ReadFull(r, buf[4:])
+		total += int64(n)
+		if maxBytes > 0 && total > maxBytes {
+			return errOverLimit
+		}
 		if n > 0 {
 			binary.BigEndian.PutUint32(buf[:4], uint32(n)) //nolint:gosec // n <= chunkSize
 			if _, err := w.Write(buf[:4+n]); err != nil {
@@ -150,12 +166,21 @@ func readReply(r io.Reader) (string, error) {
 	return reply, nil
 }
 
+// limitsExceeded starts the name clamd reports, with AlertExceedsMax, for a file it could not
+// scan whole (docs/decisions.md 2026-11-18).
+const limitsExceeded = "Heuristics.Limits.Exceeded"
+
 // parse reads an INSTREAM answer.
 func parse(reply string) (domain.ScanVerdict, error) {
 	body := strings.TrimPrefix(reply, "stream: ")
 	switch {
 	case body == "OK":
 		return domain.ScanVerdict{}, nil
+	case strings.HasPrefix(body, limitsExceeded) && strings.HasSuffix(body, " FOUND"):
+		// AlertExceedsMax (docker-compose.yml): clamd could not scan the whole file within its
+		// limits. Not malware, and not clean either: an error about the file, so it ends as
+		// failed and is never served.
+		return domain.ScanVerdict{}, &domain.ScanFileError{Reason: "over the scanner's limits: " + strings.TrimSuffix(body, " FOUND")}
 	case strings.HasSuffix(body, " FOUND"):
 		return domain.ScanVerdict{Infected: true, Signature: strings.TrimSuffix(body, " FOUND")}, nil
 	case strings.HasSuffix(body, "ERROR"):

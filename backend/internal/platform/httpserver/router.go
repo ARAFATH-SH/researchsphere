@@ -75,6 +75,14 @@ func withRequest(f gen.StrictHandlerFunc, _ string) gen.StrictHandlerFunc {
 	}
 }
 
+// CodeRequestTooLarge answers a JSON body over its route's cap.
+const CodeRequestTooLarge = "request_too_large"
+
+func isTooLarge(err error) bool {
+	_, ok := errors.AsType[*http.MaxBytesError](err)
+	return ok
+}
+
 // writeBodyError answers a JSON body that the generated handlers could not decode, naming
 // the field when one is at fault. Nothing here repeats what was sent, apart from the name
 // of an unknown field.
@@ -95,6 +103,9 @@ func writeBodyError(w http.ResponseWriter, err error) {
 		httpx.WriteError(w, http.StatusBadRequest, httpx.CodeBadRequest, "The request body must be a JSON object.")
 	case errors.Is(err, io.EOF):
 		httpx.WriteError(w, http.StatusBadRequest, httpx.CodeBadRequest, "The request body is required.")
+	case isTooLarge(err):
+		// Over the cap cmd/api sets for the route (bodyLimits).
+		httpx.WriteError(w, http.StatusRequestEntityTooLarge, CodeRequestTooLarge, "The request body is too large.")
 	default:
 		httpx.WriteError(w, http.StatusBadRequest, httpx.CodeBadRequest, "The request is not valid.")
 	}

@@ -21,7 +21,7 @@ AI_SERVICE_PORT   ?= 8090
 MIGRATIONS_DIR := backend/db/migrations
 
 .DEFAULT_GOAL := help
-.PHONY: help up down logs ps psql check migrate migrate-down migrate-new admin unadmin seed-ui-compare seed-dev sample-data sample-purge purge-unverified send-digests calibrate-recs eval-recs bench-recs eval-search bench-search embed-backfill update-disposable-domains api web stop web-clean ai-build ai-up ai-fetch-model ai-logs generate check-generated test test-prepare test-db test-go test-integration test-one test-web test-ai lint lint-go lint-web lint-ai
+.PHONY: help up down logs ps psql check migrate migrate-down migrate-new admin unadmin seed-ui-compare seed-dev sample-data sample-purge purge-unverified send-digests calibrate-recs eval-recs bench-recs eval-search bench-search embed-backfill backfill-main-tex update-disposable-domains api web stop web-clean ai-build ai-up ai-fetch-model ai-logs generate check-generated test test-prepare test-db test-go test-integration test-one test-web test-ai lint lint-go lint-web lint-ai
 
 help: ## List the available commands
 	@grep -hE '^[a-zA-Z_-]+:.*## ' $(firstword $(MAKEFILE_LIST)) | awk 'BEGIN {FS = ":.*## "} {printf "  make %-16s %s\n", $$1, $$2}'
@@ -48,7 +48,7 @@ ps: ## Show the status of the containers
 psql: ## Open a psql prompt in the database
 	docker compose exec postgres psql -U $(POSTGRES_USER) -d $(POSTGRES_DB)
 
-check: ## Check that PostgreSQL, pgvector, Redis and storage respond, and the bucket is private; show whether ClamAV answers
+check: ## Check that PostgreSQL, pgvector, Redis and storage respond, the bucket is private and takes uploads from the web client; show whether ClamAV answers
 	@docker compose exec -T postgres psql -U $(POSTGRES_USER) -d $(POSTGRES_DB) -tAc "SELECT 'postgres ok: ' || current_setting('server_version')"
 	@docker compose exec -T postgres psql -U $(POSTGRES_USER) -d $(POSTGRES_DB) -tAc "SELECT 'pgvector available: ' || default_version FROM pg_available_extensions WHERE name = 'vector'"
 	@echo "redis: $$(docker compose exec -T redis redis-cli ping)"
@@ -56,6 +56,10 @@ check: ## Check that PostgreSQL, pgvector, Redis and storage respond, and the bu
 	@status=$$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$(MINIO_API_PORT)/$(S3_BUCKET)/"); \
 	if [[ "$$status" != 403 ]]; then echo "storage: anonymous listing of $(S3_BUCKET) returned $$status, want 403 (bucket must be private)"; exit 1; fi
 	@echo "storage ok (bucket $(S3_BUCKET) is private)"
+	@cors=$$(curl -s -o /dev/null -D - -X OPTIONS "http://127.0.0.1:$(MINIO_API_PORT)/$(S3_BUCKET)/" -H "Origin: http://localhost:3000" \
+		-H "Access-Control-Request-Method: POST" -H "Access-Control-Request-Headers: content-type" | tr -d '\r' | grep -i '^access-control-allow-origin:'); \
+	if [[ "$$cors" != *"http://localhost:3000"* ]]; then echo "storage: the web client (http://localhost:3000) may not upload figures (CORS); run make up again"; exit 1; fi
+	@echo "storage CORS ok (the web client may upload figures)"
 	@echo "clamav: $$(docker compose exec -T clamav clamdscan --ping 1 >/dev/null 2>&1 && echo ready || echo 'not ready yet (attachments stay pending until it answers)')"
 	@echo "ai: $$(curl -fsS -o /dev/null "http://127.0.0.1:$(AI_SERVICE_PORT)/ready" 2>/dev/null && echo ready || echo 'not ready yet (loading or downloading its model, or not started; GET /health says degraded)')"
 
@@ -114,6 +118,9 @@ eval-search: ## Measure AI-5.2: hybrid vs keyword researcher search precision@10
 
 bench-search: ## Measure NFR-1: hybrid researcher search p50, p95, max with a cold and a cached query vector (needs the AI service)
 	@cd backend && go run ./cmd/recseval bench-search
+
+backfill-main-tex: ## Give the starting main.tex to every project without files (FR-10.4); once after migration 000035, idempotent
+	cd backend && go run ./cmd/backfillmaintex
 
 embed-backfill: ## Queue every verified, not suspended profile for its AI embedding once (AI-1.5); the running API embeds them
 	cd backend && go run ./cmd/api -embed-backfill

@@ -21,6 +21,7 @@ import (
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpx"
 	profilehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/profile/adapter/http"
 	projecthttp "github.com/ARAFATH-SH/researchsphere/backend/internal/project/adapter/http"
+	projectusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/project/usecase"
 	realtimehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/realtime/adapter/http"
 	recommendationhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/recommendation/adapter/http"
 	socialhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/social/adapter/http"
@@ -204,6 +205,16 @@ var platformGuards = map[string]authz.Action{
 	"DELETE /api/v1/projects/{projectId}/members/{userId}":                authz.ActAsMember,
 	"POST /api/v1/projects/{projectId}/leave":                             authz.ActAsMember,
 	"POST /api/v1/projects/{projectId}/transfer":                          authz.ActAsMember,
+	// Project files (FR-12.1, FR-12.2, FR-12.6): the usecase then checks the project role
+	// (members only; editors and the owner write).
+	"GET /api/v1/projects/{projectId}/files":                              authz.ViewContent,
+	"POST /api/v1/projects/{projectId}/files":                             authz.ActAsMember,
+	"POST /api/v1/projects/{projectId}/files/uploads":                     authz.ActAsMember,
+	"POST /api/v1/projects/{projectId}/files/uploads/{uploadId}/complete": authz.ActAsMember,
+	"GET /api/v1/projects/{projectId}/files/{fileId}":                     authz.ViewContent,
+	"PATCH /api/v1/projects/{projectId}/files/{fileId}":                   authz.ActAsMember,
+	"DELETE /api/v1/projects/{projectId}/files/{fileId}":                  authz.ActAsMember,
+	"PUT /api/v1/projects/{projectId}/files/{fileId}/content":             authz.ActAsMember,
 	"GET /api/v1/me/join-requests":                                        authz.ViewContent,
 	"GET /api/v1/me/invitations":                                          authz.ViewContent,
 
@@ -336,7 +347,16 @@ var bodyLimits = map[string]int64{
 	"PUT /api/v1/profiles/me/cover": mediausecase.Specs[mediadomain.PurposeCover].MaxBytes + multipartOverhead,
 	// FR-16.7: 25 MB.
 	"POST /api/v1/conversations/{conversationId}/attachments": mediausecase.MaxAttachmentBytes + multipartOverhead,
+	// FR-12.2: only the path and size; the figure goes straight to storage.
+	"POST /api/v1/projects/{projectId}/files/uploads": 4 << 10,
+	// FR-12.1, FR-12.6: text of 1 MiB, which JSON escaping can make up to 3 times longer.
+	"POST /api/v1/projects/{projectId}/files":                 maxFileJSONBody,
+	"PUT /api/v1/projects/{projectId}/files/{fileId}/content": maxFileJSONBody,
 }
+
+// maxFileJSONBody caps a JSON body that carries a text file: 3 MiB and some room for the
+// other fields. Larger bodies get 413 request_too_large.
+const maxFileJSONBody = 3*projectusecase.MaxTextBytes + multipartOverhead
 
 // limitBody wraps the request body of the routes in bodyLimits in http.MaxBytesReader.
 // It runs after the session and permission checks, so no body is read for a request

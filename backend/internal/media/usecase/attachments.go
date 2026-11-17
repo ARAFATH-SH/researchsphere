@@ -87,6 +87,13 @@ func (a *Attachments) Prepare(ctx context.Context, data []byte) (domain.Prepared
 }
 
 func (a *Attachments) prepareImage(ctx context.Context, data []byte, format domain.Format) (domain.PreparedFile, error) {
+	return a.reencodeImage(ctx, data, format, MaxAttachmentBytes)
+}
+
+// reencodeImage checks an image's header, then encodes it again at its own size, turned
+// upright by its EXIF Orientation, so that nothing but its pixels is kept. The result may be
+// at most limit bytes (domain.ErrFileTooLarge).
+func (a *Attachments) reencodeImage(ctx context.Context, data []byte, format domain.Format, limit int) (domain.PreparedFile, error) {
 	size, err := a.images.codec.Size(bytes.NewReader(data), format)
 	if err != nil {
 		return domain.PreparedFile{}, err
@@ -107,7 +114,7 @@ func (a *Attachments) prepareImage(ctx context.Context, data []byte, format doma
 	if err != nil {
 		return domain.PreparedFile{}, err
 	}
-	if len(out) > MaxAttachmentBytes {
+	if len(out) > limit {
 		return domain.PreparedFile{}, domain.ErrFileTooLarge
 	}
 	f := domain.PreparedFile{Data: out, Width: size.Width, Height: size.Height}

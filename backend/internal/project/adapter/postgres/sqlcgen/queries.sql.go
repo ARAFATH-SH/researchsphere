@@ -51,6 +51,20 @@ func (q *Queries) AnyVisibleTitleContains(ctx context.Context, arg AnyVisibleTit
 	return exists, err
 }
 
+const claimFigureUpload = `-- name: ClaimFigureUpload :execrows
+DELETE FROM project_figure_uploads WHERE id = $1 AND expires_at > now()
+`
+
+// Completing takes the upload in the transaction that records the figure: a second
+// completion finds nothing. The trigger queues the upload's object for deletion.
+func (q *Queries) ClaimFigureUpload(ctx context.Context, id pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, claimFigureUpload, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const countMyInvitations = `-- name: CountMyInvitations :one
 SELECT count(*)::int
 FROM project_join_requests j
@@ -88,6 +102,17 @@ SELECT count(*)::int FROM project_members WHERE user_id = $1
 
 func (q *Queries) CountMyProjects(ctx context.Context, userID pgtype.UUID) (int32, error) {
 	row := q.db.QueryRow(ctx, countMyProjects, userID)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const countProjectFiles = `-- name: CountProjectFiles :one
+SELECT count(*)::int FROM project_files WHERE project_id = $1
+`
+
+func (q *Queries) CountProjectFiles(ctx context.Context, projectID pgtype.UUID) (int32, error) {
+	row := q.db.QueryRow(ctx, countProjectFiles, projectID)
 	var column_1 int32
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -152,6 +177,24 @@ func (q *Queries) DecideJoinRequest(ctx context.Context, arg DecideJoinRequestPa
 	return err
 }
 
+const deleteExpiredFigureUploads = `-- name: DeleteExpiredFigureUploads :execrows
+DELETE FROM project_figure_uploads
+WHERE id IN (SELECT id FROM project_figure_uploads
+             WHERE expires_at <= now()
+             ORDER BY expires_at
+             LIMIT $1
+             FOR UPDATE SKIP LOCKED)
+`
+
+// Abandoned uploads, a batch at a time; the trigger queues each object for deletion.
+func (q *Queries) DeleteExpiredFigureUploads(ctx context.Context, maxRows int32) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteExpiredFigureUploads, maxRows)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteJoinRequest = `-- name: DeleteJoinRequest :exec
 DELETE FROM project_join_requests WHERE id = $1
 `
@@ -185,6 +228,93 @@ DELETE FROM projects WHERE id = $1
 func (q *Queries) DeleteProject(ctx context.Context, id pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, deleteProject, id)
 	return err
+}
+
+const deleteProjectFiles = `-- name: DeleteProjectFiles :exec
+DELETE FROM project_files
+WHERE project_id = $1
+  AND (lower(path) = lower($2::text)
+       OR left(lower(path), char_length($2::text) + 1) = lower($2::text) || '/')
+`
+
+type DeleteProjectFilesParams struct {
+	ProjectID pgtype.UUID
+	Path      string
+}
+
+// The entry at @path and everything under it, in one statement; project_files_delete_file
+// deletes each figure's stored file, whose trigger queues its object.
+func (q *Queries) DeleteProjectFiles(ctx context.Context, arg DeleteProjectFilesParams) error {
+	_, err := q.db.Exec(ctx, deleteProjectFiles, arg.ProjectID, arg.Path)
+	return err
+}
+
+const figureKeysUnder = `-- name: FigureKeysUnder :many
+SELECT sf.object_key
+FROM project_files f
+JOIN stored_files sf ON sf.id = f.stored_file_id
+WHERE f.project_id = $1
+  AND (lower(f.path) = lower($2::text)
+       OR left(lower(f.path), char_length($2::text) + 1) = lower($2::text) || '/')
+`
+
+type FigureKeysUnderParams struct {
+	ProjectID pgtype.UUID
+	Path      string
+}
+
+func (q *Queries) FigureKeysUnder(ctx context.Context, arg FigureKeysUnderParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, figureKeysUnder, arg.ProjectID, arg.Path)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var object_key string
+		if err := rows.Scan(&object_key); err != nil {
+			return nil, err
+		}
+		items = append(items, object_key)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const figureUpload = `-- name: FigureUpload :one
+SELECT id, object_key, path, size_bytes, expires_at
+FROM project_figure_uploads
+WHERE id = $1 AND project_id = $2 AND user_id = $3 AND expires_at > now()
+`
+
+type FigureUploadParams struct {
+	ID        pgtype.UUID
+	ProjectID pgtype.UUID
+	UserID    pgtype.UUID
+}
+
+type FigureUploadRow struct {
+	ID        pgtype.UUID
+	ObjectKey string
+	Path      string
+	SizeBytes int64
+	ExpiresAt pgtype.Timestamptz
+}
+
+// The user's own upload in the project, while it has not expired.
+func (q *Queries) FigureUpload(ctx context.Context, arg FigureUploadParams) (FigureUploadRow, error) {
+	row := q.db.QueryRow(ctx, figureUpload, arg.ID, arg.ProjectID, arg.UserID)
+	var i FigureUploadRow
+	err := row.Scan(
+		&i.ID,
+		&i.ObjectKey,
+		&i.Path,
+		&i.SizeBytes,
+		&i.ExpiresAt,
+	)
+	return i, err
 }
 
 const getProject = `-- name: GetProject :one
@@ -317,6 +447,67 @@ func (q *Queries) GetProjectReport(ctx context.Context, id pgtype.UUID) (GetProj
 	return i, err
 }
 
+const insertFigureObject = `-- name: InsertFigureObject :exec
+INSERT INTO stored_files (id, project_id, uploaded_by, purpose, object_key, content_type, size_bytes, width, height)
+VALUES ($1, $2, $3, 'figure', $4, $5, $6,
+        $7::integer, $8::integer)
+`
+
+type InsertFigureObjectParams struct {
+	ID          pgtype.UUID
+	ProjectID   pgtype.UUID
+	UploadedBy  pgtype.UUID
+	ObjectKey   string
+	ContentType string
+	SizeBytes   int64
+	Width       pgtype.Int4
+	Height      pgtype.Int4
+}
+
+// A figure's stored file, owned by the project; the scan worker picks it up (pending).
+func (q *Queries) InsertFigureObject(ctx context.Context, arg InsertFigureObjectParams) error {
+	_, err := q.db.Exec(ctx, insertFigureObject,
+		arg.ID,
+		arg.ProjectID,
+		arg.UploadedBy,
+		arg.ObjectKey,
+		arg.ContentType,
+		arg.SizeBytes,
+		arg.Width,
+		arg.Height,
+	)
+	return err
+}
+
+const insertFigureUpload = `-- name: InsertFigureUpload :one
+INSERT INTO project_figure_uploads (project_id, user_id, object_key, path, size_bytes, expires_at)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id
+`
+
+type InsertFigureUploadParams struct {
+	ProjectID pgtype.UUID
+	UserID    pgtype.UUID
+	ObjectKey string
+	Path      string
+	SizeBytes int64
+	ExpiresAt pgtype.Timestamptz
+}
+
+func (q *Queries) InsertFigureUpload(ctx context.Context, arg InsertFigureUploadParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, insertFigureUpload,
+		arg.ProjectID,
+		arg.UserID,
+		arg.ObjectKey,
+		arg.Path,
+		arg.SizeBytes,
+		arg.ExpiresAt,
+	)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const insertJoinRequest = `-- name: InsertJoinRequest :one
 INSERT INTO project_join_requests (project_id, user_id, kind, message, role)
 VALUES ($1, $2, ($3::text)::join_request_kind, $4, ($5::text)::project_role)
@@ -424,6 +615,52 @@ func (q *Queries) InsertProject(ctx context.Context, arg InsertProjectParams) (p
 	return id, err
 }
 
+const insertProjectFigure = `-- name: InsertProjectFigure :one
+INSERT INTO project_files (project_id, path, kind, stored_file_id, size_bytes, updated_by)
+VALUES ($1, $2, 'binary', $3, $4, $5)
+RETURNING id
+`
+
+type InsertProjectFigureParams struct {
+	ProjectID    pgtype.UUID
+	Path         string
+	StoredFileID pgtype.UUID
+	SizeBytes    int64
+	UpdatedBy    pgtype.UUID
+}
+
+func (q *Queries) InsertProjectFigure(ctx context.Context, arg InsertProjectFigureParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, insertProjectFigure,
+		arg.ProjectID,
+		arg.Path,
+		arg.StoredFileID,
+		arg.SizeBytes,
+		arg.UpdatedBy,
+	)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
+const insertProjectFolder = `-- name: InsertProjectFolder :one
+INSERT INTO project_files (project_id, path, kind, updated_by)
+VALUES ($1, $2, 'folder', $3)
+RETURNING id
+`
+
+type InsertProjectFolderParams struct {
+	ProjectID pgtype.UUID
+	Path      string
+	UpdatedBy pgtype.UUID
+}
+
+func (q *Queries) InsertProjectFolder(ctx context.Context, arg InsertProjectFolderParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, insertProjectFolder, arg.ProjectID, arg.Path, arg.UpdatedBy)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const insertProjectReport = `-- name: InsertProjectReport :one
 
 INSERT INTO project_reports (project_id, reporter_id, reason, details)
@@ -454,6 +691,31 @@ func (q *Queries) InsertProjectReport(ctx context.Context, arg InsertProjectRepo
 	var i InsertProjectReportRow
 	err := row.Scan(&i.ID, &i.CreatedAt)
 	return i, err
+}
+
+const insertProjectText = `-- name: InsertProjectText :one
+INSERT INTO project_files (project_id, path, kind, content, size_bytes, updated_by)
+VALUES ($1, $2, 'text', $3::text, octet_length($3::text), $4)
+RETURNING id
+`
+
+type InsertProjectTextParams struct {
+	ProjectID pgtype.UUID
+	Path      string
+	Content   string
+	UpdatedBy pgtype.UUID
+}
+
+func (q *Queries) InsertProjectText(ctx context.Context, arg InsertProjectTextParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, insertProjectText,
+		arg.ProjectID,
+		arg.Path,
+		arg.Content,
+		arg.UpdatedBy,
+	)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
 }
 
 const insertSkillNames = `-- name: InsertSkillNames :exec
@@ -639,6 +901,59 @@ func (q *Queries) LockProject(ctx context.Context, arg LockProjectParams) (LockP
 	return i, err
 }
 
+const lockProjectFile = `-- name: LockProjectFile :one
+SELECT f.id, f.path, f.kind::text AS kind, f.size_bytes, f.version, f.updated_at, f.content,
+       sf.content_type
+FROM project_files f
+LEFT JOIN stored_files sf ON sf.id = f.stored_file_id
+WHERE f.project_id = $1 AND f.id = $2
+FOR UPDATE OF f
+`
+
+type LockProjectFileParams struct {
+	ProjectID pgtype.UUID
+	ID        pgtype.UUID
+}
+
+type LockProjectFileRow struct {
+	ID          pgtype.UUID
+	Path        string
+	Kind        string
+	SizeBytes   int64
+	Version     int32
+	UpdatedAt   pgtype.Timestamptz
+	Content     pgtype.Text
+	ContentType pgtype.Text
+}
+
+// ProjectFile without the people, with the file row locked until the transaction ends.
+func (q *Queries) LockProjectFile(ctx context.Context, arg LockProjectFileParams) (LockProjectFileRow, error) {
+	row := q.db.QueryRow(ctx, lockProjectFile, arg.ProjectID, arg.ID)
+	var i LockProjectFileRow
+	err := row.Scan(
+		&i.ID,
+		&i.Path,
+		&i.Kind,
+		&i.SizeBytes,
+		&i.Version,
+		&i.UpdatedAt,
+		&i.Content,
+		&i.ContentType,
+	)
+	return i, err
+}
+
+const mainFilePath = `-- name: MainFilePath :one
+SELECT main_file_path FROM projects WHERE id = $1
+`
+
+func (q *Queries) MainFilePath(ctx context.Context, id pgtype.UUID) (string, error) {
+	row := q.db.QueryRow(ctx, mainFilePath, id)
+	var main_file_path string
+	err := row.Scan(&main_file_path)
+	return main_file_path, err
+}
+
 const memberRole = `-- name: MemberRole :one
 SELECT role::text FROM project_members WHERE project_id = $1 AND user_id = $2
 `
@@ -698,6 +1013,57 @@ func (q *Queries) MembershipRelation(ctx context.Context, arg MembershipRelation
 		&i.Role,
 	)
 	return i, err
+}
+
+const moveMainFilePath = `-- name: MoveMainFilePath :exec
+UPDATE projects
+SET main_file_path = $1::text || substr(main_file_path, char_length($2::text) + 1)
+WHERE id = $3
+  AND (lower(main_file_path) = lower($2::text)
+       OR left(lower(main_file_path), char_length($2::text) + 1) = lower($2::text) || '/')
+`
+
+type MoveMainFilePathParams struct {
+	NewPath string
+	OldPath string
+	ID      pgtype.UUID
+}
+
+// The project's main file follows its file, or a folder it is in.
+func (q *Queries) MoveMainFilePath(ctx context.Context, arg MoveMainFilePathParams) error {
+	_, err := q.db.Exec(ctx, moveMainFilePath, arg.NewPath, arg.OldPath, arg.ID)
+	return err
+}
+
+const moveProjectFiles = `-- name: MoveProjectFiles :execrows
+UPDATE project_files
+SET path = $1::text || substr(path, char_length($2::text) + 1),
+    updated_by = $3, updated_at = now()
+WHERE project_id = $4
+  AND (lower(path) = lower($2::text)
+       OR left(lower(path), char_length($2::text) + 1) = lower($2::text) || '/')
+`
+
+type MoveProjectFilesParams struct {
+	NewPath   string
+	OldPath   string
+	UpdatedBy pgtype.UUID
+	ProjectID pgtype.UUID
+}
+
+// The entry at @old_path and everything under it go to @new_path, in one statement, so the tree check
+// (project_files_parent) sees the result. @old_path is the stored spelling of the entry's path.
+func (q *Queries) MoveProjectFiles(ctx context.Context, arg MoveProjectFilesParams) (int64, error) {
+	result, err := q.db.Exec(ctx, moveProjectFiles,
+		arg.NewPath,
+		arg.OldPath,
+		arg.UpdatedBy,
+		arg.ProjectID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const myInvitations = `-- name: MyInvitations :many
@@ -964,6 +1330,204 @@ func (q *Queries) PendingJoinRequest(ctx context.Context, arg PendingJoinRequest
 	return i, err
 }
 
+const pendingUploadBytes = `-- name: PendingUploadBytes :one
+SELECT coalesce(sum(size_bytes), 0)::bigint
+FROM project_figure_uploads
+WHERE project_id = $1 AND created_at > $2 AND expires_at > now()
+`
+
+type PendingUploadBytesParams struct {
+	ProjectID pgtype.UUID
+	Since     pgtype.Timestamptz
+}
+
+// The bytes of the project's uploads still being sent (started after @since), held against
+// the quota so several uploads at once cannot pass it.
+func (q *Queries) PendingUploadBytes(ctx context.Context, arg PendingUploadBytesParams) (int64, error) {
+	row := q.db.QueryRow(ctx, pendingUploadBytes, arg.ProjectID, arg.Since)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const profileFullName = `-- name: ProfileFullName :one
+SELECT full_name FROM profiles WHERE user_id = $1
+`
+
+func (q *Queries) ProfileFullName(ctx context.Context, userID pgtype.UUID) (string, error) {
+	row := q.db.QueryRow(ctx, profileFullName, userID)
+	var full_name string
+	err := row.Scan(&full_name)
+	return full_name, err
+}
+
+const projectFigureKeys = `-- name: ProjectFigureKeys :many
+SELECT object_key FROM stored_files WHERE project_id = $1
+`
+
+func (q *Queries) ProjectFigureKeys(ctx context.Context, projectID pgtype.UUID) ([]string, error) {
+	rows, err := q.db.Query(ctx, projectFigureKeys, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var object_key string
+		if err := rows.Scan(&object_key); err != nil {
+			return nil, err
+		}
+		items = append(items, object_key)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const projectFile = `-- name: ProjectFile :one
+SELECT f.id, f.path, f.kind::text AS kind, f.size_bytes, f.version, f.updated_at, f.content,
+       sf.object_key, sf.content_type, sf.scan_status,
+       f.updated_by, coalesce(up.full_name, '')::text AS updater_name, up.headline AS updater_headline,
+       up.photo_file_id AS updater_photo
+FROM project_files f
+LEFT JOIN stored_files sf ON sf.id = f.stored_file_id
+LEFT JOIN profiles up ON up.user_id = f.updated_by
+WHERE f.project_id = $1 AND f.id = $2
+`
+
+type ProjectFileParams struct {
+	ProjectID pgtype.UUID
+	ID        pgtype.UUID
+}
+
+type ProjectFileRow struct {
+	ID              pgtype.UUID
+	Path            string
+	Kind            string
+	SizeBytes       int64
+	Version         int32
+	UpdatedAt       pgtype.Timestamptz
+	Content         pgtype.Text
+	ObjectKey       pgtype.Text
+	ContentType     pgtype.Text
+	ScanStatus      pgtype.Text
+	UpdatedBy       pgtype.UUID
+	UpdaterName     string
+	UpdaterHeadline pgtype.Text
+	UpdaterPhoto    pgtype.UUID
+}
+
+func (q *Queries) ProjectFile(ctx context.Context, arg ProjectFileParams) (ProjectFileRow, error) {
+	row := q.db.QueryRow(ctx, projectFile, arg.ProjectID, arg.ID)
+	var i ProjectFileRow
+	err := row.Scan(
+		&i.ID,
+		&i.Path,
+		&i.Kind,
+		&i.SizeBytes,
+		&i.Version,
+		&i.UpdatedAt,
+		&i.Content,
+		&i.ObjectKey,
+		&i.ContentType,
+		&i.ScanStatus,
+		&i.UpdatedBy,
+		&i.UpdaterName,
+		&i.UpdaterHeadline,
+		&i.UpdaterPhoto,
+	)
+	return i, err
+}
+
+const projectFileAt = `-- name: ProjectFileAt :one
+SELECT f.id, f.kind::text AS kind
+FROM project_files f
+WHERE f.project_id = $1 AND lower(f.path) = lower($2::text)
+`
+
+type ProjectFileAtParams struct {
+	ProjectID pgtype.UUID
+	Path      string
+}
+
+type ProjectFileAtRow struct {
+	ID   pgtype.UUID
+	Kind string
+}
+
+func (q *Queries) ProjectFileAt(ctx context.Context, arg ProjectFileAtParams) (ProjectFileAtRow, error) {
+	row := q.db.QueryRow(ctx, projectFileAt, arg.ProjectID, arg.Path)
+	var i ProjectFileAtRow
+	err := row.Scan(&i.ID, &i.Kind)
+	return i, err
+}
+
+const projectFiles = `-- name: ProjectFiles :many
+
+SELECT f.id, f.path, f.kind::text AS kind, f.size_bytes, f.version, f.updated_at,
+       sf.content_type, sf.scan_status,
+       f.updated_by, coalesce(up.full_name, '')::text AS updater_name, up.headline AS updater_headline,
+       up.photo_file_id AS updater_photo
+FROM project_files f
+LEFT JOIN stored_files sf ON sf.id = f.stored_file_id
+LEFT JOIN profiles up ON up.user_id = f.updated_by
+WHERE f.project_id = $1
+ORDER BY lower(f.path), f.path
+`
+
+type ProjectFilesRow struct {
+	ID              pgtype.UUID
+	Path            string
+	Kind            string
+	SizeBytes       int64
+	Version         int32
+	UpdatedAt       pgtype.Timestamptz
+	ContentType     pgtype.Text
+	ScanStatus      pgtype.Text
+	UpdatedBy       pgtype.UUID
+	UpdaterName     string
+	UpdaterHeadline pgtype.Text
+	UpdaterPhoto    pgtype.UUID
+}
+
+// ---------------------------------------------------------------------------
+// Project files (FR-10.4, FR-12.1, FR-12.2, FR-12.6; slice 21, migration 000035)
+// ---------------------------------------------------------------------------
+// The whole tree, at most 200 entries (project_files_max), by path ignoring letter case.
+func (q *Queries) ProjectFiles(ctx context.Context, projectID pgtype.UUID) ([]ProjectFilesRow, error) {
+	rows, err := q.db.Query(ctx, projectFiles, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ProjectFilesRow
+	for rows.Next() {
+		var i ProjectFilesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Path,
+			&i.Kind,
+			&i.SizeBytes,
+			&i.Version,
+			&i.UpdatedAt,
+			&i.ContentType,
+			&i.ScanStatus,
+			&i.UpdatedBy,
+			&i.UpdaterName,
+			&i.UpdaterHeadline,
+			&i.UpdaterPhoto,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const projectJoinRequests = `-- name: ProjectJoinRequests :many
 SELECT j.id, j.project_id, j.user_id, j.kind::text AS kind, j.status::text AS status, j.message, coalesce(j.role::text, '')::text AS role,
        j.created_at, j.decided_at,
@@ -1202,6 +1766,56 @@ func (q *Queries) ProjectSkills(ctx context.Context, projectID pgtype.UUID) ([]P
 	return items, nil
 }
 
+const projectStorageUsed = `-- name: ProjectStorageUsed :one
+SELECT coalesce(sum(size_bytes), 0)::bigint
+FROM stored_files
+WHERE project_id = $1 AND scan_status <> 'infected'
+`
+
+// The bytes of the project's stored files (FR-12.2 quota), except those removed as malware,
+// whose objects are gone.
+func (q *Queries) ProjectStorageUsed(ctx context.Context, projectID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, projectStorageUsed, projectID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const projectsWithoutFiles = `-- name: ProjectsWithoutFiles :many
+SELECT p.id
+FROM projects p
+WHERE p.id > coalesce($1::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
+  AND NOT EXISTS (SELECT 1 FROM project_files f WHERE f.project_id = p.id)
+ORDER BY p.id
+LIMIT $2
+`
+
+type ProjectsWithoutFilesParams struct {
+	After   pgtype.UUID
+	MaxRows int32
+}
+
+// Projects for the main.tex backfill (FR-10.4), in ID order after @after.
+func (q *Queries) ProjectsWithoutFiles(ctx context.Context, arg ProjectsWithoutFilesParams) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, projectsWithoutFiles, arg.After, arg.MaxRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var id pgtype.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const removeSkillsExcept = `-- name: RemoveSkillsExcept :exec
 DELETE FROM project_skills ps
 USING skills s
@@ -1279,6 +1893,29 @@ func (q *Queries) ResolveProjectReport(ctx context.Context, arg ResolveProjectRe
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const saveProjectFileContent = `-- name: SaveProjectFileContent :one
+UPDATE project_files
+SET content = $1::text, size_bytes = octet_length($1::text), version = version + 1,
+    ydoc_state = NULL, updated_by = $2, updated_at = now()
+WHERE id = $3 AND kind = 'text'
+RETURNING version
+`
+
+type SaveProjectFileContentParams struct {
+	Content   string
+	UpdatedBy pgtype.UUID
+	ID        pgtype.UUID
+}
+
+// A REST save replaces the text outright, so the Yjs state of slice 22 no longer matches it
+// and is cleared; the sync server builds it again from the text.
+func (q *Queries) SaveProjectFileContent(ctx context.Context, arg SaveProjectFileContentParams) (int32, error) {
+	row := q.db.QueryRow(ctx, saveProjectFileContent, arg.Content, arg.UpdatedBy, arg.ID)
+	var version int32
+	err := row.Scan(&version)
+	return version, err
 }
 
 const searchProjectsPage = `-- name: SearchProjectsPage :many
@@ -1594,6 +2231,27 @@ SELECT set_config('pg_trgm.word_similarity_threshold', $1::text, true)
 func (q *Queries) SetWordSimilarityThreshold(ctx context.Context, threshold string) error {
 	_, err := q.db.Exec(ctx, setWordSimilarityThreshold, threshold)
 	return err
+}
+
+const shareLockProjectRole = `-- name: ShareLockProjectRole :one
+SELECT coalesce((SELECT m.role::text FROM project_members m WHERE m.project_id = p.id AND m.user_id = $1::uuid), '')::text AS role
+FROM projects p
+WHERE p.id = $2
+FOR SHARE OF p
+`
+
+type ShareLockProjectRoleParams struct {
+	UserID pgtype.UUID
+	ID     pgtype.UUID
+}
+
+// The user's role, ” when not a member, with the project row locked shared: content saves
+// run side by side, and wait for a membership change (which locks the row for update).
+func (q *Queries) ShareLockProjectRole(ctx context.Context, arg ShareLockProjectRoleParams) (string, error) {
+	row := q.db.QueryRow(ctx, shareLockProjectRole, arg.UserID, arg.ID)
+	var role string
+	err := row.Scan(&role)
+	return role, err
 }
 
 const skillsOfProjects = `-- name: SkillsOfProjects :many

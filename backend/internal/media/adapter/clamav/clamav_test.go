@@ -90,7 +90,7 @@ func (f *fakeClamd) handle(conn net.Conn) {
 
 func TestPing(t *testing.T) {
 	f := newFakeClamd(t, nil)
-	if err := New(f.addr()).Ping(t.Context()); err != nil {
+	if err := New(f.addr(), 0).Ping(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	if cmd := <-f.commands; cmd != "zPING" {
@@ -107,7 +107,7 @@ func TestUnreachable(t *testing.T) {
 	}
 	addr := ln.Addr().String()
 	_ = ln.Close()
-	c := New(addr)
+	c := New(addr, 0)
 	if err := c.Ping(t.Context()); !errors.Is(err, domain.ErrScannerUnavailable) {
 		t.Errorf("Ping: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestScanFramingAndAnswers(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFakeClamd(t, func([]byte) string { return tc.answer })
 			payload := bytes.Repeat([]byte("abcdefgh"), (150<<10)/8+3) // 150 KiB and a bit
-			v, err := New(f.addr()).Scan(t.Context(), bytes.NewReader(payload))
+			v, err := New(f.addr(), 0).Scan(t.Context(), bytes.NewReader(payload))
 			if <-f.commands != "zINSTREAM" {
 				t.Error("not an INSTREAM")
 			}
@@ -170,10 +170,24 @@ func TestScanFramingAndAnswers(t *testing.T) {
 func TestScanOverStreamLimit(t *testing.T) {
 	f := newFakeClamd(t, func([]byte) string { return "stream: OK" })
 	f.stopAt = 100 << 10
-	_, err := New(f.addr()).Scan(t.Context(), bytes.NewReader(make([]byte, 4<<20)))
+	_, err := New(f.addr(), 0).Scan(t.Context(), bytes.NewReader(make([]byte, 4<<20)))
 	var fe *domain.ScanFileError
 	if !errors.As(err, &fe) || !strings.Contains(fe.Reason, "size limit") {
 		t.Errorf("err = %v, want ScanFileError about the size limit", err)
+	}
+}
+
+// The client limit (CLAMAV_MAX_BYTES) refuses a longer file as an error about the file, so it
+// is never passed as clean even when clamd would skip it; a file at the limit is scanned.
+func TestScanClientLimit(t *testing.T) {
+	f := newFakeClamd(t, func([]byte) string { return "stream: OK" })
+	_, err := New(f.addr(), 200<<10).Scan(t.Context(), bytes.NewReader(make([]byte, 200<<10+1)))
+	var fe *domain.ScanFileError
+	if !errors.As(err, &fe) || !strings.Contains(fe.Reason, "size limit") {
+		t.Errorf("err = %v, want ScanFileError about the size limit", err)
+	}
+	if v, err := New(f.addr(), 200<<10).Scan(t.Context(), bytes.NewReader(make([]byte, 200<<10))); err != nil || v.Infected {
+		t.Errorf("at the limit: %+v, %v", v, err)
 	}
 }
 
@@ -181,7 +195,7 @@ func TestScanOverStreamLimit(t *testing.T) {
 func TestScanSourceError(t *testing.T) {
 	f := newFakeClamd(t, func([]byte) string { return "stream: OK" })
 	boom := errors.New("bucket went away")
-	_, err := New(f.addr()).Scan(t.Context(), io.MultiReader(strings.NewReader("abc"), errReader{boom}))
+	_, err := New(f.addr(), 0).Scan(t.Context(), io.MultiReader(strings.NewReader("abc"), errReader{boom}))
 	var fe *domain.ScanFileError
 	if !errors.Is(err, boom) || errors.Is(err, domain.ErrScannerUnavailable) || errors.As(err, &fe) {
 		t.Errorf("err = %v", err)
@@ -198,5 +212,13 @@ func TestParse(t *testing.T) {
 	}
 	if v, err := parse("stream: OK"); err != nil || v.Infected {
 		t.Errorf("OK: %+v %v", v, err)
+	}
+	// AlertExceedsMax: a file clamd could not scan whole is neither clean nor malware.
+	for _, sig := range []string{"Heuristics.Limits.Exceeded.MaxFileSize", "Heuristics.Limits.Exceeded.MaxScanSize"} {
+		v, err := parse("stream: " + sig + " FOUND")
+		var fe *domain.ScanFileError
+		if !errors.As(err, &fe) || v.Infected || !strings.Contains(fe.Reason, sig) {
+			t.Errorf("%s: %+v %v", sig, v, err)
+		}
 	}
 }

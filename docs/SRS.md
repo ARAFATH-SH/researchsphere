@@ -284,7 +284,7 @@ Security notes for FR-17.5 and FR-17.6: the authorization code flow with PKCE an
 | ID | The system shall | Priority |
 | --- | --- | --- |
 | FR-12.1 | let an editor create, rename and delete files and folders in the workspace | Must |
-| FR-12.2 | let an editor upload figure files (PNG, JPG, PDF) of up to 5 MB each | Must |
+| FR-12.2 | let an editor upload figure files (PNG, JPG, PDF) of up to 50 MB each, stored without recompression, within 500 MB per project (both limits configurable) | Must |
 | FR-12.3 | provide a LaTeX editor with syntax highlighting, line numbers, undo, redo and find | Must |
 | FR-12.4 | let up to 6 members edit the same file at the same time and merge their changes so that no member's text is lost | Must |
 | FR-12.5 | show each active member's cursor and name in a distinct colour | Must |
@@ -512,7 +512,7 @@ The database holds the 18 core kinds of record below, plus 19 added for profile 
 | Project | Title, description, abstract, status, main file | Title of 3 to 150 characters, description of 1 to 5,000, abstract of at most 3,000, at most 20 required skills; deleting a project deletes its files, members, requests, embedding and reports |
 | Membership | Project, user, role | One role per user per project; exactly one owner per project |
 | Join request | Project, user, kind (request or invitation), status, message | One pending request per user per project |
-| File | Project, path, text content, editing state, storage key, size | Path is unique within a project and cannot point outside it |
+| File | Project, path, kind (text, figure or folder), text content, version, real-time editing state, stored file (figure), size, who last changed it | Path is unique within a project ignoring letter case, uses only letters, digits, `_`, `-` and `.` (no spaces), has at most 8 levels and 255 characters, and cannot point outside it; every entry is inside a folder of the same project; at most 200 entries per project, folders included; text at most 1 MiB; a figure is a PNG, JPG or PDF of at most the figure limit (50 MB by default, never over 200 MiB) whose stored file belongs to the same project; a project's figures together stay within its storage limit (500 MB by default); deleting a figure deletes its stored file |
 | Compile job | Project, requester, status, PDF key, log, times | Belongs to one project |
 | Venue | Name, type, scope, field, location, dates, deadline, source | An imported venue is unique by its source and source identifier |
 | Embedding | Owner (profile, project, post or venue), model, text hash, vector | One per owner; deleted with its owner |
@@ -522,7 +522,7 @@ The database holds the 18 core kinds of record below, plus 19 added for profile 
 | Profile link | User, kind (website, Google Scholar, ResearchGate, LinkedIn, GitHub, other), URL | At most 5 per user; HTTPS only, at most 300 characters |
 | Experience | User, role, organization, employment type, location, start and end month, description | End is not before start; at most 30 per user |
 | Language | User, language, proficiency | One entry per language per user |
-| Stored file | Owner, purpose (photo, cover, figure, PDF, attachment), object key, content type, size, scan status | The file itself lives in object storage; deleted with its owner |
+| Stored file | Owner (a user, or a project for a figure), uploader, purpose (photo, cover, figure, PDF, attachment), object key, content type, size, scan status | The file itself lives in object storage; exactly one owner, a project only for a figure; deleted with its owner |
 | Conversation | Kind (direct or group), state (active, request or declined), who requested it, the pair of users, last message time; for a group its name, creator, the creator's client ID and closed time | One direct conversation per pair of users; a request names who requested it; a group has a name of 1 to 100 characters on one line, is always active, and is one per creator and client ID |
 | Conversation member | Conversation, user, role (owner or member), joined time, read marker and its time | One row per user per conversation; at most one owner per group; the read marker is a message of the same conversation; a member sees only messages from the time they joined; a group has at most 50 members |
 | Group membership | Group, user, joined time, left time | One per stay; at most one open stay per user and group; read only through an administrator's report (NFR-13) and to name a former member on a page of messages a member may already read; deleted with the user or the group |

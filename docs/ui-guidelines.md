@@ -204,7 +204,7 @@ The tokens below style pages that are not restyled yet. Do not use them in a res
   | --- | --- | --- |
   | Landing and other signed-out (marketing) pages, including auth | `marketing` | 1128px (`max-w-content`) |
   | Signed-in app pages (home, profile, network, projects, events, messaging) | `app` | 1128px (`max-w-content`) |
-  | Editor workspace (slice 22) | `full` | none |
+  | Editor workspace (slice 21) | none: full screen, outside the signed-in shell | none |
 
   Auth cards are 363px wide and not-found cards about 400px, inside the `marketing`
   Container (see Narrow cards). `app` and `marketing` are both 1128px, as in the design, but stay two
@@ -418,7 +418,10 @@ its state.
   full [site footer](#site-footer) after `main`.
 - **Unbuilt pages** show a "Coming soon" card that names the requirements the page will
   cover.
-- The project workspace (slice 22) is the only page allowed to need more than 768px (SRS 5.1).
+- The project workspace is the only page allowed to need more than 768px (SRS 5.1). It sits
+  outside the signed-in shell, in the `(workspace)` route group, with its own teal bar (the logo
+  to Home, a back link to the project, the role, the save status), as in
+  `design/screens/Workspace.html`. Under 640px its file tree moves into a drawer.
 
 ## Site footer
 

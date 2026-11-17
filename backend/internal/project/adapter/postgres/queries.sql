@@ -511,3 +511,175 @@ WHERE p.id = ANY (@ids::uuid[])
   AND (EXISTS (SELECT 1 FROM project_members m WHERE m.project_id = p.id AND m.user_id = @viewer_id::uuid)
        OR (p.status <> 'archived' AND ou.email_verified_at IS NOT NULL AND ou.suspended_at IS NULL
            AND NOT EXISTS (SELECT 1 FROM blocks x WHERE x.blocker_id = o.user_id AND x.blocked_id = @viewer_id::uuid)));
+
+-- ---------------------------------------------------------------------------
+-- Project files (FR-10.4, FR-12.1, FR-12.2, FR-12.6; slice 21, migration 000035)
+-- ---------------------------------------------------------------------------
+
+-- name: ProjectFiles :many
+-- The whole tree, at most 200 entries (project_files_max), by path ignoring letter case.
+SELECT f.id, f.path, f.kind::text AS kind, f.size_bytes, f.version, f.updated_at,
+       sf.content_type, sf.scan_status,
+       f.updated_by, coalesce(up.full_name, '')::text AS updater_name, up.headline AS updater_headline,
+       up.photo_file_id AS updater_photo
+FROM project_files f
+LEFT JOIN stored_files sf ON sf.id = f.stored_file_id
+LEFT JOIN profiles up ON up.user_id = f.updated_by
+WHERE f.project_id = @project_id
+ORDER BY lower(f.path), f.path;
+
+-- name: MainFilePath :one
+SELECT main_file_path FROM projects WHERE id = @id;
+
+-- name: ProjectFile :one
+SELECT f.id, f.path, f.kind::text AS kind, f.size_bytes, f.version, f.updated_at, f.content,
+       sf.object_key, sf.content_type, sf.scan_status,
+       f.updated_by, coalesce(up.full_name, '')::text AS updater_name, up.headline AS updater_headline,
+       up.photo_file_id AS updater_photo
+FROM project_files f
+LEFT JOIN stored_files sf ON sf.id = f.stored_file_id
+LEFT JOIN profiles up ON up.user_id = f.updated_by
+WHERE f.project_id = @project_id AND f.id = @id;
+
+-- name: LockProjectFile :one
+-- ProjectFile without the people, with the file row locked until the transaction ends.
+SELECT f.id, f.path, f.kind::text AS kind, f.size_bytes, f.version, f.updated_at, f.content,
+       sf.content_type
+FROM project_files f
+LEFT JOIN stored_files sf ON sf.id = f.stored_file_id
+WHERE f.project_id = @project_id AND f.id = @id
+FOR UPDATE OF f;
+
+-- name: ProjectFileAt :one
+SELECT f.id, f.kind::text AS kind
+FROM project_files f
+WHERE f.project_id = @project_id AND lower(f.path) = lower(@path::text);
+
+-- name: InsertProjectFolder :one
+INSERT INTO project_files (project_id, path, kind, updated_by)
+VALUES (@project_id, @path, 'folder', @updated_by)
+RETURNING id;
+
+-- name: InsertProjectText :one
+INSERT INTO project_files (project_id, path, kind, content, size_bytes, updated_by)
+VALUES (@project_id, @path, 'text', @content::text, octet_length(@content::text), @updated_by)
+RETURNING id;
+
+-- name: InsertFigureObject :exec
+-- A figure's stored file, owned by the project; the scan worker picks it up (pending).
+INSERT INTO stored_files (id, project_id, uploaded_by, purpose, object_key, content_type, size_bytes, width, height)
+VALUES (@id, @project_id, @uploaded_by, 'figure', @object_key, @content_type, @size_bytes,
+        sqlc.narg(width)::integer, sqlc.narg(height)::integer);
+
+-- name: InsertProjectFigure :one
+INSERT INTO project_files (project_id, path, kind, stored_file_id, size_bytes, updated_by)
+VALUES (@project_id, @path, 'binary', @stored_file_id, @size_bytes, @updated_by)
+RETURNING id;
+
+-- name: SaveProjectFileContent :one
+-- A REST save replaces the text outright, so the Yjs state of slice 22 no longer matches it
+-- and is cleared; the sync server builds it again from the text.
+UPDATE project_files
+SET content = @content::text, size_bytes = octet_length(@content::text), version = version + 1,
+    ydoc_state = NULL, updated_by = @updated_by, updated_at = now()
+WHERE id = @id AND kind = 'text'
+RETURNING version;
+
+-- name: MoveProjectFiles :execrows
+-- The entry at @old_path and everything under it go to @new_path, in one statement, so the tree check
+-- (project_files_parent) sees the result. @old_path is the stored spelling of the entry's path.
+UPDATE project_files
+SET path = @new_path::text || substr(path, char_length(@old_path::text) + 1),
+    updated_by = @updated_by, updated_at = now()
+WHERE project_id = @project_id
+  AND (lower(path) = lower(@old_path::text)
+       OR left(lower(path), char_length(@old_path::text) + 1) = lower(@old_path::text) || '/');
+
+-- name: MoveMainFilePath :exec
+-- The project's main file follows its file, or a folder it is in.
+UPDATE projects
+SET main_file_path = @new_path::text || substr(main_file_path, char_length(@old_path::text) + 1)
+WHERE id = @id
+  AND (lower(main_file_path) = lower(@old_path::text)
+       OR left(lower(main_file_path), char_length(@old_path::text) + 1) = lower(@old_path::text) || '/');
+
+-- name: FigureKeysUnder :many
+SELECT sf.object_key
+FROM project_files f
+JOIN stored_files sf ON sf.id = f.stored_file_id
+WHERE f.project_id = @project_id
+  AND (lower(f.path) = lower(@path::text)
+       OR left(lower(f.path), char_length(@path::text) + 1) = lower(@path::text) || '/');
+
+-- name: DeleteProjectFiles :exec
+-- The entry at @path and everything under it, in one statement; project_files_delete_file
+-- deletes each figure's stored file, whose trigger queues its object.
+DELETE FROM project_files
+WHERE project_id = @project_id
+  AND (lower(path) = lower(@path::text)
+       OR left(lower(path), char_length(@path::text) + 1) = lower(@path::text) || '/');
+
+-- name: ProjectFigureKeys :many
+SELECT object_key FROM stored_files WHERE project_id = @project_id;
+
+-- name: CountProjectFiles :one
+SELECT count(*)::int FROM project_files WHERE project_id = @project_id;
+
+-- name: ProfileFullName :one
+SELECT full_name FROM profiles WHERE user_id = @user_id;
+
+-- name: ProjectsWithoutFiles :many
+-- Projects for the main.tex backfill (FR-10.4), in ID order after @after.
+SELECT p.id
+FROM projects p
+WHERE p.id > coalesce(sqlc.narg(after)::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
+  AND NOT EXISTS (SELECT 1 FROM project_files f WHERE f.project_id = p.id)
+ORDER BY p.id
+LIMIT @max_rows;
+
+-- name: ProjectStorageUsed :one
+-- The bytes of the project's stored files (FR-12.2 quota), except those removed as malware,
+-- whose objects are gone.
+SELECT coalesce(sum(size_bytes), 0)::bigint
+FROM stored_files
+WHERE project_id = @project_id AND scan_status <> 'infected';
+
+-- name: PendingUploadBytes :one
+-- The bytes of the project's uploads still being sent (started after @since), held against
+-- the quota so several uploads at once cannot pass it.
+SELECT coalesce(sum(size_bytes), 0)::bigint
+FROM project_figure_uploads
+WHERE project_id = @project_id AND created_at > @since AND expires_at > now();
+
+-- name: InsertFigureUpload :one
+INSERT INTO project_figure_uploads (project_id, user_id, object_key, path, size_bytes, expires_at)
+VALUES (@project_id, @user_id, @object_key, @path, @size_bytes, @expires_at)
+RETURNING id;
+
+-- name: FigureUpload :one
+-- The user's own upload in the project, while it has not expired.
+SELECT id, object_key, path, size_bytes, expires_at
+FROM project_figure_uploads
+WHERE id = @id AND project_id = @project_id AND user_id = @user_id AND expires_at > now();
+
+-- name: ClaimFigureUpload :execrows
+-- Completing takes the upload in the transaction that records the figure: a second
+-- completion finds nothing. The trigger queues the upload's object for deletion.
+DELETE FROM project_figure_uploads WHERE id = @id AND expires_at > now();
+
+-- name: DeleteExpiredFigureUploads :execrows
+-- Abandoned uploads, a batch at a time; the trigger queues each object for deletion.
+DELETE FROM project_figure_uploads
+WHERE id IN (SELECT id FROM project_figure_uploads
+             WHERE expires_at <= now()
+             ORDER BY expires_at
+             LIMIT @max_rows
+             FOR UPDATE SKIP LOCKED);
+
+-- name: ShareLockProjectRole :one
+-- The user's role, '' when not a member, with the project row locked shared: content saves
+-- run side by side, and wait for a membership change (which locks the row for update).
+SELECT coalesce((SELECT m.role::text FROM project_members m WHERE m.project_id = p.id AND m.user_id = @user_id::uuid), '')::text AS role
+FROM projects p
+WHERE p.id = @id
+FOR SHARE OF p;

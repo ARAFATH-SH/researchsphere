@@ -73,6 +73,9 @@ const accessTTL = 15 * time.Minute
 // cleanupInterval is how often queued objects are deleted from storage (docs/decisions.md).
 const cleanupInterval = time.Minute
 
+// uploadSweepInterval is how often expired figure uploads are deleted (FR-12.2).
+const uploadSweepInterval = 10 * time.Minute
+
 // attachmentPurgeInterval is how often attachments not sent within a day are deleted (FR-16.7).
 const attachmentPurgeInterval = 10 * time.Minute
 
@@ -134,6 +137,9 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 		return err
 	}
 	defer pool.Close()
+	if err := checkSchema(ctx, pool, logger); err != nil {
+		return err
+	}
 
 	rdb, err := redis.NewClient(cfg.RedisURL, logger)
 	if err != nil {
@@ -190,9 +196,10 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 	titles.messaging = messaging
 	realtime.bind(messaging, notifications)
 	// Attachments (FR-16.7): media checks types and scans, messaging owns who may see a file.
-	messaging.UseFiles(messagingusecase.FileDeps{Intake: fileIntake{media: mediausecase.NewAttachments(images, imaging.Codec{})}, Objects: files})
+	fileChecks := mediausecase.NewAttachments(images, imaging.Codec{})
+	messaging.UseFiles(messagingusecase.FileDeps{Intake: fileIntake{media: fileChecks}, Objects: files})
 	go messaging.RunAttachmentPurge(ctx, attachmentPurgeInterval)
-	go mediausecase.NewScanWorker(mediaStore, postgres.NewTransactor(pool), scanObjects{files: files}, files, clamav.New(cfg.ClamAVAddr),
+	go mediausecase.NewScanWorker(mediaStore, postgres.NewTransactor(pool), scanObjects{files: files}, files, clamav.New(cfg.ClamAVAddr, cfg.ClamAVMaxBytes),
 		scanListener{messaging: messaging, notifications: notifications, logger: logger}, logger).Run(ctx)
 
 	lookups := profileredis.New(rdb)
@@ -255,8 +262,11 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 		embedder: projectQueryEmbedder{q: queryEmbedder{ai: ai}},
 		vectors:  projectQueryVectors{cache: lookups.QueryVectors()},
 		timeout:  cfg.SearchAITimeout,
-	}, projectChanges{recs: recommendations, people: recCache, logger: logger}, projectNotifier{notifications: notifications}, logger)
+	}, projectChanges{recs: recommendations, people: recCache, logger: logger}, projectNotifier{notifications: notifications}, files,
+		figureLimits{figure: cfg.FigureMaxBytes, storage: cfg.ProjectStorageMaxBytes}, logger)
 	defer func() { _ = projectLimits.Close() }()
+	// Figure uploads never completed expire; the database queues their objects (FR-12.2).
+	go projects.RunUploadSweep(ctx, uploadSweepInterval)
 	memberships.projects = projects
 	titles.projects = projects
 	// Project matching (AI-3.1, AI-2.3); new project embeddings renew its lists. The worker

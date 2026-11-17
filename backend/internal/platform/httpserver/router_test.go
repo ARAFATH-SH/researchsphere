@@ -554,6 +554,38 @@ func (fakeAPI) TransferProject(context.Context, gen.TransferProjectRequestObject
 	return nil, nil
 }
 
+func (fakeAPI) ListProjectFiles(context.Context, gen.ListProjectFilesRequestObject) (gen.ListProjectFilesResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) CreateProjectFile(context.Context, gen.CreateProjectFileRequestObject) (gen.CreateProjectFileResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) StartFigureUpload(context.Context, gen.StartFigureUploadRequestObject) (gen.StartFigureUploadResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) CompleteFigureUpload(context.Context, gen.CompleteFigureUploadRequestObject) (gen.CompleteFigureUploadResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) GetProjectFile(context.Context, gen.GetProjectFileRequestObject) (gen.GetProjectFileResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) MoveProjectFile(context.Context, gen.MoveProjectFileRequestObject) (gen.MoveProjectFileResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) DeleteProjectFile(context.Context, gen.DeleteProjectFileRequestObject) (gen.DeleteProjectFileResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) SaveProjectFileContent(context.Context, gen.SaveProjectFileContentRequestObject) (gen.SaveProjectFileContentResponseObject, error) {
+	return nil, nil
+}
+
 func (fakeAPI) ListMyJoinRequests(context.Context, gen.ListMyJoinRequestsRequestObject) (gen.ListMyJoinRequestsResponseObject, error) {
 	return nil, nil
 }
@@ -952,8 +984,8 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 
 func TestRoutes(t *testing.T) {
 	got := Routes()
-	if len(got) != 137 {
-		t.Errorf("Routes() returned %d routes, want the 137 operations in the contract: %v", len(got), got)
+	if len(got) != 145 {
+		t.Errorf("Routes() returned %d routes, want the 145 operations in the contract: %v", len(got), got)
 	}
 	seen := map[string]bool{}
 	for _, p := range got {

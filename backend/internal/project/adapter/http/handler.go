@@ -41,17 +41,19 @@ type Service interface {
 	GetReport(ctx context.Context, reportID string) (domain.Report, domain.ReportedProject, error)
 	ResolveReport(ctx context.Context, adminID, reportID, outcome string, note *string) (domain.Report, error)
 	MembershipService
+	FileService
 }
 
 // Handler serves the project operations.
 type Handler struct {
 	svc     Service
 	members MembershipService
+	files   FileService
 }
 
 // NewHandler returns a Handler.
 func NewHandler(svc Service) *Handler {
-	return &Handler{svc: svc, members: svc}
+	return &Handler{svc: svc, members: svc, files: svc}
 }
 
 var (

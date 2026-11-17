@@ -311,9 +311,27 @@ func TestLoadStorageSettings(t *testing.T) {
 			t.Fatal(err)
 		}
 		s := cfg.Storage
-		if s.Endpoint != "localhost:9000" || s.Bucket != "researchsphere" || s.Region != DefaultS3Region ||
+		if s.Endpoint != "127.0.0.1:9000" || s.Bucket != "researchsphere" || s.Region != DefaultS3Region ||
 			s.AccessKey != "researchsphere" || s.SecretKey != testS3Secret || s.UseSSL {
 			t.Errorf("Storage = %+v", s)
+		}
+	})
+	// Presigned URLs go to the browser with this host: in development "localhost" and ::1 are
+	// written 127.0.0.1, where docker-compose.yml publishes MinIO; production keeps its host.
+	t.Run("loopback in development", func(t *testing.T) {
+		for in, want := range map[string]string{
+			"localhost:9000": "127.0.0.1:9000", "LOCALHOST:9100": "127.0.0.1:9100", "[::1]:9000": "127.0.0.1:9000",
+			"127.0.0.1:9000": "127.0.0.1:9000", "minio.example.org:443": "minio.example.org:443",
+		} {
+			cfg, err := Load(env(with(map[string]string{"S3_ENDPOINT": in})))
+			if err != nil || cfg.Storage.Endpoint != want {
+				t.Errorf("%s: endpoint %q (%v), want %q", in, cfg.Storage.Endpoint, err, want)
+			}
+		}
+		prod := maps.Clone(prodMail)
+		prod["S3_ENDPOINT"] = "localhost:9000"
+		if cfg, err := Load(env(prod)); err != nil || cfg.Storage.Endpoint != "localhost:9000" {
+			t.Errorf("production: %q (%v)", cfg.Storage.Endpoint, err)
 		}
 	})
 	t.Run("region and ssl", func(t *testing.T) {
@@ -513,6 +531,45 @@ func TestLoadClamAVAddr(t *testing.T) {
 		v := map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL, "CLAMAV_ADDR": bad}
 		if _, err := Load(env(v)); err == nil || !strings.Contains(err.Error(), "CLAMAV_ADDR") {
 			t.Errorf("CLAMAV_ADDR=%s: error = %v", bad, err)
+		}
+	}
+}
+
+// FR-12.2 (docs/decisions.md 2026-11-18): the figure limits come from settings, in bytes or
+// with K, M or G; a figure is at most 200 MiB in every environment, no more than a project
+// holds and no more than the scanner reads whole.
+func TestLoadFigureLimits(t *testing.T) {
+	base := map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL}
+	cfg, err := Load(env(base))
+	if err != nil || cfg.FigureMaxBytes != 50<<20 || cfg.ProjectStorageMaxBytes != 500<<20 || cfg.ClamAVMaxBytes != 210<<20 {
+		t.Fatalf("defaults = %d, %d, %d (%v)", cfg.FigureMaxBytes, cfg.ProjectStorageMaxBytes, cfg.ClamAVMaxBytes, err)
+	}
+	cfg, err = Load(env(with(base, "FIGURE_MAX_BYTES", "10485760", "PROJECT_STORAGE_MAX_BYTES", " 1G ", "CLAMAV_MAX_BYTES", "300m")))
+	if err != nil || cfg.FigureMaxBytes != 10<<20 || cfg.ProjectStorageMaxBytes != 1<<30 || cfg.ClamAVMaxBytes != 300<<20 {
+		t.Errorf("set = %d, %d, %d (%v)", cfg.FigureMaxBytes, cfg.ProjectStorageMaxBytes, cfg.ClamAVMaxBytes, err)
+	}
+	// 200 MiB is allowed, with a scanner limit above it; one byte more is not, in development
+	// as in production.
+	if _, err := Load(env(with(base, "FIGURE_MAX_BYTES", "200M"))); err != nil {
+		t.Errorf("200M: %v", err)
+	}
+	for _, v := range []map[string]string{base, prodMail} {
+		_, err := Load(env(with(v, "FIGURE_MAX_BYTES", "209715201", "CLAMAV_MAX_BYTES", "1G")))
+		if err == nil || !strings.Contains(err.Error(), "FIGURE_MAX_BYTES must be at most") {
+			t.Errorf("over 200M (%s): %v", v["APP_ENV"], err)
+		}
+	}
+	for name, kv := range map[string][]string{
+		"over the project limit": {"FIGURE_MAX_BYTES", "60M", "PROJECT_STORAGE_MAX_BYTES", "50M"},
+		"over the scanner limit": {"FIGURE_MAX_BYTES", "60M", "CLAMAV_MAX_BYTES", "59M"},
+	} {
+		if _, err := Load(env(with(base, kv...))); err == nil || !strings.Contains(err.Error(), "must not be more than") {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	for _, bad := range []string{"0", "-1", "50MB", "five", "1.5M", "9999999999999G"} {
+		if _, err := Load(env(with(base, "FIGURE_MAX_BYTES", bad))); err == nil || !strings.Contains(err.Error(), "FIGURE_MAX_BYTES must be a size") {
+			t.Errorf("FIGURE_MAX_BYTES=%s: %v", bad, err)
 		}
 	}
 }

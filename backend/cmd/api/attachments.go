@@ -69,7 +69,8 @@ type scanListener struct {
 var _ mediadomain.ScanListener = scanListener{}
 
 // Infected writes the uploader's notification in the scan's transaction. A file that is not an
-// attachment (none is scanned yet) tells nobody.
+// attachment, such as a project figure (FR-12.2, owned by its project), tells nobody: the
+// figure shows as infected in the project's file list.
 func (l scanListener) Infected(ctx context.Context, fileID, ownerID string) error {
 	conversationID, found, err := l.messaging.AttachmentConversation(ctx, fileID)
 	if err != nil || !found {

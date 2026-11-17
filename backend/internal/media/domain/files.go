@@ -20,6 +20,13 @@ type PreparedFile struct {
 	Width, Height int
 }
 
+// FigureInfo is what the figure check found (FR-12.2): its type, from the content, and an
+// image's size in pixels (0 for a PDF).
+type FigureInfo struct {
+	ContentType   string
+	Width, Height int
+}
+
 // ScanStatus is a stored file's scan outcome. The values match stored_files.scan_status.
 type ScanStatus string
 
@@ -76,7 +83,8 @@ type ObjectReader interface {
 
 // ScanJob is one stored file a worker has claimed for scanning.
 type ScanJob struct {
-	FileID    string
+	FileID string
+	// OwnerID is the user who owns the file; empty for a file a project owns (a figure).
 	OwnerID   string
 	ObjectKey string
 	Attempts  int    // tries that ended with a ScanFileError so far

@@ -10,8 +10,10 @@ import (
 	"crypto/rand"
 	"errors"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -103,6 +105,138 @@ func TestS3RoundTrip(t *testing.T) {
 	}
 	if err := s.Delete(ctx, key); err != nil {
 		t.Errorf("Delete() of a missing object error = %v, want nil", err)
+	}
+}
+
+// postForm sends a presigned POST the way a browser does: the fields, then the file part.
+func postForm(t *testing.T, p PresignedPost, content []byte, extra map[string]string) int {
+	t.Helper()
+	var body bytes.Buffer
+	w := multipart.NewWriter(&body)
+	for k, v := range p.Fields {
+		if e, ok := extra[k]; ok {
+			v = e
+		}
+		if err := w.WriteField(k, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fw, err := w.CreateFormFile("file", "figure.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fw.Write(content); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, p.URL.String(), &body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	return resp.StatusCode
+}
+
+// FR-12.2: a presigned POST stores exactly the size it names, under its key only, typed
+// application/octet-stream whatever the client claims.
+func TestS3PresignPost(t *testing.T) {
+	s := newTestS3(t)
+	ctx := t.Context()
+	key := "it/" + strings.ToLower(rand.Text()) + ".bin"
+	t.Cleanup(func() { _ = s.Delete(t.Context(), key) })
+	content := []byte("exactly twenty bytes")
+
+	p, err := s.PresignPost(ctx, key, int64(len(content)), time.Minute)
+	if err != nil {
+		t.Fatalf("PresignPost() error = %v", err)
+	}
+	if p.ExpiresAt.Before(time.Now()) || p.Fields["key"] != key {
+		t.Fatalf("PresignPost() = %+v", p)
+	}
+	if status := postForm(t, p, append(slices.Clone(content), '!'), nil); status != http.StatusBadRequest {
+		t.Errorf("one byte too many: %d, want 400", status)
+	}
+	if status := postForm(t, p, content[:len(content)-1], nil); status != http.StatusBadRequest {
+		t.Errorf("one byte too few: %d, want 400", status)
+	}
+	other := "it/" + strings.ToLower(rand.Text()) + ".bin"
+	t.Cleanup(func() { _ = s.Delete(t.Context(), other) })
+	if status := postForm(t, p, content, map[string]string{"key": other}); status != http.StatusForbidden {
+		t.Errorf("another key: %d, want 403", status)
+	}
+	if status := postForm(t, p, content, map[string]string{"Content-Type": "image/png"}); status != http.StatusForbidden {
+		t.Errorf("another type: %d, want 403", status)
+	}
+	if _, err := s.Stat(ctx, key); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("refused posts stored something: %v", err)
+	}
+	if status := postForm(t, p, content, nil); status != http.StatusNoContent {
+		t.Fatalf("exact post: %d, want 204", status)
+	}
+	info, err := s.Stat(ctx, key)
+	if err != nil || info.Size != int64(len(content)) || info.ContentType != "application/octet-stream" {
+		t.Errorf("Stat() = %+v, %v", info, err)
+	}
+
+	if _, err := s.PresignPost(ctx, key, 0, time.Minute); err == nil {
+		t.Error("size 0 accepted")
+	}
+	if _, err := s.PresignPost(ctx, key, 1, 2*time.Hour); err == nil {
+		t.Error("expiry over an hour accepted")
+	}
+}
+
+// GetIfMatch and CopyIfMatch act on the version they name and refuse one written since.
+func TestS3IfMatch(t *testing.T) {
+	s := newTestS3(t)
+	ctx := t.Context()
+	src := "it/" + strings.ToLower(rand.Text()) + ".bin"
+	dst := "it/" + strings.ToLower(rand.Text()) + ".bin"
+	t.Cleanup(func() { _ = s.Delete(t.Context(), src); _ = s.Delete(t.Context(), dst) })
+	put := func(b string) string {
+		if err := s.Put(ctx, src, strings.NewReader(b), int64(len(b)), "application/octet-stream"); err != nil {
+			t.Fatal(err)
+		}
+		info, err := s.Stat(ctx, src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return info.ETag
+	}
+	first := put("first")
+
+	r, err := s.GetIfMatch(ctx, src, first)
+	if err != nil {
+		t.Fatalf("GetIfMatch() error = %v", err)
+	}
+	b, _ := io.ReadAll(r)
+	_ = r.Close()
+	if string(b) != "first" {
+		t.Errorf("GetIfMatch() read %q", b)
+	}
+	if err := s.CopyIfMatch(ctx, src, dst, first, "image/png"); err != nil {
+		t.Fatalf("CopyIfMatch() error = %v", err)
+	}
+	if info, err := s.Stat(ctx, dst); err != nil || info.ContentType != "image/png" || info.Size != 5 {
+		t.Errorf("copy: %+v, %v", info, err)
+	}
+
+	put("second")
+	if _, err := s.GetIfMatch(ctx, src, first); !errors.Is(err, ErrChanged) {
+		t.Errorf("GetIfMatch() of an old version: %v, want ErrChanged", err)
+	}
+	if err := s.CopyIfMatch(ctx, src, dst, first, "image/png"); !errors.Is(err, ErrChanged) {
+		t.Errorf("CopyIfMatch() of an old version: %v, want ErrChanged", err)
+	}
+	if _, err := s.GetIfMatch(ctx, "it/missing-"+strings.ToLower(rand.Text()), first); !errors.Is(err, ErrNotFound) {
+		t.Errorf("GetIfMatch() of a missing object: %v, want ErrNotFound", err)
 	}
 }
 

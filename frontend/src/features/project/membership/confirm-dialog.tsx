@@ -5,13 +5,13 @@ import { type ReactNode, useState } from "react";
 import { rsButtonClass } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { FormError } from "@/components/ui/field";
-import type { Result } from "@/lib/api/call";
+import type { ApiError, Result } from "@/lib/api/call";
 
 import { membershipErrorText } from "../api";
 
-// ConfirmDialog asks before a membership change that cannot be undone from the page (remove a
-// member, leave, transfer ownership). It sends the change itself and stays open with the
-// reason when the server refuses.
+// ConfirmDialog asks before a change that cannot be undone from the page (remove a member,
+// leave, transfer ownership, delete a file). It sends the change itself and stays open with the
+// reason when the server refuses; errorText words it (membership errors by default).
 export function ConfirmDialog<T>({
   title,
   children,
@@ -21,6 +21,7 @@ export function ConfirmDialog<T>({
   onDone,
   onClose,
   returnFocusId,
+  errorText = (error) => membershipErrorText(error.code),
 }: {
   title: string;
   children: ReactNode;
@@ -30,6 +31,7 @@ export function ConfirmDialog<T>({
   onDone: (data: T) => void;
   onClose: () => void;
   returnFocusId?: string;
+  errorText?: (error: ApiError) => string;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,7 +45,7 @@ export function ConfirmDialog<T>({
       return;
     }
     setBusy(false);
-    setError(membershipErrorText(res.code));
+    setError(errorText(res));
   }
 
   return (

@@ -40,8 +40,8 @@ type Load = { status: "loading" } | { status: "notFound" } | { status: "error" }
 // invitations, roles, transferring and deleting (FR-10.2, FR-10.5, FR-10.6, FR-11.2 to 11.4)
 // and the researchers who fit it, to invite (AI-2.3). A non-member may ask to join or answer an
 // invitation (FR-11.1, FR-11.3) and report it (FR-15.11); a member may leave (FR-11.5). A
-// project the caller may not see is "not found", like one that does not exist. The workspace
-// and venues come with their slices.
+// project the caller may not see is "not found", like one that does not exist. A member opens
+// the workspace from here (FR-12); venues come with their slice.
 export function ProjectPage({ projectId }: { projectId: string }) {
   const [attempt, setAttempt] = useState(0);
   const key = `${projectId}#${attempt}`;
@@ -178,35 +178,39 @@ function ProjectView({
             <h1 className="text-rs-h3 leading-rs-tight font-bold">{project.title}</h1>
             <p className="text-rs-body whitespace-pre-line">{project.description}</p>
           </div>
-          {(isOwner || !isMember) && (
-            <div className="flex flex-wrap items-center gap-2.5 border-b border-rs-divider px-5 py-4">
-              {isOwner ? (
-                <>
-                  <button
-                    id="edit-project"
-                    type="button"
-                    onClick={() => setOpen("edit")}
-                    className={rsButtonClass({ variant: "outline", size: "md" })}
-                  >
-                    Edit details
-                  </button>
-                  <StatusSelect project={project} onChange={onChange} />
-                </>
-              ) : (
-                <>
-                  <JoinActions project={project} {...shared} />
-                  <button
-                    id="report-project"
-                    type="button"
-                    onClick={() => setOpen("report")}
-                    className={`${rsButtonClass({ variant: "secondary", size: "md" })} ml-auto`}
-                  >
-                    Report project
-                  </button>
-                </>
-              )}
-            </div>
-          )}
+          <div className="flex flex-wrap items-center gap-2.5 border-b border-rs-divider px-5 py-4">
+            {isMember && (
+              <Link href={`/projects/${project.id}/workspace`} className={rsButtonClass({ size: "md" })}>
+                Open workspace
+              </Link>
+            )}
+            {isOwner && (
+              <>
+                <button
+                  id="edit-project"
+                  type="button"
+                  onClick={() => setOpen("edit")}
+                  className={rsButtonClass({ variant: "outline", size: "md" })}
+                >
+                  Edit details
+                </button>
+                <StatusSelect project={project} onChange={onChange} />
+              </>
+            )}
+            {!isMember && (
+              <>
+                <JoinActions project={project} {...shared} />
+                <button
+                  id="report-project"
+                  type="button"
+                  onClick={() => setOpen("report")}
+                  className={`${rsButtonClass({ variant: "secondary", size: "md" })} ml-auto`}
+                >
+                  Report project
+                </button>
+              </>
+            )}
+          </div>
           <div className="flex flex-col gap-2.5 px-5 py-4">
             <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-rs-body text-rs-text">
               <span>

@@ -1,6 +1,7 @@
 // Package redis implements the project domain's Limiter with Redis counters per user that
 // expire at the end of their window: projects created a day and searches a minute
-// (docs/decisions.md 2026-11-16).
+// (docs/decisions.md 2026-11-16), join requests and invitations a day, figures uploaded an
+// hour and file saves a minute (2026-11-17).
 package redis
 
 import (
@@ -21,6 +22,8 @@ const (
 	searchPrefix = "project:search:"
 	joinPrefix   = "project:join:"
 	invitePrefix = "project:invite:"
+	figurePrefix = "project:figure:"
+	savePrefix   = "project:save:"
 )
 
 // callTimeout bounds each call. A request waits at most this long for Redis before going on
@@ -59,6 +62,12 @@ func (l *Limits) Join() domain.Limiter { return counter{client: l.client, prefix
 
 // Invite counts the invitations an owner sends (FR-11.3).
 func (l *Limits) Invite() domain.Limiter { return counter{client: l.client, prefix: invitePrefix} }
+
+// Figure counts the figures a user uploads (FR-12.2).
+func (l *Limits) Figure() domain.Limiter { return counter{client: l.client, prefix: figurePrefix} }
+
+// Save counts a user's file content saves (FR-12.6).
+func (l *Limits) Save() domain.Limiter { return counter{client: l.client, prefix: savePrefix} }
 
 // Close closes the own client.
 func (l *Limits) Close() error { return l.client.Close() }

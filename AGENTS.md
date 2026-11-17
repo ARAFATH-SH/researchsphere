@@ -13,6 +13,7 @@ recommendations. One developer builds it in 30 slices over 12 weeks.
 - `docs/email-delivery.md` says how mail is sent and how to switch provider (FR-17.1).
 - `docs/evaluation.md` defines the AI quality and speed measurements (NFR-1, NFR-6), the
   recommendation score calibration (AI-2.2) and their latest results.
+- `docs/deploy.md` lists the one-off commands to run after a deployment applies certain migrations.
 - `docs/realtime.md` is the WebSocket contract: events, payloads, close codes and what a client
   must do after a reconnect. OpenAPI covers only the upgrade.
 
@@ -41,7 +42,7 @@ Run these from the repository root. `make help` prints the current list.
 | Command | What it does |
 | --- | --- |
 | `make up` / `make down` | Start or stop PostgreSQL, Redis, Mailpit (local email inbox at http://localhost:8025), MinIO and ClamAV; `make up` also creates the private bucket, and starts ClamAV last without waiting for it (clamd takes 30 to 90 seconds and 1.5 to 3 GB of memory to load its signatures; attachments stay pending until it answers). `make up CLAMAV=0` leaves ClamAV out, as the CI stack job does. It also starts the AI service without waiting (building its image the first time; the first start downloads the model, and `GET /health` says `degraded` until it is loaded); `AI=0` leaves it out |
-| `make check` | Confirm that PostgreSQL, pgvector, Redis and storage respond, and that the bucket refuses anonymous access; show whether ClamAV and the AI service answer yet (not a failure) |
+| `make check` | Confirm that PostgreSQL, pgvector, Redis and storage respond, that the bucket refuses anonymous access and that storage accepts uploads from the web client (CORS for `http://localhost:3000`, set by `make up`); show whether ClamAV and the AI service answer yet (not a failure) |
 | `make psql` | Open a psql prompt in the database |
 | `make migrate` / `make migrate-down` | Apply all migrations, or undo the latest one |
 | `make migrate-new name=add_users` | Create a new migration pair |
@@ -54,6 +55,7 @@ Run these from the repository root. `make help` prints the current list.
 | `make purge-unverified` | Run the FR-17.4 purge once now, with the `.env` settings: delete the accounts still unverified `UNVERIFIED_ACCOUNT_DAYS` (7) after sign-up, except those at `TEST_EMAIL_DOMAINS` outside production, and log what it deleted. The API also runs it every hour |
 | `make send-digests` | Run the FR-16.11 unread message digest once now, with the `.env` settings: email each verified, not suspended user with the digest on who has messages unread for 24 hours that no digest counted yet and got no digest in the last 24 hours (at most 200 users a run), and log how many it sent. The API also runs it every hour. Mail goes to Mailpit locally (test-domain accounts included); needs `make migrate` and `UNSUBSCRIBE_SECRET` |
 | `make embed-backfill` | Queue every verified, not suspended profile, and every project, for its AI embedding once (AI-1.5), at low priority, then exit; the running API's worker embeds them, skipping a profile whose text and model have not changed. Run it once after migration 000028 on a database with existing profiles. Needs `make migrate`; the API needs the AI service (`AI_SERVICE_TOKEN`) to embed |
+| `make backfill-main-tex` | Give the starting `main.tex` (FR-10.4) to every project that has no file, one transaction per project, and print how many. Idempotent: a project with any file is left alone. Run it once in every environment after migration 000035 (`docs/deploy.md`). Needs `make migrate` |
 | `make calibrate-recs` | Fit the AI-2.2 recommendation score map on the sample TUNING split only (2,000 queries, seed 17) and print `RECS_SCORE_MODEL`, `RECS_SCORE_SLOPE` and `RECS_SCORE_INTERCEPT` with a calibration table; then check that map on profile-project pairs of the tuning split, both directions (slice 19), and print `RECS_PROJECT_SCORE_SLOPE` and `RECS_PROJECT_SCORE_INTERCEPT` when it does not hold; put them into the config defaults and `.env.example`. Needs the sample projects too (`make sample-data projects=1`). Run it again whenever the embedding model changes (`docs/evaluation.md`). Needs the 10,000 embedded sample profiles and `APP_ENV=development`; reads only |
 | `make eval-recs` | Measure NFR-6 collaborator matching on the held-out sample TEST split: recall@10 (capped), precision@10 and standard recall@10 against "relevant = same main cluster" and, beside it, "shares the main or second cluster", ranked as the endpoint ranks, with the score percentiles of random and top-10 pairs per group; then the same for project matching in both directions (AI-3.1 profile -> project, AI-2.3 project -> profile). Write the results into `docs/evaluation.md`. Never tune on its output. Needs `APP_ENV=development`; reads only |
 | `make bench-recs` | Measure NFR-1: the recommendation endpoint's uncached work for 200 random sample users (seed 17), printing p50, p95 and max (target p95 under 2 s), and EXPLAIN ANALYZE of the ranking query; then the same for both project matching endpoints (200 users, 200 projects). Needs `APP_ENV=development`; reads only |
@@ -180,7 +182,9 @@ do not rename them.
   straight to the API at `NEXT_PUBLIC_WS_URL`, because a rewrite is not known to carry it
   (`docs/decisions.md`). A second exception is a file upload with progress, which needs
   `XMLHttpRequest`: `uploadFile` in `lib/api/upload.ts` is the only code that uses it (ESLint refuses it
-  elsewhere) and keeps the client's refresh and lost-session handling. Every session refresh goes through `refreshSession` in `lib/api/client.ts`,
+  elsewhere) and keeps the client's refresh and lost-session handling. Beside it, `postToStorage`
+  sends a project figure straight to object storage with the presigned POST the API signed
+  (FR-12.2), without cookies: the one request that leaves the app's origin besides the WebSocket. Every session refresh goes through `refreshSession` in `lib/api/client.ts`,
   so tabs take turns. Jest tests (`*.test.ts(x)`) sit beside the
   code they test and mock the API module, not the network. `frontend/jest.setup.ts` fails any test that
   calls `console.error`; its allowlist is only for documented third-party noise. The default
@@ -192,9 +196,16 @@ do not rename them.
   `design/screens/` is the source of truth for look and spacing; restyled pages use the `rs-*`
   tokens. `cd frontend && npm run ui:compare -- <route> <design-file>` (dev only, needs
   `make web`) screenshots a route beside its design and prints the pixel difference.
+  `cd frontend && npm run e2e:figures` (dev only, needs `make api` and `make web`, signs in with
+  `E2E_EMAIL`/`E2E_PASSWORD` or the `UI_COMPARE_` pair) uploads figures in a real Chrome
+  through the whole flow, MinIO's CORS and the malware scan included, and deletes them after.
+- **Database version:** the API refuses to start on a database whose migrations are not all
+  applied (`requiredSchemaVersion` in `backend/cmd/api/schema.go`; a test keeps it equal to the
+  newest file in `backend/db/migrations`, so a new migration raises it).
 - **API:** JSON under `/api/v1`. Errors have the shape `{"code": "...", "message": "..."}`;
   a `bad_request` about one body field or parameter adds `"field"`, and never repeats the value.
-  Lists are paginated and the server caps the page size at 50 (a conversation's messages cap at 100).
+  Lists are paginated and the server caps the page size at 50 (a conversation's messages cap at 100;
+  a project's file tree is one unpaginated answer of at most 200 entries, `docs/decisions.md`).
   A session whose email address is not verified gets 403 `email_not_verified` on every route
   except those in `unverifiedAllowed` (`cmd/api/handlers.go`, FR-17.3): a new route needs a
   verified email unless it is added there, and only within FR-17.3.
