@@ -193,7 +193,9 @@ do not rename them.
   `XMLHttpRequest`: `uploadFile` in `lib/api/upload.ts` is the only code that uses it (ESLint refuses it
   elsewhere) and keeps the client's refresh and lost-session handling. Beside it, `postToStorage`
   sends a project figure straight to object storage with the presigned POST the API signed
-  (FR-12.2), without cookies: the one request that leaves the app's origin besides the WebSocket. Every session refresh goes through `refreshSession` in `lib/api/client.ts`,
+  (FR-12.2), without cookies: the one request that leaves the app's origin besides the WebSockets.
+  The third is the sync server's WebSocket at `NEXT_PUBLIC_SYNC_URL` (`docs/sync.md`): only
+  `features/project/workspace/collab/link.ts` imports `@hocuspocus/provider`. Every session refresh goes through `refreshSession` in `lib/api/client.ts`,
   so tabs take turns. Jest tests (`*.test.ts(x)`) sit beside the
   code they test and mock the API module, not the network. `frontend/jest.setup.ts` fails any test that
   calls `console.error`; its allowlist is only for documented third-party noise. The default
@@ -208,6 +210,10 @@ do not rename them.
   `cd frontend && npm run e2e:figures` (dev only, needs `make api` and `make web`, signs in with
   `E2E_EMAIL`/`E2E_PASSWORD` or the `UI_COMPARE_` pair) uploads figures in a real Chrome
   through the whole flow, MinIO's CORS and the malware scan included, and deletes them after.
+  `cd frontend && npm run e2e:collab` (dev only, needs `make seed-dev`, `make api`, `make sync` and
+  `make web`) opens main.tex of a throwaway project in five Chrome contexts, four editors typing at
+  once and a viewer, checks that every text matches, the viewer cannot type and an edit reaches the
+  others within 1 s (NFR-2), and deletes the project after, also when a check fails.
 - **Database version:** the API refuses to start on a database whose migrations are not all
   applied (`requiredSchemaVersion` in `backend/cmd/api/schema.go`; a test keeps it equal to the
   newest file in `backend/db/migrations`, so a new migration raises it).

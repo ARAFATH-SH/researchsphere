@@ -137,6 +137,19 @@ export interface Health {
   unsaved: number;
 }
 
+/** One member in a file, as the presence message lists them (docs/sync.md). */
+export interface PresenceUser {
+  id: string;
+  name: string;
+  /** Their cursor colour in that file. */
+  colour: string;
+  /** null: editing; "capacity": waiting for a slot (FR-12.8). */
+  readOnly: "capacity" | null;
+}
+
+/** How long presence changes are gathered before one message goes out per project. */
+export const presenceDelayMs = 50;
+
 export function createSyncServer(opts: SyncServerOptions): SyncServer {
   const { config, api, redis, logger } = opts;
   const now = opts.now ?? Date.now;
@@ -152,6 +165,10 @@ export function createSyncServer(opts: SyncServerOptions): SyncServer {
   let draining = false;
   let timers: NodeJS.Timeout[] = [];
   let healthCache: { at: number; value: Health } | undefined;
+  /** Display names from the tickets, for presence; dropped when the user has nothing open. */
+  const names = new Map<string, string>();
+  const presenceDue = new Set<string>();
+  let presenceTimer: NodeJS.Timeout | undefined;
 
   const ctxOf = (c: Connection): Context => c.context as Context;
 
@@ -181,6 +198,44 @@ export function createSyncServer(opts: SyncServerOptions): SyncServer {
     }
   };
 
+  /**
+   * Presence of a project (FR-12.5): who edits which of its files, sent to every connection to
+   * that project's documents. Entries exist only for users whose last role check found them
+   * members (a removed member's entry goes with their connections), so presence never reaches
+   * a former member. Viewers are left out of the list; they still receive it.
+   */
+  const sendPresence = (projectId: string) => {
+    const docs = sessions.documents().filter((d) => {
+      const m = metas.get(d);
+      return m !== undefined && !m.gone && m.projectId === projectId;
+    });
+    const files: Record<string, PresenceUser[]> = {};
+    for (const d of docs) {
+      const list = sessions.entries(d)
+        .filter((e) => e.role !== "viewer" && e.reason !== "viewer" && e.conns.size > 0)
+        .sort((a, b) => a.since - b.since)
+        .map((e): PresenceUser => ({ id: e.userId, name: names.get(e.userId) ?? "", colour: e.colour, readOnly: e.reason === "capacity" ? "capacity" : null }));
+      if (list.length > 0) files[d] = list;
+    }
+    const payload = JSON.stringify({ type: "presence", files });
+    for (const d of docs) for (const e of sessions.entries(d)) for (const conn of e.conns) conn.sendStateless(payload);
+  };
+
+  const presenceChanged = (projectId: string | undefined) => {
+    if (projectId === undefined || draining) return;
+    presenceDue.add(projectId);
+    if (presenceTimer) return;
+    presenceTimer = setTimeout(() => {
+      presenceTimer = undefined;
+      const due = [...presenceDue];
+      presenceDue.clear();
+      for (const pid of due) sendPresence(pid);
+    }, presenceDelayMs);
+    presenceTimer.unref();
+  };
+
+  const projectOf = (doc: string) => metas.get(doc)?.projectId;
+
   const closeConn = (conn: Connection, reason: string) => {
     conn.close({ code: codes[reason] ?? 4000, reason });
   };
@@ -191,6 +246,7 @@ export function createSyncServer(opts: SyncServerOptions): SyncServer {
     if (!e) return;
     for (const conn of [...e.conns]) closeConn(conn, reason);
     announce(sessions.remove(doc, userId));
+    presenceChanged(projectOf(doc));
     logger.info("connections ended", { fileId: doc, userId, reason });
   };
 
@@ -215,7 +271,9 @@ export function createSyncServer(opts: SyncServerOptions): SyncServer {
       endUser(doc, userId, Reason.accessEnded);
       return;
     }
-    announce(sessions.setRole(doc, userId, role));
+    const changed = sessions.setRole(doc, userId, role);
+    announce(changed);
+    if (changed.length > 0) presenceChanged(projectOf(doc));
   };
 
   /** Reads the role of the given users on the given documents again and applies it. */
@@ -303,6 +361,9 @@ export function createSyncServer(opts: SyncServerOptions): SyncServer {
       meta.firstUnsavedAt = null;
       // Changes that came while storing are at most as old as the snapshot.
       if (meta.changes > 0) armDeadline(document, meta, snapshotAt);
+      // Everything the members' clients have seen applied is in the database now (NFR-10.1):
+      // "Saved" on their side. Not sent while changes wait, as some came after the snapshot.
+      else document.broadcastStateless(JSON.stringify({ type: "stored", version: meta.version }));
       if (meta.failures > 0) logger.info("document stored again", { fileId: name, after: meta.failures });
       meta.failures = 0;
       logger.debug("document stored", { fileId: name, version: meta.version, bytes: Buffer.byteLength(content) });
@@ -358,7 +419,12 @@ export function createSyncServer(opts: SyncServerOptions): SyncServer {
 
     async onAuthenticate({ token, documentName, requestHeaders, connectionConfig, socketId }) {
       if (draining) throw refuse(Reason.shuttingDown);
-      if (requestHeaders.get("origin") !== config.allowedOrigin) throw refuse(Reason.originNotAllowed);
+      const origin = requestHeaders.get("origin") ?? "";
+      if (!config.allowedOrigins.includes(origin)) {
+        // The rejected origin goes to the log (capped), so a misconfiguration is found at once.
+        logger.warn("connection refused: origin not allowed", { origin: origin.slice(0, 200) || "(none)", allowed: config.allowedOrigins });
+        throw refuse(Reason.originNotAllowed);
+      }
       if (!uuidPattern.test(documentName)) throw refuse(Reason.ticketInvalid);
       const { ticket, epoch } = parseToken(token);
       let session;
@@ -369,6 +435,7 @@ export function createSyncServer(opts: SyncServerOptions): SyncServer {
         throw refuse(Reason.unavailable);
       }
       if (!session) throw refuse(Reason.ticketInvalid);
+      names.set(session.userId, session.displayName);
       if (sessions.connectionsOf(session.userId) >= limits.maxConnectionsPerUser) {
         logger.warn("connection refused: too many for one user", { userId: session.userId });
         throw refuse(Reason.tooManyConnections);
@@ -402,8 +469,11 @@ export function createSyncServer(opts: SyncServerOptions): SyncServer {
       connection.readOnly = draining || e.reason !== null;
       connection.onClose(() => {
         announce(sessions.detach(documentName, ctx.userId, socketId, connection));
+        if (sessions.connectionsOf(ctx.userId) === 0) names.delete(ctx.userId);
+        presenceChanged(ctx.projectId);
       });
       sendSession(connection, e);
+      presenceChanged(ctx.projectId);
     },
 
     async beforeHandleMessage({ connection }) {
@@ -614,7 +684,7 @@ export function createSyncServer(opts: SyncServerOptions): SyncServer {
     ];
     for (const t of timers) t.unref();
     const port = server.address.port;
-    logger.info("listening", { host: config.host, port, maxEditors: limits.maxEditors });
+    logger.info("listening", { host: config.host, port, maxEditors: limits.maxEditors, allowedOrigins: config.allowedOrigins });
     return port;
   };
 
@@ -624,6 +694,7 @@ export function createSyncServer(opts: SyncServerOptions): SyncServer {
     logger.info("shutting down: storing every document");
     server.httpServer.close();
     for (const t of timers) clearInterval(t);
+    clearTimeout(presenceTimer);
     // Take no more edits: what a client sends now stays unsynced on its side and goes to the
     // next server after it reconnects.
     for (const doc of server.hocuspocus.documents.values()) {

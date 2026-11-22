@@ -55,13 +55,19 @@ export interface Config {
   serviceToken: string;
   /** Redis, the same server and database the API uses. Never logged (it may hold a password). */
   redisUrl: string;
-  /** The web client's origin; a WebSocket from any other Origin is refused. */
-  allowedOrigin: string;
+  /**
+   * The web client's origins; a WebSocket from any other Origin is refused. APP_BASE_URL's,
+   * those in SYNC_ALLOWED_ORIGINS and, outside production, the local dev servers' (devOrigins).
+   */
+  allowedOrigins: string[];
   logLevel: Level;
   limits: Limits;
 }
 
 export const minTokenLength = 32;
+
+/** Where `make web` (or a second dev server) runs: allowed outside production. */
+export const devOrigins = ["http://localhost:3000", "http://localhost:3001", "http://127.0.0.1:3000", "http://127.0.0.1:3001"] as const;
 
 /** The cursor colours (FR-12.5): more editors than this could not all have their own. */
 export const maxEditorsLimit = 8;
@@ -85,12 +91,23 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
   const redisUrl = get("REDIS_URL");
   if (!/^rediss?:\/\//.test(redisUrl)) errors.push("REDIS_URL must be a redis:// or rediss:// URL");
 
-  let allowedOrigin = "";
-  try {
-    allowedOrigin = new URL(get("APP_BASE_URL", "http://localhost:3000")).origin;
-  } catch {
-    errors.push("APP_BASE_URL must be a URL");
+  const appEnv = get("APP_ENV", "development");
+  if (appEnv !== "development" && appEnv !== "production") errors.push("APP_ENV must be development or production");
+  const allowedOrigins = new Set<string>();
+  const origin = (value: string, name: string) => {
+    try {
+      const u = new URL(value);
+      if (u.protocol !== "http:" && u.protocol !== "https:") throw new Error("not http");
+      allowedOrigins.add(u.origin);
+    } catch {
+      errors.push(`${name} must be an http(s) URL`);
+    }
+  };
+  origin(get("APP_BASE_URL", "http://localhost:3000"), "APP_BASE_URL");
+  for (const o of get("SYNC_ALLOWED_ORIGINS").split(",").map((x) => x.trim()).filter(Boolean)) {
+    origin(o, "SYNC_ALLOWED_ORIGINS");
   }
+  if (appEnv !== "production") for (const o of devOrigins) allowedOrigins.add(o);
 
   const maxEditors = Number(get("SYNC_MAX_EDITORS_PER_FILE", String(defaultLimits.maxEditors)));
   if (!Number.isInteger(maxEditors) || maxEditors < 1 || maxEditors > maxEditorsLimit) {
@@ -107,7 +124,7 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     apiUrl,
     serviceToken,
     redisUrl,
-    allowedOrigin,
+    allowedOrigins: [...allowedOrigins],
     logLevel: logLevel as Level,
     limits: { ...defaultLimits, maxEditors },
   };

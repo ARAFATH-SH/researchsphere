@@ -15,6 +15,10 @@ import {
 } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
 import { useEffect, useRef } from "react";
+import { yCollab, yUndoManagerKeymap } from "y-codemirror.next";
+
+import { remoteCursors } from "../collab/remote-cursors";
+import type { YjsBinding } from "../collab/types";
 
 // The LaTeX editor (FR-12.3): CodeMirror 6 with the stex mode of @codemirror/legacy-modes,
 // line numbers, undo and redo, find and replace (Ctrl/Cmd+F), bracket matching and soft wrap.
@@ -27,6 +31,10 @@ export interface TextSource {
   edit(read: () => string): void;
 }
 
+// EditorSource is where the text lives: an Autosaver saving over REST (21.2), or the file's
+// Yjs document on the sync server (slice 22).
+export type EditorSource = { kind: "rest"; source: TextSource } | YjsBinding;
+
 // EditorHandle is what the toolbar and the conflict dialog can do with the editor.
 export type EditorHandle = {
   undo: () => void;
@@ -34,15 +42,39 @@ export type EditorHandle = {
   openFind: () => void;
   // replaceText shows text that came from the server; it is not a change to save.
   replaceText: (text: string) => void;
+  // applyText puts text in as this member's own edit: saved, synced and undoable.
+  applyText: (text: string) => void;
   focus: () => void;
 };
 
+// replacement is the smallest change that turns from into to: the common start and end stay,
+// so other members' cursors outside the change keep their place.
+export function replacement(from: string, to: string): { from: number; to: number; insert: string } {
+  let start = 0;
+  const max = Math.min(from.length, to.length);
+  while (start < max && from.charCodeAt(start) === to.charCodeAt(start)) start++;
+  let end = 0;
+  while (end < max - start && from.charCodeAt(from.length - 1 - end) === to.charCodeAt(to.length - 1 - end)) end++;
+  return { from: start, to: from.length - end, insert: to.slice(start, to.length - end) };
+}
+
 const fromServer = Annotation.define<boolean>();
 
-// binding connects the document to its source: CodeMirror's own history, and each change sent
-// to the Autosaver. Slice 22 replaces this one function with yCollab (y-codemirror.next) and
-// the Yjs undo manager; nothing else in the editor depends on where the text lives.
-function binding(source: TextSource): Extension[] {
+// binding connects the document to its source. Over REST: CodeMirror's own history, and each
+// change sent to the Autosaver. On the sync server: yCollab (y-codemirror.next) with the Yjs
+// undo manager, which undoes only this member's edits, and the other members' cursors.
+function binding(source: EditorSource): Extension[] {
+  if (source.kind === "yjs") {
+    return [
+      yCollab(source.text, null, { undoManager: source.undoManager }),
+      keymap.of(yUndoManagerKeymap),
+      remoteCursors(source.text, source.awareness),
+    ];
+  }
+  return restBinding(source.source);
+}
+
+function restBinding(source: TextSource): Extension[] {
   return [
     history(),
     keymap.of(historyKeymap),
@@ -91,7 +123,7 @@ function readOnlyExtensions(readOnly: boolean): Extension {
 }
 
 export type LatexEditorProps = {
-  source: TextSource;
+  source: EditorSource;
   label: string;
   readOnly: boolean;
   wrap: boolean;
@@ -108,21 +140,24 @@ export default function LatexEditor({ source, label, readOnly, wrap, onSave, onR
   const labelConf = useRef(new Compartment());
   const save = useRef(onSave);
   const ready = useRef(onReady);
-  const first = useRef({ label, readOnly, wrap });
+  // A new view (a new file or Yjs history) starts with the props of the render that made it.
+  const latest = useRef({ label, readOnly, wrap });
 
   useEffect(() => {
     save.current = onSave;
     ready.current = onReady;
+    latest.current = { label, readOnly, wrap };
   });
 
-  // One view per source: a new file is a new source, and the view starts from its text.
+  // One view per source: a new file (or a new Yjs history) is a new source, and the view
+  // starts from its text.
   useEffect(() => {
     if (!host.current) return;
-    const { label: ariaLabel, readOnly: ro, wrap: wr } = first.current;
+    const { label: ariaLabel, readOnly: ro, wrap: wr } = latest.current;
     const v = new EditorView({
       parent: host.current,
       state: EditorState.create({
-        doc: source.text,
+        doc: source.kind === "yjs" ? source.text.toString() : source.source.text,
         extensions: [
           Prec.highest(keymap.of([{ key: "Mod-s", preventDefault: true, run: () => (save.current(), true) }])),
           lineNumbers(),
@@ -145,12 +180,14 @@ export default function LatexEditor({ source, label, readOnly, wrap, onSave, onR
       }),
     });
     view.current = v;
+    const yjs = source.kind === "yjs" ? source : null;
     ready.current?.({
-      undo: () => undo(v),
-      redo: () => redo(v),
+      undo: () => (yjs ? yjs.undoManager.undo() : undo(v)),
+      redo: () => (yjs ? yjs.undoManager.redo() : redo(v)),
       openFind: () => openSearchPanel(v),
       replaceText: (text) =>
         v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: text }, annotations: fromServer.of(true) }),
+      applyText: (text) => v.dispatch({ changes: replacement(v.state.doc.toString(), text), userEvent: "input.replace" }),
       focus: () => v.focus(),
     });
     return () => {

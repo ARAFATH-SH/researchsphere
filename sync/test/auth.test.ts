@@ -62,13 +62,26 @@ describe("authentication", () => {
     assert.equal(outsider.text.toJSON(), "", "a refused client receives nothing");
   });
 
-  it("refuses another origin", async () => {
+  it("refuses another origin and logs it", async () => {
     const ada = user();
     const pid = s.api.project({ [ada]: "owner" });
     const fid = s.api.file(pid, "x");
     const c = open(fid, s.api.ticket(ada, fid), "https://evil.example");
     await until(() => c.failed !== undefined, "the refusal");
     assert.equal(c.failed, "origin_not_allowed");
+    const line = s.logs.find((l) => l.msg === "connection refused: origin not allowed");
+    assert.equal(line?.fields.origin, "https://evil.example");
+  });
+
+  it("accepts every configured origin", async () => {
+    await s.stop();
+    s = await startStack({}, { allowedOrigins: ["http://localhost:3000", "http://127.0.0.1:3001"] });
+    const ada = user();
+    const pid = s.api.project({ [ada]: "owner" });
+    const fid = s.api.file(pid, "x");
+    const c = open(fid, s.api.ticket(ada, fid), "http://127.0.0.1:3001");
+    await c.synced;
+    assert.equal(c.text.toJSON(), "x");
   });
 
   it("makes a viewer read-only and drops and logs what it sends", async () => {

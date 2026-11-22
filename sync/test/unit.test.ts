@@ -13,9 +13,23 @@ describe("config", () => {
     assert.equal(c.port, 8091);
     assert.equal(c.host, "127.0.0.1");
     assert.equal(c.apiUrl, "http://127.0.0.1:8081/api/v1");
-    assert.equal(c.allowedOrigin, "http://localhost:3000");
+    assert.deepEqual(c.allowedOrigins, ["http://localhost:3000", "http://localhost:3001", "http://127.0.0.1:3000", "http://127.0.0.1:3001"]);
     assert.equal(c.limits.maxEditors, 4);
     assert.ok(c.limits.debounceMs <= 2000 && c.limits.maxDebounceMs < 5000, "NFR-10.1");
+  });
+
+  it("allows APP_BASE_URL, SYNC_ALLOWED_ORIGINS and, outside production, the local dev servers", () => {
+    const base = { SYNC_SERVICE_TOKEN: token, REDIS_URL: "redis://localhost:6379/0" };
+    const dev = loadConfig({ ...base, APP_ENV: "development", APP_BASE_URL: "http://localhost:3002/app", SYNC_ALLOWED_ORIGINS: " https://a.example , https://b.example/x " });
+    assert.deepEqual(dev.allowedOrigins, [
+      "http://localhost:3002", "https://a.example", "https://b.example",
+      "http://localhost:3000", "http://localhost:3001", "http://127.0.0.1:3000", "http://127.0.0.1:3001",
+    ]);
+    const prod = loadConfig({ ...base, APP_ENV: "production", APP_BASE_URL: "https://researchsphere.example" });
+    assert.deepEqual(prod.allowedOrigins, ["https://researchsphere.example"], "no local origin in production");
+    assert.throws(() => loadConfig({ ...base, SYNC_ALLOWED_ORIGINS: "not a url" }), /SYNC_ALLOWED_ORIGINS/);
+    assert.throws(() => loadConfig({ ...base, SYNC_ALLOWED_ORIGINS: "ftp://x.example" }), /SYNC_ALLOWED_ORIGINS/);
+    assert.throws(() => loadConfig({ ...base, APP_ENV: "staging" }), /APP_ENV/);
   });
 
   it("reads the editors per file (FR-12.8) and refuses a number outside 1 to 8", () => {

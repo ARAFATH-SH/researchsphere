@@ -4,17 +4,23 @@ import Link from "next/link";
 import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from "react";
 
 import { rsButtonClass } from "@/components/ui/button";
+import { useSession } from "@/features/auth/session";
+import { DevApiStatus } from "@/features/health/dev-api-status";
 import { WarningBanner } from "@/features/moderation/warning-banner";
 
-import { getProject, type Project } from "../api";
+import { getProject, listProjectMembers, type Project } from "../api";
 import { createFile, deleteFile, getFile, listFiles, moveFile, type ProjectFile, type ProjectStorage } from "../files/api";
 import { baseName, countInside, folderAncestors, isInside, parentPath } from "../files/tree";
 import { CreateDialog, DeleteFileDialog, MoveDialog, RenameDialog } from "./file-dialogs";
 import { type Opened, FilePane } from "./file-pane";
 import { FileTree, treeItemId } from "./file-tree";
+import { collabStatus } from "./collab/types";
+import { useCollab, useCollabState } from "./collab/use-collab";
 import { DropZone, figureAccept, StorageUse, UploadList, useFigureUploads } from "./figure-upload";
-import { useSaveState, useSavers } from "./use-savers";
-import { WorkspaceBar } from "./workspace-bar";
+import { type MemberFace, PresenceBar } from "./presence-bar";
+import { statusText } from "./autosave";
+import { useSaveState } from "./use-savers";
+import { type BarStatus, WorkspaceBar } from "./workspace-bar";
 
 type Load =
   | { status: "loading" }
@@ -25,9 +31,10 @@ type Load =
 type Open = { kind: "create"; type: "text" | "folder" } | { kind: "rename" | "move" | "delete"; file: ProjectFile } | null;
 
 // WorkspacePage is /projects/[projectId]/workspace (design/screens/Workspace.html): the file
-// tree (FR-12.1, FR-12.2) and the LaTeX editor (FR-12.3) with autosave (FR-12.6) for one user.
-// Members only; a viewer reads without changing anything. Compile, the PDF, the assistant and
-// other members' cursors come with slices 22 and 23.
+// tree (FR-12.1, FR-12.2) and the LaTeX editor (FR-12.3), edited together in real time through
+// the sync server (FR-12.4 to FR-12.9, docs/sync.md) with presence and cursors (FR-12.5), and
+// REST autosave (FR-12.6) when the sync server cannot be reached. Members only; a viewer reads
+// without changing anything. Compile, the PDF and the assistant come with slice 23.
 export function WorkspacePage({ projectId }: { projectId: string }) {
   const [attempt, setAttempt] = useState(0);
   const key = `${projectId}#${attempt}`;
@@ -121,9 +128,11 @@ function Workspace({
   initialStorage: ProjectStorage;
 }) {
   const projectId = project.id;
-  const role = project.myRole ?? "viewer";
-  const canEdit = role !== "viewer";
-  const savers = useSavers(projectId);
+  // A file or its project deleted while open (file_gone) reads the tree again.
+  const onGone = useRef<() => void>(() => {});
+  const collab = useCollab(projectId, onGone);
+  const me = useSession();
+  const selfId = me.status === "signedIn" ? me.user.id : null;
   const drawerId = useId();
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -140,8 +149,16 @@ function Workspace({
   const [drawer, setDrawer] = useState(false);
   const [treeError, setTreeError] = useState<string | null>(null);
 
-  const activeSaver = opened.kind === "text" ? opened.saver : null;
-  const saveState = useSaveState(activeSaver);
+  const activeSession = opened.kind === "text" ? opened.session : null;
+  const collabState = useCollabState(activeSession);
+  const binding = collabState.binding;
+  const saveState = useSaveState(binding?.kind === "rest" ? binding.saver : null);
+  // The sync server says the member's role as it is now (FR-12.7): a member made viewer, or
+  // removed, loses the editing actions at once.
+  const ended = collabState.ended === "access_ended";
+  const role = ended ? "viewer" : (collabState.role ?? project.myRole ?? "viewer");
+  const canEdit = role !== "viewer";
+  const faces = useMemberFaces(projectId);
   const request = useRef(0);
   const openedRef = useRef(opened);
   useEffect(() => {
@@ -153,30 +170,25 @@ function Workspace({
       if (file.kind === "folder") return;
       setDrawer(false);
       const prev = openedRef.current;
-      // Leaving a text file saves it at once (FR-12.6).
-      if (prev.kind === "text" && prev.file.id !== file.id) void prev.saver.flush();
       if (prev.kind !== "none" && prev.kind !== "failed" && prev.file.id === file.id) return;
+      // Leaving a text file sends what it holds and frees the member's editing slot (FR-12.8).
+      if (prev.kind === "text") collab.leave(prev.file.id);
       const token = ++request.current;
       setOpened({ kind: "loading", file });
-      const kept = file.kind === "text" ? savers.get(file.id) : undefined;
-      if (kept) {
-        setOpened({ kind: "text", file, saver: kept });
+      if (file.kind === "text") {
+        const session = await collab.open(file.id);
+        if (token !== request.current) {
+          session.release();
+          return;
+        }
+        setOpened({ kind: "text", file, session });
         return;
       }
       const res = await getFile(projectId, file.id);
       if (token !== request.current) return;
-      if (!res.ok) {
-        setOpened({ kind: "failed", file, error: res });
-        return;
-      }
-      if (file.kind === "text") {
-        const saver = savers.get(file.id) ?? savers.create(file.id, res.data.content ?? "", res.data.file.version);
-        setOpened({ kind: "text", file: res.data.file, saver });
-      } else {
-        setOpened({ kind: "figure", file: res.data.file, detail: res.data });
-      }
+      setOpened(res.ok ? { kind: "figure", file: res.data.file, detail: res.data } : { kind: "failed", file, error: res });
     },
-    [projectId, savers],
+    [projectId, collab],
   );
 
   // The main file opens first (main.tex, FR-10.4).
@@ -231,7 +243,11 @@ function Workspace({
     });
   }, []);
 
-  const saveNow = useCallback(() => void activeSaver?.flush(), [activeSaver]);
+  useEffect(() => {
+    onGone.current = () => void reload();
+  });
+
+  const saveNow = useCallback(() => void activeSession?.flush(), [activeSession]);
 
   // Ctrl/Cmd+S saves at once anywhere in the workspace, never the browser's save dialog.
   useEffect(() => {
@@ -258,7 +274,7 @@ function Workspace({
 
   function afterDelete(file: ProjectFile) {
     setDialog(null);
-    for (const f of items) if (isInside(f.path, file.path)) savers.remove(f.id);
+    for (const f of items) if (isInside(f.path, file.path)) collab.remove(f.id);
     if (opened.kind !== "none" && isInside(opened.file.path, file.path)) setOpened({ kind: "none" });
     setSelectedId(null);
     void reload();
@@ -282,7 +298,17 @@ function Workspace({
         projectId={projectId}
         title={project.title}
         role={role}
-        save={opened.kind === "text" && canEdit ? saveState : null}
+        save={opened.kind === "text" && canEdit && collabState.readOnly === null ? barStatus(collabState, saveState) : null}
+        presence={
+          opened.kind === "text" && collabState.mode === "live" ? (
+            <PresenceBar
+              users={collab.presence?.[opened.file.id] ?? []}
+              maxEditors={collabState.maxEditors}
+              selfId={selfId}
+              faces={faces}
+            />
+          ) : null
+        }
       />
       <WarningBanner />
       <div className="relative flex min-h-0 flex-1 border-b border-rs-border">
@@ -349,6 +375,7 @@ function Workspace({
             selectedId={selectedId}
             openId={opened.kind === "none" ? null : opened.file.id}
             canEdit={canEdit}
+            presence={collab.presence}
             onSelect={(f) => setSelectedId(f.id)}
             onToggle={toggle}
             onOpen={(f) => void openFile(f)}
@@ -366,10 +393,11 @@ function Workspace({
           )}
           <UploadList uploads={uploads.uploads} onDismiss={uploads.dismiss} />
           <StorageUse usedBytes={storage.usedBytes} limitBytes={storage.limitBytes} />
+          <DevApiStatus inline />
         </nav>
         <FilePane
           opened={opened}
-          canEdit={canEdit}
+          role={role}
           wrap={wrap}
           onToggleWrap={() => setWrap((w) => !w)}
           onSave={saveNow}
@@ -423,6 +451,29 @@ function Workspace({
       )}
     </div>
   );
+}
+
+function barStatus(state: ReturnType<typeof useCollabState>, save: ReturnType<typeof useSaveState>): BarStatus {
+  const status = collabStatus(state, save);
+  if (state.mode !== "fallback") return status;
+  // REST saves while live editing is unavailable: the notice, then the save's own status.
+  return { ...status, detail: statusText(save), saved: save.status === "saved" };
+}
+
+// useMemberFaces reads the members' names and photos once, for the presence avatars.
+function useMemberFaces(projectId: string): ReadonlyMap<string, MemberFace> {
+  const [faces, setFaces] = useState<ReadonlyMap<string, MemberFace>>(new Map());
+  useEffect(() => {
+    let current = true;
+    void listProjectMembers(projectId).then((res) => {
+      if (!current || !res.ok) return;
+      setFaces(new Map(res.data.items.map((m) => [m.user.userId, { name: m.user.fullName, photoUrl: m.user.photoUrl }])));
+    });
+    return () => {
+      current = false;
+    };
+  }, [projectId]);
+  return faces;
 }
 
 const smallButton =

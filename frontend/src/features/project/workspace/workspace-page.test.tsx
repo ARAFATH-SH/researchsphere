@@ -3,9 +3,11 @@ import "@/test/codemirror";
 
 import { EditorView } from "@codemirror/view";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import * as Y from "yjs";
 
-import { getProject } from "../api";
+import { getProject, listProjectMembers } from "../api";
 import {
+  createCollabTicket,
   createFile,
   deleteFile,
   getFile,
@@ -20,11 +22,23 @@ import {
 import { figure, folder, storage, textFile, tree } from "../files/test-files";
 import { project, projectID } from "../test-projects";
 import { autosaveDelayMs } from "./autosave";
+import { FakeHub } from "./collab/fake-hub";
+import type { LinkFactory } from "./collab/link";
+import { CollabSession } from "./collab/session";
 import { WorkspacePage } from "./workspace-page";
 
-jest.mock("../api", () => ({ ...jest.requireActual("../api"), getProject: jest.fn() }));
+jest.mock("../api", () => ({ ...jest.requireActual("../api"), getProject: jest.fn(), listProjectMembers: jest.fn() }));
+// The sync server is the in-memory FakeHub (collab/fake-hub.ts).
+const mockLink: { current: LinkFactory } = {
+  current: () => {
+    throw new Error("no hub");
+  },
+};
+jest.mock("./collab/link", () => ({ hocuspocusLink: (o: Parameters<LinkFactory>[0]) => mockLink.current(o) }));
+jest.mock("@/features/auth/session", () => ({ useSession: () => ({ status: "signedIn", user: { id: "u-me" } }) }));
 jest.mock("../files/api", () => ({
   ...jest.requireActual("../files/api"),
+  createCollabTicket: jest.fn(),
   listFiles: jest.fn(),
   getFile: jest.fn(),
   createFile: jest.fn(),
@@ -57,7 +71,60 @@ function detail(file: ProjectFile): ProjectFileDetail {
 
 const saved = (version: number): SaveResult => ({ ok: true, data: { ...main, version } });
 
+const me = { id: "u-me", name: "Me Myself" };
+const bob = { id: "u-bob", name: "Bob Kahn" };
+const cat = { id: "u-cat", name: "Cat Doe" };
+let hub: FakeHub;
+let ticketCount = 0;
+const others: CollabSession[] = [];
+
+// openAs opens a file as another member, in their own browser.
+async function openAs(member: { id: string; name: string }, fileId = main.id) {
+  const s = new CollabSession({
+    projectId: projectID,
+    fileId,
+    link: hub.link(member),
+    ticket: async () => ({
+      ok: true,
+      data: { ticket: `t-${member.id}-${++ticketCount}`, expiresAt: "", role: hub.roles.get(member.id) ?? "viewer", displayName: member.name, epoch: null },
+    }),
+    getFile: async () => ({ ok: false, code: "internal_error", message: "unused" }),
+    save: async () => ({ ok: false, status: 500, code: "internal_error", message: "unused" }),
+    refresh: async () => "ok",
+    sessionLost: () => {},
+  });
+  others.push(s);
+  await act(async () => {
+    s.start();
+    await Promise.resolve();
+  });
+  const b = s.getState().binding;
+  if (b?.kind !== "yjs") throw new Error("not live");
+  return { session: s, binding: b };
+}
+
 beforeEach(() => {
+  hub = new FakeHub();
+  for (const f of items) if (f.kind === "text") hub.seed(f.id, texts[f.id] ?? "");
+  hub.roles.set(me.id, "owner").set(bob.id, "editor").set(cat.id, "editor");
+  mockLink.current = hub.link(me);
+  jest.mocked(createCollabTicket).mockImplementation(async () => ({
+    ok: true,
+    data: { ticket: `t-me-${++ticketCount}`, expiresAt: "", role: hub.roles.get(me.id) ?? "viewer", displayName: me.name, epoch: null },
+  }));
+  jest.mocked(listProjectMembers).mockResolvedValue({
+    ok: true,
+    data: {
+      items: [me, bob, cat].map((m) => ({
+        user: { userId: m.id, fullName: m.name, headline: null, photoUrl: m === bob ? "/api/v1/media/bob" : null },
+        role: "editor" as const,
+        joinedAt: "2026-11-01T00:00:00Z",
+      })),
+      page: 1,
+      pageSize: 20,
+      total: 3,
+    },
+  });
   jest.mocked(getProject).mockResolvedValue({ ok: true, data: project({ myRole: "owner" }) });
   mockList.mockResolvedValue({ ok: true, data: tree(items) });
   mockGet.mockImplementation(async (_p, id) => {
@@ -67,14 +134,16 @@ beforeEach(() => {
   mockSave.mockResolvedValue(saved(4));
 });
 afterEach(() => {
+  for (const s of others.splice(0)) s.dispose();
   jest.useRealTimers();
   jest.clearAllMocks();
 });
 
-async function renderWorkspace(role: "owner" | "editor" | "viewer" = "owner") {
+async function renderWorkspace(role: "owner" | "editor" | "viewer" = "owner", expectLabel?: string) {
   jest.mocked(getProject).mockResolvedValue({ ok: true, data: project({ myRole: role }) });
+  hub.roles.set(me.id, role);
   render(<WorkspacePage projectId={projectID} />);
-  const label = role === "viewer" ? "main.tex, view only" : "Editing main.tex";
+  const label = expectLabel ?? (role === "viewer" ? "main.tex, view only" : "Editing main.tex");
   return editorView(label);
 }
 
@@ -88,31 +157,35 @@ function typeInto(view: EditorView, text: string) {
 }
 
 const treeItem = (name: string) => within(screen.getByRole("tree", { name: "Project files" })).getByRole("treeitem", { name: new RegExp(`^${name}`) });
-const status = () => screen.getByRole("status");
+const status = () => screen.getByRole("banner").querySelector("[role=status]")!;
 
 describe("WorkspacePage", () => {
   it("opens main.tex by default in the LaTeX editor, with the tree and the owner's actions", async () => {
     const view = await renderWorkspace();
     expect(view.state.doc.toString()).toBe(texts[main.id]);
-    expect(mockGet).toHaveBeenCalledWith(projectID, main.id);
+    // The text comes from the sync server, with a ticket (FR-12.7), not from a REST read.
+    expect(createCollabTicket).toHaveBeenCalledWith(projectID, main.id);
+    expect(mockGet).not.toHaveBeenCalled();
     expect(screen.getByRole("link", { name: "ResearchSphere home" }).getAttribute("href")).toBe("/home");
     expect(screen.getByRole("link", { name: /Back to project/ }).getAttribute("href")).toBe(`/projects/${projectID}`);
     expect(screen.getByText("Owner")).toBeTruthy();
-    expect(status().textContent).toBe("Saved");
+    expect(status().textContent).toBe("Live");
 
     const tree = screen.getByRole("tree", { name: "Project files" });
     expect(within(tree).getAllByRole("treeitem").map((i) => i.getAttribute("aria-level") + " " + i.textContent?.split(/Rename/)[0])).toEqual([
       "1 figures/",
       "1 sections/",
-      "1 main.tex",
+      "1 main.tex, editing: Me Myself",
     ]);
     expect(treeItem("main.tex").getAttribute("aria-selected")).toBe("true");
     for (const name of ["New file", "New folder", "Upload figure", "Rename main.tex", "Move main.tex", "Delete main.tex"]) {
       expect(screen.getByRole("button", { name })).toBeTruthy();
     }
-    // Compile, the PDF, the assistant and presence come with slices 22 and 23.
+    // Compile, the PDF and the assistant come with slice 23.
     expect(screen.queryByRole("button", { name: /Compile|Download PDF|Download ZIP/ })).toBeNull();
-    expect(screen.queryByText(/editing$/)).toBeNull();
+    const presence = screen.getByRole("group", { name: "1 person editing this file" });
+    expect(presence.textContent).toContain("1 / 4 editing");
+    expect(within(presence).getByRole("img", { name: "Me Myself (you)" })).toBeTruthy();
   });
 
   it("gives an editor the same actions", async () => {
@@ -134,8 +207,9 @@ describe("WorkspacePage", () => {
     expect(view.contentDOM.getAttribute("contenteditable")).toBe("false");
     expect(view.contentDOM.getAttribute("aria-readonly")).toBe("true");
     expect(screen.getByRole("button", { name: "Undo" })).toHaveProperty("disabled", true);
-    // No save status for a reader, and F2 and Delete do nothing.
-    expect(screen.queryByRole("status")).toBeNull();
+    // No save status for a reader, nobody listed as editing, and F2 and Delete do nothing.
+    expect(screen.getByRole("banner").querySelector("[role=status]")).toBeNull();
+    expect(screen.queryByRole("group", { name: /editing this file/ })).toBeNull();
     fireEvent.keyDown(treeItem("main.tex"), { key: "F2" });
     fireEvent.keyDown(treeItem("main.tex"), { key: "Delete" });
     expect(screen.queryByRole("dialog")).toBeNull();
@@ -207,6 +281,7 @@ describe("WorkspacePage", () => {
       jest.mocked(createFile).mockResolvedValue({ ok: true, data: created });
       mockList.mockResolvedValue({ ok: true, data: tree([...items, created]) });
       texts[created.id] = "";
+      hub.seed(created.id, "");
       items.push(created);
       fireEvent.change(within(dialog).getByRole("textbox", { name: "File name" }), { target: { value: "results.tex" } });
       await act(async () => fireEvent.click(within(dialog).getByRole("button", { name: "Create" })));
@@ -452,17 +527,28 @@ describe("WorkspacePage", () => {
     });
   });
 
-  describe("autosave", () => {
+  // While the sync server cannot be reached, the 21.2 REST autosave keeps working.
+  describe("autosave while live editing is unavailable", () => {
+    beforeEach(() => {
+      hub.refuseAll = "unavailable";
+    });
+
+    it("says live editing is unavailable and saves normally", async () => {
+      await renderWorkspace();
+      expect(status().textContent).toBe("Live editing unavailable, saving normally· Saved");
+      expect(mockGet).toHaveBeenCalledWith(projectID, main.id);
+    });
+
     it("saves 1.5 s after the last change and says so", async () => {
       const view = await renderWorkspace();
       jest.useFakeTimers();
       typeInto(view, " world");
-      expect(status().textContent).toBe("Saving…");
+      expect(status().textContent).toContain("Saving…");
       await act(async () => jest.advanceTimersByTimeAsync(autosaveDelayMs - 100));
       expect(mockSave).not.toHaveBeenCalled();
       await act(async () => jest.advanceTimersByTimeAsync(100));
       expect(mockSave).toHaveBeenCalledWith(projectID, main.id, `${texts[main.id]} world`, 3, { keepalive: false });
-      expect(status().textContent).toBe("Saved");
+      expect(status().textContent).toContain("Saved");
     });
 
     it("saves at once on Ctrl+S and Cmd+S without the browser's dialog", async () => {
@@ -499,7 +585,7 @@ describe("WorkspacePage", () => {
       mockSave.mockResolvedValue({ ok: false, status: 0, code: "network_error", message: "offline" });
       typeInto(view, " kept");
       await act(async () => jest.advanceTimersByTimeAsync(autosaveDelayMs));
-      expect(status().textContent).toBe("Offline, changes kept");
+      expect(status().textContent).toContain("Offline, changes kept");
       const leave = new Event("beforeunload", { cancelable: true });
       window.dispatchEvent(leave);
       expect(leave.defaultPrevented).toBe(true);
@@ -510,14 +596,17 @@ describe("WorkspacePage", () => {
       await act(async () => window.dispatchEvent(new Event("online")));
       expect(mockSave).toHaveBeenCalledTimes(3);
       expect(mockSave).toHaveBeenLastCalledWith(projectID, main.id, `${texts[main.id]} kept`, 3, { keepalive: false });
-      expect(status().textContent).toBe("Saved");
+      expect(status().textContent).toContain("Saved");
       const again = new Event("beforeunload", { cancelable: true });
       window.dispatchEvent(again);
       expect(again.defaultPrevented).toBe(false);
     });
   });
 
-  describe("version conflict", () => {
+  describe("version conflict while live editing is unavailable", () => {
+    beforeEach(() => {
+      hub.refuseAll = "unavailable";
+    });
     const conflict: SaveResult = {
       ok: false,
       status: 409,
@@ -532,7 +621,7 @@ describe("WorkspacePage", () => {
       typeInto(view, " mine");
       fireEvent.keyDown(window, { key: "s", ctrlKey: true });
       const dialog = await screen.findByRole("dialog", { name: "This file changed in another tab" });
-      expect(status().textContent).toBe("Not saved: this file changed in another tab");
+      expect(status().textContent).toContain("Not saved: this file changed in another tab");
       return { view, dialog };
     }
 
@@ -541,7 +630,7 @@ describe("WorkspacePage", () => {
       await act(async () => fireEvent.click(within(dialog).getByRole("button", { name: "Use theirs" })));
       expect(view.state.doc.toString()).toBe("Their text");
       expect(screen.queryByRole("dialog")).toBeNull();
-      expect(status().textContent).toBe("Saved");
+      expect(status().textContent).toContain("Saved");
       expect(mockSave).toHaveBeenCalledTimes(1);
     });
 
@@ -550,7 +639,7 @@ describe("WorkspacePage", () => {
       await act(async () => fireEvent.click(within(dialog).getByRole("button", { name: "Keep mine (overwrite)" })));
       expect(mockSave).toHaveBeenLastCalledWith(projectID, main.id, `${texts[main.id]} mine`, 9, { keepalive: false });
       expect(view.state.doc.toString()).toBe(`${texts[main.id]} mine`);
-      expect(status().textContent).toBe("Saved");
+      expect(status().textContent).toContain("Saved");
     });
 
     it("keeps the text when the dialog is closed and lets the user resolve later", async () => {
@@ -560,6 +649,184 @@ describe("WorkspacePage", () => {
       expect(view.state.doc.toString()).toBe(`${texts[main.id]} mine`);
       fireEvent.click(screen.getByRole("button", { name: "Resolve the conflict" }));
       expect(screen.getByRole("dialog", { name: "This file changed in another tab" })).toBeTruthy();
+    });
+  });
+
+  describe("live editing", () => {
+    it("shows another member's text and cursor with their name in their colour (FR-12.4, FR-12.5)", async () => {
+      const view = await renderWorkspace();
+      const bobs = await openAs(bob);
+      act(() => bobs.binding.text.insert(0, "% Bob\n"));
+      expect(view.state.doc.toString()).toBe(`% Bob\n${texts[main.id]}`);
+
+      typeInto(view, " and me");
+      expect(bobs.binding.text.toString()).toBe(`% Bob\n${texts[main.id]} and me`);
+      expect(hub.text(main.id)).toBe(`% Bob\n${texts[main.id]} and me`);
+
+      // Bob's cursor after "% Bob"; the server named and coloured him.
+      await act(async () => {
+        bobs.binding.awareness.setLocalStateField("cursor", {
+          anchor: Y.createRelativePositionFromTypeIndex(bobs.binding.text, 5),
+          head: Y.createRelativePositionFromTypeIndex(bobs.binding.text, 5),
+        });
+        await Promise.resolve();
+      });
+      const label = view.dom.querySelector(".cm-rs-caret-label") as HTMLElement;
+      expect(label.textContent).toBe("Bob Kahn");
+      expect(label.style.backgroundColor).toBe("rgb(31, 78, 140)");
+    });
+
+    it("lists who edits the file in the bar and who is in which file in the tree", async () => {
+      await renderWorkspace();
+      await openAs(bob);
+      await openAs(cat, intro.id);
+      const presence = screen.getByRole("group", { name: "2 people editing this file" });
+      expect(presence.textContent).toContain("2 / 4 editing");
+      expect(within(presence).getByRole("img", { name: "Bob Kahn" }).getAttribute("src")).toBe("/api/v1/media/bob");
+      expect(within(presence).getByRole("img", { name: "Me Myself (you)" })).toBeTruthy();
+      // Under 640px only the count shows.
+      expect(presence.querySelector("ul")!.className).toContain("max-[640px]:hidden");
+
+      fireEvent.click(treeItem("sections/"));
+      expect(treeItem("intro.tex").textContent).toContain("editing: Cat Doe");
+      expect(treeItem("main.tex").textContent).toContain("editing: Me Myself, Bob Kahn");
+    });
+
+    it("undoes only my own edits", async () => {
+      const view = await renderWorkspace();
+      const bobs = await openAs(bob);
+      typeInto(view, "!");
+      act(() => bobs.binding.text.insert(0, ">"));
+      fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+      expect(view.state.doc.toString()).toBe(`>${texts[main.id]}`);
+      expect(hub.text(main.id)).toBe(`>${texts[main.id]}`);
+    });
+
+    it("opens the file read-only for a member over the limit, says why, and lets them edit when one leaves (FR-12.8)", async () => {
+      hub.maxEditors = 1;
+      const bobs = await openAs(bob);
+      await renderWorkspace("editor", "main.tex, read only");
+      expect(
+        screen.getByText(/This file already has 1 people editing\. You can read it and will be able to edit when someone leaves\./),
+      ).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Undo" })).toHaveProperty("disabled", true);
+
+      act(() => bobs.session.release());
+      const view = await editorView("Editing main.tex");
+      expect(view.state.readOnly).toBe(false);
+      expect(screen.queryByText(/already has 1 people editing/)).toBeNull();
+    });
+
+    it("turns read-only at once when made viewer, and closes the file when removed (FR-12.7)", async () => {
+      await renderWorkspace("editor");
+      act(() => hub.setRole(me.id, "viewer"));
+      const view = await editorView("main.tex, view only");
+      expect(view.state.readOnly).toBe(true);
+      expect(screen.getByText("View only")).toBeTruthy();
+      expect(screen.getByText("Viewer")).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "New file" })).toBeNull();
+
+      act(() => hub.setRole(me.id, null));
+      expect(screen.getByRole("alert").textContent).toContain("You’re no longer a member of this project");
+      expect(screen.queryByRole("textbox", { name: /main\.tex/ })).toBeNull();
+    });
+
+    it("keeps typing offline, says so, and merges on reconnect (FR-12.9)", async () => {
+      const view = await renderWorkspace();
+      const bobs = await openAs(bob);
+      act(() => hub.offline());
+      expect(status().textContent).toBe("Offline, changes will sync");
+      typeInto(view, " offline");
+      act(() => bobs.binding.text.insert(0, "B"));
+      const leave = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(leave);
+      expect(leave.defaultPrevented).toBe(true);
+
+      await act(async () => {
+        hub.reconnectAll();
+        await new Promise((r) => setTimeout(r, 0));
+      });
+      expect(status().textContent).toBe("Live");
+      expect(view.state.doc.toString()).toBe(`B${texts[main.id]} offline`);
+      expect(hub.text(main.id)).toBe(`B${texts[main.id]} offline`);
+      const again = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(again);
+      expect(again.defaultPrevented).toBe(false);
+    });
+
+    it("says Saved once the server stored the edits", async () => {
+      const view = await renderWorkspace();
+      typeInto(view, "!");
+      act(() => hub.stored(main.id, 4));
+      expect(status().textContent).toBe("Saved");
+    });
+
+    it("asks which text to keep when offline edits meet a new history, and keeps mine as an undoable edit", async () => {
+      const view = await renderWorkspace();
+      act(() => hub.offline());
+      typeInto(view, " mine");
+      hub.rebuild(main.id, "Rewritten over REST");
+      await act(async () => {
+        hub.reconnectAll();
+        await new Promise((r) => setTimeout(r, 0));
+      });
+      const dialog = await screen.findByRole("dialog", { name: "Your changes couldn’t be merged" });
+      // The modal dialog hides the page from assistive technology; the editor shows theirs meanwhile.
+      const behind = EditorView.findFromDOM(screen.getByRole("textbox", { name: "main.tex, read only", hidden: true }))!;
+      expect(behind.state.doc.toString()).toBe("Rewritten over REST");
+      await act(async () => fireEvent.click(within(dialog).getByRole("button", { name: "Keep mine (overwrite)" })));
+      const after = await editorView("Editing main.tex");
+      expect(after.state.doc.toString()).toBe(`${texts[main.id]} mine`);
+      expect(hub.text(main.id)).toBe(`${texts[main.id]} mine`);
+      fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+      expect(hub.text(main.id)).toBe("Rewritten over REST");
+      expect(view).not.toBe(after);
+    });
+  });
+
+  describe("when live editing is refused", () => {
+    it.each(["origin_not_allowed", "unavailable", "too_many_connections"])(
+      "still shows the editor with REST autosave and the notice (%s)",
+      async (reason) => {
+        hub.refuseAll = reason;
+        const view = await renderWorkspace();
+        const note = screen.getByRole("note");
+        expect(note.textContent).toContain("Live editing unavailable, saving normally.");
+        expect(note.textContent).not.toContain("dev:");
+        expect(screen.queryByText(/isn’t available from this address/)).toBeNull();
+        expect(view.state.doc.toString()).toBe(texts[main.id]);
+        typeInto(view, "!");
+        fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+        await act(async () => {});
+        expect(mockSave).toHaveBeenCalledWith(projectID, main.id, `${texts[main.id]}!`, 3, { keepalive: false });
+      },
+    );
+
+    it("adds the reason in development", async () => {
+      jest.replaceProperty(process.env, "NODE_ENV", "development");
+      hub.refuseAll = "origin_not_allowed";
+      await renderWorkspace();
+      expect(screen.getByRole("note").textContent).toContain(
+        "(dev: the sync server refused this page’s origin; add it to SYNC_ALLOWED_ORIGINS)",
+      );
+    });
+
+    it("shows a viewer the file read-only with the notice when the ticket is refused", async () => {
+      jest.mocked(createCollabTicket).mockResolvedValue({ ok: false, code: "rate_limited", message: "Slow down." });
+      const view = await renderWorkspace("viewer");
+      expect(view.state.readOnly).toBe(true);
+      expect(view.state.doc.toString()).toBe(texts[main.id]);
+      expect(screen.getByRole("note").textContent).toContain("Live editing unavailable, saving normally. You can read the file.");
+    });
+
+    it("says it is waiting, never an empty area, when nothing answers", async () => {
+      hub.unreachable = true;
+      mockGet.mockResolvedValue({ ok: false, code: "network_error", message: "offline" });
+      jest.mocked(getProject).mockResolvedValue({ ok: true, data: project({ myRole: "owner" }) });
+      render(<WorkspacePage projectId={projectID} />);
+      expect(
+        (await screen.findByText(/We can’t reach the server right now\. main\.tex opens as soon as the connection returns\./)).textContent,
+      ).toBeTruthy();
     });
   });
 

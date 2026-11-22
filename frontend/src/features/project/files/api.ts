@@ -8,6 +8,7 @@ export type ProjectFileTree = components["schemas"]["ProjectFileTree"];
 export type ProjectFileDetail = components["schemas"]["ProjectFileDetail"];
 export type ProjectFileCurrent = components["schemas"]["ProjectFileCurrent"];
 export type ProjectStorage = components["schemas"]["ProjectStorage"];
+export type CollabTicket = components["schemas"]["CollabTicket"];
 
 // maxTextBytes is the largest text file the server stores (1 MiB of UTF-8).
 export const maxTextBytes = 1 << 20;
@@ -162,6 +163,16 @@ export async function uploadFigure(
   return done.ok ? done : failed("complete", done);
 }
 
+// createCollabTicket asks for a one-time ticket to open a text file on the sync server
+// (FR-12.7, docs/sync.md). It works once, within 30 seconds; never log it.
+export async function createCollabTicket(projectId: string, fileId: string): Promise<Result<CollabTicket>> {
+  return withData(
+    await call(() =>
+      api.POST("/projects/{projectId}/files/{fileId}/collab-ticket", { params: { path: { projectId, fileId } } }),
+    ),
+  );
+}
+
 const fileErrors: Record<string, string> = {
   path_taken: "Something with this name is already there. Names ignore letter case.",
   parent_not_folder: "A part of this path is a file, not a folder.",
@@ -177,6 +188,8 @@ const fileErrors: Record<string, string> = {
   account_suspended: "Your account is suspended, so you can’t change files.",
   not_found: "This file no longer exists. Reload the page to see the current files.",
   not_a_text_file: "Only text files can be edited.",
+  live_session_open: "live editing still has this file open",
+  live_check_unavailable: "live editing couldn’t be checked",
 };
 
 // serverWords are the codes whose message the server writes with the numbers that matter:

@@ -4,6 +4,7 @@ import { type KeyboardEvent, useId } from "react";
 
 import type { ProjectFile } from "../files/api";
 import { buildTree, type TreeNode, visibleNodes } from "../files/tree";
+import type { PresenceFiles, PresenceUser } from "./collab/types";
 
 // FileTree shows a project's files and folders (FR-12.1) as an ARIA tree: one tab stop, the
 // arrow keys move and open folders, Home and End jump, Enter opens a file or toggles a folder.
@@ -18,6 +19,8 @@ type Props = {
   selectedId: string | null;
   openId: string | null;
   canEdit: boolean;
+  // presence says who edits which file now (FR-12.5); null while unknown.
+  presence?: PresenceFiles | null;
   onSelect: (file: ProjectFile) => void;
   onToggle: (file: ProjectFile, open?: boolean) => void;
   onOpen: (file: ProjectFile) => void;
@@ -167,6 +170,7 @@ function Item({ node, focusId, ...props }: Props & { node: TreeNode; focusId: st
             {isFolder ? "/" : ""}
             {note && <span className="text-rs-caption font-normal text-rs-text-muted">{note}</span>}
           </span>
+          {!isFolder && <Presence users={props.presence?.[file.id] ?? []} />}
         </span>
         {selected && canEdit && (
           <span className="flex flex-none items-center gap-1 text-rs-caption font-normal">
@@ -186,6 +190,27 @@ function Item({ node, focusId, ...props }: Props & { node: TreeNode; focusId: st
         </ul>
       )}
     </li>
+  );
+}
+
+// Presence shows who has the file open to edit: a dot in each member's colour (up to three, then
+// "+n"), their names in the tooltip and for screen readers.
+function Presence({ users }: { users: PresenceUser[] }) {
+  if (users.length === 0) return null;
+  const names = users.map((u) => u.name || "A member").join(", ");
+  const shown = users.slice(0, 3);
+  return (
+    <span title={`Editing: ${names}`} className="ml-1 flex flex-none items-center gap-0.5">
+      {shown.map((u) => (
+        <span key={u.id} aria-hidden="true" style={{ backgroundColor: u.colour }} className="size-2 rounded-full" />
+      ))}
+      {users.length > shown.length && (
+        <span aria-hidden="true" className="text-rs-caption font-normal text-rs-text-muted">
+          +{users.length - shown.length}
+        </span>
+      )}
+      <span className="sr-only">, editing: {names}</span>
+    </span>
   );
 }
 

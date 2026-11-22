@@ -24,15 +24,19 @@ client uses `@hocuspocus/provider` with the same major version.
    made offline in that epoch (see Epochs). Give the provider a token **function** that asks for a
    new ticket each time: a ticket works once, and the provider sends the token again on every
    reconnect.
-3. The browser's `Origin` must be the web client's (`APP_BASE_URL`).
+3. The browser's `Origin` must be one the server allows: `APP_BASE_URL`'s, those in
+   `SYNC_ALLOWED_ORIGINS` and, unless `APP_ENV=production`, `http://localhost:3000`, `:3001`,
+   `http://127.0.0.1:3000` and `:3001`. The server logs each origin it refuses, and its
+   `listening` line lists the allowed ones.
 
 One WebSocket may carry several documents (one provider per open file on a shared
 `HocuspocusProviderWebsocket`). Each document is admitted, refused and closed on its own.
 
 ## Messages from the server
 
-After the document syncs, the server sends a **stateless** message, and sends it again whenever
-the connection's rights change:
+The server sends three kinds of **stateless** message, told apart by `type`: `session`,
+`presence` and `stored`. A client ignores any other type. After the document syncs, the server
+sends `session`, and sends it again whenever the connection's rights change:
 
 ```json
 {"type": "session", "role": "editor", "readOnly": null, "maxEditors": 4, "colour": "#0B7A75", "epoch": "0193..."}
@@ -51,6 +55,32 @@ so a client that kept edits it made while read-only sends them then. The client 
 a member type while `readOnly` is set: what a read-only connection sends is dropped (and
 logged), and its later edits wait behind the dropped ones until the connection may edit.
 
+**Presence** of the project (FR-12.5), sent to every connection to one of the project's files
+whenever someone opens or leaves one of them, or their rights change (changes within 50 ms go
+out as one message):
+
+```json
+{"type": "presence", "files": {"<fileId>": [{"id": "<userId>", "name": "Ada Lovelace", "colour": "#0B7A75", "readOnly": null}]}}
+```
+
+`files` lists the project's files that members have open now, each with the members who may
+edit it, earliest first: `readOnly` is `null` (editing) or `"capacity"` (waiting for a slot).
+Viewers are never listed, and no other project's files ever are. It goes only to connections of
+users whose last role check (the ticket, an event or the 60 s check) found them members: a
+removed member's connections are closed and get none after that. `colour` is the member's
+colour in that file. Each message replaces the previous one.
+
+**Stored** (NFR-10.1), sent to every connection to the document after a store that leaves
+nothing unsaved:
+
+```json
+{"type": "stored", "version": 12}
+```
+
+Everything the server had applied before the store is in the database. A store that changes
+arrived during sends nothing; the next one does. A client shows "Saved" when it gets this while
+it has no change the server has not acknowledged, and "Live" from its next change on.
+
 **Awareness** (cursors and names) is relayed as Yjs awareness. The server overwrites the `user`
 field of every state a connection sends with `{id, name, colour}` from the ticket, so a client
 cannot show another name or colour.
@@ -64,8 +94,8 @@ event). The codes are what the server logs.
 | Reason | Code | When | The client should |
 | --- | --- | --- | --- |
 | `ticket_invalid` | | Unknown, expired, spent, for another file, or the holder has no access now | Get a new ticket once; if the ticket request itself is refused (404), the member has no access |
-| `origin_not_allowed` | | `Origin` is not the web client's | Nothing (a misconfiguration) |
-| `too_many_connections` | | The user already has 10 documents open on this server | Close files it does not show |
+| `origin_not_allowed` | | `Origin` is not an allowed one | Use REST (a misconfiguration; the server logged the origin) |
+| `too_many_connections` | | The user already has 10 documents open on this server | Use REST; close files it does not show |
 | `epoch_mismatch` | | The token named an epoch the document no longer has | See Epochs |
 | `unavailable` | | The API or Redis did not answer | Retry with backoff; meanwhile use REST (below) |
 | `access_ended` | 4403 | Removed from the project, or found suspended or unverified at a check | Close the editor; REST will answer 404 |
@@ -101,7 +131,11 @@ While the sync server holds a file's document it keeps the Redis key `sync:live:
 30 s, renewed every 10 s, set before it reads the file). `PUT /files/{fileId}/content` then
 answers 409 `live_session_open`, and 503 `live_check_unavailable` when Redis does not answer.
 **The web client edits text files through the sync connection and uses the REST save only when
-the sync server cannot be reached** (showing "Live editing unavailable, saving normally"). That
+live editing is refused or the sync server cannot be reached** (showing "Live editing
+unavailable, saving normally", with the reason in development). Only `access_ended`,
+`session_ended` that cannot be refreshed and `file_gone` close the file; every other refusal,
+a ticket the API refuses and a sync server that does not answer open it over REST, as long as
+the API answers, and live editing is tried again in the background. That
 REST save clears the Yjs state, so the next sync session starts a new epoch.
 
 ## Saving (NFR-10.1)

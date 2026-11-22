@@ -39,7 +39,7 @@ export interface Stack {
   stop(): Promise<void>;
 }
 
-export async function startStack(limits: Partial<Limits> = {}): Promise<Stack> {
+export async function startStack(limits: Partial<Limits> = {}, overrides: Partial<Config> = {}): Promise<Stack> {
   const api = new FakeApi();
   const apiUrl = await api.start();
   const redisUrl = testRedisUrl();
@@ -49,8 +49,8 @@ export async function startStack(limits: Partial<Limits> = {}): Promise<Stack> {
   const at = (level: string) => (msg: string, fields: Record<string, unknown> = {}) => { logs.push({ level, msg, fields }); };
   const logger: Logger = { debug: at("debug"), info: at("info"), warn: at("warn"), error: at("error") };
   const config: Config = {
-    host: "127.0.0.1", port: 0, apiUrl, serviceToken: api.token, redisUrl, allowedOrigin: origin,
-    logLevel: "error", limits: { ...defaultLimits, ...limits },
+    host: "127.0.0.1", port: 0, apiUrl, serviceToken: api.token, redisUrl, allowedOrigins: [origin],
+    logLevel: "error", limits: { ...defaultLimits, ...limits }, ...overrides,
   };
   const sync = createSyncServer({ config, api: createApi(apiUrl, api.token), redis, logger });
   const port = await sync.start();
@@ -82,12 +82,21 @@ export interface Session {
   epoch?: string | null;
 }
 
+export interface Presence {
+  type: "presence";
+  files: Record<string, { id: string; name: string; colour: string; readOnly: string | null }[]>;
+}
+
 export interface Client {
   doc: Y.Doc;
   text: Y.Text;
   provider: HocuspocusProvider;
   socket: HocuspocusProviderWebsocket;
   sessions: Session[];
+  /** Presence messages of the project (docs/sync.md), oldest first. */
+  presence: Presence[];
+  /** Versions of the "stored" messages. */
+  stored: number[];
   /** The reason of a refused authentication, if any. */
   failed: string | undefined;
   /** Reasons of close messages for this document. */
@@ -110,6 +119,8 @@ export interface ConnectOptions {
 
 export function connect(url: string, fileId: string, opts: ConnectOptions): Client {
   const sessions: Session[] = [];
+  const presence: Presence[] = [];
+  const stored: number[] = [];
   const closes: string[] = [];
   const socketCloses: number[] = [];
   const doc = opts.doc ?? new Y.Doc();
@@ -123,13 +134,18 @@ export function connect(url: string, fileId: string, opts: ConnectOptions): Clie
   const provider = new HocuspocusProvider({
     websocketProvider: socket, name: fileId, document: doc, token: opts.token,
     onSynced: () => { resolveSynced(); },
-    onStateless: ({ payload }) => { sessions.push(JSON.parse(payload) as Session); },
+    onStateless: ({ payload }) => {
+      const msg = JSON.parse(payload) as { type: string; version?: number };
+      if (msg.type === "session") sessions.push(msg);
+      else if (msg.type === "presence") presence.push(msg as Presence);
+      else if (msg.type === "stored") stored.push(msg.version ?? -1);
+    },
     onAuthenticationFailed: ({ reason }) => { client.failed = reason; },
     onClose: ({ event }) => { if (event.reason) closes.push(event.reason); },
   });
   provider.attach();
   Object.assign(client, {
-    doc, text: doc.getText(textName), provider, socket, sessions, failed: undefined, closes, socketCloses, synced,
+    doc, text: doc.getText(textName), provider, socket, sessions, presence, stored, failed: undefined, closes, socketCloses, synced,
     session: () => sessions.at(-1),
     type(s: string, at?: number) {
       const t = doc.getText(textName);
