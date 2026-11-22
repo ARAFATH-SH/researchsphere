@@ -65,6 +65,109 @@ func (q *Queries) ClaimFigureUpload(ctx context.Context, id pgtype.UUID) (int64,
 	return result.RowsAffected(), nil
 }
 
+const collabFile = `-- name: CollabFile :one
+
+SELECT project_id, content, version, ydoc_state, ydoc_epoch
+FROM project_files
+WHERE id = $1 AND kind = 'text'
+`
+
+type CollabFileRow struct {
+	ProjectID pgtype.UUID
+	Content   pgtype.Text
+	Version   int32
+	YdocState []byte
+	YdocEpoch pgtype.UUID
+}
+
+// Real-time editing (slice 22, docs/decisions.md 2026-11-19).
+// A text file as the sync server loads it.
+func (q *Queries) CollabFile(ctx context.Context, id pgtype.UUID) (CollabFileRow, error) {
+	row := q.db.QueryRow(ctx, collabFile, id)
+	var i CollabFileRow
+	err := row.Scan(
+		&i.ProjectID,
+		&i.Content,
+		&i.Version,
+		&i.YdocState,
+		&i.YdocEpoch,
+	)
+	return i, err
+}
+
+const collabFileShared = `-- name: CollabFileShared :one
+SELECT project_id, content, version, ydoc_state, ydoc_epoch
+FROM project_files
+WHERE id = $1 AND kind = 'text'
+FOR SHARE
+`
+
+type CollabFileSharedRow struct {
+	ProjectID pgtype.UUID
+	Content   pgtype.Text
+	Version   int32
+	YdocState []byte
+	YdocEpoch pgtype.UUID
+}
+
+// CollabFile holding the row shared, so a REST save that locked it first finishes first.
+func (q *Queries) CollabFileShared(ctx context.Context, id pgtype.UUID) (CollabFileSharedRow, error) {
+	row := q.db.QueryRow(ctx, collabFileShared, id)
+	var i CollabFileSharedRow
+	err := row.Scan(
+		&i.ProjectID,
+		&i.Content,
+		&i.Version,
+		&i.YdocState,
+		&i.YdocEpoch,
+	)
+	return i, err
+}
+
+const collabRoles = `-- name: CollabRoles :many
+SELECT uu.ord::integer AS ord, COALESCE(m.role::text, 'none')::text AS role
+FROM unnest($1::uuid[]) WITH ORDINALITY AS uu(user_id, ord)
+JOIN unnest($2::uuid[]) WITH ORDINALITY AS ff(file_id, ord) ON ff.ord = uu.ord
+LEFT JOIN project_files f ON f.id = ff.file_id AND f.kind = 'text'
+LEFT JOIN users u ON u.id = uu.user_id AND u.email_verified_at IS NOT NULL
+    AND (u.suspended_at IS NULL OR (u.suspended_until IS NOT NULL AND u.suspended_until <= now()))
+LEFT JOIN project_members m ON m.project_id = f.project_id AND m.user_id = u.id
+ORDER BY uu.ord
+`
+
+type CollabRolesParams struct {
+	UserIds []pgtype.UUID
+	FileIds []pgtype.UUID
+}
+
+type CollabRolesRow struct {
+	Ord  int32
+	Role string
+}
+
+// One row per check, in order (ord): the user's role in the project of the text file, or
+// 'none' without a member row, for an unverified or suspended account, or when the file is
+// not a text file. A suspension that has ended by time no longer counts.
+func (q *Queries) CollabRoles(ctx context.Context, arg CollabRolesParams) ([]CollabRolesRow, error) {
+	rows, err := q.db.Query(ctx, collabRoles, arg.UserIds, arg.FileIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CollabRolesRow
+	for rows.Next() {
+		var i CollabRolesRow
+		if err := rows.Scan(&i.Ord, &i.Role); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const countMyInvitations = `-- name: CountMyInvitations :one
 SELECT count(*)::int
 FROM project_join_requests j
@@ -1898,7 +2001,7 @@ func (q *Queries) ResolveProjectReport(ctx context.Context, arg ResolveProjectRe
 const saveProjectFileContent = `-- name: SaveProjectFileContent :one
 UPDATE project_files
 SET content = $1::text, size_bytes = octet_length($1::text), version = version + 1,
-    ydoc_state = NULL, updated_by = $2, updated_at = now()
+    ydoc_state = NULL, ydoc_epoch = NULL, updated_by = $2, updated_at = now()
 WHERE id = $3 AND kind = 'text'
 RETURNING version
 `
@@ -2287,6 +2390,41 @@ func (q *Queries) SkillsOfProjects(ctx context.Context, ids []pgtype.UUID) ([]Sk
 	return items, nil
 }
 
+const storeCollabState = `-- name: StoreCollabState :one
+UPDATE project_files AS f
+SET ydoc_state = $1::bytea, ydoc_epoch = $2::uuid, content = $3::text,
+    size_bytes = octet_length($3::text), version = f.version + 1,
+    updated_by = (SELECT u.id FROM users u WHERE u.id = $4::uuid), updated_at = now()
+WHERE f.id = $5::uuid AND f.kind = 'text' AND f.version = $6::integer
+RETURNING f.version
+`
+
+type StoreCollabStateParams struct {
+	YdocState   []byte
+	YdocEpoch   pgtype.UUID
+	Content     string
+	UpdatedBy   pgtype.UUID
+	FileID      pgtype.UUID
+	BaseVersion int32
+}
+
+// The sync server's save (NFR-10.1): state, epoch, text, version + 1, who and when, in one
+// UPDATE, only while the file is at @base_version. A last editor whose account is gone is
+// stored as nobody.
+func (q *Queries) StoreCollabState(ctx context.Context, arg StoreCollabStateParams) (int32, error) {
+	row := q.db.QueryRow(ctx, storeCollabState,
+		arg.YdocState,
+		arg.YdocEpoch,
+		arg.Content,
+		arg.UpdatedBy,
+		arg.FileID,
+		arg.BaseVersion,
+	)
+	var version int32
+	err := row.Scan(&version)
+	return version, err
+}
+
 const strongTitleMatches = `-- name: StrongTitleMatches :many
 SELECT p.id, p.title, left(p.description, 300)::text AS description, p.status::text AS status,
        p.created_at, p.updated_at,
@@ -2365,6 +2503,39 @@ func (q *Queries) StrongTitleMatches(ctx context.Context, arg StrongTitleMatches
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const textFileIDsUnder = `-- name: TextFileIDsUnder :many
+SELECT f.id
+FROM project_files f
+WHERE f.project_id = $1 AND f.kind = 'text'
+  AND (lower(f.path) = lower($2::text)
+       OR left(lower(f.path), char_length($2::text) + 1) = lower($2::text) || '/')
+`
+
+type TextFileIDsUnderParams struct {
+	ProjectID pgtype.UUID
+	Path      string
+}
+
+func (q *Queries) TextFileIDsUnder(ctx context.Context, arg TextFileIDsUnderParams) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, textFileIDsUnder, arg.ProjectID, arg.Path)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var id pgtype.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

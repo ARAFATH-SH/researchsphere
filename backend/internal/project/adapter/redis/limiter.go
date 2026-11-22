@@ -18,12 +18,13 @@ import (
 
 // Key prefixes, followed by the user ID (a UUID, not personal data).
 const (
-	createPrefix = "project:create:"
-	searchPrefix = "project:search:"
-	joinPrefix   = "project:join:"
-	invitePrefix = "project:invite:"
-	figurePrefix = "project:figure:"
-	savePrefix   = "project:save:"
+	createPrefix      = "project:create:"
+	searchPrefix      = "project:search:"
+	joinPrefix        = "project:join:"
+	invitePrefix      = "project:invite:"
+	figurePrefix      = "project:figure:"
+	savePrefix        = "project:save:"
+	ticketLimitPrefix = "project:ticket:"
 )
 
 // callTimeout bounds each call. A request waits at most this long for Redis before going on
@@ -68,6 +69,9 @@ func (l *Limits) Figure() domain.Limiter { return counter{client: l.client, pref
 
 // Save counts a user's file content saves (FR-12.6).
 func (l *Limits) Save() domain.Limiter { return counter{client: l.client, prefix: savePrefix} }
+
+// Ticket counts the collaboration tickets a user asks for (slice 22).
+func (l *Limits) Ticket() domain.Limiter { return counter{client: l.client, prefix: ticketLimitPrefix} }
 
 // Close closes the own client.
 func (l *Limits) Close() error { return l.client.Close() }

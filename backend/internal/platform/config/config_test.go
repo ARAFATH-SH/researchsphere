@@ -19,6 +19,7 @@ const (
 	testS3Secret = "test-s3-secret-key"                   //nolint:gosec // test value, not a credential
 	testSMTPPass = "smtp-secret-do-not-log"               //nolint:gosec // test value, not a credential
 	testAIToken  = "test-ai-service-token-0123456789abcd" //nolint:gosec // test value, not a credential
+	testSyncTok  = "test-sync-service-token-0123456789ab" //nolint:gosec // test value, not a credential
 )
 
 // validDefaults are served for these settings unless vars sets them (even to "").
@@ -271,7 +272,8 @@ func TestLoadLoginSettings(t *testing.T) {
 
 func TestLogValueHidesSecrets(t *testing.T) {
 	cfg, err := Load(env(map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL,
-		"SMTP_USERNAME": "apikey", "SMTP_PASSWORD": testSMTPPass, "AI_SERVICE_TOKEN": testAIToken}))
+		"SMTP_USERNAME": "apikey", "SMTP_PASSWORD": testSMTPPass, "AI_SERVICE_TOKEN": testAIToken,
+		"SYNC_SERVICE_TOKEN": testSyncTok}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +281,7 @@ func TestLogValueHidesSecrets(t *testing.T) {
 	slog.New(slog.NewJSONHandler(&buf, nil)).Info("config loaded", "config", cfg)
 
 	out := buf.String()
-	for _, secret := range []string{testPassword, testDBURL, testRedisURL, "postgres://", "redis://", testSecret, testUnsubKey, testS3Secret, testSMTPPass, testAIToken} {
+	for _, secret := range []string{testPassword, testDBURL, testRedisURL, "postgres://", "redis://", testSecret, testUnsubKey, testS3Secret, testSMTPPass, testAIToken, testSyncTok} {
 		if strings.Contains(out, secret) {
 			t.Errorf("log line contains %q: %s", secret, out)
 		}
@@ -579,7 +581,7 @@ var prodMail = map[string]string{
 	"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL, "APP_ENV": "production",
 	"SMTP_HOST": "smtp-relay.brevo.com", "SMTP_PORT": "587", "SMTP_TLS": "starttls",
 	"SMTP_USERNAME": "apikey", "SMTP_PASSWORD": "provider-key",
-	"AI_SERVICE_TOKEN": testAIToken,
+	"AI_SERVICE_TOKEN": testAIToken, "SYNC_SERVICE_TOKEN": testSyncTok,
 }
 
 // with returns a copy of base with the key and value pairs in kv set.
@@ -738,6 +740,50 @@ func TestLoadAIService(t *testing.T) {
 				t.Errorf("error = %v, want %q", err, tt.want)
 			}
 			if err != nil && strings.Contains(err.Error(), testSecret) {
+				t.Errorf("error repeats a secret: %v", err)
+			}
+		})
+	}
+}
+
+// The sync server's token and the internal listener (slice 22, docs/sync.md).
+func TestLoadSyncService(t *testing.T) {
+	dev := map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL}
+
+	cfg, err := Load(env(dev))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SyncServiceToken != "" || cfg.InternalAPIAddr != DefaultInternalAPIAddr {
+		t.Errorf("defaults: token set %v, addr %q", cfg.SyncServiceToken != "", cfg.InternalAPIAddr)
+	}
+	cfg, err = Load(env(with(dev, "SYNC_SERVICE_TOKEN", " "+testSyncTok+" ", "INTERNAL_API_ADDR", "10.0.0.5:8081")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SyncServiceToken != testSyncTok || cfg.InternalAPIAddr != "10.0.0.5:8081" {
+		t.Errorf("set: token %v, addr %q", cfg.SyncServiceToken == testSyncTok, cfg.InternalAPIAddr)
+	}
+
+	refusals := []struct {
+		name string
+		vars map[string]string
+		want string
+	}{
+		{"production without a token", with(prodMail, "SYNC_SERVICE_TOKEN", ""), "SYNC_SERVICE_TOKEN is required"},
+		{"short token", with(dev, "SYNC_SERVICE_TOKEN", "short"), "SYNC_SERVICE_TOKEN must be at least 32"},
+		{"token equal to JWT_SECRET", with(dev, "SYNC_SERVICE_TOKEN", testSecret), "SYNC_SERVICE_TOKEN must differ"},
+		{"token equal to AI_SERVICE_TOKEN", with(dev, "SYNC_SERVICE_TOKEN", testAIToken, "AI_SERVICE_TOKEN", testAIToken), "SYNC_SERVICE_TOKEN must differ"},
+		{"address with a scheme", with(dev, "INTERNAL_API_ADDR", "http://127.0.0.1:8081"), "INTERNAL_API_ADDR must be"},
+		{"address without a port", with(dev, "INTERNAL_API_ADDR", "127.0.0.1"), "INTERNAL_API_ADDR must be"},
+	}
+	for _, tt := range refusals {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Load(env(tt.vars))
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("error = %v, want %q", err, tt.want)
+			}
+			if err != nil && (strings.Contains(err.Error(), testSecret) || strings.Contains(err.Error(), testAIToken)) {
 				t.Errorf("error repeats a secret: %v", err)
 			}
 		})

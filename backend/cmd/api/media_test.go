@@ -172,6 +172,9 @@ func TestUploadBodyIsCapped(t *testing.T) {
 		}
 	}
 	for route := range bodyLimits {
+		if _, path, _ := strings.Cut(route, " "); strings.HasPrefix(path, internalPrefix) {
+			continue // the sync server's token guards these (slice 22), not a session
+		}
 		if _, ok := platformGuards[route]; !ok {
 			t.Errorf("bodyLimits names %q, which has no platform guard", route)
 		}

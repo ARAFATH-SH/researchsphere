@@ -94,11 +94,11 @@ func TestFileTreeQueries(t *testing.T) {
 	}
 	// A save raises the version and clears the Yjs state.
 	id := d.text(pid, "axb/z.tex")
-	d.exec("UPDATE project_files SET ydoc_state = '\\x01' WHERE id = $1", id)
+	d.exec("UPDATE project_files SET ydoc_state = '\\x01', ydoc_epoch = gen_random_uuid() WHERE id = $1", id)
 	if v, err := d.store.SaveContent(ctx, id, "new", owner); err != nil || v != 2 {
 		t.Errorf("save = %d, %v", v, err)
 	}
-	if n := d.count("SELECT count(*) FROM project_files WHERE id = $1 AND ydoc_state IS NULL AND size_bytes = 3", id); n != 1 {
+	if n := d.count("SELECT count(*) FROM project_files WHERE id = $1 AND ydoc_state IS NULL AND ydoc_epoch IS NULL AND size_bytes = 3", id); n != 1 {
 		t.Error("save did not clear the Yjs state or set the size")
 	}
 	d.exec(`INSERT INTO project_files (project_id, path, content)

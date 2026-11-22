@@ -5,11 +5,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
@@ -170,6 +172,10 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 	// Real-time delivery hears from most modules and reads from some; bind closes the loop.
 	realtime := newRealtime(rdb, standings, realtimeusecase.DefaultConfig(), logger)
 	defer realtime.close()
+	// Real-time editing (slice 22): changes that end access reach the sync server.
+	syncEv := newSyncEvents(rdb, logger)
+	defer func() { _ = syncEv.Close() }()
+	realtime.events.sync = syncEv
 	go realtime.hub.Run(ctx)
 	titles := &subjectTitles{}
 	notifications := notificationusecase.New(notificationpg.NewStore(pool), notificationusecase.WithPublisher(realtime.events),
@@ -262,8 +268,8 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 		embedder: projectQueryEmbedder{q: queryEmbedder{ai: ai}},
 		vectors:  projectQueryVectors{cache: lookups.QueryVectors()},
 		timeout:  cfg.SearchAITimeout,
-	}, projectChanges{recs: recommendations, people: recCache, logger: logger}, projectNotifier{notifications: notifications}, files,
-		figureLimits{figure: cfg.FigureMaxBytes, storage: cfg.ProjectStorageMaxBytes}, logger)
+	}, projectChanges{recs: recommendations, people: recCache, sync: syncEv, logger: logger}, projectNotifier{notifications: notifications}, files,
+		figureLimits{figure: cfg.FigureMaxBytes, storage: cfg.ProjectStorageMaxBytes}, syncEv, logger)
 	defer func() { _ = projectLimits.Close() }()
 	// Figure uploads never completed expire; the database queues their objects (FR-12.2).
 	go projects.RunUploadSweep(ctx, uploadSweepInterval)
@@ -288,14 +294,43 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 		embeddinghttp.NewHandler(embeddings),
 		recommendationhttp.NewHandler(recommendations),
 		projecthttp.NewHandler(projects),
-		httpx.RequireAuth(tokens, time.Now))
+		serviceAndSessionAuth([]byte(cfg.SyncServiceToken), httpx.RequireAuth(tokens, time.Now)))
 
 	var lc net.ListenConfig
 	ln, err := lc.Listen(ctx, "tcp", ":"+strconv.Itoa(cfg.Port))
 	if err != nil {
 		return fmt.Errorf("listen on port %d: %w", cfg.Port, err)
 	}
-	return httpserver.Serve(ctx, ln, handler, logger, realtime.hub.Shutdown)
+	// The sync server's internal operations listen apart (docs/sync.md); without its token
+	// there is nothing to serve there.
+	if cfg.SyncServiceToken == "" {
+		logger.Warn("SYNC_SERVICE_TOKEN is not set: real-time editing is off")
+		return httpserver.Serve(ctx, ln, publicOnly(handler), logger, realtime.hub.Shutdown)
+	}
+	internalLn, err := lc.Listen(ctx, "tcp", cfg.InternalAPIAddr)
+	if err != nil {
+		_ = ln.Close()
+		return fmt.Errorf("listen on %s: %w", cfg.InternalAPIAddr, err)
+	}
+	// Either server stopping on an error stops the other, so the API never runs half-served.
+	srvCtx, stopServers := context.WithCancel(ctx)
+	defer stopServers()
+	internalErr := make(chan error, 1)
+	go func() {
+		err := httpserver.Serve(srvCtx, internalLn, internalOnly(handler), logger.With(slog.String("listener", "internal")))
+		stopServers()
+		internalErr <- err
+	}()
+	err = httpserver.Serve(srvCtx, ln, publicOnly(handler), logger, realtime.hub.Shutdown)
+	stopServers()
+	return errors.Join(err, <-internalErr)
+}
+
+// serviceAndSessionAuth checks the sync service's token on the operations the contract gives
+// it, then the session on the rest (httpx.RequireServiceToken, httpx.RequireAuth).
+func serviceAndSessionAuth(serviceToken []byte, requireAuth func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+	service := httpx.RequireServiceToken(serviceToken)
+	return func(next http.Handler) http.Handler { return service(requireAuth(next)) }
 }
 
 // newMailer sends through the SMTP server the settings name: Mailpit locally, a provider in

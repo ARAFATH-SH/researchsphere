@@ -12,10 +12,13 @@ recommendations. One developer builds it in 30 slices over 12 weeks.
 - `docs/decisions.md` lists decisions already made. Do not reopen one without asking.
 - `docs/email-delivery.md` says how mail is sent and how to switch provider (FR-17.1).
 - `docs/evaluation.md` defines the AI quality and speed measurements (NFR-1, NFR-6), the
-  recommendation score calibration (AI-2.2) and their latest results.
+  recommendation score calibration (AI-2.2), the real-time editing load test (NFR-2, NFR-10.1,
+  NFR-12) and their latest results.
 - `docs/deploy.md` lists the one-off commands to run after a deployment applies certain migrations.
 - `docs/realtime.md` is the WebSocket contract: events, payloads, close codes and what a client
   must do after a reconnect. OpenAPI covers only the upgrade.
+- `docs/sync.md` is the real-time editing contract (slice 22): the ticket, the token, the
+  `session` message, refusal and close reasons, epochs and offline edits, saving, limits.
 
 ## Layout
 
@@ -24,7 +27,7 @@ recommendations. One developer builds it in 30 slices over 12 weeks.
 | `frontend/` | Web client | Next.js, React, TypeScript, Tailwind CSS |
 | `backend/` | API server; migrations in `backend/db/migrations` | Go 1.25+, sqlc, oapi-codegen, golang-migrate |
 | `ai/` | Internal AI service: embeddings now (`POST /embed`, and `POST /embed-document`, which splits a long text by real tokens and averages; intfloat/multilingual-e5-base, CPU), later matching, search, venue ranking and the writing assistant. Never public: the API calls it with `AI_SERVICE_TOKEN` (`internal/platform/aiclient`) | Python 3.12 with uv, FastAPI, Sentence Transformers |
-| `sync/` | Real-time editing server (slice 22) | Node.js, Hocuspocus, Yjs |
+| `sync/` | Real-time editing server (slice 22, `docs/sync.md`): one Yjs document per text file; reaches the database only through the API's internal operations (`/api/v1/internal/sync/*` on `INTERNAL_API_ADDR`, `SYNC_SERVICE_TOKEN`) | Node.js 22 (TypeScript run directly), Hocuspocus 4, Yjs, ioredis |
 | `compile/` | LaTeX compile service (slice 23) | TeX Live in a Docker sandbox |
 | `docs/` | SRS, API contract, decisions | Markdown, OpenAPI 3 |
 | `design/` | Reference design: one HTML artboard per screen, desktop and `_m` mobile (not served, not imported) | HTML, CSS |
@@ -70,9 +73,12 @@ Run these from the repository root. `make help` prints the current list.
 | `make ai-up` | Start the AI service and wait until its model is loaded. The first start downloads the model at its pinned revision (about 1.1 GB) into the `aimodels` volume; later starts and rebuilds reuse it. Needs `AI_SERVICE_TOKEN` in `.env` |
 | `make ai-fetch-model` | Download the model into the `aimodels` volume ahead of time, then exit |
 | `make ai-logs` | Follow the AI service's log |
+| `make sync` | Run the real-time editing server on `SYNC_PORT` (8091). Needs `cd sync && npm ci`, `make up`, and `make api` with `SYNC_SERVICE_TOKEN` set (its internal listener on `INTERNAL_API_ADDR`) |
+| `make sync-build` | Build the sync server's image (compose profile `sync`) |
+| `make sync-load [seconds=60]` | Measure NFR-2, NFR-10.1 and NFR-12: 10 files x 4 simulated editors typing, against the sync server in its own process and an in-memory fake API; prints update latency and save delay percentiles and fails above p95 1 s, a save over 5 s or a lost edit. Needs `make up`; empties `TEST_REDIS_URL` |
 | `make generate` | Regenerate Go code in `backend/internal/api` and TypeScript types in `frontend/src/lib/api` from `docs/openapi.yaml`, and the sqlc query code in `backend/internal/*/adapter/postgres/sqlcgen` |
 | `make check-generated` | Regenerate and fail if the generated code differs from what is committed |
-| `make test` | Run all tests: `test-prepare`, `test-db`, `test-go`, `test-integration`, `test-web` and `test-ai` (needs `make up`) |
+| `make test` | Run all tests: `test-prepare`, `test-db`, `test-go`, `test-integration`, `test-web`, `test-ai` and `test-sync` (needs `make up`) |
 | `make test-prepare` | Create the test database `researchsphere_test` (`TEST_POSTGRES_DB`) in the same container if it is missing and apply all migrations to it. Refuses a name that does not end in `_test` |
 | `make test-db` | Run the database constraint tests on the test database (runs `test-prepare` first; needs `make up`) |
 | `make test-go` | Run the backend Go tests (`go test -race`); needs no database |
@@ -80,20 +86,23 @@ Run these from the repository root. `make help` prints the current list.
 | `make test-one pkg=./internal/x/ run=TestName [count=1]` | Run one integration test, or the tests `run` matches (a `go test -run` pattern), with the same settings as `test-integration`: `-race`, `-p 1`, the build tag and the test environment. `pkg` is relative to `backend/`; `count` repeats it to find a flaky test. Runs `test-prepare` first; needs `make up` |
 | `make test-web` | Run the frontend tests (Jest) |
 | `make test-ai` | Run the AI service tests (pytest) with a stub model: no torch, no model download (needs uv) |
-| `make lint` | Run all linters: `lint-go`, `lint-web` and `lint-ai` |
+| `make test-sync` | Run the sync server tests (`node:test`): real Hocuspocus servers and providers against Redis `TEST_REDIS_URL` (never DB 0 or `REDIS_URL`'s; emptied) and an in-memory fake of the API's internal operations; one suite restarts the server as a child process. Needs `make up` and `cd sync && npm ci` |
+| `make lint` | Run all linters: `lint-go`, `lint-web`, `lint-ai` and `lint-sync` |
 | `make lint-go` | Run golangci-lint for the backend |
 | `make lint-web` | Run ESLint and the TypeScript type check for the frontend |
 | `make lint-ai` | Run ruff (lint and format check) for the AI service |
+| `make lint-sync` | Run ESLint and the TypeScript type check for the sync server |
 
-The frontend targets need its packages: run `cd frontend && npm ci` once, and again after
-`package-lock.json` changes. When a slice adds a command to the Makefile, add it to this
+The frontend and sync targets need their packages: run `cd frontend && npm ci` and
+`cd sync && npm ci` once, and again after their `package-lock.json` changes. When a slice adds a command to the Makefile, add it to this
 table in the same change.
 
 CI (`.github/workflows/ci.yml`) runs on every pull request to `main` and every push to `main`
 (NFR-7), not on pushes to other branches. A `detect` job runs first; when a change touches only
 `docs/**`, `design/**` or Markdown files (never `docs/openapi.yaml`), every other job shows as
-skipped. Next, in parallel, the fast checks lint and test each of `backend/`, `frontend/` and
-`ai/` once that folder has its manifest (`go.mod`, `package.json`, `pyproject.toml`). The
+skipped. Next, in parallel, the fast checks lint and test each of `backend/`, `frontend/`,
+`ai/` and `sync/` once that folder has its manifest (`go.mod`, `package.json`, `pyproject.toml`,
+`package.json`); the sync job runs its tests against a Redis service container. The
 backend job also fails when the code generated from `docs/openapi.yaml` is not up to date; the
 frontend job runs `npm ci`, checks that the generated API types are up to date, then runs lint,
 type check, tests and a production build. Only when they pass does the stack job start
@@ -104,7 +113,7 @@ The `clamav` job scans the EICAR string with a real clamd only on push to `main`
 by hand. The `ai` job tests the AI service with a stub model; the `ai-model` job builds its
 image, downloads the real model and runs `ai/scripts/smoke.py` only nightly and by hand. The
 job names (`Detect`, `Backend (Go)`, `Frontend (Node.js)`, `AI (Python, uv)`,
-`Stack (integration)`, `ClamAV (EICAR)`, `AI model (e5)`) are the status check names branch protection uses:
+`Sync (Node.js)`, `Stack (integration)`, `ClamAV (EICAR)`, `AI model (e5)`) are the status check names branch protection uses:
 do not rename them.
 
 ## Rules
@@ -208,7 +217,10 @@ do not rename them.
   a project's file tree is one unpaginated answer of at most 200 entries, `docs/decisions.md`).
   A session whose email address is not verified gets 403 `email_not_verified` on every route
   except those in `unverifiedAllowed` (`cmd/api/handlers.go`, FR-17.3): a new route needs a
-  verified email unless it is added there, and only within FR-17.3.
+  verified email unless it is added there, and only within FR-17.3. The sync server's
+  operations (`/api/v1/internal/`, OpenAPI tag `internal`, security `syncToken`) take no session:
+  `cmd/api` serves them only on the internal listener (`INTERNAL_API_ADDR`) with the bearer token,
+  and the public port answers 404 for them (`docs/sync.md`).
 - **SQL:** each module's queries are in `internal/<module>/adapter/postgres/queries.sql`; sqlc
   generates `sqlcgen/` beside it (`backend/sqlc.yaml`, run by `make generate`). Repository tests
   that need the database carry the build tag `integration`.

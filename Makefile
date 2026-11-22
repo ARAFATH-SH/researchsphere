@@ -21,7 +21,7 @@ AI_SERVICE_PORT   ?= 8090
 MIGRATIONS_DIR := backend/db/migrations
 
 .DEFAULT_GOAL := help
-.PHONY: help up down logs ps psql check migrate migrate-down migrate-new admin unadmin seed-ui-compare seed-dev sample-data sample-purge purge-unverified send-digests calibrate-recs eval-recs bench-recs eval-search bench-search embed-backfill backfill-main-tex update-disposable-domains api web stop web-clean ai-build ai-up ai-fetch-model ai-logs generate check-generated test test-prepare test-db test-go test-integration test-one test-web test-ai lint lint-go lint-web lint-ai
+.PHONY: help up down logs ps psql check migrate migrate-down migrate-new admin unadmin seed-ui-compare seed-dev sample-data sample-purge purge-unverified send-digests calibrate-recs eval-recs bench-recs eval-search bench-search embed-backfill backfill-main-tex update-disposable-domains api web stop web-clean ai-build ai-up ai-fetch-model ai-logs sync sync-build sync-load generate check-generated test test-prepare test-db test-go test-integration test-one test-web test-ai test-sync lint lint-go lint-web lint-ai lint-sync
 
 help: ## List the available commands
 	@grep -hE '^[a-zA-Z_-]+:.*## ' $(firstword $(MAKEFILE_LIST)) | awk 'BEGIN {FS = ":.*## "} {printf "  make %-16s %s\n", $$1, $$2}'
@@ -163,6 +163,18 @@ ai-fetch-model: ## Download the AI model at its pinned revision into the aimodel
 ai-logs: ## Follow the AI service's log (Ctrl+C to stop)
 	docker compose logs -f ai
 
+# The sync server (sync/, slice 22, docs/sync.md). It needs its packages (cd sync && npm ci),
+# Redis (make up) and the API's internal listener (make api with SYNC_SERVICE_TOKEN set).
+sync: ## Run the real-time editing server on SYNC_PORT (8091); needs make up, make api and SYNC_SERVICE_TOKEN
+	cd sync && node src/main.ts
+
+sync-build: ## Build the sync server's image
+	docker compose --profile sync build sync
+
+seconds ?= 60
+sync-load: ## Measure NFR-2 and NFR-10.1: 10 files x 4 simulated editors typing for seconds=60 (needs make up; empties TEST_REDIS_URL)
+	cd sync && LOAD_SECONDS="$(seconds)" node scripts/load.ts
+
 generate: ## Regenerate Go code (oapi-codegen, sqlc) and TypeScript types
 	cd backend && go generate ./...
 	cd frontend && npm run generate
@@ -176,7 +188,7 @@ check-generated: generate ## Fail if generated code is out of date
 		exit 1; \
 	fi
 
-test: test-prepare test-db test-go test-integration test-web test-ai ## Run all tests (needs make up)
+test: test-prepare test-db test-go test-integration test-web test-ai test-sync ## Run all tests (needs make up)
 
 # The database name reaches psql as a variable (:'db'), never pasted into the SQL.
 test-prepare: ## Create the test database (TEST_POSTGRES_DB) if missing and apply all migrations to it
@@ -210,7 +222,7 @@ test-one: test-prepare ## Run one integration test: make test-one pkg=./internal
 test-web: ## Run the frontend tests (Jest)
 	cd frontend && npm test
 
-lint: lint-go lint-web lint-ai ## Run all linters and the frontend type check
+lint: lint-go lint-web lint-ai lint-sync ## Run all linters and the frontend and sync type checks
 
 lint-go: ## Run golangci-lint for the backend
 	cd backend && golangci-lint run ./...
@@ -224,3 +236,11 @@ test-ai: ## Run the AI service tests with a stub model (no download)
 
 lint-ai: ## Run ruff (lint and format check) for the AI service
 	cd ai && uv sync --locked && uv run ruff check . && uv run ruff format --check .
+
+# The sync tests run real Hocuspocus servers and clients against Redis DB TEST_REDIS_URL (never
+# DB 0 or REDIS_URL's), which they empty, and a fake of the API's internal operations.
+test-sync: ## Run the sync server tests (needs make up and cd sync && npm ci)
+	cd sync && npm test
+
+lint-sync: ## Run ESLint and the TypeScript type check for the sync server
+	cd sync && npm run lint && npm run typecheck

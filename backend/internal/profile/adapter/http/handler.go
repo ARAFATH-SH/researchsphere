@@ -339,7 +339,7 @@ func conversationField(link *domain.ConversationLink) (*gen.ProfileConversation,
 func connectionFields(rel domain.ConnectionRelation) (gen.ConnectionStatus, *openapi_types.UUID, error) {
 	status := gen.ConnectionStatus(rel.Status)
 	if !status.Valid() {
-		status = gen.None
+		status = gen.ConnectionStatusNone
 	}
 	if rel.RequestID == nil {
 		return status, nil, nil

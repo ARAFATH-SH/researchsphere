@@ -27,7 +27,7 @@ import (
 // passed to watcher, and membership events (FR-9.2) to notifier.
 //
 // Project files (FR-12) keep figures in files, within the figures limits.
-func newProjects(pool *pgxpool.Pool, rdb *goredis.Client, standings *moderationusecase.Standings, search projectSearch, watcher projectdomain.Watcher, notifier projectdomain.Notifier, files storage.Storage, figures figureLimits, logger *slog.Logger) (*projectusecase.Service, *projectredis.Limits) {
+func newProjects(pool *pgxpool.Pool, rdb *goredis.Client, standings *moderationusecase.Standings, search projectSearch, watcher projectdomain.Watcher, notifier projectdomain.Notifier, files storage.Storage, figures figureLimits, sync *syncEvents, logger *slog.Logger) (*projectusecase.Service, *projectredis.Limits) {
 	limits := projectredis.New(rdb)
 	store := projectpg.NewStore(pool)
 	svc := projectusecase.New(projectusecase.Deps{
@@ -55,6 +55,11 @@ func newProjects(pool *pgxpool.Pool, rdb *goredis.Client, standings *moderationu
 			SaveLimiter:     limits.Save(),
 			FigureMaxBytes:  figures.figure,
 			StorageMaxBytes: figures.storage,
+			CollabFiles:     store,
+			Tickets:         limits.Collab(),
+			Live:            limits.Collab(),
+			CollabEvents:    sync,
+			TicketLimiter:   limits.Ticket(),
 		},
 	})
 	return svc, limits

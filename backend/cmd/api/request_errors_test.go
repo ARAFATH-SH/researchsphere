@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -71,6 +72,10 @@ var jsonBodyRoutes = []struct {
 	{http.MethodPatch, "/api/v1/projects/" + okProjectID + "/files/" + okProjectFileID, "path", `{"path":5}`, "path", "path must be a string."},
 	{http.MethodPost, "/api/v1/projects/" + okProjectID + "/files/uploads", "path", `{"path":"a.png","size":"big"}`, "size", "size must be a whole number."},
 	{http.MethodPut, "/api/v1/projects/" + okProjectID + "/files/" + okProjectFileID + "/content", "content", `{"content":"x","version":"2"}`, "version", "version must be a whole number."},
+	// The sync server's internal operations (slice 22), sent with its token.
+	{http.MethodPost, "/api/v1/internal/sync/tickets/redeem", "fileId", `{"fileId":"` + okProjectFileID + `","ticket":5}`, "ticket", "ticket must be a string."},
+	{http.MethodPost, "/api/v1/internal/sync/access", "checks", `{"checks":5}`, "checks", "checks must be a list."},
+	{http.MethodPut, "/api/v1/internal/sync/files/" + okProjectFileID + "/state", "baseVersion", `{"baseVersion":"1"}`, "baseVersion", "baseVersion must be a whole number."},
 }
 
 // Every operation with a JSON body goes through the same decoder and the same error shape.
@@ -82,7 +87,12 @@ func TestEveryJSONBodyGetsFieldErrors(t *testing.T) {
 		if strings.HasPrefix(path, "/api/v1/admin/") {
 			role = authz.RoleAdmin
 		}
-		rec := sendAs(t, router, method, path, strings.NewReader(body), "application/json", string(role))
+		var rec *httptest.ResponseRecorder
+		if strings.HasPrefix(path, internalPrefix) {
+			rec = sendInternal(t, router, method, path, body, testSyncToken)
+		} else {
+			rec = sendAs(t, router, method, path, strings.NewReader(body), "application/json", string(role))
+		}
 		var got map[string]any
 		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil && rec.Body.Len() > 0 {
 			t.Fatalf("body %q: %v", rec.Body, err)

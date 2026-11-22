@@ -95,7 +95,9 @@ type realtimeEvents struct {
 	hub           *realtimeusecase.Hub
 	messaging     *messagingusecase.Service
 	notifications *notificationusecase.Service
-	logger        *slog.Logger
+	// sync closes the user's real-time editing connections too (slice 22); nil leaves them.
+	sync   *syncEvents
+	logger *slog.Logger
 }
 
 var (
@@ -346,6 +348,7 @@ func (e *realtimeEvents) accountSuspended(ctx context.Context, userID string) {
 		e.hub.CloseUser(ctx, userID, realtimedomain.CloseSessionEnded)
 		e.partnersChanged(ctx, userID)
 	})
+	e.sync.UserEnded(ctx, userID)
 }
 
 // accountRestored tells the user's conversation partners, whose canMessage changed.
@@ -367,6 +370,7 @@ func (e *realtimeEvents) partnersChanged(ctx context.Context, userID string) {
 // SessionsEnded closes the user's sockets. The auth module calls it after its commit.
 func (e *realtimeEvents) SessionsEnded(ctx context.Context, userID string) {
 	e.hub.CloseUser(ctx, userID, realtimedomain.CloseSessionEnded)
+	e.sync.UserEnded(ctx, userID)
 }
 
 // Created sends the new notification as the list shows it. One hidden in the meantime is

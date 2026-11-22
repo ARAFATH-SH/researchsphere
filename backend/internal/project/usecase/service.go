@@ -315,6 +315,7 @@ func (s *Service) Delete(ctx context.Context, viewerID, projectID string, confir
 		// the commit is quicker than waiting for the cleanup, which stays the backup.
 		s.d.Remover.RemoveAfterCommit(ctx, keys)
 		s.d.Watcher.ProjectChanged(ctx, projectID)
+		s.d.CollabEvents.ProjectDeleted(ctx, projectID)
 		return nil
 	})
 }

@@ -86,10 +86,10 @@ func TestUnverifiedSessionGate(t *testing.T) {
 	router := testRouter()
 	token := unverifiedToken(t, "researcher")
 	for _, route := range httpserver.Routes() {
-		if publicRoutes[route] {
-			continue
-		}
 		method, pattern, _ := strings.Cut(route, " ")
+		if publicRoutes[route] || strings.HasPrefix(pattern, internalPrefix) {
+			continue // internal routes take no session (routes_test.go)
+		}
 		path := pathParam.ReplaceAllString(pattern, okUserID)
 		t.Run(route, func(t *testing.T) {
 			rec := sendWithToken(t, router, method, path, token)

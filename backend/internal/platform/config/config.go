@@ -44,6 +44,9 @@ const (
 	DefaultMessageEditWindow = 15 * time.Minute
 	// clamd, the malware scanner of attachments (FR-16.7), as docker-compose.yml publishes it.
 	DefaultClamAVAddr = "127.0.0.1:3310"
+	// DefaultInternalAPIAddr is where the API serves the sync server's internal operations
+	// (slice 22): this machine only, unless the deployment's private network needs more.
+	DefaultInternalAPIAddr = "127.0.0.1:8081"
 	// DefaultClamAVMaxBytes is the client limit of a scan: the size docker-compose.yml lets
 	// clamd scan whole (StreamMaxLength, MaxFileSize and MaxScanSize 210M).
 	DefaultClamAVMaxBytes = 210 << 20
@@ -176,6 +179,13 @@ type Config struct {
 	// log it. Empty (development only) leaves the AI service off.
 	AIServiceURL   string
 	AIServiceToken string
+
+	// Real-time editing (slice 22, docs/sync.md). SyncServiceToken is the bearer token the
+	// sync server sends to the internal operations: never log it. Empty (development only)
+	// leaves the internal listener off. InternalAPIAddr is where that listener listens; it
+	// must never be reachable from the internet.
+	SyncServiceToken string
+	InternalAPIAddr  string
 
 	// The recommendation score map (AI-2.2): the embedding model it was fitted for
 	// ("name@revision") and its slope (> 0) and intercept. A model change needs a refit
@@ -389,6 +399,20 @@ func Load(getenv func(string) string) (Config, error) {
 		errs = append(errs, errors.New("AI_SERVICE_TOKEN must differ from JWT_SECRET and UNSUBSCRIBE_SECRET"))
 	}
 
+	cfg.SyncServiceToken = strings.TrimSpace(getenv("SYNC_SERVICE_TOKEN"))
+	switch {
+	case cfg.SyncServiceToken == "" && production:
+		errs = append(errs, errors.New("SYNC_SERVICE_TOKEN is required when APP_ENV=production"))
+	case cfg.SyncServiceToken != "" && len(cfg.SyncServiceToken) < MinAIServiceTokenLen:
+		errs = append(errs, fmt.Errorf("SYNC_SERVICE_TOKEN must be at least %d characters; generate one with: openssl rand -base64 48", MinAIServiceTokenLen))
+	case cfg.SyncServiceToken != "" && (cfg.SyncServiceToken == string(cfg.JWTSecret) || cfg.SyncServiceToken == string(cfg.UnsubscribeSecret) || cfg.SyncServiceToken == cfg.AIServiceToken):
+		errs = append(errs, errors.New("SYNC_SERVICE_TOKEN must differ from JWT_SECRET, UNSUBSCRIBE_SECRET and AI_SERVICE_TOKEN"))
+	}
+	cfg.InternalAPIAddr = orDefault(getenv("INTERNAL_API_ADDR"), DefaultInternalAPIAddr)
+	if err := checkHostPort("INTERNAL_API_ADDR", cfg.InternalAPIAddr); err != nil {
+		errs = append(errs, err)
+	}
+
 	cfg.RecsScoreModel = strings.TrimSpace(orDefault(getenv("RECS_SCORE_MODEL"), DefaultRecsScoreModel))
 	if !strings.Contains(cfg.RecsScoreModel, "@") || strings.ContainsAny(cfg.RecsScoreModel, " \t") {
 		errs = append(errs, errors.New("RECS_SCORE_MODEL must be the embedding model as name@revision"))
@@ -463,6 +487,8 @@ func (c Config) LogValue() slog.Value {
 		slog.String("ai_service_url", c.AIServiceURL),
 		slog.String("recs_score_model", c.RecsScoreModel),
 		slog.Bool("ai_service_configured", c.AIServiceToken != ""),
+		slog.Bool("sync_service_configured", c.SyncServiceToken != ""),
+		slog.String("internal_api_addr", c.InternalAPIAddr),
 		slog.Any("test_email_domains", c.TestEmailDomains),
 		slog.Int("unverified_account_days", c.UnverifiedAccountDays),
 	)

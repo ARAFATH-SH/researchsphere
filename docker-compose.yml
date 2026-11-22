@@ -141,6 +141,30 @@ services:
       - aimodels:/models
     mem_limit: 3g
 
+  # Sync server (slice 22, docs/sync.md): real-time editing. Not started by `make up`: in
+  # development it runs on the host with `make sync`, beside `make api`, whose internal listener
+  # it calls. This service builds and runs the production image (profile `sync`), for example
+  # with `docker compose --profile sync up sync` and the API reachable from the container
+  # (API_INTERNAL_URL). It stores everything on SIGTERM; stop_grace_period leaves it the time.
+  sync:
+    profiles: ["sync"]
+    build: ./sync
+    image: researchsphere-sync:local
+    environment:
+      SYNC_SERVICE_TOKEN: ${SYNC_SERVICE_TOKEN:-}
+      REDIS_URL: ${SYNC_DOCKER_REDIS_URL:-redis://redis:6379/0}
+      API_INTERNAL_URL: ${SYNC_DOCKER_API_URL:-http://host.docker.internal:8081/api/v1}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
+      SYNC_MAX_EDITORS_PER_FILE: ${SYNC_MAX_EDITORS_PER_FILE:-4}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:${SYNC_PORT:-8091}:8091"
+    stop_grace_period: 30s
+    depends_on:
+      redis:
+        condition: service_healthy
+
 volumes:
   pgdata:
   miniodata:

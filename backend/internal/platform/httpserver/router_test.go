@@ -610,6 +610,26 @@ func (fakeAPI) ResolveProjectReport(context.Context, gen.ResolveProjectReportReq
 	return nil, nil
 }
 
+func (fakeAPI) CreateCollabTicket(context.Context, gen.CreateCollabTicketRequestObject) (gen.CreateCollabTicketResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) RedeemSyncTicket(context.Context, gen.RedeemSyncTicketRequestObject) (gen.RedeemSyncTicketResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) CheckSyncAccess(context.Context, gen.CheckSyncAccessRequestObject) (gen.CheckSyncAccessResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) LoadSyncFile(context.Context, gen.LoadSyncFileRequestObject) (gen.LoadSyncFileResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) StoreSyncFile(context.Context, gen.StoreSyncFileRequestObject) (gen.StoreSyncFileResponseObject, error) {
+	return nil, nil
+}
+
 var _ gen.StrictServerInterface = fakeAPI{}
 
 var testSigner = accesstoken.New([]byte("test-secret-that-is-at-least-32-bytes-long"), 15*time.Minute)
@@ -984,8 +1004,8 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 
 func TestRoutes(t *testing.T) {
 	got := Routes()
-	if len(got) != 145 {
-		t.Errorf("Routes() returned %d routes, want the 145 operations in the contract: %v", len(got), got)
+	if len(got) != 150 {
+		t.Errorf("Routes() returned %d routes, want the 150 operations in the contract: %v", len(got), got)
 	}
 	seen := map[string]bool{}
 	for _, p := range got {

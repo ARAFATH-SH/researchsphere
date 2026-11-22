@@ -31,6 +31,44 @@ Figures go from the browser straight to the bucket with a presigned POST (FR-12.
 Migration 000036 needs no command. Its down migration deletes figures over 5 MB, as the old
 limit cannot hold them.
 
+## Real-time editing: the sync server (from migration 000037)
+
+Slice 22 adds the sync server (`sync/`, `docs/sync.md`). Migration 000037 needs no command.
+Before the release that applies it:
+
+- **Reverse proxy.** Route `/sync` on the web client's domain to the sync server (port 8091),
+  as a WebSocket: pass `Upgrade` and `Connection` through, keep connections open (read timeout
+  above 60 s), and do not buffer. With nginx:
+
+  ```nginx
+  location /sync {
+      proxy_pass http://sync:8091;
+      proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+      proxy_set_header Host $host;
+      proxy_read_timeout 120s;
+      proxy_buffering off;
+  }
+  ```
+
+  The browser then connects to `wss://<domain>/sync`. Keep the `Origin` header as the browser
+  sent it: the sync server refuses any origin but `APP_BASE_URL`'s.
+- **The API's internal listener.** `INTERNAL_API_ADDR` (default `127.0.0.1:8081`) serves only
+  the sync server's operations, with `SYNC_SERVICE_TOKEN`. Bind it to the private network the
+  two services share, never to a public interface, and do not route it through the proxy (the
+  public port answers 404 for `/api/v1/internal/` anyway).
+- **Settings.** `SYNC_SERVICE_TOKEN` (at least 32 characters, different from the other secrets;
+  `openssl rand -base64 48`) in both the API and the sync server; the API refuses to start in
+  production without it. The sync server also needs `REDIS_URL` (the API's Redis, same database:
+  the live marks and the events live there), `API_INTERNAL_URL` (the internal listener,
+  `http://<api-host>:8081/api/v1`), `APP_BASE_URL`, `SYNC_HOST=0.0.0.0` in a container and
+  `SYNC_PORT` (8091).
+- **Stopping.** The sync server stores every open document on SIGTERM before it exits. Give it
+  at least 30 s (`stop_grace_period`, Kubernetes' `terminationGracePeriodSeconds`); a hard
+  kill loses nothing members' clients still hold, but they must reconnect to send it again.
+- **One instance.** Run exactly one sync server for now (`docs/sync.md`, Scaling).
+
 ## Adding a step
 
 A slice that needs a one-off step after its migration adds a row here, a `make` target that

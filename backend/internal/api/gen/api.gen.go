@@ -22,6 +22,7 @@ import (
 
 const (
 	CookieAuthScopes cookieAuthContextKey = "cookieAuth.Scopes"
+	SyncTokenScopes  syncTokenContextKey  = "syncToken.Scopes"
 )
 
 // Defines values for AttachmentStatus.
@@ -74,25 +75,25 @@ func (e ConnectionConflictCode) Valid() bool {
 
 // Defines values for ConnectionStatus.
 const (
-	Connected       ConnectionStatus = "connected"
-	None            ConnectionStatus = "none"
-	PendingReceived ConnectionStatus = "pending_received"
-	PendingSent     ConnectionStatus = "pending_sent"
-	Self            ConnectionStatus = "self"
+	ConnectionStatusConnected       ConnectionStatus = "connected"
+	ConnectionStatusNone            ConnectionStatus = "none"
+	ConnectionStatusPendingReceived ConnectionStatus = "pending_received"
+	ConnectionStatusPendingSent     ConnectionStatus = "pending_sent"
+	ConnectionStatusSelf            ConnectionStatus = "self"
 )
 
 // Valid indicates whether the value is a known member of the ConnectionStatus enum.
 func (e ConnectionStatus) Valid() bool {
 	switch e {
-	case Connected:
+	case ConnectionStatusConnected:
 		return true
-	case None:
+	case ConnectionStatusNone:
 		return true
-	case PendingReceived:
+	case ConnectionStatusPendingReceived:
 		return true
-	case PendingSent:
+	case ConnectionStatusPendingSent:
 		return true
-	case Self:
+	case ConnectionStatusSelf:
 		return true
 	default:
 		return false
@@ -1143,6 +1144,30 @@ func (e Role) Valid() bool {
 	}
 }
 
+// Defines values for SyncRole.
+const (
+	SyncRoleEditor SyncRole = "editor"
+	SyncRoleNone   SyncRole = "none"
+	SyncRoleOwner  SyncRole = "owner"
+	SyncRoleViewer SyncRole = "viewer"
+)
+
+// Valid indicates whether the value is a known member of the SyncRole enum.
+func (e SyncRole) Valid() bool {
+	switch e {
+	case SyncRoleEditor:
+		return true
+	case SyncRoleNone:
+		return true
+	case SyncRoleOwner:
+		return true
+	case SyncRoleViewer:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SystemEventType.
 const (
 	SystemEventTypeGroupCreated  SystemEventType = "group_created"
@@ -1374,6 +1399,22 @@ type ChangePasswordRequest struct {
 
 	// NewPassword 8 to 128 characters, as at registration, and not the current password.
 	NewPassword string `json:"newPassword"`
+}
+
+// CollabTicket A one-time ticket for the sync server (FR-12.7, docs/sync.md).
+type CollabTicket struct {
+	// DisplayName The caller's profile name, as the other members will see it.
+	DisplayName string `json:"displayName"`
+
+	// Epoch The file's Yjs history, or null when none is stored.
+	Epoch     *openapi_types.UUID `json:"epoch"`
+	ExpiresAt time.Time           `json:"expiresAt"`
+
+	// Role A member's role in one project (SRS 2.3).
+	Role ProjectRole `json:"role"`
+
+	// Ticket Opaque; send it as the Hocuspocus token within 30 seconds.
+	Ticket string `json:"ticket"`
 }
 
 // Connection A connection (FR-7.4). The person fields describe the other user of the
@@ -3861,6 +3902,76 @@ type SuspendUserRequest struct {
 	Until *time.Time `json:"until,omitempty"`
 }
 
+// SyncAccessAnswer defines model for SyncAccessAnswer.
+type SyncAccessAnswer struct {
+	FileId openapi_types.UUID `json:"fileId"`
+
+	// Role A member's role in the file's project, or `none` without access.
+	Role   SyncRole           `json:"role"`
+	UserId openapi_types.UUID `json:"userId"`
+}
+
+// SyncAccessCheck defines model for SyncAccessCheck.
+type SyncAccessCheck struct {
+	FileId openapi_types.UUID `json:"fileId"`
+	UserId openapi_types.UUID `json:"userId"`
+}
+
+// SyncAccessRequest defines model for SyncAccessRequest.
+type SyncAccessRequest struct {
+	Checks []SyncAccessCheck `json:"checks"`
+}
+
+// SyncAccessResult defines model for SyncAccessResult.
+type SyncAccessResult struct {
+	Results []SyncAccessAnswer `json:"results"`
+}
+
+// SyncFile defines model for SyncFile.
+type SyncFile struct {
+	Content   string              `json:"content"`
+	ProjectId openapi_types.UUID  `json:"projectId"`
+	Version   int                 `json:"version"`
+	YdocEpoch *openapi_types.UUID `json:"ydocEpoch"`
+
+	// YdocState `Y.encodeStateAsUpdate` of the document, base64; null: build it from `content`.
+	YdocState *[]byte `json:"ydocState"`
+}
+
+// SyncFileStore defines model for SyncFileStore.
+type SyncFileStore struct {
+	BaseVersion int                 `json:"baseVersion"`
+	Content     string              `json:"content"`
+	UpdatedBy   *openapi_types.UUID `json:"updatedBy,omitempty"`
+	YdocEpoch   openapi_types.UUID  `json:"ydocEpoch"`
+	YdocState   []byte              `json:"ydocState"`
+}
+
+// SyncFileStored defines model for SyncFileStored.
+type SyncFileStored struct {
+	Version int `json:"version"`
+}
+
+// SyncRole A member's role in the file's project, or `none` without access.
+type SyncRole string
+
+// SyncSession defines model for SyncSession.
+type SyncSession struct {
+	DisplayName string             `json:"displayName"`
+	FileId      openapi_types.UUID `json:"fileId"`
+	ProjectId   openapi_types.UUID `json:"projectId"`
+
+	// Role A member's role in one project (SRS 2.3).
+	Role   ProjectRole        `json:"role"`
+	UserId openapi_types.UUID `json:"userId"`
+}
+
+// SyncTicketRedeem defines model for SyncTicketRedeem.
+type SyncTicketRedeem struct {
+	FileId openapi_types.UUID `json:"fileId"`
+	Ticket string             `json:"ticket"`
+}
+
 // SystemEvent defines model for SystemEvent.
 type SystemEvent struct {
 	// ActorId Who made the change; null for `owner_changed`, and when the actor's account is gone.
@@ -4067,6 +4178,9 @@ type AttachmentRateLimited = Error
 // AttachmentRemoved The shape of every error response (SRS 5.3).
 type AttachmentRemoved = Error
 
+// BadSyncRequest The shape of every error response (SRS 5.3).
+type BadSyncRequest = Error
+
 // DOINotFound The shape of every error response (SRS 5.3).
 type DOINotFound = Error
 
@@ -4209,6 +4323,9 @@ type UploadRateLimited = Error
 
 // cookieAuthContextKey is the context key for cookieAuth security scheme
 type cookieAuthContextKey string
+
+// syncTokenContextKey is the context key for syncToken security scheme
+type syncTokenContextKey string
 
 // ListMessageReportsParams defines parameters for ListMessageReports.
 type ListMessageReportsParams struct {
@@ -4652,6 +4769,15 @@ type MarkConversationReadJSONRequestBody = MarkConversationReadRequest
 // ReportConversationJSONRequestBody defines body for ReportConversation for application/json ContentType.
 type ReportConversationJSONRequestBody = ReportConversationRequest
 
+// CheckSyncAccessJSONRequestBody defines body for CheckSyncAccess for application/json ContentType.
+type CheckSyncAccessJSONRequestBody = SyncAccessRequest
+
+// StoreSyncFileJSONRequestBody defines body for StoreSyncFile for application/json ContentType.
+type StoreSyncFileJSONRequestBody = SyncFileStore
+
+// RedeemSyncTicketJSONRequestBody defines body for RedeemSyncTicket for application/json ContentType.
+type RedeemSyncTicketJSONRequestBody = SyncTicketRedeem
+
 // UpdateMySettingsJSONRequestBody defines body for UpdateMySettings for application/json ContentType.
 type UpdateMySettingsJSONRequestBody = UserSettingsUpdate
 
@@ -4918,6 +5044,18 @@ type ServerInterface interface {
 	// GetHealth Report whether the database, Redis, object storage and the AI service respond
 	// (GET /health)
 	GetHealth(w http.ResponseWriter, r *http.Request)
+	// CheckSyncAccess Read the current role of users on files (internal, sync server only)
+	// (POST /internal/sync/access)
+	CheckSyncAccess(w http.ResponseWriter, r *http.Request)
+	// LoadSyncFile Read a text file's text and Yjs state (internal, sync server only)
+	// (GET /internal/sync/files/{fileId})
+	LoadSyncFile(w http.ResponseWriter, r *http.Request, fileId ProjectFileId)
+	// StoreSyncFile Store a text file's Yjs state and text (internal, sync server only)
+	// (PUT /internal/sync/files/{fileId}/state)
+	StoreSyncFile(w http.ResponseWriter, r *http.Request, fileId ProjectFileId)
+	// RedeemSyncTicket Redeem a collaboration ticket (internal, sync server only)
+	// (POST /internal/sync/tickets/redeem)
+	RedeemSyncTicket(w http.ResponseWriter, r *http.Request)
 	// ListMyInvitations The caller's pending invitations (FR-11.3)
 	// (GET /me/invitations)
 	ListMyInvitations(w http.ResponseWriter, r *http.Request, params ListMyInvitationsParams)
@@ -5104,6 +5242,9 @@ type ServerInterface interface {
 	// MoveProjectFile Rename or move a file or folder (FR-12.1)
 	// (PATCH /projects/{projectId}/files/{fileId})
 	MoveProjectFile(w http.ResponseWriter, r *http.Request, projectId ProjectId, fileId ProjectFileId)
+	// CreateCollabTicket Get a one-time ticket to open a text file on the sync server (FR-12.7)
+	// (POST /projects/{projectId}/files/{fileId}/collab-ticket)
+	CreateCollabTicket(w http.ResponseWriter, r *http.Request, projectId ProjectId, fileId ProjectFileId)
 	// SaveProjectFileContent Save a text file's content, if nobody changed it since (FR-12.6)
 	// (PUT /projects/{projectId}/files/{fileId}/content)
 	SaveProjectFileContent(w http.ResponseWriter, r *http.Request, projectId ProjectId, fileId ProjectFileId)
@@ -7041,6 +7182,110 @@ func (siw *ServerInterfaceWrapper) GetHealth(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetHealth(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CheckSyncAccess operation middleware
+func (siw *ServerInterfaceWrapper) CheckSyncAccess(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, SyncTokenScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CheckSyncAccess(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// LoadSyncFile operation middleware
+func (siw *ServerInterfaceWrapper) LoadSyncFile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "fileId" -------------
+	var fileId ProjectFileId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "fileId", r.PathValue("fileId"), &fileId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "fileId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, SyncTokenScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.LoadSyncFile(w, r, fileId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StoreSyncFile operation middleware
+func (siw *ServerInterfaceWrapper) StoreSyncFile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "fileId" -------------
+	var fileId ProjectFileId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "fileId", r.PathValue("fileId"), &fileId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "fileId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, SyncTokenScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StoreSyncFile(w, r, fileId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RedeemSyncTicket operation middleware
+func (siw *ServerInterfaceWrapper) RedeemSyncTicket(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, SyncTokenScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RedeemSyncTicket(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -8999,6 +9244,47 @@ func (siw *ServerInterfaceWrapper) MoveProjectFile(w http.ResponseWriter, r *htt
 	handler.ServeHTTP(w, r)
 }
 
+// CreateCollabTicket operation middleware
+func (siw *ServerInterfaceWrapper) CreateCollabTicket(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", r.PathValue("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "fileId" -------------
+	var fileId ProjectFileId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "fileId", r.PathValue("fileId"), &fileId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "fileId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateCollabTicket(w, r, projectId, fileId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // SaveProjectFileContent operation middleware
 func (siw *ServerInterfaceWrapper) SaveProjectFileContent(w http.ResponseWriter, r *http.Request) {
 
@@ -10427,6 +10713,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/projects/{projectId}/files/{fileId}", wrapper.GetProjectFile)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/projects/{projectId}/files/{fileId}", wrapper.MoveProjectFile)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/projects/{projectId}/files/{fileId}/content", wrapper.SaveProjectFileContent)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/projects/{projectId}/files/{fileId}/collab-ticket", wrapper.CreateCollabTicket)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/projects/{projectId}/files/uploads", wrapper.StartFigureUpload)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/projects/{projectId}/files/uploads/{uploadId}/complete", wrapper.CompleteFigureUpload)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/me/join-requests", wrapper.ListMyJoinRequests)
@@ -10438,6 +10725,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/projects/{projectId}/recommended-researchers", wrapper.RecommendProjectResearchers)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/ws", wrapper.OpenWebSocket)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/presence", wrapper.GetPresence)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/internal/sync/tickets/redeem", wrapper.RedeemSyncTicket)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/internal/sync/access", wrapper.CheckSyncAccess)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/internal/sync/files/{fileId}", wrapper.LoadSyncFile)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/internal/sync/files/{fileId}/state", wrapper.StoreSyncFile)
 
 	return m
 }
@@ -10465,6 +10756,8 @@ type AttachmentRedirectResponse struct {
 }
 
 type AttachmentRemovedJSONResponse Error
+
+type BadSyncRequestJSONResponse Error
 
 type DOINotFoundJSONResponse Error
 
@@ -15430,6 +15723,319 @@ func (response GetHealth503JSONResponse) VisitGetHealthResponse(w http.ResponseW
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CheckSyncAccessRequestObject struct {
+	Body *CheckSyncAccessJSONRequestBody
+}
+
+type CheckSyncAccessResponseObject interface {
+	VisitCheckSyncAccessResponse(w http.ResponseWriter) error
+}
+
+type CheckSyncAccess200JSONResponse SyncAccessResult
+
+func (response CheckSyncAccess200JSONResponse) VisitCheckSyncAccessResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CheckSyncAccess400JSONResponse struct{ BadSyncRequestJSONResponse }
+
+func (response CheckSyncAccess400JSONResponse) VisitCheckSyncAccessResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CheckSyncAccess401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CheckSyncAccess401JSONResponse) VisitCheckSyncAccessResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CheckSyncAccess500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response CheckSyncAccess500JSONResponse) VisitCheckSyncAccessResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LoadSyncFileRequestObject struct {
+	FileId ProjectFileId `json:"fileId"`
+}
+
+type LoadSyncFileResponseObject interface {
+	VisitLoadSyncFileResponse(w http.ResponseWriter) error
+}
+
+type LoadSyncFile200JSONResponse SyncFile
+
+func (response LoadSyncFile200JSONResponse) VisitLoadSyncFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LoadSyncFile401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response LoadSyncFile401JSONResponse) VisitLoadSyncFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LoadSyncFile404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response LoadSyncFile404JSONResponse) VisitLoadSyncFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LoadSyncFile500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response LoadSyncFile500JSONResponse) VisitLoadSyncFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StoreSyncFileRequestObject struct {
+	FileId ProjectFileId `json:"fileId"`
+	Body   *StoreSyncFileJSONRequestBody
+}
+
+type StoreSyncFileResponseObject interface {
+	VisitStoreSyncFileResponse(w http.ResponseWriter) error
+}
+
+type StoreSyncFile200JSONResponse SyncFileStored
+
+func (response StoreSyncFile200JSONResponse) VisitStoreSyncFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StoreSyncFile400JSONResponse struct{ BadSyncRequestJSONResponse }
+
+func (response StoreSyncFile400JSONResponse) VisitStoreSyncFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StoreSyncFile401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response StoreSyncFile401JSONResponse) VisitStoreSyncFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StoreSyncFile404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response StoreSyncFile404JSONResponse) VisitStoreSyncFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StoreSyncFile409JSONResponse Error
+
+func (response StoreSyncFile409JSONResponse) VisitStoreSyncFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StoreSyncFile413JSONResponse struct{ FileTooLargeJSONResponse }
+
+func (response StoreSyncFile413JSONResponse) VisitStoreSyncFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(413)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StoreSyncFile500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response StoreSyncFile500JSONResponse) VisitStoreSyncFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RedeemSyncTicketRequestObject struct {
+	Body *RedeemSyncTicketJSONRequestBody
+}
+
+type RedeemSyncTicketResponseObject interface {
+	VisitRedeemSyncTicketResponse(w http.ResponseWriter) error
+}
+
+type RedeemSyncTicket200JSONResponse SyncSession
+
+func (response RedeemSyncTicket200JSONResponse) VisitRedeemSyncTicketResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RedeemSyncTicket400JSONResponse struct{ BadSyncRequestJSONResponse }
+
+func (response RedeemSyncTicket400JSONResponse) VisitRedeemSyncTicketResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RedeemSyncTicket401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RedeemSyncTicket401JSONResponse) VisitRedeemSyncTicketResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RedeemSyncTicket404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RedeemSyncTicket404JSONResponse) VisitRedeemSyncTicketResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RedeemSyncTicket500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RedeemSyncTicket500JSONResponse) VisitRedeemSyncTicketResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -20983,6 +21589,126 @@ func (response MoveProjectFile500JSONResponse) VisitMoveProjectFileResponse(w ht
 	return err
 }
 
+type CreateCollabTicketRequestObject struct {
+	ProjectId ProjectId     `json:"projectId"`
+	FileId    ProjectFileId `json:"fileId"`
+}
+
+type CreateCollabTicketResponseObject interface {
+	VisitCreateCollabTicketResponse(w http.ResponseWriter) error
+}
+
+type CreateCollabTicket200ResponseHeaders struct {
+	CacheControl string
+}
+
+type CreateCollabTicket200JSONResponse struct {
+	Body    CollabTicket
+	Headers CreateCollabTicket200ResponseHeaders
+}
+
+func (response CreateCollabTicket200JSONResponse) VisitCreateCollabTicketResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCollabTicket401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateCollabTicket401JSONResponse) VisitCreateCollabTicketResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCollabTicket403JSONResponse struct {
+	AccountSuspendedOrForbiddenJSONResponse
+}
+
+func (response CreateCollabTicket403JSONResponse) VisitCreateCollabTicketResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCollabTicket404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateCollabTicket404JSONResponse) VisitCreateCollabTicketResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCollabTicket409JSONResponse Error
+
+func (response CreateCollabTicket409JSONResponse) VisitCreateCollabTicketResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCollabTicket429JSONResponse struct {
+	ProjectFileRateLimitedJSONResponse
+}
+
+func (response CreateCollabTicket429JSONResponse) VisitCreateCollabTicketResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCollabTicket500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response CreateCollabTicket500JSONResponse) VisitCreateCollabTicketResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type SaveProjectFileContentRequestObject struct {
 	ProjectId ProjectId     `json:"projectId"`
 	FileId    ProjectFileId `json:"fileId"`
@@ -21120,6 +21846,20 @@ func (response SaveProjectFileContent500JSONResponse) VisitSaveProjectFileConten
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SaveProjectFileContent503JSONResponse Error
+
+func (response SaveProjectFileContent503JSONResponse) VisitSaveProjectFileContentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -23699,6 +24439,18 @@ type StrictServerInterface interface {
 	// GetHealth Report whether the database, Redis, object storage and the AI service respond
 	// (GET /health)
 	GetHealth(ctx context.Context, request GetHealthRequestObject) (GetHealthResponseObject, error)
+	// CheckSyncAccess Read the current role of users on files (internal, sync server only)
+	// (POST /internal/sync/access)
+	CheckSyncAccess(ctx context.Context, request CheckSyncAccessRequestObject) (CheckSyncAccessResponseObject, error)
+	// LoadSyncFile Read a text file's text and Yjs state (internal, sync server only)
+	// (GET /internal/sync/files/{fileId})
+	LoadSyncFile(ctx context.Context, request LoadSyncFileRequestObject) (LoadSyncFileResponseObject, error)
+	// StoreSyncFile Store a text file's Yjs state and text (internal, sync server only)
+	// (PUT /internal/sync/files/{fileId}/state)
+	StoreSyncFile(ctx context.Context, request StoreSyncFileRequestObject) (StoreSyncFileResponseObject, error)
+	// RedeemSyncTicket Redeem a collaboration ticket (internal, sync server only)
+	// (POST /internal/sync/tickets/redeem)
+	RedeemSyncTicket(ctx context.Context, request RedeemSyncTicketRequestObject) (RedeemSyncTicketResponseObject, error)
 	// ListMyInvitations The caller's pending invitations (FR-11.3)
 	// (GET /me/invitations)
 	ListMyInvitations(ctx context.Context, request ListMyInvitationsRequestObject) (ListMyInvitationsResponseObject, error)
@@ -23885,6 +24637,9 @@ type StrictServerInterface interface {
 	// MoveProjectFile Rename or move a file or folder (FR-12.1)
 	// (PATCH /projects/{projectId}/files/{fileId})
 	MoveProjectFile(ctx context.Context, request MoveProjectFileRequestObject) (MoveProjectFileResponseObject, error)
+	// CreateCollabTicket Get a one-time ticket to open a text file on the sync server (FR-12.7)
+	// (POST /projects/{projectId}/files/{fileId}/collab-ticket)
+	CreateCollabTicket(ctx context.Context, request CreateCollabTicketRequestObject) (CreateCollabTicketResponseObject, error)
 	// SaveProjectFileContent Save a text file's content, if nobody changed it since (FR-12.6)
 	// (PUT /projects/{projectId}/files/{fileId}/content)
 	SaveProjectFileContent(ctx context.Context, request SaveProjectFileContentRequestObject) (SaveProjectFileContentResponseObject, error)
@@ -25610,6 +26365,127 @@ func (sh *strictHandler) GetHealth(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetHealthResponseObject); ok {
 		if err := validResponse.VisitGetHealthResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CheckSyncAccess operation middleware
+func (sh *strictHandler) CheckSyncAccess(w http.ResponseWriter, r *http.Request) {
+	var request CheckSyncAccessRequestObject
+
+	var body CheckSyncAccessJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CheckSyncAccess(ctx, request.(CheckSyncAccessRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CheckSyncAccess")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CheckSyncAccessResponseObject); ok {
+		if err := validResponse.VisitCheckSyncAccessResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// LoadSyncFile operation middleware
+func (sh *strictHandler) LoadSyncFile(w http.ResponseWriter, r *http.Request, fileId ProjectFileId) {
+	var request LoadSyncFileRequestObject
+
+	request.FileId = fileId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.LoadSyncFile(ctx, request.(LoadSyncFileRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "LoadSyncFile")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(LoadSyncFileResponseObject); ok {
+		if err := validResponse.VisitLoadSyncFileResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// StoreSyncFile operation middleware
+func (sh *strictHandler) StoreSyncFile(w http.ResponseWriter, r *http.Request, fileId ProjectFileId) {
+	var request StoreSyncFileRequestObject
+
+	request.FileId = fileId
+
+	var body StoreSyncFileJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StoreSyncFile(ctx, request.(StoreSyncFileRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StoreSyncFile")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StoreSyncFileResponseObject); ok {
+		if err := validResponse.VisitStoreSyncFileResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RedeemSyncTicket operation middleware
+func (sh *strictHandler) RedeemSyncTicket(w http.ResponseWriter, r *http.Request) {
+	var request RedeemSyncTicketRequestObject
+
+	var body RedeemSyncTicketJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RedeemSyncTicket(ctx, request.(RedeemSyncTicketRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RedeemSyncTicket")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RedeemSyncTicketResponseObject); ok {
+		if err := validResponse.VisitRedeemSyncTicketResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -27350,6 +28226,33 @@ func (sh *strictHandler) MoveProjectFile(w http.ResponseWriter, r *http.Request,
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(MoveProjectFileResponseObject); ok {
 		if err := validResponse.VisitMoveProjectFileResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateCollabTicket operation middleware
+func (sh *strictHandler) CreateCollabTicket(w http.ResponseWriter, r *http.Request, projectId ProjectId, fileId ProjectFileId) {
+	var request CreateCollabTicketRequestObject
+
+	request.ProjectId = projectId
+	request.FileId = fileId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateCollabTicket(ctx, request.(CreateCollabTicketRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateCollabTicket")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateCollabTicketResponseObject); ok {
+		if err := validResponse.VisitCreateCollabTicketResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

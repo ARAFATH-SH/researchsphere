@@ -288,13 +288,13 @@ func TestProjectFileTree(t *testing.T) {
 		t.Errorf("control character: %v", body)
 	}
 	// A REST save clears the Yjs state slice 22 keeps beside the text.
-	if _, err := e.pool.Exec(t.Context(), `UPDATE project_files SET ydoc_state = '\x01' WHERE path = 'paper/latex/sections/intro.tex'`); err != nil {
+	if _, err := e.pool.Exec(t.Context(), `UPDATE project_files SET ydoc_state = '\x01', ydoc_epoch = gen_random_uuid() WHERE path = 'paper/latex/sections/intro.tex'`); err != nil {
 		t.Fatal(err)
 	}
 	if code, body := e.json(t, ada, http.MethodPut, file+"/content", `{"content":"v3","version":2}`); code != http.StatusOK {
 		t.Fatalf("save: %d %v", code, body)
 	}
-	if n := e.countRows(t, `SELECT count(*) FROM project_files WHERE path = 'paper/latex/sections/intro.tex' AND ydoc_state IS NULL`); n != 1 {
+	if n := e.countRows(t, `SELECT count(*) FROM project_files WHERE path = 'paper/latex/sections/intro.tex' AND ydoc_state IS NULL AND ydoc_epoch IS NULL`); n != 1 {
 		t.Error("the Yjs state was not cleared")
 	}
 

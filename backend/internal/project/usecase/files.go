@@ -42,6 +42,16 @@ type FileDeps struct {
 	FigureMaxBytes  int64
 	StorageMaxBytes int64
 	Now             func() time.Time
+
+	// Real-time editing (slice 22). Without CollabFiles and Tickets the sync server's
+	// operations cannot run; without Live a REST save never checks for a live session;
+	// without CollabEvents the sync server learns of deletions at its next check; without a
+	// TicketLimiter nothing is counted.
+	CollabFiles   domain.CollabStore
+	Tickets       domain.TicketStore
+	Live          domain.LiveSessions
+	CollabEvents  domain.CollabEvents
+	TicketLimiter domain.Limiter
 }
 
 func (d *FileDeps) defaults() {
@@ -63,7 +73,18 @@ func (d *FileDeps) defaults() {
 	if d.SaveLimiter == nil {
 		d.SaveLimiter = noLimit{}
 	}
+	if d.TicketLimiter == nil {
+		d.TicketLimiter = noLimit{}
+	}
+	if d.CollabEvents == nil {
+		d.CollabEvents = noCollabEvents{}
+	}
 }
+
+type noCollabEvents struct{}
+
+func (noCollabEvents) FilesDeleted(context.Context, string, []string) {}
+func (noCollabEvents) ProjectDeleted(context.Context, string)         {}
 
 type noRemover struct{}
 
@@ -352,10 +373,20 @@ func (s *Service) DeleteFile(ctx context.Context, userID, projectID, fileID stri
 		if err != nil {
 			return err
 		}
+		var texts []string
+		if s.d.CollabFiles != nil {
+			if texts, err = s.d.CollabFiles.TextFileIDsUnder(ctx, projectID, f.Path); err != nil {
+				return err
+			}
+		}
 		if err := s.d.Files.DeleteTree(ctx, projectID, f.Path); err != nil {
 			return err
 		}
 		s.d.Remover.RemoveAfterCommit(ctx, keys)
+		if len(texts) > 0 {
+			// Open documents of these files close on the sync server (docs/sync.md, 4404).
+			s.d.CollabEvents.FilesDeleted(ctx, projectID, texts)
+		}
 		return nil
 	})
 }
@@ -364,7 +395,8 @@ func (s *Service) DeleteFile(ctx context.Context, userID, projectID, fileID stri
 // (FR-12.6); otherwise *domain.VersionConflictError with what the file holds now. Errors, in
 // order: *domain.FieldError ("content", "version"); *domain.RateLimitedError after
 // SavesPerWindow saves in SaveWindow; the access errors; domain.ErrFileNotFound,
-// ErrNotTextFile, ErrFileTooLarge.
+// ErrNotTextFile, ErrFileTooLarge; domain.ErrLiveSessionOpen or ErrLiveCheckUnavailable
+// while the file is, or may be, open on the sync server (slice 22).
 func (s *Service) SaveContent(ctx context.Context, userID, projectID, fileID, content string, version int) (domain.File, error) {
 	textErr := checkText(content)
 	if textErr != nil && !errors.Is(textErr, domain.ErrFileTooLarge) {
@@ -389,6 +421,9 @@ func (s *Service) SaveContent(ctx context.Context, userID, projectID, fileID, co
 		}
 		if textErr != nil {
 			return textErr
+		}
+		if err := s.refuseLive(ctx, f.ID); err != nil {
+			return err
 		}
 		if f.Version != version {
 			c := &domain.VersionConflictError{Version: f.Version, UpdatedAt: f.UpdatedAt}
