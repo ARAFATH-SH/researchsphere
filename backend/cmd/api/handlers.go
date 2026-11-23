@@ -6,6 +6,8 @@ import (
 
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/api/gen"
 	authhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/adapter/http"
+	compilehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/compile/adapter/http"
+	compileusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/compile/usecase"
 	embeddinghttp "github.com/ARAFATH-SH/researchsphere/backend/internal/embedding/adapter/http"
 	healthhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/health/adapter/http"
 	healthdomain "github.com/ARAFATH-SH/researchsphere/backend/internal/health/domain"
@@ -42,6 +44,7 @@ type (
 	embeddingHandler      = embeddinghttp.Handler
 	recommendationHandler = recommendationhttp.Handler
 	projectHandler        = projecthttp.Handler
+	compileHandler        = compilehttp.Handler
 )
 
 // handlers implements every operation in the contract by embedding each module's HTTP
@@ -59,6 +62,7 @@ type handlers struct {
 	*embeddingHandler
 	*recommendationHandler
 	*projectHandler
+	*compileHandler
 }
 
 var _ gen.StrictServerInterface = handlers{}
@@ -218,8 +222,17 @@ var platformGuards = map[string]authz.Action{
 	// Real-time editing (slice 22): the ticket only opens what the role already allows; the
 	// sync server makes a viewer read-only (FR-12.7).
 	"POST /api/v1/projects/{projectId}/files/{fileId}/collab-ticket": authz.ViewContent,
-	"GET /api/v1/me/join-requests":                                   authz.ViewContent,
-	"GET /api/v1/me/invitations":                                     authz.ViewContent,
+	// Compile (FR-13): starting one is writing, reading results and the PDF viewing; the
+	// usecase then checks the project row ("Compile, ..." or "Open the workspace, ...").
+	// The archive (FR-13.7) is reading files.
+	"POST /api/v1/projects/{projectId}/compiles":                authz.ActAsMember,
+	"GET /api/v1/projects/{projectId}/compiles/latest":          authz.ViewContent,
+	"GET /api/v1/projects/{projectId}/compiles/{compileId}":     authz.ViewContent,
+	"GET /api/v1/projects/{projectId}/compiles/{compileId}/log": authz.ViewContent,
+	"GET /api/v1/projects/{projectId}/pdf":                      authz.ViewContent,
+	"GET /api/v1/projects/{projectId}/archive":                  authz.ViewContent,
+	"GET /api/v1/me/join-requests":                              authz.ViewContent,
+	"GET /api/v1/me/invitations":                                authz.ViewContent,
 
 	// Connections (FR-7): sending and answering requests and removing a connection are
 	// the row "Edit own profile, connect, ..."; the lists are viewing content.
@@ -360,6 +373,11 @@ var bodyLimits = map[string]int64{
 	"PUT /api/v1/internal/sync/files/{fileId}/state": maxFileJSONBody + 12<<20,
 	"POST /api/v1/internal/sync/tickets/redeem":      4 << 10,
 	"POST /api/v1/internal/sync/access":              64 << 10,
+	// The compile worker's (slice 23): the PDF is checked against COMPILE_MAX_PDF_BYTES as it
+	// is read; the result carries the logs, which JSON escaping can make 6 times longer.
+	"PUT /api/v1/internal/compile/jobs/{compileId}/pdf":     compileusecase.MaxPDFCeiling + 1,
+	"POST /api/v1/internal/compile/jobs/{compileId}/finish": 6*(compileusecase.MaxLogBytes+compileusecase.MaxBibtexLogBytes) + multipartOverhead,
+	"POST /api/v1/internal/compile/claim":                   4 << 10,
 }
 
 // maxFileJSONBody caps a JSON body that carries a text file: 3 MiB and some room for the
@@ -409,7 +427,7 @@ func guardPlatform(next http.Handler) http.Handler {
 // Tests pass fakes; run passes the real PostgreSQL, Redis, SMTP and AI service adapters. requireAuth
 // guards the operations the contract secures (httpx.RequireAuth); guardPlatform runs
 // inside it, and limitBody inside that.
-func newRouter(logger *slog.Logger, db, redis, storage, ai healthdomain.Pinger, auth *authhttp.Handler, profile *profilehttp.Handler, media *mediahttp.Handler, social *socialhttp.Handler, notifications *notificationhttp.Handler, messaging *messaginghttp.Handler, moderation *moderationhttp.Handler, realtime *realtimehttp.Handler, embedding *embeddinghttp.Handler, recommendation *recommendationhttp.Handler, projects *projecthttp.Handler, requireAuth func(http.Handler) http.Handler) http.Handler {
+func newRouter(logger *slog.Logger, db, redis, storage, ai healthdomain.Pinger, auth *authhttp.Handler, profile *profilehttp.Handler, media *mediahttp.Handler, social *socialhttp.Handler, notifications *notificationhttp.Handler, messaging *messaginghttp.Handler, moderation *moderationhttp.Handler, realtime *realtimehttp.Handler, embedding *embeddinghttp.Handler, recommendation *recommendationhttp.Handler, projects *projecthttp.Handler, compile *compilehttp.Handler, requireAuth func(http.Handler) http.Handler) http.Handler {
 	checker := healthusecase.New(healthusecase.DefaultTimeout,
 		healthdomain.Dependency{Name: "database", Pinger: db},
 		healthdomain.Dependency{Name: "redis", Pinger: redis},
@@ -430,5 +448,6 @@ func newRouter(logger *slog.Logger, db, redis, storage, ai healthdomain.Pinger, 
 		embeddingHandler:      embedding,
 		recommendationHandler: recommendation,
 		projectHandler:        projects,
+		compileHandler:        compile,
 	}, func(next http.Handler) http.Handler { return requireAuth(guardPlatform(limitBody(next))) })
 }

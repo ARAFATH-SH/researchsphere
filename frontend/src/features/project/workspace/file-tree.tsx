@@ -21,6 +21,8 @@ type Props = {
   canEdit: boolean;
   // presence says who edits which file now (FR-12.5); null while unknown.
   presence?: PresenceFiles | null;
+  // mainFilePath is the file a compile starts from (FR-13.1), marked "Main".
+  mainFilePath?: string;
   onSelect: (file: ProjectFile) => void;
   onToggle: (file: ProjectFile, open?: boolean) => void;
   onOpen: (file: ProjectFile) => void;
@@ -170,6 +172,14 @@ function Item({ node, focusId, ...props }: Props & { node: TreeNode; focusId: st
             {isFolder ? "/" : ""}
             {note && <span className="text-rs-caption font-normal text-rs-text-muted">{note}</span>}
           </span>
+          {!isFolder && file.path === props.mainFilePath && (
+            // Hidden while the row shows its actions, so the name keeps its room; still read out.
+            <span
+              className={`flex-none rounded-rs-pill bg-rs-subtle px-1.5 text-rs-micro font-medium text-rs-text-muted ${selected && canEdit ? "sr-only" : ""}`}
+            >
+              <span className="sr-only">, </span>Main
+            </span>
+          )}
           {!isFolder && <Presence users={props.presence?.[file.id] ?? []} />}
         </span>
         {selected && canEdit && (

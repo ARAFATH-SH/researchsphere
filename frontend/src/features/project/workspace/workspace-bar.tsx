@@ -17,13 +17,15 @@ export type BarStatus = {
 
 // WorkspaceBar is the workspace's own top bar (design/screens/Workspace.html): the logo to
 // Home, the way back to the project, the caller's role, the open file's status (Connecting,
-// Live, Saving, Saved, Offline) and who edits it (presence). Compile and the PDF come with 23.
+// Live, Saving, Saved, Offline), who edits it (presence), then the compile's status and Compile
+// button and the downloads (actions, slice 23).
 export function WorkspaceBar({
   projectId,
   title,
   role,
   save,
   presence,
+  actions,
 }: {
   projectId: string;
   title: string;
@@ -31,6 +33,7 @@ export function WorkspaceBar({
   // save is the open text file's status; null when no text file is open or it is read-only.
   save: BarStatus | null;
   presence?: ReactNode;
+  actions?: ReactNode;
 }) {
   const saved = save?.saved;
   const trouble = save?.trouble;
@@ -70,7 +73,12 @@ export function WorkspaceBar({
             {save.detail && <span className="font-normal">· {save.detail}</span>}
           </span>
         )}
-        {presence && <div className="ml-auto flex items-center">{presence}</div>}
+        {(presence || actions) && (
+          <div className="ml-auto flex flex-wrap items-center gap-2.5">
+            {presence}
+            {actions}
+          </div>
+        )}
       </div>
     </header>
   );

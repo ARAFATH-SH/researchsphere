@@ -143,6 +143,34 @@ export class CollabSession {
     return this.saver?.flush(options) ?? Promise.resolve();
   }
 
+  /**
+   * Before a compile (FR-13.1): resolves once what this tab typed has reached a server. Live:
+   * when the sync server has applied every update (the API's flush then stores them,
+   * docs/sync.md); over REST: after a save. It resolves anyway after timeoutMs, as the compile
+   * then reads what was stored.
+   */
+  whenSent(timeoutMs = 5000): Promise<void> {
+    if (this.saver) return this.saver.flush();
+    return new Promise((resolve) => {
+      let finished = false;
+      const finish = () => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timer);
+        unsubscribe();
+        resolve();
+      };
+      const check = () => {
+        const g = this.gen;
+        const applied = g !== null && g.synced && g.link !== null && g.link.unsynced() === 0;
+        if (this.disposed || this.state.mode === "ended" || this.saver || !this.hasUnsent() || applied) finish();
+      };
+      const timer = setTimeout(finish, timeoutMs);
+      const unsubscribe = this.subscribe(check);
+      check();
+    });
+  }
+
   /** The browser is online again: retry now instead of waiting for the next attempt. */
   retryNow(): void {
     this.saver?.retryNow();

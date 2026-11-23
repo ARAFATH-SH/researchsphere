@@ -15,7 +15,8 @@ export type RealtimeEvent =
   | { type: "typing"; data: Schemas["RealtimeTyping"] }
   | { type: "presence"; data: Schemas["PresenceStatus"] }
   | { type: "notification.created"; data: Schemas["Notification"] }
-  | { type: "notifications.unread"; data: Schemas["UnreadNotificationCount"] };
+  | { type: "notifications.unread"; data: Schemas["UnreadNotificationCount"] }
+  | { type: "compile.updated"; data: Schemas["RealtimeCompileUpdated"] };
 
 const types: ReadonlySet<string> = new Set<RealtimeEvent["type"]>([
   "message.created",
@@ -30,6 +31,7 @@ const types: ReadonlySet<string> = new Set<RealtimeEvent["type"]>([
   "presence",
   "notification.created",
   "notifications.unread",
+  "compile.updated",
 ]);
 
 // parseEvent reads a frame, or returns null for one that is not JSON or not a known event, so

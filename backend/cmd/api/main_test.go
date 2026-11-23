@@ -16,6 +16,7 @@ import (
 	authhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/adapter/http"
 	authdomain "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/domain"
 	authusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/usecase"
+	compilehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/compile/adapter/http"
 	embeddinghttp "github.com/ARAFATH-SH/researchsphere/backend/internal/embedding/adapter/http"
 	healthdomain "github.com/ARAFATH-SH/researchsphere/backend/internal/health/domain"
 	mediahttp "github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/http"
@@ -140,6 +141,9 @@ const testSecret = "test-jwt-secret-0123456789abcdefghij"
 // testSyncToken is SYNC_SERVICE_TOKEN in tests (slice 22).
 const testSyncToken = "test-sync-service-token-0123456789ab" //nolint:gosec // test value, not a credential
 
+// testCompileToken is COMPILE_SERVICE_TOKEN in tests (slice 23).
+const testCompileToken = "test-compile-service-token-0123456789" //nolint:gosec // test value, not a credential
+
 // testUnsubscribeSecret signs unsubscribe tokens in tests (UNSUBSCRIBE_SECRET).
 const testUnsubscribeSecret = "test-unsubscribe-secret-0123456789ab" //nolint:gosec // test value, not a credential
 
@@ -163,7 +167,8 @@ func testRouter() http.Handler {
 		embeddinghttp.NewHandler(okEmbeddings{}),
 		recommendationhttp.NewHandler(okRecommendations{}),
 		projecthttp.NewHandler(okProjects{}),
-		serviceAndSessionAuth([]byte(testSyncToken), httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now)))
+		compilehttp.NewHandler(okCompiles{}),
+		serviceAndSessionAuth([]byte(testSyncToken), []byte(testCompileToken), httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now)))
 }
 
 func TestHealthThroughRouter(t *testing.T) {
@@ -194,7 +199,8 @@ func healthRouter(storage, ai healthdomain.Pinger) http.Handler {
 		embeddinghttp.NewHandler(okEmbeddings{}),
 		recommendationhttp.NewHandler(okRecommendations{}),
 		projecthttp.NewHandler(okProjects{}),
-		serviceAndSessionAuth([]byte(testSyncToken), httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now)))
+		compilehttp.NewHandler(okCompiles{}),
+		serviceAndSessionAuth([]byte(testSyncToken), []byte(testCompileToken), httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now)))
 }
 
 // The AI service is optional (NFR-10.2): through the real client, GET /health says ok when

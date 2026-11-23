@@ -34,7 +34,8 @@ to connect should refresh and try again with backoff, and go on polling meanwhil
 ## What a client must do
 
 - **After every reconnect, refetch conversations, unread counts and presence.** Events are not
-  stored: anything sent while the socket was closed is gone.
+  stored: anything sent while the socket was closed is gone. An open workspace also refetches
+  `GET /projects/{id}/compiles/latest`, as a compile may have ended meanwhile.
 - **While a conversation is open, refresh presence every 60 s** with `GET /api/v1/presence`.
   This covers a crashed API instance, which cannot send `online: false`.
 - Keep the 60 s poll of the notification and message counts as the fallback while the socket is
@@ -100,6 +101,7 @@ Each frame is JSON text with `type` and `data`.
 | `presence` | Allowed viewers | `{userId, online}` |
 | `notification.created` | The recipient | `Notification`, as the list shows it, with its `subject` (the group's current name for `group_added`; the project's current title for the project types, left out when the recipient cannot see the project) |
 | `notifications.unread` | The recipient | `{count}` |
+| `compile.updated` | Every current member of the project, viewers included | `RealtimeCompileUpdated`: `{projectId, compile}`, the REST `Compile` when it is queued, starts, and ends (FR-13.1; slice 23) |
 
 `clientId` appears only in the copy sent to the sender. `message` is the REST `Message`.
 

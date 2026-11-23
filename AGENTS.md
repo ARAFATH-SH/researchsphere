@@ -19,6 +19,9 @@ recommendations. One developer builds it in 30 slices over 12 weeks.
   must do after a reconnect. OpenAPI covers only the upgrade.
 - `docs/sync.md` is the real-time editing contract (slice 22): the ticket, the token, the
   `session` message, refusal and close reasons, epochs and offline edits, saving, limits.
+- `docs/compile.md` is the compile contract (slice 23): jobs and their states, retention, the
+  worker's internal operations, the sandbox's settings, error parsing, downloads and the threat
+  model.
 
 ## Layout
 
@@ -28,7 +31,7 @@ recommendations. One developer builds it in 30 slices over 12 weeks.
 | `backend/` | API server; migrations in `backend/db/migrations` | Go 1.25+, sqlc, oapi-codegen, golang-migrate |
 | `ai/` | Internal AI service: embeddings now (`POST /embed`, and `POST /embed-document`, which splits a long text by real tokens and averages; intfloat/multilingual-e5-base, CPU), later matching, search, venue ranking and the writing assistant. Never public: the API calls it with `AI_SERVICE_TOKEN` (`internal/platform/aiclient`) | Python 3.12 with uv, FastAPI, Sentence Transformers |
 | `sync/` | Real-time editing server (slice 22, `docs/sync.md`): one Yjs document per text file; reaches the database only through the API's internal operations (`/api/v1/internal/sync/*` on `INTERNAL_API_ADDR`, `SYNC_SERVICE_TOKEN`) | Node.js 22 (TypeScript run directly), Hocuspocus 4, Yjs, ioredis |
-| `compile/` | LaTeX compile service (slice 23) | TeX Live in a Docker sandbox |
+| `compile/` | Compile worker (slice 23, `docs/compile.md`): claims compile jobs on the API's internal listener (`/api/v1/internal/compile/*`, `COMPILE_SERVICE_TOKEN`) and runs each in its own sandbox container (`compile/image`: TeX Live full, pinned by digest, `FROM scratch` with a minimal `/etc`; every compile runs under `rs-landlock`, which limits it to its project and TeX Live with Landlock ABI 8, and the worker refuses to start without it); holds the Docker socket and no other secret | Go 1.26, standard library only; Docker Engine API; TeX Live 2026, latexmk |
 | `docs/` | SRS, API contract, decisions | Markdown, OpenAPI 3 |
 | `design/` | Reference design: one HTML artboard per screen, desktop and `_m` mobile (not served, not imported) | HTML, CSS |
 
@@ -45,7 +48,7 @@ Run these from the repository root. `make help` prints the current list.
 | Command | What it does |
 | --- | --- |
 | `make up` / `make down` | Start or stop PostgreSQL, Redis, Mailpit (local email inbox at http://localhost:8025), MinIO and ClamAV; `make up` also creates the private bucket, and starts ClamAV last without waiting for it (clamd takes 30 to 90 seconds and 1.5 to 3 GB of memory to load its signatures; attachments stay pending until it answers). `make up CLAMAV=0` leaves ClamAV out, as the CI stack job does. It also starts the AI service without waiting (building its image the first time; the first start downloads the model, and `GET /health` says `degraded` until it is loaded); `AI=0` leaves it out |
-| `make check` | Confirm that PostgreSQL, pgvector, Redis and storage respond, that the bucket refuses anonymous access and that storage accepts uploads from the web client (CORS for `http://localhost:3000`, set by `make up`); show whether ClamAV and the AI service answer yet (not a failure) |
+| `make check` | Confirm that PostgreSQL, pgvector, Redis and storage respond, that the bucket refuses anonymous access and that storage accepts uploads from the web client (CORS for `http://localhost:3000`, set by `make up`); show whether ClamAV and the AI service answer yet (not a failure). When the compile image is built, also run the sandbox's Landlock probe and fail if this kernel cannot enforce it (no compile would run) |
 | `make psql` | Open a psql prompt in the database |
 | `make migrate` / `make migrate-down` | Apply all migrations, or undo the latest one |
 | `make migrate-new name=add_users` | Create a new migration pair |
@@ -64,6 +67,7 @@ Run these from the repository root. `make help` prints the current list.
 | `make bench-recs` | Measure NFR-1: the recommendation endpoint's uncached work for 200 random sample users (seed 17), printing p50, p95 and max (target p95 under 2 s), and EXPLAIN ANALYZE of the ranking query; then the same for both project matching endpoints (200 users, 200 projects). Needs `APP_ENV=development`; reads only |
 | `make eval-search` | Measure AI-5.2 semantic researcher search on the held-out sample TEST split: precision@10 ("relevant = same main cluster") of the 40 queries in `backend/cmd/recseval/search_queries.json` (one English, one Bangla per cluster, sharing no word with the cluster's vocabulary), hybrid against keyword mode. Write the results into `docs/evaluation.md`. Never change a query after seeing its result. Needs the 10,000 embedded sample profiles, `APP_ENV=development` and the AI service (`AI_SERVICE_TOKEN`); reads only |
 | `make bench-search` | Measure NFR-1 for hybrid researcher search: the usecase's work for 200 search texts (seed 17), p50, p95 and max with a cold and a cached query vector (target p95 under 2 s, embedding included), and EXPLAIN ANALYZE of the meaning query. Needs `APP_ENV=development` and the AI service; reads only |
+| `make purge-compile-output before=<time> [apply=1]` | Delete the PDF and the log of every compile that started before `before` (RFC 3339 with its zone, such as `2026-11-23T21:10:27+06:00`): the PDF's `stored_files` row and its object in storage (drained at once), and the log column; the records, status and errors stay. Without `apply=1` it only lists them. Run it after a sandbox fix with the time the fixed image went live, in every environment (`docs/deploy.md`). Reads the API's settings from `.env` |
 | `make update-disposable-domains` | Download the latest list of disposable email domains (FR-17.2, CC0) into `backend/internal/auth/adapter/emaildomain/disposable_domains.txt`; review and commit the result |
 | `make api` | Run the API server (needs `make up`; settings from `.env`) |
 | `make web` | Run the web client dev server on port 3000; it forwards `/api/v1` to `API_URL` |
@@ -75,10 +79,14 @@ Run these from the repository root. `make help` prints the current list.
 | `make ai-logs` | Follow the AI service's log |
 | `make sync` | Run the real-time editing server on `SYNC_PORT` (8091). Needs `cd sync && npm ci`, `make up`, and `make api` with `SYNC_SERVICE_TOKEN` set (its internal listener on `INTERNAL_API_ADDR`) |
 | `make sync-build` | Build the sync server's image (compose profile `sync`) |
+| `make compile-image` | Build the compile sandbox image (`compile/image`; TeX Live full pinned by digest: 2.8 GB to pull the first time, about 9 GB on disk) as `COMPILE_IMAGE` (default `researchsphere-compile:dev`) |
+| `make compile-worker` | Run the compile worker on this host with your Docker (`docs/compile.md`). Needs `make compile-image`, and `make api` with `COMPILE_SERVICE_TOKEN` set (its internal listener on `INTERNAL_API_ADDR`); without a worker every compile answers `compile_unavailable` |
+| `make compile-trace dir=<folder> [main=main.tex] [out=<folder>]` | Development only: compile one project folder in the sandbox under strace (`compile/image/debug`: the sandbox image plus strace, built on demand; the worker's own container settings) and list every path refused (Landlock's EACCES, EROFS), every write outside `/work` and `/tmp`, the writes under `/tmp` by folder and the devices used; `out=` keeps the raw trace, the log and the PDF. Use it when a document fails in the sandbox but not elsewhere. Needs `make compile-image` |
+| `make bench-compile [runs=5]` | Measure NFR-3: compile the 10-page sample paper (`compile/bench/sample`) in the real sandbox and print the times (target under 20 s). Needs `make compile-image` |
 | `make sync-load [seconds=60]` | Measure NFR-2, NFR-10.1 and NFR-12: 10 files x 4 simulated editors typing, against the sync server in its own process and an in-memory fake API; prints update latency and save delay percentiles and fails above p95 1 s, a save over 5 s or a lost edit. Needs `make up`; empties `TEST_REDIS_URL` |
 | `make generate` | Regenerate Go code in `backend/internal/api` and TypeScript types in `frontend/src/lib/api` from `docs/openapi.yaml`, and the sqlc query code in `backend/internal/*/adapter/postgres/sqlcgen` |
 | `make check-generated` | Regenerate and fail if the generated code differs from what is committed |
-| `make test` | Run all tests: `test-prepare`, `test-db`, `test-go`, `test-integration`, `test-web`, `test-ai` and `test-sync` (needs `make up`) |
+| `make test` | Run all tests: `test-prepare`, `test-db`, `test-go`, `test-integration`, `test-web`, `test-ai`, `test-sync` and `test-compile` (needs `make up`) |
 | `make test-prepare` | Create the test database `researchsphere_test` (`TEST_POSTGRES_DB`) in the same container if it is missing and apply all migrations to it. Refuses a name that does not end in `_test` |
 | `make test-db` | Run the database constraint tests on the test database (runs `test-prepare` first; needs `make up`) |
 | `make test-go` | Run the backend Go tests (`go test -race`); needs no database |
@@ -87,11 +95,14 @@ Run these from the repository root. `make help` prints the current list.
 | `make test-web` | Run the frontend tests (Jest) |
 | `make test-ai` | Run the AI service tests (pytest) with a stub model: no torch, no model download (needs uv) |
 | `make test-sync` | Run the sync server tests (`node:test`): real Hocuspocus servers and providers against Redis `TEST_REDIS_URL` (never DB 0 or `REDIS_URL`'s; emptied) and an in-memory fake of the API's internal operations; one suite restarts the server as a child process. Needs `make up` and `cd sync && npm ci` |
-| `make lint` | Run all linters: `lint-go`, `lint-web`, `lint-ai` and `lint-sync` |
+| `make test-compile` | Run the compile worker's tests (`go test -race`) with a fake Docker daemon; needs no image |
+| `make test-compile-sandbox` | Run the sandbox tests against real Docker and the image (build tag `sandbox`): the regression corpus (`compile/testdata/corpus`: a RenderCV-style CV, a paper with BibTeX and TikZ, a beamer deck, PNG and PDF figures, biblatex with biber, a METAFONT font) compiles cleanly; no network, no shell escape, no file outside `/work` read (`\input`, `\openin`, `\includegraphics`, `\lstinputlisting` and the pdfTeX file primitives on `/etc/passwd`, `/proc/self/environ` and `../` paths, checked in the log and the PDF's text, with a positive control) or written, the TeX and Landlock settings inside the sandbox, the 60 s kill, output caps, a write bomb, cleanup after every run, a multi-file BibTeX paper. About 90 seconds. Needs `make compile-image`; not in `make test` (CI runs it nightly, by hand and on compile changes) |
+| `make lint` | Run all linters: `lint-go`, `lint-web`, `lint-ai`, `lint-sync` and `lint-compile` |
 | `make lint-go` | Run golangci-lint for the backend |
 | `make lint-web` | Run ESLint and the TypeScript type check for the frontend |
 | `make lint-ai` | Run ruff (lint and format check) for the AI service |
 | `make lint-sync` | Run ESLint and the TypeScript type check for the sync server |
+| `make lint-compile` | Run golangci-lint for the compile worker (`compile/.golangci.yml`) |
 
 The frontend and sync targets need their packages: run `cd frontend && npm ci` and
 `cd sync && npm ci` once, and again after their `package-lock.json` changes. When a slice adds a command to the Makefile, add it to this
@@ -101,8 +112,8 @@ CI (`.github/workflows/ci.yml`) runs on every pull request to `main` and every p
 (NFR-7), not on pushes to other branches. A `detect` job runs first; when a change touches only
 `docs/**`, `design/**` or Markdown files (never `docs/openapi.yaml`), every other job shows as
 skipped. Next, in parallel, the fast checks lint and test each of `backend/`, `frontend/`,
-`ai/` and `sync/` once that folder has its manifest (`go.mod`, `package.json`, `pyproject.toml`,
-`package.json`); the sync job runs its tests against a Redis service container. The
+`ai/`, `sync/` and `compile/` once that folder has its manifest (`go.mod`, `package.json`,
+`pyproject.toml`, `package.json`, `go.mod`); the sync job runs its tests against a Redis service container. The
 backend job also fails when the code generated from `docs/openapi.yaml` is not up to date; the
 frontend job runs `npm ci`, checks that the generated API types are up to date, then runs lint,
 type check, tests and a production build. Only when they pass does the stack job start
@@ -112,8 +123,12 @@ migrations, undo them, check that nothing is left, apply them again, prepare the
 The `clamav` job scans the EICAR string with a real clamd only on push to `main`, nightly and
 by hand. The `ai` job tests the AI service with a stub model; the `ai-model` job builds its
 image, downloads the real model and runs `ai/scripts/smoke.py` only nightly and by hand. The
+`compile-sandbox` job builds the TeX Live sandbox image (cached by the hash of `compile/image`)
+and runs `make test-compile-sandbox`'s tests and the NFR-3 benchmark nightly, by hand, and on
+pull requests and pushes that change `compile/` or the API's compile code. The
 job names (`Detect`, `Backend (Go)`, `Frontend (Node.js)`, `AI (Python, uv)`,
-`Sync (Node.js)`, `Stack (integration)`, `ClamAV (EICAR)`, `AI model (e5)`) are the status check names branch protection uses:
+`Sync (Node.js)`, `Compile (Go)`, `Compile sandbox (TeX Live)`, `Stack (integration)`,
+`ClamAV (EICAR)`, `AI model (e5)`) are the status check names branch protection uses:
 do not rename them.
 
 ## Rules
@@ -136,8 +151,9 @@ do not rename them.
 
 - **Go:** one application (modular monolith). Modules live in `backend/internal/<module>`: health,
   then auth, profile, media, social, project, event, notification, messaging, moderation, realtime,
-  embedding (AI-1: the queue, the worker and the stored vectors) and recommendation (AI-2,
-  AI-3: collaborator and project recommendations from the embeddings). Return errors, do not panic.
+  embedding (AI-1: the queue, the worker and the stored vectors), recommendation (AI-2,
+  AI-3: collaborator and project recommendations from the embeddings) and compile (FR-13: the
+  compile jobs, their logs and PDFs; the worker that runs them is `compile/`). Return errors, do not panic.
   Table-driven tests beside the code they test. Each module is split into layers (clean
   architecture); `backend/internal/health` is the example to copy:
 
@@ -195,7 +211,8 @@ do not rename them.
   sends a project figure straight to object storage with the presigned POST the API signed
   (FR-12.2), without cookies: the one request that leaves the app's origin besides the WebSockets.
   The third is the sync server's WebSocket at `NEXT_PUBLIC_SYNC_URL` (`docs/sync.md`): only
-  `features/project/workspace/collab/link.ts` imports `@hocuspocus/provider`. Every session refresh goes through `refreshSession` in `lib/api/client.ts`,
+  `features/project/workspace/collab/link.ts` imports `@hocuspocus/provider`, and only
+  `features/project/workspace/compile/pdf/load-pdf.ts` imports `pdfjs-dist` (the PDF viewer, slice 23). Every session refresh goes through `refreshSession` in `lib/api/client.ts`,
   so tabs take turns. Jest tests (`*.test.ts(x)`) sit beside the
   code they test and mock the API module, not the network. `frontend/jest.setup.ts` fails any test that
   calls `console.error`; its allowlist is only for documented third-party noise. The default
@@ -223,10 +240,12 @@ do not rename them.
   a project's file tree is one unpaginated answer of at most 200 entries, `docs/decisions.md`).
   A session whose email address is not verified gets 403 `email_not_verified` on every route
   except those in `unverifiedAllowed` (`cmd/api/handlers.go`, FR-17.3): a new route needs a
-  verified email unless it is added there, and only within FR-17.3. The sync server's
-  operations (`/api/v1/internal/`, OpenAPI tag `internal`, security `syncToken`) take no session:
-  `cmd/api` serves them only on the internal listener (`INTERNAL_API_ADDR`) with the bearer token,
-  and the public port answers 404 for them (`docs/sync.md`).
+  verified email unless it is added there, and only within FR-17.3. The sync server's and the
+  compile worker's operations (`/api/v1/internal/`, OpenAPI tag `internal`, security `syncToken`
+  or `compileToken`) take no session: `cmd/api` serves them only on the internal listener
+  (`INTERNAL_API_ADDR`), each with its own service's bearer token and never the other's
+  (`httpx.RequireServiceTokens`), and the public port answers 404 for them (`docs/sync.md`,
+  `docs/compile.md`). Only the compile worker ever gets the Docker socket.
 - **SQL:** each module's queries are in `internal/<module>/adapter/postgres/queries.sql`; sqlc
   generates `sqlcgen/` beside it (`backend/sqlc.yaml`, run by `make generate`). Repository tests
   that need the database carry the build tag `integration`.

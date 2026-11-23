@@ -208,7 +208,7 @@ func (tablePerms) Can(role domain.Role, a domain.Action) bool {
 	switch a {
 	case domain.ActView:
 		return true
-	case domain.ActEditAbstract:
+	case domain.ActEditAbstract, domain.ActCompile:
 		return role == domain.RoleOwner || role == domain.RoleEditor
 	case domain.ActEditDetails, domain.ActDelete, domain.ActManageMembers, domain.ActTransfer:
 		return role == domain.RoleOwner

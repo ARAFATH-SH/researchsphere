@@ -123,7 +123,7 @@ func (s *Store) FileAt(ctx context.Context, projectID, path string) (domain.File
 	if err != nil {
 		return domain.File{}, false, fmt.Errorf("find project file: %w", err)
 	}
-	return domain.File{ID: r.ID.String(), ProjectID: projectID, Kind: domain.FileKind(r.Kind)}, true, nil
+	return domain.File{ID: r.ID.String(), ProjectID: projectID, Kind: domain.FileKind(r.Kind), Path: r.Path}, true, nil
 }
 
 // InsertFolder adds a folder.
@@ -413,4 +413,72 @@ func updater(id pgtype.UUID, name string, headline pgtype.Text, photo pgtype.UUI
 		return nil
 	}
 	return &domain.Person{UserID: id.String(), FullName: name, Headline: textPtr(headline), PhotoFileID: uuidPtr(photo)}
+}
+
+// SourceFiles lists every entry of the project with its text or object key (slice 23).
+func (s *Store) SourceFiles(ctx context.Context, projectID string) ([]domain.StoredFile, error) {
+	id, ok := parseUUID(projectID)
+	if !ok {
+		return nil, domain.ErrNotFound
+	}
+	rows, err := s.q(ctx).SourceFiles(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("list source files: %w", err)
+	}
+	files := make([]domain.StoredFile, len(rows))
+	for i, r := range rows {
+		files[i] = domain.StoredFile{
+			File: domain.File{
+				ID: r.ID.String(), ProjectID: projectID, Path: r.Path, Kind: domain.FileKind(r.Kind),
+				Size: r.SizeBytes, Version: int(r.Version), ContentType: textPtr(r.ContentType),
+				ScanStatus: scanStatus(r.ScanStatus), UpdatedAt: r.UpdatedAt.Time,
+			},
+			Content: textPtr(r.Content), ObjectKey: textPtr(r.ObjectKey),
+		}
+	}
+	return files, nil
+}
+
+// MainFile is the project's main file path.
+func (s *Store) MainFile(ctx context.Context, projectID string) (string, error) {
+	id, ok := parseUUID(projectID)
+	if !ok {
+		return "", domain.ErrNotFound
+	}
+	main, err := s.q(ctx).MainFilePath(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", domain.ErrNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("read main file path: %w", err)
+	}
+	return main, nil
+}
+
+// SetMainFile sets the project's main file path.
+func (s *Store) SetMainFile(ctx context.Context, projectID, path string) error {
+	id, ok := parseUUID(projectID)
+	if !ok {
+		return domain.ErrNotFound
+	}
+	if err := s.q(ctx).SetMainFilePath(ctx, sqlcgen.SetMainFilePathParams{ID: id, Path: path}); err != nil {
+		return fmt.Errorf("set main file path: %w", err)
+	}
+	return nil
+}
+
+// ProjectTitle is the project's title.
+func (s *Store) ProjectTitle(ctx context.Context, projectID string) (string, error) {
+	id, ok := parseUUID(projectID)
+	if !ok {
+		return "", domain.ErrNotFound
+	}
+	title, err := s.q(ctx).ProjectTitle(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", domain.ErrNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("read project title: %w", err)
+	}
+	return title, nil
 }

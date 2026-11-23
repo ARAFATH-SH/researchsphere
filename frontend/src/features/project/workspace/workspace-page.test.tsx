@@ -5,7 +5,10 @@ import { EditorView } from "@codemirror/view";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import * as Y from "yjs";
 
-import { getProject, listProjectMembers } from "../api";
+import type { RealtimeEvent } from "@/features/realtime/events";
+import { saveBlob } from "@/lib/download";
+
+import { getProject, listProjectMembers, updateProject } from "../api";
 import {
   createCollabTicket,
   createFile,
@@ -22,12 +25,53 @@ import {
 import { figure, folder, storage, textFile, tree } from "../files/test-files";
 import { project, projectID } from "../test-projects";
 import { autosaveDelayMs } from "./autosave";
+import {
+  type Compile,
+  downloadArchive,
+  downloadPdf,
+  fetchPdf,
+  getCompile,
+  getLatestCompile,
+  startCompile,
+} from "./compile/api";
+import { timeoutText } from "./compile/compile-messages";
+import { compile, succeeded } from "./compile/test-compiles";
 import { FakeHub } from "./collab/fake-hub";
 import type { LinkFactory } from "./collab/link";
 import { CollabSession } from "./collab/session";
 import { WorkspacePage } from "./workspace-page";
 
-jest.mock("../api", () => ({ ...jest.requireActual("../api"), getProject: jest.fn(), listProjectMembers: jest.fn() }));
+jest.mock("../api", () => ({ ...jest.requireActual("../api"), getProject: jest.fn(), listProjectMembers: jest.fn(), updateProject: jest.fn() }));
+jest.mock("./compile/api", () => ({
+  ...jest.requireActual("./compile/api"),
+  startCompile: jest.fn(),
+  getLatestCompile: jest.fn(),
+  getCompile: jest.fn(),
+  getCompileLog: jest.fn(),
+  fetchPdf: jest.fn(),
+  downloadPdf: jest.fn(),
+  downloadArchive: jest.fn(),
+}));
+// pdf.js does not run in jsdom; the viewer's use of it has its own test (compile/pdf/load-pdf.test.ts).
+jest.mock("./compile/pdf/load-pdf", () => ({
+  openPdf: jest.fn(async () => ({ numPages: 6, loadingTask: { destroy: async () => {} } })),
+  pageSizes: async () => Array.from({ length: 6 }, () => ({ width: 600, height: 800 })),
+  renderPage: () => ({ canvas: document.createElement("canvas"), done: Promise.resolve(), cancel: () => {} }),
+  renderText: () => ({ done: Promise.resolve(), cancel: () => {} }),
+}));
+jest.mock("@/lib/download", () => ({ saveBlob: jest.fn() }));
+// The tab's one WebSocket, as the realtime hooks see it.
+const mockRealtime = { events: new Set<(e: RealtimeEvent) => void>(), connected: new Set<() => void>() };
+jest.mock("@/features/realtime/socket", () => ({
+  onRealtimeEvent: (l: (e: RealtimeEvent) => void) => {
+    mockRealtime.events.add(l);
+    return () => mockRealtime.events.delete(l);
+  },
+  onConnected: (l: () => void) => {
+    mockRealtime.connected.add(l);
+    return () => mockRealtime.connected.delete(l);
+  },
+}));
 // The sync server is the in-memory FakeHub (collab/fake-hub.ts).
 const mockLink: { current: LinkFactory } = {
   current: () => {
@@ -132,6 +176,8 @@ beforeEach(() => {
     return { ok: true, data: detail(file) };
   });
   mockSave.mockResolvedValue(saved(4));
+  jest.mocked(getLatestCompile).mockResolvedValue({ ok: false, code: "no_compile", message: "never compiled" });
+  jest.mocked(fetchPdf).mockResolvedValue({ ok: false, code: "no_pdf", message: "no PDF" });
 });
 afterEach(() => {
   for (const s of others.splice(0)) s.dispose();
@@ -175,14 +221,17 @@ describe("WorkspacePage", () => {
     expect(within(tree).getAllByRole("treeitem").map((i) => i.getAttribute("aria-level") + " " + i.textContent?.split(/Rename/)[0])).toEqual([
       "1 figures/",
       "1 sections/",
-      "1 main.tex, editing: Me Myself",
+      "1 main.tex, Main, editing: Me Myself",
     ]);
     expect(treeItem("main.tex").getAttribute("aria-selected")).toBe("true");
     for (const name of ["New file", "New folder", "Upload figure", "Rename main.tex", "Move main.tex", "Delete main.tex"]) {
       expect(screen.getByRole("button", { name })).toBeTruthy();
     }
-    // Compile, the PDF and the assistant come with slice 23.
-    expect(screen.queryByRole("button", { name: /Compile|Download PDF|Download ZIP/ })).toBeNull();
+    // Compile and the downloads (slice 23).
+    expect(screen.getByRole("button", { name: "Compile" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Download PDF" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Download all files (ZIP)" })).toBeTruthy();
+    expect(screen.getByRole("separator", { name: "Resize the editor and the PDF" })).toBeTruthy();
     const presence = screen.getByRole("group", { name: "1 person editing this file" });
     expect(presence.textContent).toContain("1 / 4 editing");
     expect(within(presence).getByRole("img", { name: "Me Myself (you)" })).toBeTruthy();
@@ -827,6 +876,248 @@ describe("WorkspacePage", () => {
       expect(
         (await screen.findByText(/We can’t reach the server right now\. main\.tex opens as soon as the connection returns\./)).textContent,
       ).toBeTruthy();
+    });
+  });
+
+  describe("compile (slice 23)", () => {
+    const emit = (c: Compile) =>
+      act(() => mockRealtime.events.forEach((l) => l({ type: "compile.updated", data: { projectId: projectID, compile: c } })));
+    const compileStatus = () => screen.getByTestId("compile-status").textContent;
+    const pdfBytes = (id: string) => ({ ok: true as const, data: { data: new ArrayBuffer(8), compileId: id } });
+
+    afterEach(() => {
+      mockRealtime.events.clear();
+      mockRealtime.connected.clear();
+    });
+
+    it("compiles, shows Queued, Compiling with the seconds, then Done, and swaps in the new PDF (FR-13.1)", async () => {
+      jest.mocked(getLatestCompile).mockResolvedValue({ ok: true, data: succeeded("c1") });
+      jest.mocked(fetchPdf).mockResolvedValue(pdfBytes("c1"));
+      await renderWorkspace();
+      const canvas = await screen.findByTestId("pdf-document");
+      expect(canvas.getAttribute("data-compile")).toBe("c1");
+      expect(screen.getByTestId("pdf-pages").textContent).toBe("PDF · page 1 of 6");
+      expect(compileStatus()).toBe("Compile: Done");
+
+      jest.mocked(startCompile).mockResolvedValue({ ok: true, data: compile("c2") });
+      await act(async () => fireEvent.click(screen.getByRole("button", { name: "Compile" })));
+      expect(startCompile).toHaveBeenCalledWith(projectID);
+      expect(compileStatus()).toBe("Compile: Queued");
+
+      // The clock on a whole second, so the elapsed time is exact.
+      const now = Math.floor(Date.now() / 1000) * 1000;
+      const clock = jest.spyOn(Date, "now").mockReturnValue(now);
+      emit(compile("c2", { status: "running", startedAt: new Date(now - 12_000).toISOString() }));
+      expect(compileStatus()).toBe("Compile: Compiling");
+      expect(screen.getByTestId("compile-elapsed").textContent).toBe("· 12 s");
+      clock.mockRestore();
+      // The old PDF stays while the new compile runs.
+      expect(screen.getByTestId("pdf-document").getAttribute("data-compile")).toBe("c1");
+      // A late event of an earlier state changes nothing.
+      emit(compile("c2"));
+      expect(compileStatus()).toBe("Compile: Compiling");
+
+      jest.mocked(fetchPdf).mockResolvedValue(pdfBytes("c2"));
+      await act(async () => emit(succeeded("c2")));
+      expect(compileStatus()).toBe("Compile: Done");
+      expect(screen.getByTestId("compile-elapsed").textContent).toBe("· 7.8 s");
+      expect(screen.getByTestId("pdf-document").getAttribute("data-compile")).toBe("c2");
+    });
+
+    it("sends this tab's edits to the sync server before it compiles", async () => {
+      const view = await renderWorkspace();
+      let compiledText: string | null = null;
+      jest.mocked(startCompile).mockImplementation(async () => {
+        compiledText = hub.text(main.id);
+        return { ok: true, data: compile("c2") };
+      });
+      act(() => hub.offline());
+      typeInto(view, " world");
+      fireEvent.click(screen.getByRole("button", { name: "Compile" }));
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 20));
+      });
+      expect(startCompile).not.toHaveBeenCalled();
+      await act(async () => {
+        hub.reconnectAll();
+        await new Promise((r) => setTimeout(r, 20));
+      });
+      expect(startCompile).toHaveBeenCalledTimes(1);
+      expect(compiledText).toBe(`${texts[main.id]} world`);
+    });
+
+    it("follows the compile already running and says who started it (FR-13.4)", async () => {
+      await renderWorkspace();
+      jest.mocked(startCompile).mockResolvedValue({ ok: false, code: "compile_running", message: "busy", compileId: "c9" });
+      jest.mocked(getCompile).mockResolvedValue({ ok: true, data: compile("c9", { status: "running", requestedBy: bob.id, startedAt: new Date().toISOString() }) });
+      await act(async () => fireEvent.click(screen.getByRole("button", { name: "Compile" })));
+      expect(getCompile).toHaveBeenCalledWith(projectID, "c9");
+      expect(screen.getByText("A compile is already running (started by Bob Kahn).")).toBeTruthy();
+      expect(compileStatus()).toBe("Compile: Compiling");
+      // Asking again during it does not post again.
+      await act(async () => fireEvent.click(screen.getByRole("button", { name: "Compile" })));
+      expect(startCompile).toHaveBeenCalledTimes(1);
+      // The notice goes when that compile ends.
+      await act(async () => emit(succeeded("c9", { requestedBy: bob.id })));
+      expect(screen.queryByText(/already running/)).toBeNull();
+    });
+
+    it("says a compile timed out (FR-13.5)", async () => {
+      await renderWorkspace();
+      emit(compile("c3", { status: "timed_out", startedAt: "2026-11-23T10:00:01Z", finishedAt: "2026-11-23T10:01:01Z", durationMs: 60_000 }));
+      expect(compileStatus()).toBe("Compile: Timed out");
+      expect(screen.getByText(timeoutText)).toBeTruthy();
+    });
+
+    it("says a failed compile's first error", async () => {
+      await renderWorkspace();
+      emit(
+        compile("c4", {
+          status: "failed",
+          failure: "no_pdf",
+          errors: [
+            { file: "main.tex", line: 2, message: "Undefined control sequence.", severity: "error" },
+            { file: null, line: null, message: "Emergency stop.", severity: "error" },
+          ],
+        }),
+      );
+      expect(screen.getByText("main.tex:2: Undefined control sequence.")).toBeTruthy();
+    });
+
+    it("says the compile service is unavailable and retries", async () => {
+      await renderWorkspace();
+      jest.mocked(startCompile).mockResolvedValue({ ok: false, code: "compile_unavailable", message: "x" });
+      await act(async () => fireEvent.click(screen.getByRole("button", { name: "Compile" })));
+      expect(screen.getByRole("alert").textContent).toContain("Compile service unavailable.");
+      jest.mocked(startCompile).mockResolvedValue({ ok: true, data: compile("c5") });
+      await act(async () => fireEvent.click(screen.getByRole("button", { name: "Retry" })));
+      expect(startCompile).toHaveBeenCalledTimes(2);
+      expect(screen.queryByText("Compile service unavailable.")).toBeNull();
+      expect(compileStatus()).toBe("Compile: Queued");
+    });
+
+    it("compiles with Ctrl+Enter or Cmd+Enter", async () => {
+      await renderWorkspace();
+      jest.mocked(startCompile).mockResolvedValue({ ok: true, data: compile("c6") });
+      await act(async () => fireEvent.keyDown(window, { key: "Enter", ctrlKey: true }));
+      expect(startCompile).toHaveBeenCalledTimes(1);
+      expect(compileStatus()).toBe("Compile: Queued");
+    });
+
+    it("gives a viewer no Compile button nor shortcut, but the status, the PDF and the downloads", async () => {
+      jest.mocked(getLatestCompile).mockResolvedValue({ ok: true, data: succeeded("c1") });
+      jest.mocked(fetchPdf).mockResolvedValue(pdfBytes("c1"));
+      await renderWorkspace("viewer");
+      expect(await screen.findByTestId("pdf-document")).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Compile" })).toBeNull();
+      expect(screen.queryByRole("combobox", { name: "Main file" })).toBeNull();
+      await act(async () => fireEvent.keyDown(window, { key: "Enter", metaKey: true }));
+      expect(startCompile).not.toHaveBeenCalled();
+      expect(compileStatus()).toBe("Compile: Done");
+      expect(screen.getAllByRole("button", { name: "Download PDF" }).length).toBeGreaterThan(0);
+      expect(screen.getByRole("button", { name: "Download all files (ZIP)" })).toBeTruthy();
+    });
+
+    it("opens an error's file at its line, and says when the file is gone (FR-13.2, FR-13.3)", async () => {
+      jest.mocked(getLatestCompile).mockResolvedValue({
+        ok: true,
+        data: compile("c7", {
+          status: "failed",
+          errors: [
+            { file: "main.tex", line: 2, message: "Undefined control sequence.", severity: "error" },
+            { file: "gone.tex", line: 4, message: "Missing $ inserted.", severity: "error" },
+            { file: "sections/intro.tex", line: 1, message: "Overfull \\hbox.", severity: "warning" },
+          ],
+        }),
+      });
+      await renderWorkspace();
+      const panel = screen.getByRole("region", { name: /Compile errors/ });
+      await within(panel).findByRole("button", { name: /main\.tex:2/ });
+      expect(within(panel).getByLabelText("2 errors")).toBeTruthy();
+      expect(within(panel).getByText("1 warning")).toBeTruthy();
+
+      // Open another file, then jump back to main.tex line 2.
+      fireEvent.click(treeItem("sections/"));
+      fireEvent.click(treeItem("intro.tex"));
+      await editorView("Editing intro.tex");
+      await act(async () => fireEvent.click(within(panel).getByRole("button", { name: /main\.tex:2/ })));
+      const view = await editorView("Editing main.tex");
+      await act(async () => {});
+      expect(view.state.selection.main.head).toBe(view.state.doc.line(2).from);
+
+      fireEvent.click(within(panel).getByRole("button", { name: /gone\.tex:4/ }));
+      expect(within(panel).getByRole("alert").textContent).toBe("gone.tex no longer exists in this project.");
+
+      // The arrow keys move through the list.
+      const first = within(panel).getByRole("button", { name: /main\.tex:2/ });
+      first.focus();
+      fireEvent.keyDown(first, { key: "ArrowDown" });
+      expect(document.activeElement).toBe(within(panel).getByRole("button", { name: /gone\.tex:4/ }));
+    });
+
+    it("downloads the PDF and the ZIP through the API, and says why not (FR-13.6, FR-13.7)", async () => {
+      await renderWorkspace();
+      const pdf = new Blob(["%PDF-"]);
+      const zip = new Blob(["PK"]);
+      jest.mocked(downloadPdf).mockResolvedValue({ ok: true, data: { blob: pdf, name: "Explainable CVS detection.pdf" } });
+      jest.mocked(downloadArchive).mockResolvedValue({ ok: true, data: { blob: zip, name: "Explainable CVS detection.zip" } });
+      await act(async () => fireEvent.click(screen.getByRole("button", { name: "Download PDF" })));
+      expect(downloadPdf).toHaveBeenCalledWith(projectID);
+      expect(saveBlob).toHaveBeenCalledWith(pdf, "Explainable CVS detection.pdf");
+      await act(async () => fireEvent.click(screen.getByRole("button", { name: "Download all files (ZIP)" })));
+      expect(saveBlob).toHaveBeenCalledWith(zip, "Explainable CVS detection.zip");
+
+      jest.mocked(downloadArchive).mockResolvedValue({ ok: false, code: "archive_too_large", message: "x" });
+      await act(async () => fireEvent.click(screen.getByRole("button", { name: "Download all files (ZIP)" })));
+      expect(screen.getByRole("alert").textContent).toContain("too large to download as one ZIP");
+      expect(saveBlob).toHaveBeenCalledTimes(2);
+    });
+
+    it("lets the owner choose the main file", async () => {
+      await renderWorkspace();
+      jest.mocked(updateProject).mockResolvedValue({ ok: true, data: project({ myRole: "owner" }) });
+      const select = screen.getByRole("combobox", { name: "Main file" });
+      expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual(["main.tex", "sections/intro.tex", "sections/method.tex"]);
+      await act(async () => fireEvent.change(select, { target: { value: "sections/intro.tex" } }));
+      expect(updateProject).toHaveBeenCalledWith(projectID, { mainFilePath: "sections/intro.tex" });
+      expect((select as HTMLSelectElement).value).toBe("sections/intro.tex");
+    });
+
+    describe("below 1024 pixels", () => {
+      const original = window.matchMedia;
+      beforeEach(() => {
+        window.matchMedia = jest.fn(() => ({ matches: false, addEventListener: jest.fn(), removeEventListener: jest.fn() })) as unknown as typeof window.matchMedia;
+      });
+      afterEach(() => {
+        window.matchMedia = original;
+      });
+
+      it("switches between the editor and the PDF with tabs, and More holds the downloads", async () => {
+        jest.mocked(fetchPdf).mockResolvedValue(pdfBytes("c1"));
+        await renderWorkspace();
+        const editorTab = screen.getByRole("tab", { name: "Editor" });
+        const pdfTab = screen.getByRole("tab", { name: "PDF" });
+        expect(editorTab.getAttribute("aria-selected")).toBe("true");
+        expect(screen.getByRole("tabpanel", { name: "Editor" })).toBeTruthy();
+        expect(screen.queryByRole("tabpanel", { name: "PDF" })).toBeNull();
+        expect(screen.queryByRole("separator")).toBeNull();
+
+        fireEvent.click(pdfTab);
+        expect(pdfTab.getAttribute("aria-selected")).toBe("true");
+        expect(within(screen.getByRole("tabpanel", { name: "PDF" })).getByTestId("pdf-document")).toBeTruthy();
+        fireEvent.keyDown(pdfTab, { key: "ArrowLeft" });
+        expect(editorTab.getAttribute("aria-selected")).toBe("true");
+        expect(document.activeElement).toBe(editorTab);
+
+        jest.mocked(downloadArchive).mockResolvedValue({ ok: true, data: { blob: new Blob(["PK"]), name: "p.zip" } });
+        fireEvent.click(screen.getByRole("button", { name: "More" }));
+        const menu = screen.getByRole("menu", { name: "Project" });
+        expect(document.activeElement).toBe(within(menu).getByRole("menuitem", { name: "Download PDF" }));
+        fireEvent.keyDown(menu, { key: "ArrowDown" });
+        await act(async () => fireEvent.click(document.activeElement!));
+        expect(downloadArchive).toHaveBeenCalledWith(projectID);
+        expect(screen.queryByRole("menu")).toBeNull();
+      });
     });
   });
 

@@ -1,0 +1,16 @@
+# latexmk settings of the compile sandbox (docs/compile.md). latexmk runs with -norc and this
+# file only, so nothing in a project can change them.
+$pdf_mode = 1;            # pdfLaTeX (FR-13.1)
+$postscript_mode = 0;
+$dvi_mode = 0;
+# Shell escape is off here, in texmf.cnf (shell_escape = f) and by the sandbox's lack of a
+# network. -file-line-error gives errors as file:line: (FR-13.2); nonstopmode never waits.
+$pdflatex = 'pdflatex -no-shell-escape -interaction=nonstopmode -file-line-error -recorder %O %S';
+$bibtex = 'bibtex %O %B';
+$bibtex_use = 2;          # run BibTeX whenever the .bib files say so
+$max_repeat = 5;
+$force_mode = 1;          # go on after errors, so BibTeX runs and every error is in the log
+$preview_mode = 0;
+$preview_continuous_mode = 0;
+$pdf_previewer = '';
+$silent = 0;

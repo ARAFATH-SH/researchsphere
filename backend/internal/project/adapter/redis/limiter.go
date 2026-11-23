@@ -25,6 +25,7 @@ const (
 	figurePrefix      = "project:figure:"
 	savePrefix        = "project:save:"
 	ticketLimitPrefix = "project:ticket:"
+	archivePrefix     = "project:archive:"
 )
 
 // callTimeout bounds each call. A request waits at most this long for Redis before going on
@@ -72,6 +73,9 @@ func (l *Limits) Save() domain.Limiter { return counter{client: l.client, prefix
 
 // Ticket counts the collaboration tickets a user asks for (slice 22).
 func (l *Limits) Ticket() domain.Limiter { return counter{client: l.client, prefix: ticketLimitPrefix} }
+
+// Archive counts the ZIP archives a user downloads (FR-13.7).
+func (l *Limits) Archive() domain.Limiter { return counter{client: l.client, prefix: archivePrefix} }
 
 // Close closes the own client.
 func (l *Limits) Close() error { return l.client.Close() }

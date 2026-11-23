@@ -2509,12 +2509,14 @@ export interface paths {
          * @description Needs the access cookie and the platform action "View profiles, search, feed,
          *     events and recommendations" (SRS 2.3); a project the caller cannot see gets 404
          *     `not_found`. Then each field named needs its project action: `title`,
-         *     `description`, `requiredSkills` and `status` the row "Edit project details and
-         *     status" (owner), `abstract` the row "Compile, use the assistant, edit the abstract"
+         *     `description`, `requiredSkills`, `status` and `mainFilePath` the row "Edit project
+         *     details and status" (owner), `abstract` the row "Compile, use the assistant, edit the abstract"
          *     (editor, owner); otherwise 403 `forbidden` and nothing changes. A missing field keeps
          *     its value; `null` clears `abstract` and is refused for the others. `requiredSkills`
          *     replaces the whole list. The rules of `createProject` apply; `status` is `open`,
-         *     `closed` or `archived`, and the owner may move between any of them.
+         *     `closed` or `archived`, and the owner may move between any of them. `mainFilePath`
+         *     (FR-13.1) must name an existing text file ending in `.tex` (409 `main_file_invalid`);
+         *     `null` is refused.
          */
         patch: operations["updateProject"];
         trace?: never;
@@ -3453,6 +3455,160 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{projectId}/compiles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Compile the project's main file (FR-13.1, FR-13.4)
+         * @description Needs the access cookie and the platform action "View profiles, search, ..." (SRS
+         *     2.3), then the project action "Compile, use the assistant, edit the abstract" (editor,
+         *     owner): a non-member, an administrator included, gets 404 `not_found`, a viewer 403
+         *     `forbidden`, a suspended account 403 `account_suspended`.
+         *
+         *     Queues one compile of the project's main file (`mainFilePath` of the file tree, by
+         *     default `main.tex`) with pdfLaTeX and BibTeX, and answers at once with the job
+         *     (`queued`); `compile.updated` events report its progress to every member
+         *     (docs/realtime.md). A project runs one compile at a time (FR-13.4): while one is
+         *     queued or running the answer is 409 `compile_running` with its `compileId`.
+         *     409 `main_file_missing`: no text file is at the main file's path. Each user may start
+         *     10 compiles a minute (429 `rate_limited`). 503 `compile_unavailable`: no compile
+         *     worker has asked for work in the last 30 seconds; 503 `compile_busy`: too many
+         *     compiles are waiting. Neither queues anything.
+         */
+        post: operations["startCompile"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{projectId}/compiles/latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The project's most recent compile, with its errors (FR-13.2)
+         * @description Needs the project action "Open the workspace, read files, view the PDF" (every
+         *     member); others get 404 `not_found`. 404 `no_compile` when the project was never
+         *     compiled. A client reads it when the workspace opens and after a real-time reconnect.
+         */
+        get: operations["getLatestCompile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{projectId}/compiles/{compileId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One compile, with its errors (FR-13.2)
+         * @description Members only, as `getLatestCompile`. The project keeps its 10 newest compiles; an
+         *     older one, or one of another project, gets 404 `not_found`.
+         */
+        get: operations["getCompile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{projectId}/compiles/{compileId}/log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The compile log (FR-13.2)
+         * @description Members only, as `getLatestCompile`. The log is kept for the project's newest
+         *     finished compile only (SRS 7, Retention): for any other compile, or one still running,
+         *     404 `no_log`. At most 2 MiB; a longer log keeps its beginning and ends with a line
+         *     saying it was cut.
+         */
+        get: operations["getCompileLog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{projectId}/pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The project's latest PDF (FR-13.6)
+         * @description Members only, as `getLatestCompile`. The PDF of the newest compile that succeeded
+         *     (SRS 7, Retention); 404 `no_pdf` when there is none. The API streams it from storage
+         *     itself, never by a storage URL, so that the answer carries these headers: a PDF can
+         *     hold JavaScript, which `Content-Security-Policy: sandbox` and `nosniff` keep from
+         *     running in the app's origin when a browser shows it (docs/decisions.md):
+         *     `Content-Type: application/pdf`, `Content-Disposition` `inline` (for the viewer) or
+         *     `attachment` (to save; the default) with the project's title as the file name,
+         *     `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox; default-src
+         *     'none'; ...`, `Cache-Control: private, no-store` and `X-Compile-Id`, the compile it
+         *     came from.
+         */
+        get: operations["downloadProjectPdf"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{projectId}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download the project's files as a ZIP archive (FR-13.7)
+         * @description Members only ("Open the workspace, read files, view the PDF"); others get 404
+         *     `not_found`. Streams a ZIP of every folder, text file (the stored text: live edits
+         *     reach it within 5 seconds, NFR-10.1) and figure whose malware scan found it clean;
+         *     a figure still pending, failed or infected is left out. Text is compressed, figures
+         *     are stored as they are. 413 `archive_too_large` when the files would pass
+         *     `ARCHIVE_MAX_BYTES` (default 768 MiB). Each user may download 10 archives an hour
+         *     (429 `rate_limited`). The file name is the project's title.
+         */
+        get: operations["downloadProjectArchive"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/internal/sync/tickets/redeem": {
         parameters: {
             query?: never;
@@ -3538,6 +3694,99 @@ export interface paths {
          */
         put: operations["storeSyncFile"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal/compile/claim": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Take the oldest queued compile (internal, compile worker only)
+         * @description Waits up to 10 seconds for a queued compile, then answers 204. A claimed job is
+         *     `running` and leased to the worker for 120 seconds: a job not finished by then fails
+         *     as `worker_lost`. Every call also tells the API that a worker is alive
+         *     (`startCompile` answers `compile_unavailable` when none asked for 30 seconds).
+         */
+        post: operations["claimCompileJob"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal/compile/jobs/{compileId}/source": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The files to compile, as a tar archive (internal, compile worker only)
+         * @description First asks the sync server to store the project's open documents (docs/sync.md,
+         *     flush) and waits up to 5 seconds, so live edits are compiled. Then answers a POSIX tar
+         *     of the project's folders, text files and clean figures at their project paths; a
+         *     figure that is pending, failed or infected is left out and listed in the job's
+         *     `skipped`. 404 `not_found` unless the job is running and leased. 409
+         *     `input_too_large`: the files pass the input limit, and the job has already failed.
+         */
+        get: operations["getCompileSource"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal/compile/jobs/{compileId}/pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Store the PDF a compile made (internal, compile worker only)
+         * @description The body is the PDF, at most `COMPILE_MAX_PDF_BYTES` (100 MiB, else 413
+         *     `file_too_large`), starting with `%PDF-` (else 400 `bad_request`). Call it before
+         *     `finishCompileJob`. 404 `not_found` unless the job is running and leased.
+         */
+        put: operations["storeCompilePdf"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal/compile/jobs/{compileId}/finish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Report how a compile ended (internal, compile worker only)
+         * @description The API parses the errors from the logs (FR-13.2), decides the status (a compile
+         *     succeeds when it stored a PDF; `docs/compile.md`), keeps the log and the PDF as SRS 7
+         *     says, and tells the members. A second report of a finished job changes nothing (204).
+         *     404 `not_found` for an unknown job or one that ended as `worker_lost`.
+         */
+        post: operations["finishCompileJob"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5051,6 +5300,138 @@ export interface components {
             message: string;
             current?: components["schemas"]["ProjectFileCurrent"];
         };
+        /**
+         * @description `queued` and `running` are active (one per project, FR-13.4). `succeeded`: a PDF was
+         *     made, even when the log reports errors, which `errors` lists. `failed`: no PDF was
+         *     made (`failure` says why when the reason is not in the log). `timed_out`: stopped
+         *     after 60 seconds (FR-13.5). `cancelled`: no worker took it within 5 minutes.
+         * @enum {string}
+         */
+        CompileStatus: "queued" | "running" | "succeeded" | "failed" | "timed_out" | "cancelled";
+        /**
+         * @description The TeX engine; only `pdflatex` for now (FR-13.1), with BibTeX.
+         * @enum {string}
+         */
+        CompileEngine: "pdflatex";
+        /**
+         * @description Why a compile ended without a PDF when the log alone does not say:
+         *     `input_too_large` (the project's files pass the compile limit),
+         *     `output_too_large` (the PDF passes 100 MiB), `out_of_memory` (1 GB, NFR-4),
+         *     `no_pdf` (LaTeX ended without one), `worker_lost` (the compile service stopped
+         *     answering), `sandbox_error` (the container could not run), `queue_expired`
+         *     (cancelled after 5 minutes in the queue).
+         * @enum {string}
+         */
+        CompileFailure: "input_too_large" | "output_too_large" | "out_of_memory" | "no_pdf" | "worker_lost" | "sandbox_error" | "queue_expired";
+        /**
+         * @description One problem from the log (FR-13.2). `file` is a project path, or null when the
+         *     problem is not in a project file (a package, the class, the engine). `line` is null
+         *     when the log gives none.
+         */
+        CompileError: {
+            file: string | null;
+            line: number | null;
+            /** @description At most 500 characters. */
+            message: string;
+            /** @enum {string} */
+            severity: "error" | "warning";
+        };
+        /** @description A figure left out of the compile because its malware scan has not found it clean. */
+        CompileSkippedFile: {
+            path: string;
+            /** @enum {string} */
+            reason: "scan_pending" | "scan_failed" | "infected";
+        };
+        /** @description A compile job (FR-13.1, FR-13.2, FR-13.5). */
+        Compile: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            projectId: string;
+            status: components["schemas"]["CompileStatus"];
+            engine: components["schemas"]["CompileEngine"];
+            /** @description The file compiled, as it was when the compile was asked for. */
+            mainFilePath: string;
+            /**
+             * Format: uuid
+             * @description The member who asked; null when that account is gone.
+             */
+            requestedBy: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            startedAt: string | null;
+            /** Format: date-time */
+            finishedAt: string | null;
+            /** @description How long the sandbox ran, in milliseconds. */
+            durationMs: number | null;
+            failure: components["schemas"]["CompileFailure"] | null;
+            /** @description Errors first, then warnings, each in log order; at most 100. */
+            errors: components["schemas"]["CompileError"][];
+            skipped: components["schemas"]["CompileSkippedFile"][];
+            /**
+             * @description False when files were open for real-time editing and the sync server did not
+             *     confirm within 5 seconds that it stored them: edits of the last seconds may be
+             *     missing from this compile.
+             */
+            liveTextConfirmed: boolean;
+            /** @description The PDF's page count, from the log. */
+            pages: number | null;
+            /** @description Whether `getCompileLog` has a log for it. */
+            hasLog: boolean;
+            /** @description Whether this compile's PDF is the one `downloadProjectPdf` serves. */
+            hasPdf: boolean;
+        };
+        /**
+         * @description The `Error` shape; on `compile_running`, `compileId` names the compile that is queued
+         *     or running.
+         */
+        CompileConflict: {
+            /** @example compile_running */
+            code: string;
+            message: string;
+            /** Format: uuid */
+            compileId?: string;
+        };
+        CompileClaim: {
+            /** @description The worker's name for its logs, 1 to 100 characters. */
+            workerId: string;
+        };
+        /** @description What the compile worker runs. */
+        CompileJob: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            projectId: string;
+            mainFilePath: string;
+            engine: components["schemas"]["CompileEngine"];
+        };
+        /** @description How the sandbox run ended, as the compile worker saw it. */
+        CompileResult: {
+            /**
+             * @description `completed`: LaTeX ran to its end (with or without errors). `timed_out`: killed
+             *     at 60 seconds. `failed`: the run could not complete; `failure` says why.
+             * @enum {string}
+             */
+            outcome: "completed" | "timed_out" | "failed";
+            /** @description With `failed`: `output_too_large`, `out_of_memory` or `sandbox_error`. */
+            failure?: components["schemas"]["CompileFailure"] | null;
+            exitCode?: number | null;
+            durationMs: number;
+            /** @description The pdfLaTeX log (`<main>.log`), at most 2 MiB of UTF-8; may be empty. */
+            log: string;
+            /** @description The BibTeX log (`<main>.blg`), at most 256 KiB; may be empty. */
+            bibtexLog: string;
+        };
+        /**
+         * @description A compile of a project the user is a member of was queued, started or finished
+         *     (FR-13.1). Sent to every current member.
+         */
+        RealtimeCompileUpdated: {
+            /** Format: uuid */
+            projectId: string;
+            compile: components["schemas"]["Compile"];
+        };
         /** @description A research project's page (FR-10.1, SRS 2.3). */
         Project: {
             /** Format: uuid */
@@ -5092,6 +5473,12 @@ export interface components {
             requiredSkills?: string[] | null;
             abstract?: string | null;
             status?: components["schemas"]["ProjectStatus"] | null;
+            /**
+             * @description The file compile starts from (FR-13.1): the path of an existing text file ending
+             *     in `.tex`, letter case as stored (the path is matched ignoring case and stored as
+             *     the file's own). Else 409 `main_file_invalid`.
+             */
+            mainFilePath?: string | null;
         };
         /** @description A project in a list. */
         ProjectSummary: {
@@ -5300,11 +5687,12 @@ export interface components {
          * @description The `type` of a server event. `docs/realtime.md` gives each one's `data`.
          * @enum {string}
          */
-        RealtimeEventType: "message.created" | "message.updated" | "message.deleted" | "attachment.updated" | "conversation.read" | "conversation.updated" | "conversation.members" | "unread.changed" | "typing" | "presence" | "notification.created" | "notifications.unread";
+        RealtimeEventType: "message.created" | "message.updated" | "message.deleted" | "attachment.updated" | "conversation.read" | "conversation.updated" | "conversation.members" | "unread.changed" | "typing" | "presence" | "notification.created" | "notifications.unread" | "compile.updated";
         /**
          * @description One server-to-client WebSocket frame, as JSON text. `data` is `RealtimeMessageCreated`,
          *     `RealtimeMessageUpdated`, `RealtimeMessageDeleted`, `RealtimeAttachmentUpdated`, `RealtimeConversationRead`, `RealtimeConversationUpdated`, `RealtimeConversationMembers`, `MessageUnreadCount`,
-         *     `RealtimeTyping`, `PresenceStatus`, `Notification` or `UnreadNotificationCount`,
+         *     `RealtimeTyping`, `PresenceStatus`, `Notification`, `UnreadNotificationCount` or
+         *     `RealtimeCompileUpdated`,
          *     by `type`.
          */
         RealtimeEvent: {
@@ -6463,10 +6851,21 @@ export interface components {
         };
         /**
          * @description `rate_limited`: the caller has uploaded 30 figures in the current hour, saved 120
-         *     times in the current minute, or asked for 60 collaboration tickets in the current
-         *     minute.
+         *     times in the current minute, asked for 60 collaboration tickets in the current
+         *     minute, or downloaded 10 archives in the current hour.
          */
         ProjectFileRateLimited: {
+            headers: {
+                /** @description Seconds until the window ends. */
+                "Retry-After": number;
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description `rate_limited`: the caller has started 10 compiles in the current minute. */
+        CompileRateLimited: {
             headers: {
                 /** @description Seconds until the window ends. */
                 "Retry-After": number;
@@ -6659,6 +7058,8 @@ export interface components {
          *     value that is not a UUID gets 404 `not_found`.
          */
         ProjectFileId: string;
+        /** @description The compile's ID, a UUID, declared as a plain string like `projectId`. */
+        CompileId: string;
         /** @description Items per page, from 1; a larger value than 50 is reduced to 50. Defaults to 20. Below 1 gets 400 `bad_request`. */
         MembershipPageSize: number;
         /**
@@ -10984,6 +11385,15 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            /** @description `main_file_invalid`: `mainFilePath` is not an existing `.tex` text file. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             500: components["responses"]["InternalError"];
         };
     };
@@ -12367,6 +12777,236 @@ export interface operations {
             500: components["responses"]["InternalError"];
         };
     };
+    startCompile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The project's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                projectId: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The compile is queued. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Compile"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["AccountSuspendedOrForbidden"];
+            404: components["responses"]["NotFound"];
+            /**
+             * @description `compile_running`: a compile of this project is queued or running; `compileId`
+             *     names it. `main_file_missing`: there is no text file at the main file's path.
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompileConflict"];
+                };
+            };
+            429: components["responses"]["CompileRateLimited"];
+            500: components["responses"]["InternalError"];
+            /** @description `compile_unavailable` or `compile_busy`: nothing was queued; try again later. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getLatestCompile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The project's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                projectId: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The newest compile, in any status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Compile"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getCompile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The project's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                projectId: components["parameters"]["ProjectId"];
+                /** @description The compile's ID, a UUID, declared as a plain string like `projectId`. */
+                compileId: components["parameters"]["CompileId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The compile. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Compile"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getCompileLog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The project's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                projectId: components["parameters"]["ProjectId"];
+                /** @description The compile's ID, a UUID, declared as a plain string like `projectId`. */
+                compileId: components["parameters"]["CompileId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The pdfLaTeX log, as UTF-8 text. */
+            200: {
+                headers: {
+                    /** @description Always `no-store`. */
+                    "Cache-Control": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    downloadProjectPdf: {
+        parameters: {
+            query?: {
+                /** @description `attachment` (default) to save the file, `inline` to show it. */
+                disposition?: "inline" | "attachment";
+            };
+            header?: never;
+            path: {
+                /**
+                 * @description The project's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                projectId: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The PDF. */
+            200: {
+                headers: {
+                    "Content-Disposition": string;
+                    "X-Content-Type-Options": string;
+                    "Content-Security-Policy": string;
+                    "X-Compile-Id": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/pdf": string;
+                };
+            };
+            /** @description `bad_request` (`field: disposition`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    downloadProjectArchive: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The project's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                projectId: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The ZIP archive. */
+            200: {
+                headers: {
+                    "Content-Disposition": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/zip": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description `archive_too_large`. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            429: components["responses"]["ProjectFileRateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
     redeemSyncTicket: {
         parameters: {
             query?: never;
@@ -12492,6 +13132,134 @@ export interface operations {
                 };
             };
             413: components["responses"]["FileTooLarge"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    claimCompileJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompileClaim"];
+            };
+        };
+        responses: {
+            /** @description The job to run. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompileJob"];
+                };
+            };
+            /** @description No compile is waiting. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadSyncRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getCompileSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The compile's ID, a UUID, declared as a plain string like `projectId`. */
+                compileId: components["parameters"]["CompileId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The files. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/x-tar": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description `input_too_large`: the job failed. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    storeCompilePdf: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The compile's ID, a UUID, declared as a plain string like `projectId`. */
+                compileId: components["parameters"]["CompileId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/pdf": string;
+            };
+        };
+        responses: {
+            /** @description Stored. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadSyncRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            413: components["responses"]["FileTooLarge"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    finishCompileJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The compile's ID, a UUID, declared as a plain string like `projectId`. */
+                compileId: components["parameters"]["CompileId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompileResult"];
+            };
+        };
+        responses: {
+            /** @description Recorded. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadSyncRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
             500: components["responses"]["InternalError"];
         };
     };

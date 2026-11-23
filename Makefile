@@ -18,10 +18,12 @@ TEST_POSTGRES_DB  ?= researchsphere_test
 TEST_DATABASE_URL ?= postgres://researchsphere:devpassword@localhost:5433/researchsphere_test?sslmode=disable
 TEST_REDIS_URL    ?= redis://localhost:6379/15
 AI_SERVICE_PORT   ?= 8090
+# The compile sandbox image (slice 23); make compile-image builds it under this name.
+COMPILE_IMAGE     ?= researchsphere-compile:dev
 MIGRATIONS_DIR := backend/db/migrations
 
 .DEFAULT_GOAL := help
-.PHONY: help up down logs ps psql check migrate migrate-down migrate-new admin unadmin seed-ui-compare seed-dev sample-data sample-purge purge-unverified send-digests calibrate-recs eval-recs bench-recs eval-search bench-search embed-backfill backfill-main-tex update-disposable-domains api web stop web-clean ai-build ai-up ai-fetch-model ai-logs sync sync-build sync-load generate check-generated test test-prepare test-db test-go test-integration test-one test-web test-ai test-sync lint lint-go lint-web lint-ai lint-sync
+.PHONY: help up down logs ps psql check migrate migrate-down migrate-new admin unadmin seed-ui-compare seed-dev sample-data sample-purge purge-unverified send-digests calibrate-recs eval-recs bench-recs eval-search bench-search embed-backfill backfill-main-tex purge-compile-output update-disposable-domains api web stop web-clean ai-build ai-up ai-fetch-model ai-logs sync sync-build sync-load compile-image compile-worker bench-compile compile-trace generate check-generated test test-prepare test-db test-go test-integration test-one test-web test-ai test-sync test-compile test-compile-sandbox lint lint-go lint-web lint-ai lint-sync lint-compile
 
 help: ## List the available commands
 	@grep -hE '^[a-zA-Z_-]+:.*## ' $(firstword $(MAKEFILE_LIST)) | awk 'BEGIN {FS = ":.*## "} {printf "  make %-16s %s\n", $$1, $$2}'
@@ -48,7 +50,7 @@ ps: ## Show the status of the containers
 psql: ## Open a psql prompt in the database
 	docker compose exec postgres psql -U $(POSTGRES_USER) -d $(POSTGRES_DB)
 
-check: ## Check that PostgreSQL, pgvector, Redis and storage respond, the bucket is private and takes uploads from the web client; show whether ClamAV answers
+check: ## Check that PostgreSQL, pgvector, Redis and storage respond, the bucket is private and takes uploads from the web client, and the compile sandbox's Landlock works (when its image is built); show whether ClamAV answers
 	@docker compose exec -T postgres psql -U $(POSTGRES_USER) -d $(POSTGRES_DB) -tAc "SELECT 'postgres ok: ' || current_setting('server_version')"
 	@docker compose exec -T postgres psql -U $(POSTGRES_USER) -d $(POSTGRES_DB) -tAc "SELECT 'pgvector available: ' || default_version FROM pg_available_extensions WHERE name = 'vector'"
 	@echo "redis: $$(docker compose exec -T redis redis-cli ping)"
@@ -62,6 +64,13 @@ check: ## Check that PostgreSQL, pgvector, Redis and storage respond, the bucket
 	@echo "storage CORS ok (the web client may upload figures)"
 	@echo "clamav: $$(docker compose exec -T clamav clamdscan --ping 1 >/dev/null 2>&1 && echo ready || echo 'not ready yet (attachments stay pending until it answers)')"
 	@echo "ai: $$(curl -fsS -o /dev/null "http://127.0.0.1:$(AI_SERVICE_PORT)/ready" 2>/dev/null && echo ready || echo 'not ready yet (loading or downloading its model, or not started; GET /health says degraded)')"
+	@if docker image inspect "$(COMPILE_IMAGE)" >/dev/null 2>&1; then \
+		out=$$(docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges:true --user 10001:10001 \
+			--tmpfs /work:rw,size=1m,mode=0700,uid=10001,gid=10001 --tmpfs /tmp:rw,size=1m,mode=1777 \
+			--entrypoint /usr/local/bin/rs-landlock "$(COMPILE_IMAGE)" --probe 2>&1); \
+		if [[ "$$out" != "landlock abi="*" ok" ]]; then echo "compile sandbox: $$out"; echo "compile sandbox: this kernel cannot enforce the sandbox's file rules (Landlock ABI 8 needed, docs/deploy.md); no compile will run"; exit 1; fi; \
+		echo "compile sandbox ok ($$out)"; \
+	else echo "compile sandbox: image $(COMPILE_IMAGE) not built (make compile-image); Landlock not checked"; fi
 
 migrate: ## Apply all database migrations
 	migrate -path $(MIGRATIONS_DIR) -database "$(DATABASE_URL)" up
@@ -122,6 +131,10 @@ bench-search: ## Measure NFR-1: hybrid researcher search p50, p95, max with a co
 backfill-main-tex: ## Give the starting main.tex to every project without files (FR-10.4); once after migration 000035, idempotent
 	cd backend && go run ./cmd/backfillmaintex
 
+purge-compile-output: ## Delete PDFs and logs of compiles that started before=<RFC 3339 time> (after a sandbox fix); lists only unless apply=1
+	@test -n "$(before)" || { echo "Usage: make purge-compile-output before=2026-11-23T21:10:27+06:00 [apply=1]"; exit 1; }
+	cd backend && go run ./cmd/purgecompileoutput -before "$(before)" $(if $(filter 1,$(apply)),-apply,)
+
 embed-backfill: ## Queue every verified, not suspended profile for its AI embedding once (AI-1.5); the running API embeds them
 	cd backend && go run ./cmd/api -embed-backfill
 
@@ -175,11 +188,26 @@ seconds ?= 60
 sync-load: ## Measure NFR-2 and NFR-10.1: 10 files x 4 simulated editors typing for seconds=60 (needs make up; empties TEST_REDIS_URL)
 	cd sync && LOAD_SECONDS="$(seconds)" node scripts/load.ts
 
+compile-image: ## Build the compile sandbox image (TeX Live full, pinned; about 9 GB on disk, the first pull downloads 2.8 GB)
+	docker build -t "$(COMPILE_IMAGE)" compile/image
+	@docker image inspect "$(COMPILE_IMAGE)" --format 'Built $(COMPILE_IMAGE): {{.Id}}, {{.Size}} bytes'
+
+compile-worker: ## Run the compile worker on this host with your Docker (needs make compile-image, make api and COMPILE_SERVICE_TOKEN)
+	cd compile && go run ./cmd/worker
+
+compile-trace: ## Trace one project folder in the sandbox (dev only): every path refused, every write outside /work and /tmp; dir=<folder> [main=main.tex] [out=<folder>]
+	@test -n "$(dir)" || { echo "Usage: make compile-trace dir=<project folder> [main=main.tex] [out=<folder for the raw trace>]"; exit 1; }
+	docker build -q --build-arg BASE="$(COMPILE_IMAGE)" -t researchsphere-compile:debug compile/image/debug >/dev/null
+	cd compile && go run ./cmd/trace -dir "$(abspath $(dir))" -main "$(or $(main),main.tex)" $(if $(out),-out "$(abspath $(out))",)
+
+bench-compile: ## Measure NFR-3: compile the 10-page sample paper in the real sandbox runs=5 times (needs make compile-image)
+	cd compile && go run ./cmd/bench -runs "$(or $(runs),5)"
+
 generate: ## Regenerate Go code (oapi-codegen, sqlc) and TypeScript types
 	cd backend && go generate ./...
 	cd frontend && npm run generate
 
-GENERATED := backend/internal/api backend/internal/auth/adapter/postgres/sqlcgen backend/internal/profile/adapter/postgres/sqlcgen backend/internal/media/adapter/postgres/sqlcgen backend/internal/notification/adapter/postgres/sqlcgen backend/internal/moderation/adapter/postgres/sqlcgen frontend/src/lib/api
+GENERATED := backend/internal/api backend/internal/compile/adapter/postgres/sqlcgen backend/internal/auth/adapter/postgres/sqlcgen backend/internal/profile/adapter/postgres/sqlcgen backend/internal/media/adapter/postgres/sqlcgen backend/internal/notification/adapter/postgres/sqlcgen backend/internal/moderation/adapter/postgres/sqlcgen frontend/src/lib/api
 
 check-generated: generate ## Fail if generated code is out of date
 	@if [[ -n "$$(git status --porcelain -- $(GENERATED))" ]]; then \
@@ -188,7 +216,7 @@ check-generated: generate ## Fail if generated code is out of date
 		exit 1; \
 	fi
 
-test: test-prepare test-db test-go test-integration test-web test-ai test-sync ## Run all tests (needs make up)
+test: test-prepare test-db test-go test-integration test-web test-ai test-sync test-compile ## Run all tests (needs make up)
 
 # The database name reaches psql as a variable (:'db'), never pasted into the SQL.
 test-prepare: ## Create the test database (TEST_POSTGRES_DB) if missing and apply all migrations to it
@@ -222,7 +250,7 @@ test-one: test-prepare ## Run one integration test: make test-one pkg=./internal
 test-web: ## Run the frontend tests (Jest)
 	cd frontend && npm test
 
-lint: lint-go lint-web lint-ai lint-sync ## Run all linters and the frontend and sync type checks
+lint: lint-go lint-web lint-ai lint-sync lint-compile ## Run all linters and the frontend and sync type checks
 
 lint-go: ## Run golangci-lint for the backend
 	cd backend && golangci-lint run ./...
@@ -241,6 +269,15 @@ lint-ai: ## Run ruff (lint and format check) for the AI service
 # DB 0 or REDIS_URL's), which they empty, and a fake of the API's internal operations.
 test-sync: ## Run the sync server tests (needs make up and cd sync && npm ci)
 	cd sync && npm test
+
+test-compile: ## Run the compile worker's tests (a fake Docker daemon; no image needed)
+	cd compile && go test -race ./...
+
+test-compile-sandbox: ## Run the compile sandbox tests against real Docker and the image (NFR-4, FR-13.5; needs make compile-image; about 90 seconds)
+	cd compile && go test -race -count=1 -tags sandbox -timeout 10m ./internal/sandbox/
+
+lint-compile: ## Run golangci-lint for the compile worker
+	cd compile && golangci-lint run ./...
 
 lint-sync: ## Run ESLint and the TypeScript type check for the sync server
 	cd sync && npm run lint && npm run typecheck

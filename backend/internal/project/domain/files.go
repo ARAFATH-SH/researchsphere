@@ -140,7 +140,35 @@ var (
 	ErrUploadNotFound = errors.New("project: upload not found")
 	// ErrUploadIncomplete refuses completing an upload whose file is not in storage yet.
 	ErrUploadIncomplete = errors.New("project: the upload has not reached storage")
+	// ErrMainFileInvalid refuses a main file that is not an existing .tex text file (FR-13.1).
+	ErrMainFileInvalid = errors.New("project: the main file must be an existing .tex text file")
+	// ErrArchiveTooLarge refuses a ZIP archive over the archive limit (FR-13.7).
+	ErrArchiveTooLarge = errors.New("project: the archive would be too large")
 )
+
+// Source is what a compile reads (FR-13.1; slice 23): every entry of the project, text with
+// its content and figures with their object key and scan status, sorted by path.
+// LiveConfirmed is false when files were open on the sync server and it did not confirm in
+// time that it stored them, so edits of the last seconds may be missing.
+type Source struct {
+	MainFilePath  string
+	Files         []StoredFile
+	LiveConfirmed bool
+}
+
+// Archive is a ZIP archive to write (FR-13.7): its file name and the entries in it.
+type Archive struct {
+	Name    string
+	Files   []StoredFile // folders, text, and clean figures, sorted by path
+	Skipped int          // figures left out because their scan has not found them clean
+}
+
+// LiveFlusher asks the sync server to store the project's open documents now and says
+// whether it confirmed within timeout (docs/sync.md, flush). false, nil when it did not
+// answer in time.
+type LiveFlusher interface {
+	FlushLive(ctx context.Context, projectID string, timeout time.Duration) (bool, error)
+}
 
 // FigureTooLargeError refuses a figure over the largest figure (FR-12.2).
 type FigureTooLargeError struct {
@@ -225,6 +253,15 @@ type FileStore interface {
 	// DeleteExpiredUploads deletes up to limit expired uploads and says how many; the
 	// database queues their objects for deletion.
 	DeleteExpiredUploads(ctx context.Context, limit int) (int, error)
+	// SourceFiles lists every entry of the project with what is kept beside it: text with
+	// its content, figures with their object key and scan status; sorted by path.
+	SourceFiles(ctx context.Context, projectID string) ([]StoredFile, error)
+	// MainFile is the project's main file path; ErrNotFound when there is no project.
+	MainFile(ctx context.Context, projectID string) (string, error)
+	// SetMainFile sets the project's main file path.
+	SetMainFile(ctx context.Context, projectID, path string) error
+	// ProjectTitle is the project's title; ErrNotFound when there is none.
+	ProjectTitle(ctx context.Context, projectID string) (string, error)
 }
 
 // FigureInfo is what the figure check found.
@@ -275,6 +312,8 @@ type FileObjects interface {
 	// Copy copies the object's version with this ETag to dst with the content type, inside
 	// storage; ErrObjectMissing, ErrObjectChanged.
 	Copy(ctx context.Context, src, dst, etag, contentType string) error
+	// Get reads the object; ErrObjectMissing when there is none.
+	Get(ctx context.Context, key string) (io.ReadCloser, error)
 	// PresignDownload returns a URL that downloads the object as a file named filename, with
 	// the given content type, until expiry.
 	PresignDownload(ctx context.Context, key string, expiry time.Duration, filename, contentType string) (*url.URL, error)

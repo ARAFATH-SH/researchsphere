@@ -1,0 +1,23 @@
+% A document with a PNG and a PDF figure in a subfolder, for the compile corpus.
+\documentclass{article}
+\usepackage{graphicx}
+\graphicspath{{figures/}}
+
+\begin{document}
+\section{Figures}
+A raster figure (PNG) and a vector figure (PDF):
+
+\begin{figure}[ht]
+  \centering
+  \includegraphics[width=0.3\textwidth]{gradient.png}
+  \caption{A PNG figure.}\label{fig:png}
+\end{figure}
+
+\begin{figure}[ht]
+  \centering
+  \includegraphics[width=0.3\textwidth]{shapes.pdf}
+  \caption{A PDF figure.}\label{fig:pdf}
+\end{figure}
+
+Figures~\ref{fig:png} and~\ref{fig:pdf}.
+\end{document}

@@ -1,0 +1,13 @@
+% biblatex with the biber backend for the compile corpus; the bibliography is a file of the
+% project. All references are made up.
+\documentclass{article}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[backend=biber, style=authoryear]{biblatex}
+\addbibresource{refs.bib}
+
+\begin{document}
+Example graphs were studied by \textcite{example2024graphs}; trees by \textcite{sample2023trees}.
+
+\printbibliography
+\end{document}

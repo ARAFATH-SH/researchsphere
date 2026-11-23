@@ -15,11 +15,12 @@ const (
 	testDBURL    = "postgres://user:" + testPassword + "@localhost:5433/db?sslmode=disable"
 	testRedisURL = "redis://:" + testPassword + "@localhost:6379/0"
 	testSecret   = "test-jwt-secret-0123456789abcdefghij"
-	testUnsubKey = "test-unsubscribe-secret-0123456789ab" //nolint:gosec // test value, not a credential
-	testS3Secret = "test-s3-secret-key"                   //nolint:gosec // test value, not a credential
-	testSMTPPass = "smtp-secret-do-not-log"               //nolint:gosec // test value, not a credential
-	testAIToken  = "test-ai-service-token-0123456789abcd" //nolint:gosec // test value, not a credential
-	testSyncTok  = "test-sync-service-token-0123456789ab" //nolint:gosec // test value, not a credential
+	testUnsubKey = "test-unsubscribe-secret-0123456789ab"  //nolint:gosec // test value, not a credential
+	testS3Secret = "test-s3-secret-key"                    //nolint:gosec // test value, not a credential
+	testSMTPPass = "smtp-secret-do-not-log"                //nolint:gosec // test value, not a credential
+	testAIToken  = "test-ai-service-token-0123456789abcd"  //nolint:gosec // test value, not a credential
+	testSyncTok  = "test-sync-service-token-0123456789ab"  //nolint:gosec // test value, not a credential
+	testCompTok  = "test-compile-service-token-0123456789" //nolint:gosec // test value, not a credential
 )
 
 // validDefaults are served for these settings unless vars sets them (even to "").
@@ -273,7 +274,7 @@ func TestLoadLoginSettings(t *testing.T) {
 func TestLogValueHidesSecrets(t *testing.T) {
 	cfg, err := Load(env(map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL,
 		"SMTP_USERNAME": "apikey", "SMTP_PASSWORD": testSMTPPass, "AI_SERVICE_TOKEN": testAIToken,
-		"SYNC_SERVICE_TOKEN": testSyncTok}))
+		"SYNC_SERVICE_TOKEN": testSyncTok, "COMPILE_SERVICE_TOKEN": testCompTok}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -581,7 +582,7 @@ var prodMail = map[string]string{
 	"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL, "APP_ENV": "production",
 	"SMTP_HOST": "smtp-relay.brevo.com", "SMTP_PORT": "587", "SMTP_TLS": "starttls",
 	"SMTP_USERNAME": "apikey", "SMTP_PASSWORD": "provider-key",
-	"AI_SERVICE_TOKEN": testAIToken, "SYNC_SERVICE_TOKEN": testSyncTok,
+	"AI_SERVICE_TOKEN": testAIToken, "SYNC_SERVICE_TOKEN": testSyncTok, "COMPILE_SERVICE_TOKEN": testCompTok,
 }
 
 // with returns a copy of base with the key and value pairs in kv set.
@@ -854,5 +855,48 @@ func TestLoadSearchAITimeout(t *testing.T) {
 		if _, err := Load(env(map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL, "SEARCH_AI_TIMEOUT": bad})); err == nil || !strings.Contains(err.Error(), "SEARCH_AI_TIMEOUT") {
 			t.Errorf("%q: err = %v", bad, err)
 		}
+	}
+}
+
+func TestLoadCompileService(t *testing.T) {
+	dev := map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL}
+	cfg, err := Load(env(dev))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.CompileServiceToken != "" || cfg.CompileMaxPDFBytes != DefaultCompileMaxPDFBytes ||
+		cfg.CompileMaxInputBytes != DefaultCompileMaxInputBytes || cfg.ArchiveMaxBytes != DefaultArchiveMaxBytes ||
+		cfg.CompileQueueMax != DefaultCompileQueueMax {
+		t.Errorf("defaults: %+v", cfg)
+	}
+	cfg, err = Load(env(with(dev, "COMPILE_SERVICE_TOKEN", testCompTok, "COMPILE_MAX_PDF_BYTES", "60M", "COMPILE_QUEUE_MAX", "5")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.CompileServiceToken != testCompTok || cfg.CompileMaxPDFBytes != 60<<20 || cfg.CompileQueueMax != 5 {
+		t.Errorf("set: token %v, pdf %d, queue %d", cfg.CompileServiceToken == testCompTok, cfg.CompileMaxPDFBytes, cfg.CompileQueueMax)
+	}
+	refusals := []struct {
+		name string
+		vars map[string]string
+		want string
+	}{
+		{"production without a token", with(prodMail, "COMPILE_SERVICE_TOKEN", ""), "COMPILE_SERVICE_TOKEN is required"},
+		{"short token", with(dev, "COMPILE_SERVICE_TOKEN", "short"), "COMPILE_SERVICE_TOKEN must be at least 32"},
+		{"token equal to the sync token", with(dev, "COMPILE_SERVICE_TOKEN", testSyncTok, "SYNC_SERVICE_TOKEN", testSyncTok), "COMPILE_SERVICE_TOKEN must differ"},
+		{"PDF over the database's ceiling", with(dev, "COMPILE_MAX_PDF_BYTES", "300M"), "COMPILE_MAX_PDF_BYTES must be at most"},
+		{"input over the sandbox", with(dev, "COMPILE_MAX_INPUT_BYTES", "1G"), "COMPILE_MAX_INPUT_BYTES must be at most"},
+		{"queue of zero", with(dev, "COMPILE_QUEUE_MAX", "0"), "COMPILE_QUEUE_MAX"},
+	}
+	for _, tt := range refusals {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Load(env(tt.vars))
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("error = %v, want %q", err, tt.want)
+			}
+			if err != nil && strings.Contains(err.Error(), testSyncTok) {
+				t.Errorf("error repeats a secret: %v", err)
+			}
+		})
 	}
 }

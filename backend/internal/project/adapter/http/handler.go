@@ -26,6 +26,8 @@ const (
 	CodeAlreadyReported      = "already_reported"
 	CodeAccountSuspended     = "account_suspended"
 	CodeAlreadyResolved      = "report_already_resolved"
+	CodeMainFileInvalid      = "main_file_invalid"
+	CodeArchiveTooLarge      = "archive_too_large"
 )
 
 // Service is the part of the usecase the handlers call.
@@ -152,6 +154,9 @@ func (h *Handler) UpdateProject(ctx context.Context, req gen.UpdateProjectReques
 		return gen.UpdateProject403JSONResponse{ForbiddenJSONResponse: forbidden}, nil
 	case errors.As(err, &fe):
 		return gen.UpdateProject400JSONResponse{InvalidProjectJSONResponse: gen.InvalidProjectJSONResponse(fieldError(fe.Field))}, nil
+	case errors.Is(err, domain.ErrMainFileInvalid):
+		return gen.UpdateProject409JSONResponse{Code: CodeMainFileInvalid,
+			Message: "The main file must be an existing .tex file of this project."}, nil
 	case err != nil:
 		return nil, err
 	}
@@ -195,6 +200,13 @@ func updateInput(b gen.ProjectUpdate) (usecase.UpdateInput, string) {
 		}
 		v := b.Status.MustGet()
 		in.Status = &v
+	}
+	if b.MainFilePath.IsSpecified() {
+		if b.MainFilePath.IsNull() {
+			return in, "mainFilePath"
+		}
+		v := b.MainFilePath.MustGet()
+		in.MainFilePath = &v
 	}
 	if b.Abstract.IsSpecified() {
 		in.SetAbstract = true

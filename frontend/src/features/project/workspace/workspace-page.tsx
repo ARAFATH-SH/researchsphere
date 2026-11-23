@@ -8,7 +8,7 @@ import { useSession } from "@/features/auth/session";
 import { DevApiStatus } from "@/features/health/dev-api-status";
 import { WarningBanner } from "@/features/moderation/warning-banner";
 
-import { getProject, listProjectMembers, type Project } from "../api";
+import { getProject, listProjectMembers, type Project, updateProject } from "../api";
 import { createFile, deleteFile, getFile, listFiles, moveFile, type ProjectFile, type ProjectStorage } from "../files/api";
 import { baseName, countInside, folderAncestors, isInside, parentPath } from "../files/tree";
 import { CreateDialog, DeleteFileDialog, MoveDialog, RenameDialog } from "./file-dialogs";
@@ -16,6 +16,15 @@ import { type Opened, FilePane } from "./file-pane";
 import { FileTree, treeItemId } from "./file-tree";
 import { collabStatus } from "./collab/types";
 import { useCollab, useCollabState } from "./collab/use-collab";
+import { CompileMessages } from "./compile/compile-messages";
+import { CompileButton, CompileStatus } from "./compile/compile-status";
+import { DownloadButtons, DownloadError, useDownloads } from "./compile/downloads";
+import { ErrorsPanel, type JumpTarget } from "./compile/errors-panel";
+import { PdfPanel } from "./compile/pdf-panel";
+import { Split } from "./compile/split";
+import { useCompile } from "./compile/use-compile";
+import { useWide } from "./compile/use-wide";
+import type { EditorHandle } from "./editor/latex-editor";
 import { DropZone, figureAccept, StorageUse, UploadList, useFigureUploads } from "./figure-upload";
 import { type MemberFace, PresenceBar } from "./presence-bar";
 import { statusText } from "./autosave";
@@ -34,7 +43,9 @@ type Open = { kind: "create"; type: "text" | "folder" } | { kind: "rename" | "mo
 // tree (FR-12.1, FR-12.2) and the LaTeX editor (FR-12.3), edited together in real time through
 // the sync server (FR-12.4 to FR-12.9, docs/sync.md) with presence and cursors (FR-12.5), and
 // REST autosave (FR-12.6) when the sync server cannot be reached. Members only; a viewer reads
-// without changing anything. Compile, the PDF and the assistant come with slice 23.
+// without changing anything. Editors and the owner compile (FR-13.1); every member sees the
+// compile's progress, the PDF beside the editor, the errors with a jump to their line (FR-13.2,
+// FR-13.3) and can download the PDF and the files (FR-13.6, FR-13.7). The assistant comes later.
 export function WorkspacePage({ projectId }: { projectId: string }) {
   const [attempt, setAttempt] = useState(0);
   const key = `${projectId}#${attempt}`;
@@ -137,6 +148,7 @@ function Workspace({
   const fileInput = useRef<HTMLInputElement>(null);
 
   const [items, setItems] = useState(initialItems);
+  const [mainPath, setMainPath] = useState(mainFilePath);
   const [storage, setStorage] = useState(initialStorage);
   const main = initialItems.find((f) => f.kind === "text" && f.path === mainFilePath) ?? initialItems.find((f) => f.kind === "text");
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(
@@ -159,6 +171,19 @@ function Workspace({
   const role = ended ? "viewer" : (collabState.role ?? project.myRole ?? "viewer");
   const canEdit = role !== "viewer";
   const faces = useMemberFaces(projectId);
+  const wide = useWide();
+  const [tab, setTab] = useState<"editor" | "pdf">("editor");
+  const compiler = useCompile(projectId, collab.sent);
+  const startCompile = compiler.start;
+  const downloads = useDownloads(projectId);
+  const [missing, setMissing] = useState<string | null>(null);
+  const [mainError, setMainError] = useState<string | null>(null);
+  const editors = useRef(new Map<string, EditorHandle>());
+  const pendingJump = useRef<{ fileId: string; line: number | null } | null>(null);
+  const nameOf = useCallback(
+    (userId: string | null) => (userId === null ? "a member" : userId === selfId ? "you" : (faces.get(userId)?.name ?? "a member")),
+    [faces, selfId],
+  );
   const request = useRef(0);
   const openedRef = useRef(opened);
   useEffect(() => {
@@ -210,6 +235,8 @@ function Workspace({
       setTreeError(null);
       const next = res.data.items;
       setItems(next);
+      // The main file follows a rename or move (slice 21).
+      setMainPath(res.data.mainFilePath);
       setStorage(res.data.storage);
       const byId = new Map(next.map((f) => [f.id, f]));
       setOpened((prev) => {
@@ -249,17 +276,71 @@ function Workspace({
 
   const saveNow = useCallback(() => void activeSession?.flush(), [activeSession]);
 
-  // Ctrl/Cmd+S saves at once anywhere in the workspace, never the browser's save dialog.
+  // Ctrl/Cmd+S saves at once anywhere in the workspace, never the browser's save dialog;
+  // Ctrl/Cmd+Enter compiles, for editors and the owner (FR-13.1).
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === "s") {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+      if (event.key.toLowerCase() === "s") {
         event.preventDefault();
         saveNow();
+      } else if (event.key === "Enter" && canEdit && !event.repeat) {
+        event.preventDefault();
+        void startCompile();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [saveNow]);
+  }, [saveNow, canEdit, startCompile]);
+
+  // An error's file opens with the cursor at its line (FR-13.3), now or when its editor is ready.
+  const onEditorReady = useCallback((fileId: string, handle: EditorHandle | null) => {
+    if (!handle) {
+      editors.current.delete(fileId);
+      return;
+    }
+    editors.current.set(fileId, handle);
+    const jump = pendingJump.current;
+    if (jump?.fileId === fileId) {
+      pendingJump.current = null;
+      if (jump.line !== null) handle.goToLine(jump.line);
+      else handle.focus();
+    }
+  }, []);
+
+  const jumpTo = useCallback(
+    (target: JumpTarget) => {
+      const file = items.find((f) => f.kind === "text" && f.path === target.file);
+      if (!file) {
+        setMissing(target.file);
+        return;
+      }
+      setMissing(null);
+      setTab("editor");
+      setSelectedId(file.id);
+      setExpanded((set) => new Set([...set, ...folderAncestors(items, file.path)]));
+      const handle = openedRef.current.kind === "text" && openedRef.current.file.id === file.id ? editors.current.get(file.id) : undefined;
+      if (handle) {
+        if (target.line !== null) handle.goToLine(target.line);
+        else handle.focus();
+        return;
+      }
+      pendingJump.current = { fileId: file.id, line: target.line };
+      void openFile(file);
+    },
+    [items, openFile],
+  );
+
+  // The owner chooses the file a compile starts from (FR-13.1).
+  const chooseMain = useCallback(
+    async (path: string) => {
+      setMainError(null);
+      const res = await updateProject(projectId, { mainFilePath: path });
+      if (res.ok) setMainPath(path);
+      else setMainError(res.code === "main_file_invalid" ? "That file can’t be the main file: choose a .tex file." : "We couldn’t change the main file. Try again.");
+    },
+    [projectId],
+  );
 
   function closeDialog() {
     setDialog(null);
@@ -292,6 +373,23 @@ function Workspace({
     </button>
   );
 
+  const filePane = (
+    <FilePane
+      opened={opened}
+      role={role}
+      wrap={wrap}
+      onToggleWrap={() => setWrap((w) => !w)}
+      onSave={saveNow}
+      onRetry={(f) => void openFile(f)}
+      filesButton={filesButton}
+      onEditorReady={onEditorReady}
+    />
+  );
+  const pdfPanel = (
+    <PdfPanel projectId={projectId} compile={compiler.compile} onDownload={downloads.pdf} downloading={downloads.busy.has("pdf")} />
+  );
+  const errorsPanel = <ErrorsPanel projectId={projectId} compile={compiler.compile} missing={missing} onJump={jumpTo} />;
+
   return (
     <div className="flex h-dvh flex-col">
       <WorkspaceBar
@@ -309,8 +407,23 @@ function Workspace({
             />
           ) : null
         }
+        actions={
+          <>
+            <CompileStatus compile={compiler.compile} starting={compiler.starting} />
+            {canEdit && <CompileButton onClick={() => void startCompile()} busy={compiler.starting} />}
+            <DownloadButtons downloads={downloads} />
+          </>
+        }
       />
       <WarningBanner />
+      <DownloadError downloads={downloads} />
+      <CompileMessages
+        compile={compiler.compile}
+        notice={compiler.notice}
+        nameOf={nameOf}
+        onRetry={() => void startCompile()}
+        onDismiss={compiler.dismiss}
+      />
       <div className="relative flex min-h-0 flex-1 border-b border-rs-border">
         {drawer && (
           <button
@@ -339,6 +452,9 @@ function Workspace({
               </button>
             )}
           </div>
+          {role === "owner" && (
+            <MainFileChoice items={items} mainPath={mainPath} error={mainError} onChoose={(p) => void chooseMain(p)} />
+          )}
           {canEdit && (
             <div className="flex flex-wrap gap-1">
               <button id="new-file" type="button" aria-label="New file" onClick={() => setDialog({ kind: "create", type: "text" })} className={smallButton}>
@@ -376,6 +492,7 @@ function Workspace({
             openId={opened.kind === "none" ? null : opened.file.id}
             canEdit={canEdit}
             presence={collab.presence}
+            mainFilePath={mainPath}
             onSelect={(f) => setSelectedId(f.id)}
             onToggle={toggle}
             onOpen={(f) => void openFile(f)}
@@ -395,16 +512,22 @@ function Workspace({
           <StorageUse usedBytes={storage.usedBytes} limitBytes={storage.limitBytes} />
           <DevApiStatus inline />
         </nav>
-        <FilePane
-          opened={opened}
-          role={role}
-          wrap={wrap}
-          onToggleWrap={() => setWrap((w) => !w)}
-          onSave={saveNow}
-          onRetry={(f) => void openFile(f)}
-          filesButton={filesButton}
-        />
+        {wide ? (
+          <Split left={filePane} right={pdfPanel} />
+        ) : (
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <ViewTabs tab={tab} onTab={setTab} />
+            <div id="workspace-editor" role="tabpanel" aria-labelledby="workspace-tab-editor" hidden={tab !== "editor"} className="flex min-h-0 flex-1 flex-col">
+              {filePane}
+              <div className="border-t border-rs-border">{errorsPanel}</div>
+            </div>
+            <div id="workspace-pdf" role="tabpanel" aria-labelledby="workspace-tab-pdf" hidden={tab !== "pdf"} className="flex min-h-0 flex-1 flex-col">
+              {pdfPanel}
+            </div>
+          </div>
+        )}
       </div>
+      {wide && errorsPanel}
 
       {dialog?.kind === "create" && (
         <CreateDialog
@@ -448,6 +571,88 @@ function Workspace({
           onClose={closeDialog}
           returnFocusId={treeItemId(dialog.file.id)}
         />
+      )}
+    </div>
+  );
+}
+
+// ViewTabs switch between the editor and the PDF below 1024 pixels (FR-13.1).
+function ViewTabs({ tab, onTab }: { tab: "editor" | "pdf"; onTab: (tab: "editor" | "pdf") => void }) {
+  const tabs = [
+    ["editor", "Editor"],
+    ["pdf", "PDF"],
+  ] as const;
+  return (
+    <div
+      role="tablist"
+      aria-label="Workspace view"
+      onKeyDown={(e) => {
+        if (e.key !== "ArrowLeft" && e.key !== "ArrowRight" && e.key !== "Home" && e.key !== "End") return;
+        e.preventDefault();
+        const next = e.key === "Home" ? "editor" : e.key === "End" ? "pdf" : tab === "editor" ? "pdf" : "editor";
+        onTab(next);
+        document.getElementById(`workspace-tab-${next}`)?.focus();
+      }}
+      className="flex flex-none border-b border-rs-border bg-rs-surface"
+    >
+      {tabs.map(([id, label]) => (
+        <button
+          key={id}
+          id={`workspace-tab-${id}`}
+          type="button"
+          role="tab"
+          aria-selected={tab === id}
+          aria-controls={`workspace-${id}`}
+          tabIndex={tab === id ? 0 : -1}
+          onClick={() => onTab(id)}
+          className={`flex-1 border-b-2 py-2 text-rs-body font-medium focus-visible:shadow-focus focus-visible:outline-none ${
+            tab === id ? "border-rs-accent-strong text-rs-heading" : "border-transparent text-rs-text-muted hover:text-rs-text"
+          }`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// MainFileChoice lets the owner choose the .tex file a compile starts from (FR-13.1).
+function MainFileChoice({
+  items,
+  mainPath,
+  error,
+  onChoose,
+}: {
+  items: ProjectFile[];
+  mainPath: string;
+  error: string | null;
+  onChoose: (path: string) => void;
+}) {
+  const id = useId();
+  const tex = items.filter((f) => f.kind === "text" && f.path.toLowerCase().endsWith(".tex")).map((f) => f.path);
+  if (tex.length === 0) return null;
+  const options = tex.includes(mainPath) ? tex : [mainPath, ...tex];
+  return (
+    <div className="flex flex-col gap-1">
+      <label htmlFor={id} className="text-rs-caption font-medium text-rs-text">
+        Main file
+      </label>
+      <select
+        id={id}
+        value={mainPath}
+        onChange={(e) => onChoose(e.target.value)}
+        className="h-8 rounded-control border border-rs-control bg-rs-surface px-1.5 text-rs-caption text-rs-text focus-visible:shadow-focus focus-visible:outline-none"
+      >
+        {options.map((p) => (
+          <option key={p} value={p} disabled={!tex.includes(p)}>
+            {tex.includes(p) ? p : `${p} (missing)`}
+          </option>
+        ))}
+      </select>
+      {error && (
+        <p role="alert" className="text-rs-caption text-rs-danger">
+          {error}
+        </p>
       )}
     </div>
   );

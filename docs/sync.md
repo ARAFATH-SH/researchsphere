@@ -158,6 +158,24 @@ The API publishes on Redis channel `sync:<db>:events` after each commit (at most
 | `files_deleted` | `projectId`, `fileIds` | Closes those documents (`file_gone`) |
 | `project_deleted` | `projectId` | Closes the project's documents (`file_gone`) |
 | `user_ended` | `userIds` | Closes the user's connections (`session_ended`) |
+| `flush` | `projectId`, `requestId` | Stores every document of the project with changes not yet stored, now, then answers (below) |
+
+### Flush (slice 23)
+
+A compile asks for `flush` before it reads the project's files, so it compiles what members
+have typed and not only what was stored (FR-13.1; `docs/compile.md`). The API sends it only
+when a text file of the project has a live mark (`sync:live:<fileId>`), and only when a sync
+server subscribes to the channel. `requestId` is 32 hexadecimal characters; anything else is
+ignored with a warning.
+
+The sync server stores each document of the project that has unsaved changes at once (after a
+store already running for it), then pushes its answer onto the list
+`sync:flushack:<requestId>` (expiring after 30 s): `ok` when every such document is stored,
+`failed` when one could not be. The API waits on that list with `BLPOP` for at most 5 s. An
+edit that arrives after the request may or may not be in the compile. Without an answer the
+compile reads the stored text and the compile says so (`liveTextConfirmed: false`). The API
+waits on a connection of its own: a `BLPOP` on the client the server also uses would hold up
+the answer.
 
 Every 60 s the server also reads the role of every open connection again (one call per 200),
 so a lost event or a suspension that took effect without one is caught within a minute.

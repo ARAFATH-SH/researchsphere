@@ -52,6 +52,13 @@ type FileDeps struct {
 	Live          domain.LiveSessions
 	CollabEvents  domain.CollabEvents
 	TicketLimiter domain.Limiter
+
+	// Compile and archive (slice 23). Without a Flusher a compile reads the stored text, and
+	// says so when a file is open on the sync server; without an ArchiveLimiter nothing is
+	// counted; ArchiveMaxBytes 0 means DefaultArchiveMaxBytes.
+	Flusher         domain.LiveFlusher
+	ArchiveLimiter  domain.Limiter
+	ArchiveMaxBytes int64
 }
 
 func (d *FileDeps) defaults() {
@@ -72,6 +79,12 @@ func (d *FileDeps) defaults() {
 	}
 	if d.SaveLimiter == nil {
 		d.SaveLimiter = noLimit{}
+	}
+	if d.ArchiveLimiter == nil {
+		d.ArchiveLimiter = noLimit{}
+	}
+	if d.ArchiveMaxBytes <= 0 {
+		d.ArchiveMaxBytes = DefaultArchiveMaxBytes
 	}
 	if d.TicketLimiter == nil {
 		d.TicketLimiter = noLimit{}
@@ -132,7 +145,7 @@ func (s *Service) fileAccess(ctx context.Context, userID, projectID string, acti
 	if !s.d.Permissions.Can(role, action) {
 		return domain.ErrForbidden
 	}
-	if action == domain.ActEditFiles {
+	if action == domain.ActEditFiles || action == domain.ActCompile {
 		return s.refuseSuspended(ctx, userID)
 	}
 	return nil

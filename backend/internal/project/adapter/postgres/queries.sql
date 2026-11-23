@@ -531,6 +531,21 @@ ORDER BY lower(f.path), f.path;
 -- name: MainFilePath :one
 SELECT main_file_path FROM projects WHERE id = @id;
 
+-- name: SetMainFilePath :exec
+UPDATE projects SET main_file_path = @path WHERE id = @id;
+
+-- name: ProjectTitle :one
+SELECT title FROM projects WHERE id = @id;
+
+-- name: SourceFiles :many
+-- Every entry with its text or object key, for a compile or an archive (slice 23).
+SELECT f.id, f.path, f.kind::text AS kind, f.size_bytes, f.version, f.updated_at, f.content,
+       sf.object_key, sf.content_type, sf.scan_status
+FROM project_files f
+LEFT JOIN stored_files sf ON sf.id = f.stored_file_id
+WHERE f.project_id = @project_id
+ORDER BY lower(f.path), f.path;
+
 -- name: ProjectFile :one
 SELECT f.id, f.path, f.kind::text AS kind, f.size_bytes, f.version, f.updated_at, f.content,
        sf.object_key, sf.content_type, sf.scan_status,
@@ -551,7 +566,7 @@ WHERE f.project_id = @project_id AND f.id = @id
 FOR UPDATE OF f;
 
 -- name: ProjectFileAt :one
-SELECT f.id, f.kind::text AS kind
+SELECT f.id, f.kind::text AS kind, f.path
 FROM project_files f
 WHERE f.project_id = @project_id AND lower(f.path) = lower(@path::text);
 
