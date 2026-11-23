@@ -49,7 +49,18 @@ const (
 
 	// Label marks every compile container, so the worker can find and remove leftovers.
 	Label = "org.researchsphere.compile"
+
+	// LandlockPath is the sandbox's file wall in the image (compile/image/landlock): the
+	// image's entrypoint runs every compile under it. exitUnavailable and unavailableMarker
+	// are how it says it cannot enforce its rules; they mirror that program.
+	LandlockPath      = "/usr/local/bin/rs-landlock"
+	exitUnavailable   = 78
+	unavailableMarker = "rs-landlock: sandbox unavailable: "
 )
+
+// ErrUnavailable means the sandbox cannot enforce its file rules (no Landlock, or too old a
+// one): no compile may run on this host (docs/compile.md, docs/deploy.md).
+var ErrUnavailable = errors.New("sandbox: the sandbox cannot enforce its file rules (Linux with Landlock ABI 8 needed, docs/deploy.md)")
 
 // Config is the runner's settings.
 type Config struct {
@@ -111,6 +122,9 @@ type Result struct {
 	Log       string
 	BibtexLog string
 	Stderr    string
+	// Unavailable: the sandbox refused to run because it cannot enforce its file rules
+	// (ErrUnavailable). The worker stops: no compile may run without them.
+	Unavailable bool
 }
 
 // Runner runs compiles.
@@ -270,6 +284,10 @@ func (r *Runner) Run(ctx context.Context, job Job) (Result, error) {
 	}
 	res.ExitCode = &code
 	res.Stderr = stderr.String()
+	if code == exitUnavailable && strings.Contains(res.Stderr, unavailableMarker) {
+		res.Unavailable = true
+		return r.failed(res, FailSandbox, ErrUnavailable, job.ID), nil
+	}
 	if timedOut {
 		res.TimedOut = true
 		res.Log, res.BibtexLog = out.log.String(), out.blg.String()
@@ -302,6 +320,50 @@ func (r *Runner) Run(ctx context.Context, job Job) (Result, error) {
 		out.pdf = nil // the caller owns it now
 	}
 	return res, nil
+}
+
+// Probe runs rs-landlock --probe in a container with the compile's settings: it restricts
+// itself, checks that /etc/passwd cannot be opened and /work can be written, and prints
+// "landlock abi=N ok". The worker refuses to start unless it succeeds. The error wraps
+// ErrUnavailable when the sandbox answered that it cannot enforce its rules.
+func (r *Runner) Probe(ctx context.Context) (string, error) {
+	spec := r.Spec(Job{ID: "probe", MainFile: "main.tex"})
+	spec.Entrypoint, spec.Cmd = []string{LandlockPath, "--probe"}, nil
+	id, err := r.docker.Create(ctx, "rs-compile-probe-"+strconv.FormatInt(time.Now().UnixNano(), 36), spec)
+	if err != nil {
+		return "", fmt.Errorf("sandbox: probe: create: %w", err)
+	}
+	defer r.remove(id)
+	stream, err := r.docker.Attach(ctx, id)
+	if err != nil {
+		return "", fmt.Errorf("sandbox: probe: attach: %w", err)
+	}
+	defer func() { _ = stream.Close() }()
+	var stdout, stderr capped
+	stdout.max, stderr.max = maxStderrBytes, maxStderrBytes
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = stream.Demux(&stdout, &stderr)
+	}()
+	if err := r.docker.Start(ctx, id); err != nil {
+		return "", fmt.Errorf("sandbox: probe: start: %w", err)
+	}
+	_ = stream.CloseStdin()
+	wctx, cancel := context.WithTimeout(ctx, r.cfg.Hard)
+	defer cancel()
+	code, err := r.docker.Wait(wctx, id)
+	if err != nil {
+		_ = stream.Close()
+		<-done
+		return "", fmt.Errorf("sandbox: probe: wait: %w", err)
+	}
+	<-done
+	out := strings.TrimSpace(stdout.String())
+	if code == 0 && strings.HasPrefix(out, "landlock abi=") && strings.HasSuffix(out, " ok") {
+		return out, nil
+	}
+	return "", fmt.Errorf("%w: the probe exited %d: %s", ErrUnavailable, code, strings.TrimSpace(stderr.String()+" "+out))
 }
 
 func (r *Runner) failed(res Result, f Failure, err error, jobID string) Result {

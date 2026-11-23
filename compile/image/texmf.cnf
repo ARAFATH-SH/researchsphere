@@ -1,12 +1,17 @@
 % Site settings of the compile sandbox (docs/compile.md), read before TeX Live's own texmf.cnf.
-% Paranoid writing: no file is written by an absolute path or into a parent folder, so
-% \openout to /tmp/x or ../x is refused. Shell escape is off entirely.
-% openin_any = p is set too, but pdfTeX in TeX Live 2026 does not restrict \input, \openin or
-% \IfFileExists by it (make test-compile-sandbox measures this): reads are contained by the
-% container instead, which holds only the image's public files and this project's files.
+% Paranoid writing: no file is written by an absolute path outside TEXMFOUTPUT (/work) or into
+% a parent folder, so \openout to /tmp/x or ../x is refused. Shell escape is off entirely.
+%
+% Reading is NOT restricted by TeX. TeX Live 2026's own texmf-dist/web2c/texmf.cnf says:
+%   "On the other hand, as of 2026, openin_any no longer has any effect;
+%    the underlying kpse_in_name_ok and related functions always return
+%    true."
+% openin_any = p stays below for anything that asks kpsewhich, but the file wall is
+% rs-landlock (Landlock), under which every compile runs: docs/decisions.md, docs/compile.md.
 openin_any = p
 openout_any = p
 shell_escape = f
+TEXMFOUTPUT = /work
 % Unwrapped log lines, so the parser reads each error and file name whole (FR-13.2).
 max_print_line = 10000
 error_line = 254

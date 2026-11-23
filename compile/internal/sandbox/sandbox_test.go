@@ -154,6 +154,7 @@ type fakeDocker struct {
 	removed   []string
 	killed    []string
 	output    []byte // the entrypoint's stdout tar
+	errOut    []byte // its stderr
 	exit      int
 	oom       bool
 	hang      bool // never exits by itself
@@ -193,12 +194,13 @@ func (s *fakeStream) CloseStdin() error {
 	return nil
 }
 
-func (s *fakeStream) Demux(stdout, _ io.Writer) error {
+func (s *fakeStream) Demux(stdout, stderr io.Writer) error {
 	select {
 	case <-s.f.stop:
 	case <-s.closed:
 		return errors.New("closed")
 	}
+	_, _ = stderr.Write(s.f.errOut)
 	_, err := stdout.Write(s.f.output)
 	return err
 }
@@ -335,6 +337,20 @@ func TestRunOutcomesAndCleanup(t *testing.T) {
 					t.Errorf("result %+v", res)
 				}
 			}, false},
+		// NFR-4, fail closed: rs-landlock could not restrict the run, so nothing ran.
+		{"sandbox unavailable", &fakeDocker{exit: 78, errOut: []byte("rs-landlock: sandbox unavailable: the kernel has Landlock ABI 3, the sandbox needs 8\n")},
+			func(t *testing.T, res Result) {
+				if !res.Unavailable || res.Failure != FailSandbox || res.PDF != nil {
+					t.Errorf("result %+v", res)
+				}
+			}, false},
+		// Exit 78 alone (without rs-landlock's refusal) is not the sandbox refusing.
+		{"exit 78 without the refusal", &fakeDocker{exit: 78, errOut: []byte("something else\n")},
+			func(t *testing.T, res Result) {
+				if res.Unavailable {
+					t.Errorf("result %+v", res)
+				}
+			}, false},
 		{"a log over its cap", &fakeDocker{output: outputTar(t, map[string]string{"status": "exit=0\ntimedout=0\npdf=missing\n", "output.log": strings.Repeat("l", MaxLogBytes+10)})},
 			func(t *testing.T, res Result) {
 				if len(res.Log) != MaxLogBytes {
@@ -397,5 +413,44 @@ func TestSweepRemovesOldContainers(t *testing.T) {
 	n, err := New(f, Config{}, nil).Sweep(t.Context(), 3*time.Minute)
 	if err != nil || n != 1 || !slices.Equal(f.removed, []string{"old"}) {
 		t.Errorf("sweep = %d %v, removed %v", n, err, f.removed)
+	}
+}
+
+// The worker starts only after this probe passes (NFR-4, fail closed).
+func TestProbe(t *testing.T) {
+	tests := []struct {
+		name    string
+		f       *fakeDocker
+		want    string
+		wantErr bool
+	}{
+		{"Landlock enforced", &fakeDocker{output: []byte("landlock abi=8 ok\n")}, "landlock abi=8 ok", false},
+		{"no Landlock", &fakeDocker{exit: 78, errOut: []byte("rs-landlock: sandbox unavailable: landlock is not available (function not implemented)\n")}, "", true},
+		{"probe found a hole", &fakeDocker{exit: 78, errOut: []byte("rs-landlock: sandbox unavailable: /etc/passwd can still be opened\n")}, "", true},
+		{"exit 0 without the answer", &fakeDocker{output: []byte("hello\n")}, "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := New(tt.f, Config{Image: "img", Hard: time.Second}, nil).Probe(t.Context())
+			if got != tt.want || (err != nil) != tt.wantErr {
+				t.Errorf("Probe = %q, %v", got, err)
+			}
+			if tt.wantErr && !errors.Is(err, ErrUnavailable) {
+				t.Errorf("error %v is not ErrUnavailable", err)
+			}
+			if len(tt.f.created) != 1 || !slices.Equal(tt.f.created[0].Entrypoint, []string{LandlockPath, "--probe"}) {
+				t.Errorf("created %+v", tt.f.created)
+			}
+			// The probe runs with every isolation setting of a compile.
+			if hc := tt.f.created[0].HostConfig; hc.NetworkMode != "none" || !hc.ReadonlyRootfs || hc.Tmpfs["/work"] == "" {
+				t.Errorf("probe host config %+v", hc)
+			}
+			if !slices.Equal(tt.f.removed, []string{"c1"}) {
+				t.Errorf("removed %v", tt.f.removed)
+			}
+		})
+	}
+	if _, err := New(&fakeDocker{createErr: errors.New("no image")}, Config{Image: "img"}, nil).Probe(t.Context()); err == nil {
+		t.Error("a failed create passed the probe")
 	}
 }

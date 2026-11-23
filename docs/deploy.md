@@ -80,6 +80,20 @@ command. Before the release that applies it:
   installed when the host allows it (`COMPILE_RUNTIME=runsc`). Never give the API, or any other
   service, the Docker socket. Each compile needs 1 CPU and 1 GB besides the worker's own
   memory: size the host for `COMPILE_CONCURRENCY` compiles (default 2).
+- **Landlock on the compile host's kernel (required).** Every compile runs under Landlock, so
+  that LaTeX reads only its project and TeX Live (TeX Live 2026 made `openin_any` a no-op,
+  `docs/decisions.md`). The kernel must offer **Landlock ABI 8 or later**: built with
+  `CONFIG_SECURITY_LANDLOCK=y` and with `landlock` in its active LSMs (`cat
+  /sys/kernel/security/lsm`; otherwise add it to the `lsm=` boot parameter). ABI 8 is the one
+  that added `LANDLOCK_RESTRICT_SELF_TSYNC`; the kernel's Landlock documentation names no
+  release for it, so check the host rather than its version number. Linux 7.0 (Ubuntu
+  7.0.0-43) with Docker 29.8.1 and its default seccomp profile reports ABI 8. Check with
+  `make check` on the compile host (after `make compile-image`), which runs the sandbox's probe
+  and fails when the kernel cannot enforce the rules. **Without it no compile runs**: the
+  worker refuses to start ("refusing to start: sandbox: the sandbox cannot enforce its file
+  rules …"), and `POST /projects/{id}/compiles` answers 503 `compile_unavailable`. gVisor's
+  `runsc` is not known to implement Landlock; with `COMPILE_RUNTIME=runsc` expect the same
+  refusal (not verified), and use runc with rootless Docker on a dedicated host instead.
 - **The image.** `make compile-image` on the compile host (2.8 GB to pull, about 9 GB on disk),
   or build it once and push it to a private registry; set `COMPILE_IMAGE` to it. The base
   image is pinned by digest in `compile/image/Dockerfile`; a new TeX Live is a change to that
@@ -96,6 +110,16 @@ command. Before the release that applies it:
 - **Stopping.** On SIGTERM the worker takes no new job and lets running ones finish (at most
   60 s each). Give it 90 s. A worker killed mid-compile leaves a container the next start
   removes; its job fails as `worker_lost` after its 120 s lease.
+- **After the Landlock fix: purge older output (once, in every environment that compiled
+  before it).** Before Landlock a document could typeset any file the container could read
+  (`\input{/etc/passwd}` did), and the API keeps serving the newest successful PDF of every
+  project, so such a PDF stays downloadable until it is deleted. When the sandbox image with
+  `rs-landlock` is live, take the time it went live (the image's creation time when it was
+  built there, `docker image inspect -f '{{.Created}}' $COMPILE_IMAGE`, or the deploy time) and
+  run `make purge-compile-output before=<that time>` to list, then the same with `apply=1`. It
+  deletes the PDF (row and object) and the log of every compile that started before it and
+  keeps the records; those projects show "no PDF" until they compile again. Development ran it
+  on 2026-11-23 with `before=2026-11-23T21:10:27+06:00` (`docs/decisions.md`).
 
 ## Adding a step
 

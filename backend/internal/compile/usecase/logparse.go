@@ -32,7 +32,7 @@ var (
 	// "! Emergency stop." and other errors printed without -file-line-error's form.
 	bangError = regexp.MustCompile(`^! (.+)$`)
 	// "l.12 \foo": the line an error happened on.
-	errorContext = regexp.MustCompile(`^l\.(\d+)\b`)
+	errorContext = regexp.MustCompile(`^l\.(\d+)\b(.*)$`)
 	// "LaTeX Warning: Reference `x' on page 1 undefined on input line 5."
 	latexWarning = regexp.MustCompile(`^LaTeX Warning: (.+)$`)
 	// "Package hyperref Warning: ..." or "Class article Warning: ...", continued on lines
@@ -156,18 +156,12 @@ func (p *parser) latex(log string) *int {
 		case fileLineError.MatchString(l):
 			m := fileLineError.FindStringSubmatch(l)
 			n, _ := strconv.Atoi(m[2])
-			p.add(p.projectFile(m[1]), &n, m[3], domain.SeverityError)
+			_, source := errorAt(lines, i)
+			p.add(p.projectFile(m[1]), &n, withHint(m[3], source), domain.SeverityError)
 		case bangError.MatchString(l):
 			m := bangError.FindStringSubmatch(l)
-			var at *int
-			for j := i + 1; j < len(lines) && j <= i+10; j++ {
-				if c := errorContext.FindStringSubmatch(lines[j]); c != nil {
-					n, _ := strconv.Atoi(c[1])
-					at = &n
-					break
-				}
-			}
-			p.add(p.current(), at, m[1], domain.SeverityError)
+			at, source := errorAt(lines, i)
+			p.add(p.current(), at, withHint(m[1], source), domain.SeverityError)
 		case latexWarning.MatchString(l):
 			msg := latexWarning.FindStringSubmatch(l)[1]
 			for i+1 < len(lines) && strings.TrimSpace(lines[i+1]) != "" && !strings.HasPrefix(lines[i+1], "(") &&
@@ -198,6 +192,31 @@ func (p *parser) latex(log string) *int {
 		}
 	}
 	return pages
+}
+
+// errorAt reads the "l.N <source>" line TeX prints within 10 lines after an error: the line
+// number and the source text up to where TeX stopped.
+func errorAt(lines []string, i int) (*int, string) {
+	for j := i + 1; j < len(lines) && j <= i+10; j++ {
+		if c := errorContext.FindStringSubmatch(lines[j]); c != nil {
+			n, _ := strconv.Atoi(c[1])
+			return &n, strings.TrimSpace(c[2])
+		}
+	}
+	return nil, ""
+}
+
+// RestartHint explains "Can be used only in preamble" at a second \documentclass or
+// \begin{document}: the usual cause is a whole document pasted below another one.
+const RestartHint = "This file has more than one \\documentclass. Make sure the document starts only once (Ctrl+A before pasting replaces everything)."
+
+// withHint adds a hint to an error whose cause is known from where TeX stopped.
+func withHint(msg, source string) string {
+	if strings.Contains(msg, "Can be used only in preamble") &&
+		(strings.HasSuffix(source, "\\documentclass") || strings.HasSuffix(source, "\\begin{document}")) {
+		return strings.TrimSpace(msg) + " " + RestartHint
+	}
+	return msg
 }
 
 // warning adds a LaTeX or package warning, at its "on input line N" in the current file.

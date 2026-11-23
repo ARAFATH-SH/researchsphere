@@ -207,3 +207,56 @@ body {
   font-size: var(--rs-size-body);
   line-height: var(--rs-leading-body);
 }
+
+/* The PDF viewer's text layer (features/project/workspace/compile): pdf.js's TextLayer puts the
+   page's text over its canvas as transparent spans, so it can be selected and found. These are
+   the text layer rules of pdf.js's web/pdf_viewer.css (pdfjs-dist 6.5), which the app does not
+   import. --total-scale-factor comes from the page box. */
+.rs-pdf-text {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  text-align: initial;
+  line-height: 1;
+  letter-spacing: normal;
+  word-spacing: normal;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  caret-color: CanvasText;
+  z-index: 0;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+.rs-pdf-text :is(span, br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  user-select: text;
+}
+.rs-pdf-text > :not(.markedContent),
+.rs-pdf-text .markedContent span:not(.markedContent) {
+  z-index: 1;
+  --font-height: 0;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  --scale-x: 1;
+  --rotate: 0deg;
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+.rs-pdf-text .markedContent {
+  display: contents;
+}
+.rs-pdf-text span[role="img"] {
+  user-select: none;
+  cursor: default;
+}
+.rs-pdf-text ::selection {
+  background: color-mix(in srgb, var(--rs-accent) 30%, transparent);
+  color: transparent;
+}
+.rs-pdf-text br::selection {
+  background: transparent;
+}

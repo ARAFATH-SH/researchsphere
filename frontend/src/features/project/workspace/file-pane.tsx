@@ -44,15 +44,17 @@ type Props = {
   onRetry: (file: ProjectFile) => void;
   // filesButton opens the file drawer on a narrow screen.
   filesButton: ReactNode;
+  // onEditorReady tells the workspace which file's editor is ready, to jump to a line (FR-13.3).
+  onEditorReady?: (fileId: string, handle: EditorHandle | null) => void;
 };
 
 // FilePane is the centre of the workspace: the editor for a text file (FR-12.3), a preview of
 // an image figure, a download link for a PDF figure.
-export function FilePane({ opened, role, wrap, onToggleWrap, onSave, onRetry, filesButton }: Props) {
+export function FilePane({ opened, role, wrap, onToggleWrap, onSave, onRetry, filesButton, onEditorReady }: Props) {
   return (
     <section aria-label="Editor" className="flex min-h-0 min-w-0 flex-1 flex-col">
       {opened.kind === "text" ? (
-        <TextFile key={opened.file.id} file={opened.file} session={opened.session} {...{ role, wrap, onToggleWrap, onSave, filesButton }} />
+        <TextFile key={opened.file.id} file={opened.file} session={opened.session} {...{ role, wrap, onToggleWrap, onSave, filesButton, onEditorReady }} />
       ) : (
         <>
           <div className="flex min-h-12 flex-wrap items-center gap-2 border-b border-rs-border px-2.5 py-1.5">
@@ -154,6 +156,7 @@ function TextFile({
   onToggleWrap,
   onSave,
   filesButton,
+  onEditorReady,
 }: Omit<Props, "opened" | "onRetry"> & { file: ProjectFile; session: CollabSession }) {
   const handle = useRef<EditorHandle | null>(null);
   const state = useCollabState(session);
@@ -271,7 +274,10 @@ function TextFile({
             readOnly={!editable}
             wrap={wrap}
             onSave={onSave}
-            onReady={(h) => (handle.current = h)}
+            onReady={(h) => {
+              handle.current = h;
+              onEditorReady?.(file.id, h);
+            }}
           />
         ) : (
           <p role="status" className="p-4 text-rs-body text-rs-text-muted">

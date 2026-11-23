@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"io/fs"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -187,15 +188,12 @@ func tail(s string) string {
 	return s
 }
 
-// NFR-4: no shell escape, no network, no file outside the project read or written. Each
-// attempt runs in a document of its own, so a refusal that stops pdfLaTeX does not hide the
-// next attempt; none may succeed, and the refusal must be in the log.
+// NFR-4: no shell escape and no project latexmkrc. Each attempt runs in a document of its
+// own, so a refusal that stops pdfLaTeX does not hide the next attempt; none may succeed,
+// and the refusal must be in the log. Files outside the project: TestSandboxReadsOutsideWorkFail
+// and TestSandboxWritesOutsideWorkFail.
 func TestSandboxEscapesFail(t *testing.T) {
 	r, _ := realRunner(t, Config{})
-	// dump writes every line of a file into the log, so the test sees what a read got.
-	dump := func(file string) string {
-		return `\newread\r\openin\r=` + file + ` \loop\unless\ifeof\r\read\r to\l\typeout{CONTAINER-FILE: \detokenize\expandafter{\l}}\repeat\closein\r` + "\n"
-	}
 	doc := func(body string) map[string]string {
 		return map[string]string{"main.tex": "\\documentclass{article}\n\\begin{document}\n" + body + "\nok\n\\end{document}\n"}
 	}
@@ -208,12 +206,6 @@ func TestSandboxEscapesFail(t *testing.T) {
 		{"shell escape", doc(`\immediate\write18{curl -s http://example.com -o pwned.txt}\IfFileExists{pwned.txt}{\typeout{ESCAPED}}{}`),
 			"runsystem(curl -s http://example.com -o pwned.txt)...disabled", []string{"ESCAPED"}},
 		{"piped input", doc(`\input{|"curl -s http://example.com"}`), "", []string{"<html", "Example Domain"}},
-		// pdfTeX reads absolute paths whatever openin_any says (docs/compile.md); what it can
-		// read is the container's: the image's files, never the host's or another project's.
-		{"absolute read stays in the container", doc(dump("/etc/passwd") + dump("/etc/hostname") + dump("../../etc/hosts")), "CONTAINER-FILE", hostMarkers(t)},
-		{"absolute write", doc(`\newwrite\o\immediate\openout\o=/tmp/escape.tex\immediate\closeout\o`), "openout_any = p", nil},
-		{"parent write", doc(`\newwrite\o\immediate\openout\o=../escape.tex\immediate\closeout\o`), "openout_any = p", nil},
-		{"pdfTeX image of an absolute path", doc(`\pdfximage{/etc/passwd}`), "", []string{"root:x:0"}},
 		// latexmk reads a file named latexmkrc in the working folder as Perl; -norc must keep
 		// it unread.
 		{"project latexmkrc", map[string]string{
@@ -331,4 +323,82 @@ func TestSandboxOutputCaps(t *testing.T) {
 			t.Errorf("write bomb ended as %+v; log: %s", res, tail(res.Log))
 		}
 	})
+}
+
+// corpusDir is the regression corpus (compile/testdata/corpus/README.md).
+const corpusDir = "../../testdata/corpus"
+
+// corpusFiles reads one corpus document as a project.
+func corpusFiles(t *testing.T, name string) map[string]string {
+	t.Helper()
+	files := map[string]string{}
+	root := filepath.Join(corpusDir, name)
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		b, err := os.ReadFile(p) //nolint:gosec // the repository's own corpus
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(root, p)
+		files[filepath.ToSlash(rel)] = string(b)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return files
+}
+
+// Real documents compile in the sandbox (NFR-4 must not break FR-13.1): each makes a PDF of
+// the expected pages, latexmk ends without error, the last LaTeX pass leaves nothing undefined
+// and nothing was refused. The /etc/passwd and /proc tests in real_files_test.go keep the
+// other side of the wall.
+func TestSandboxCorpus(t *testing.T) {
+	r, _ := realRunner(t, Config{})
+	tests := []struct {
+		name  string
+		pages string
+		blg   []string // in BibTeX's or biber's log
+	}{
+		{"cv", "1 page", nil},
+		{"paper", "2 pages", []string{"Database file #1: refs.bib"}},
+		{"beamer", "6 pages", nil},
+		{"figures", "1 page", nil},
+		{"biblatex", "1 page", []string{"Found 2 citekeys in bib section 0", "Output to main.bbl"}},
+		{"metafont", "1 page", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := run(t, r, corpusFiles(t, tt.name))
+			if res.TimedOut || res.Unavailable || res.Failure != "" || res.PDF == nil {
+				t.Fatalf("no PDF: %+v\n%s\n%s", res, tail(res.Log), tail(res.Stderr))
+			}
+			if res.ExitCode == nil || *res.ExitCode != 0 {
+				t.Errorf("latexmk exit %v\n%s", res.ExitCode, tail(res.Stderr))
+			}
+			// The last pass's log: everything resolved.
+			for _, bad := range []string{"There were undefined references", "undefined on input line", "Please (re)run Biber", "Please rerun LaTeX", "Rerun to get", "Missing character"} {
+				if strings.Contains(res.Log, bad) {
+					t.Errorf("%q in the final log\n%s", bad, tail(res.Log))
+				}
+			}
+			// Anything the sandbox refused that a program reported.
+			all := res.Log + res.BibtexLog + res.Stderr
+			for _, bad := range []string{"Permission denied", "Read-only file system", "mktexpk: don't know how to create", "can't open"} {
+				if strings.Contains(all, bad) {
+					t.Errorf("%q in the output\n%s", bad, tail(all))
+				}
+			}
+			if !strings.Contains(res.Log, "Output written on main.pdf ("+tt.pages) {
+				t.Errorf("not %s:\n%s", tt.pages, tail(res.Log))
+			}
+			for _, w := range tt.blg {
+				if !strings.Contains(res.BibtexLog, w) {
+					t.Errorf("%q not in the bibliography log:\n%s", w, tail(res.BibtexLog))
+				}
+			}
+		})
+	}
 }

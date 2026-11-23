@@ -488,3 +488,67 @@ func TestTruncateLog(t *testing.T) {
 }
 
 func utf8Valid(s string) bool { return strings.ToValidUTF8(s, "") == s }
+
+// cmd/purgecompileoutput: the output of compiles that ran before a cutoff (a sandbox fix) goes,
+// later output stays; a dry run changes nothing; the cutoff must be in the past.
+func TestPurgeOutputBefore(t *testing.T) {
+	e := newEnv(t)
+	run := func(withPDF bool) domain.Job {
+		j := e.start(t)
+		e.claim(t)
+		if withPDF {
+			if err := e.svc.StorePDF(t.Context(), j.ID, strings.NewReader("%PDF-1.5")); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := e.svc.Finish(t.Context(), j.ID, domain.Result{Outcome: domain.OutcomeCompleted, Log: "Output written on main.pdf (1 page, 1 bytes)."}); err != nil {
+			t.Fatal(err)
+		}
+		e.now = e.now.Add(time.Minute)
+		return j
+	}
+	leaked := run(true)
+	cutoff := e.now
+	e.now = e.now.Add(time.Minute)
+	if _, err := e.svc.PurgeOutputBefore(t.Context(), cutoff.Add(-time.Hour), false); err != nil {
+		t.Fatal(err)
+	}
+
+	listed, err := e.svc.PurgeOutputBefore(t.Context(), cutoff, false)
+	if err != nil || len(listed) != 1 || listed[0].JobID != leaked.ID || !listed[0].HasPDF || !listed[0].HasLog {
+		t.Fatalf("dry run = %+v, %v", listed, err)
+	}
+	if pdf, err := e.store.LatestPDF(t.Context(), project); err != nil || pdf.CompileID != leaked.ID {
+		t.Fatalf("a dry run changed the PDF: %+v %v", pdf, err)
+	}
+
+	cleared, err := e.svc.PurgeOutputBefore(t.Context(), cutoff, true)
+	if err != nil || len(cleared) != 1 || cleared[0].JobID != leaked.ID {
+		t.Fatalf("purge = %+v, %v", cleared, err)
+	}
+	got, _ := e.store.Get(t.Context(), project, leaked.ID)
+	if got.HasPDF || got.HasLog || got.Status != domain.StatusSucceeded {
+		t.Errorf("after the purge: %+v", got)
+	}
+	if _, err := e.store.LatestPDF(t.Context(), project); !errors.Is(err, domain.ErrNoPDF) {
+		t.Errorf("the leaked PDF is still served: %v", err)
+	}
+	if again, _ := e.svc.PurgeOutputBefore(t.Context(), cutoff, true); len(again) != 0 {
+		t.Errorf("second run = %+v", again)
+	}
+
+	// A compile after the fix keeps its output.
+	fixed := run(true)
+	if again, _ := e.svc.PurgeOutputBefore(t.Context(), cutoff, true); len(again) != 0 {
+		t.Errorf("a later compile was purged: %+v", again)
+	}
+	if pdf, err := e.store.LatestPDF(t.Context(), project); err != nil || pdf.CompileID != fixed.ID {
+		t.Errorf("latest PDF = %+v %v", pdf, err)
+	}
+
+	for _, bad := range []time.Time{{}, e.now, e.now.Add(time.Hour)} {
+		if _, err := e.svc.PurgeOutputBefore(t.Context(), bad, true); !errors.Is(err, ErrCutoffInFuture) {
+			t.Errorf("cutoff %v: err = %v", bad, err)
+		}
+	}
+}

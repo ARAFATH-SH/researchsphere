@@ -46,6 +46,8 @@ type Worker struct {
 	id     string
 	slots  int
 	logger *slog.Logger
+	// stop ends Run with a cause; set by Run.
+	stop context.CancelCauseFunc
 }
 
 // New returns a Worker named id with slots parallel compiles.
@@ -60,7 +62,11 @@ func New(api API, runner Runner, id string, slots int, logger *slog.Logger) *Wor
 }
 
 // Run claims and runs jobs until ctx ends, then lets the running ones finish and returns.
-func (w *Worker) Run(ctx context.Context) {
+// It also ends, returning sandbox.ErrUnavailable, when the sandbox says it cannot enforce its
+// file rules: the worker fails closed, so the API answers compile_unavailable.
+func (w *Worker) Run(ctx context.Context) error {
+	ctx, w.stop = context.WithCancelCause(ctx)
+	defer w.stop(nil)
 	w.sweep(ctx)
 	var wg sync.WaitGroup
 	wg.Go(func() {
@@ -79,6 +85,10 @@ func (w *Worker) Run(ctx context.Context) {
 		wg.Go(func() { w.loop(ctx) })
 	}
 	wg.Wait()
+	if err := context.Cause(ctx); errors.Is(err, sandbox.ErrUnavailable) {
+		return err
+	}
+	return nil
 }
 
 func (w *Worker) sweep(ctx context.Context) {
@@ -142,6 +152,15 @@ func (w *Worker) Handle(ctx context.Context, job apiclient.Job) {
 	if err != nil {
 		log.Error("sandbox did not run", slog.Any("error", err))
 		w.finish(ctx, log, job.ID, apiclient.Result{Outcome: "failed", Failure: ptr("sandbox_error")})
+		return
+	}
+	if res.Unavailable {
+		log.Error("the sandbox cannot enforce its file rules; the worker stops", slog.String("stderr", res.Stderr))
+		w.finish(ctx, log, job.ID, apiclient.Result{Outcome: "failed", Failure: ptr("sandbox_error"), ExitCode: res.ExitCode,
+			DurationMs: int(res.Duration.Milliseconds())})
+		if w.stop != nil {
+			w.stop(sandbox.ErrUnavailable)
+		}
 		return
 	}
 	out := apiclient.Result{ExitCode: res.ExitCode, DurationMs: int(res.Duration.Milliseconds()), Log: res.Log, BibtexLog: res.BibtexLog}

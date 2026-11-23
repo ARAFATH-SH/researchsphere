@@ -55,6 +55,57 @@ func (q *Queries) ClaimCompileJob(ctx context.Context, arg ClaimCompileJobParams
 	return i, err
 }
 
+const clearCompileOutputBefore = `-- name: ClearCompileOutputBefore :many
+WITH target AS (
+    SELECT c.id, (c.pdf_file_id IS NOT NULL)::boolean AS has_pdf, (c.log IS NOT NULL)::boolean AS has_log
+    FROM compile_jobs c
+    WHERE c.started_at < $1 AND (c.pdf_file_id IS NOT NULL OR c.log IS NOT NULL)
+    FOR UPDATE
+)
+UPDATE compile_jobs j
+SET pdf_file_id = NULL, log = NULL
+FROM target
+WHERE j.id = target.id
+RETURNING j.id, j.project_id, j.finished_at, target.has_pdf::boolean AS has_pdf, target.has_log::boolean AS has_log
+`
+
+type ClearCompileOutputBeforeRow struct {
+	ID         pgtype.UUID
+	ProjectID  pgtype.UUID
+	FinishedAt pgtype.Timestamptz
+	HasPdf     bool
+	HasLog     bool
+}
+
+// Drops the PDF and the log of the compiles that ran before a cutoff. Clearing pdf_file_id
+// deletes its stored_files row (trigger of 000038), which queues the object for deletion
+// (trigger of 000007), all in this statement.
+func (q *Queries) ClearCompileOutputBefore(ctx context.Context, before pgtype.Timestamptz) ([]ClearCompileOutputBeforeRow, error) {
+	rows, err := q.db.Query(ctx, clearCompileOutputBefore, before)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ClearCompileOutputBeforeRow
+	for rows.Next() {
+		var i ClearCompileOutputBeforeRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.FinishedAt,
+			&i.HasPdf,
+			&i.HasLog,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const compileJob = `-- name: CompileJob :one
 SELECT id, project_id, requested_by, status, engine, main_file_path, queued_at, started_at,
        finished_at, duration_ms, failure, errors, skipped, live_text_confirmed, pages,
@@ -146,6 +197,48 @@ func (q *Queries) CompileMemberIDs(ctx context.Context, projectID pgtype.UUID) (
 			return nil, err
 		}
 		items = append(items, user_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const compileOutputBefore = `-- name: CompileOutputBefore :many
+SELECT id, project_id, finished_at, (pdf_file_id IS NOT NULL)::boolean AS has_pdf, (log IS NOT NULL)::boolean AS has_log
+FROM compile_jobs
+WHERE started_at < $1 AND (pdf_file_id IS NOT NULL OR log IS NOT NULL)
+ORDER BY started_at
+`
+
+type CompileOutputBeforeRow struct {
+	ID         pgtype.UUID
+	ProjectID  pgtype.UUID
+	FinishedAt pgtype.Timestamptz
+	HasPdf     bool
+	HasLog     bool
+}
+
+// The compiles that ran before a cutoff and still hold a PDF or a log (cmd/purgecompileoutput).
+func (q *Queries) CompileOutputBefore(ctx context.Context, before pgtype.Timestamptz) ([]CompileOutputBeforeRow, error) {
+	rows, err := q.db.Query(ctx, compileOutputBefore, before)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CompileOutputBeforeRow
+	for rows.Next() {
+		var i CompileOutputBeforeRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.FinishedAt,
+			&i.HasPdf,
+			&i.HasLog,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

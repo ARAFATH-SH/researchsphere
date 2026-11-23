@@ -165,3 +165,61 @@ func TestParseLogsSandboxFixture(t *testing.T) {
 		t.Errorf("want an error at chapters/intro.tex:4 and a BibTeX problem in refs.bib; got:\n%s", strings.Join(got, "\n"))
 	}
 }
+
+// A document pasted below another starts twice: "Can be used only in preamble" at the second
+// \documentclass and \begin{document} gets the hint; the same error elsewhere does not.
+func TestParseLogsRestartHint(t *testing.T) {
+	log := `(./main.tex
+./main.tex:14: LaTeX Error: Can be used only in preamble.
+
+See the LaTeX manual or LaTeX Companion for explanation.
+Type  H <return>  for immediate help.
+ ...                                              
+                                                  
+l.14 \documentclass
+                   [11pt]{article}
+./main.tex:15: LaTeX Error: Can be used only in preamble.
+
+See the LaTeX manual or LaTeX Companion for explanation.
+Type  H <return>  for immediate help.
+ ...                                              
+                                                  
+l.15 \begin{document}
+                     
+./main.tex:20: LaTeX Error: Can be used only in preamble.
+
+See the LaTeX manual or LaTeX Companion for explanation.
+Type  H <return>  for immediate help.
+ ...                                              
+                                                  
+l.20 \usepackage
+                {tikz}
+! LaTeX Error: Can be used only in preamble.
+
+See the LaTeX manual or LaTeX Companion for explanation.
+Type  H <return>  for immediate help.
+ ...                                              
+                                                  
+l.30 \documentclass
+                   {article}
+)
+`
+	problems, _ := ParseLogs(log, "", []string{"main.tex"})
+	want := []string{
+		"error main.tex:14 LaTeX Error: Can be used only in preamble. " + RestartHint,
+		"error main.tex:15 LaTeX Error: Can be used only in preamble. " + RestartHint,
+		"error main.tex:20 LaTeX Error: Can be used only in preamble.",
+		"error main.tex:30 LaTeX Error: Can be used only in preamble. " + RestartHint,
+	}
+	if len(problems) != len(want) {
+		t.Fatalf("%d problems: %v", len(problems), problems)
+	}
+	for i, p := range problems {
+		if got := describe(p); got != want[i] {
+			t.Errorf("problem %d = %q\nwant %q", i, got, want[i])
+		}
+	}
+	if !strings.HasPrefix(RestartHint, `This file has more than one \documentclass.`) {
+		t.Errorf("hint = %q", RestartHint)
+	}
+}

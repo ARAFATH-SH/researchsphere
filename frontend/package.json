@@ -25,6 +25,7 @@
     "@lezer/highlight": "^1.2.5",
     "next": "16.4.3",
     "openapi-fetch": "^0.17.0",
+    "pdfjs-dist": "6.5.438",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "y-codemirror.next": "0.3.6",

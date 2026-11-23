@@ -143,3 +143,44 @@ func TestHandleEndedJobs(t *testing.T) {
 		t.Errorf("bad main file: ran %d, finished %v", r.ran, api.finished)
 	}
 }
+
+// NFR-4, fail closed: a sandbox that cannot enforce its file rules fails the job and stops
+// the worker, which returns sandbox.ErrUnavailable (main exits; the API answers
+// compile_unavailable once no worker polls).
+func TestUnavailableSandboxStopsTheWorker(t *testing.T) {
+	code := 78
+	api := &claimingAPI{}
+	r := &fakeRunner{res: sandbox.Result{Unavailable: true, Failure: sandbox.FailSandbox, ExitCode: &code}}
+	done := make(chan error, 1)
+	go func() { done <- New(api, r, "w", 2, nil).Run(t.Context()) }()
+	select {
+	case err := <-done:
+		if !errors.Is(err, sandbox.ErrUnavailable) {
+			t.Errorf("Run = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the worker kept running")
+	}
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	if len(api.finished) == 0 || api.finished[0].Outcome != "failed" || *api.finished[0].Failure != "sandbox_error" {
+		t.Errorf("finished %+v", api.finished)
+	}
+}
+
+// A worker stopped normally returns nil.
+func TestRunStopsWithItsContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := New(&fakeAPI{}, &fakeRunner{}, "w", 1, nil).Run(ctx); err != nil {
+		t.Errorf("Run = %v", err)
+	}
+}
+
+// claimingAPI hands out a job on every claim.
+type claimingAPI struct{ fakeAPI }
+
+func (c *claimingAPI) Claim(context.Context, string) (*apiclient.Job, error) {
+	j := job()
+	return &j, nil
+}

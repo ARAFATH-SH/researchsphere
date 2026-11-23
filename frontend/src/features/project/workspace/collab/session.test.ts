@@ -206,6 +206,48 @@ describe("CollabSession", () => {
     expect(a.hasUnsent()).toBe(false);
   });
 
+  describe("whenSent, before a compile (FR-13.1)", () => {
+    it("resolves at once when nothing waits to be sent", async () => {
+      const a = open(ada);
+      await live(a);
+      await a.whenSent(10_000);
+    });
+
+    it("waits until the sync server has applied what this tab typed", async () => {
+      const a = open(ada);
+      await live(a);
+      hub.offline();
+      type(a, 0, "[ada]");
+      let done = false;
+      void a.whenSent(10_000).then(() => (done = true));
+      await tick(20);
+      expect(done).toBe(false);
+      hub.reconnectAll();
+      await until(() => done, "whenSent");
+      expect(hub.text(fileId)).toBe("[ada]Hello");
+    });
+
+    it("gives up after the timeout, as the compile then reads what was stored", async () => {
+      const a = open(ada);
+      await live(a);
+      hub.offline();
+      type(a, 0, "[ada]");
+      await a.whenSent(30);
+      expect(a.hasUnsent()).toBe(true);
+    });
+
+    it("saves first over REST", async () => {
+      hub.refuseAll = "unavailable";
+      const a = open(ada);
+      await until(() => a.getState().mode === "fallback", "the fallback");
+      const binding = a.getState().binding;
+      if (binding?.kind !== "rest") throw new Error("not REST");
+      binding.saver.edit(() => "Hello REST");
+      await a.whenSent();
+      expect(save).toHaveBeenCalledWith("Hello REST", 3, { keepalive: false });
+    });
+  });
+
   it("asks before replacing text it could not merge into a new history (epoch_mismatch)", async () => {
     const a = open(ada);
     await live(a);

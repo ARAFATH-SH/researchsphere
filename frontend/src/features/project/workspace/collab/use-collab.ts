@@ -72,6 +72,14 @@ export function useCollab(projectId: string, onGone: RefObject<() => void>) {
   // remove forgets a file that no longer exists; nothing it holds can be stored anywhere.
   const remove = useCallback((fileId: string) => sessions.current.get(fileId)?.dispose(), []);
 
+  // sent resolves once every open or closing file has sent what it holds (before a compile).
+  const sent = useCallback(
+    async (timeoutMs?: number) => {
+      await Promise.all([...sessions.current.values()].map((s) => s.whenSent(timeoutMs)));
+    },
+    [],
+  );
+
   useEffect(() => {
     // A development remount (React Strict Mode) keeps the sessions.
     clearTimeout(teardown.current);
@@ -102,7 +110,7 @@ export function useCollab(projectId: string, onGone: RefObject<() => void>) {
     };
   }, []);
 
-  return { open, leave, remove, presence };
+  return { open, leave, remove, sent, presence };
 }
 
 const noSubscription = () => () => {};

@@ -303,6 +303,20 @@ type Store interface {
 	TextPaths(ctx context.Context, projectID string) ([]string, error)
 	// MemberIDs lists the project's members, who are told about its compiles.
 	MemberIDs(ctx context.Context, projectID string) ([]string, error)
+	// OutputBefore lists the compiles that started before before and still hold a PDF or a
+	// log; ClearOutputBefore drops those PDFs (their objects are queued for deletion) and
+	// logs and returns what it dropped (cmd/purgecompileoutput).
+	OutputBefore(ctx context.Context, before time.Time) ([]Output, error)
+	ClearOutputBefore(ctx context.Context, before time.Time) ([]Output, error)
+}
+
+// Output is a compile's stored output: whether it holds a PDF and a log.
+type Output struct {
+	JobID      string
+	ProjectID  string
+	FinishedAt *time.Time
+	HasPDF     bool
+	HasLog     bool
 }
 
 // Need is what a caller wants to do in a project.

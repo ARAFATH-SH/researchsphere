@@ -131,3 +131,26 @@ SELECT path FROM project_files WHERE project_id = @project_id AND kind = 'text';
 
 -- name: CompileMemberIDs :many
 SELECT user_id FROM project_members WHERE project_id = @project_id;
+
+-- name: CompileOutputBefore :many
+-- The compiles that ran before a cutoff and still hold a PDF or a log (cmd/purgecompileoutput).
+SELECT id, project_id, finished_at, (pdf_file_id IS NOT NULL)::boolean AS has_pdf, (log IS NOT NULL)::boolean AS has_log
+FROM compile_jobs
+WHERE started_at < @before AND (pdf_file_id IS NOT NULL OR log IS NOT NULL)
+ORDER BY started_at;
+
+-- name: ClearCompileOutputBefore :many
+-- Drops the PDF and the log of the compiles that ran before a cutoff. Clearing pdf_file_id
+-- deletes its stored_files row (trigger of 000038), which queues the object for deletion
+-- (trigger of 000007), all in this statement.
+WITH target AS (
+    SELECT c.id, (c.pdf_file_id IS NOT NULL)::boolean AS has_pdf, (c.log IS NOT NULL)::boolean AS has_log
+    FROM compile_jobs c
+    WHERE c.started_at < @before AND (c.pdf_file_id IS NOT NULL OR c.log IS NOT NULL)
+    FOR UPDATE
+)
+UPDATE compile_jobs j
+SET pdf_file_id = NULL, log = NULL
+FROM target
+WHERE j.id = target.id
+RETURNING j.id, j.project_id, j.finished_at, target.has_pdf::boolean AS has_pdf, target.has_log::boolean AS has_log;

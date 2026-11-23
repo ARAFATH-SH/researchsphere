@@ -381,3 +381,27 @@ func (p *memPublisher) statuses() []domain.Status {
 	}
 	return out
 }
+
+func (m *memStore) output(before time.Time, clear bool) []domain.Output {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []domain.Output
+	for _, j := range m.jobs {
+		if j.StartedAt == nil || !j.StartedAt.Before(before) || (j.log == nil && j.pdfKey == "") {
+			continue
+		}
+		out = append(out, domain.Output{JobID: j.ID, ProjectID: j.ProjectID, FinishedAt: j.FinishedAt, HasPDF: j.pdfKey != "", HasLog: j.log != nil})
+		if clear {
+			j.log, j.pdfKey = nil, ""
+		}
+	}
+	return out
+}
+
+func (m *memStore) OutputBefore(_ context.Context, before time.Time) ([]domain.Output, error) {
+	return m.output(before, false), nil
+}
+
+func (m *memStore) ClearOutputBefore(_ context.Context, before time.Time) ([]domain.Output, error) {
+	return m.output(before, true), nil
+}

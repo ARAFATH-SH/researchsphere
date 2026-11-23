@@ -72,9 +72,18 @@ func run(ctx context.Context, getenv func(string) string) error {
 	runner := sandbox.New(sandbox.FromClient(dc), sandbox.Config{
 		Image: cfg.image, Runtime: cfg.runtime, MaxPDFBytes: cfg.maxPDF, MaxInputBytes: cfg.maxInput,
 	}, logger)
+	// Fail closed (NFR-4): no compile runs unless the sandbox can keep it to its files.
+	probeCtx, cancelProbe := context.WithTimeout(ctx, 90*time.Second)
+	landlock, err := runner.Probe(probeCtx)
+	cancelProbe()
+	if err != nil {
+		return fmt.Errorf("refusing to start: %w", err)
+	}
 	logger.Info("starting compile worker", slog.String("worker_id", cfg.workerID), slog.Int("concurrency", cfg.concurrency),
-		slog.String("api", cfg.apiURL), slog.String("image", cfg.image), slog.String("runtime", orDefault(cfg.runtime, "runc")))
-	worker.New(apiclient.New(cfg.apiURL, cfg.token), runner, cfg.workerID, cfg.concurrency, logger).Run(ctx)
+		slog.String("api", cfg.apiURL), slog.String("image", cfg.image), slog.String("runtime", orDefault(cfg.runtime, "runc")), slog.String("sandbox", landlock))
+	if err := worker.New(apiclient.New(cfg.apiURL, cfg.token), runner, cfg.workerID, cfg.concurrency, logger).Run(ctx); err != nil {
+		return fmt.Errorf("stopped: %w", err)
+	}
 	logger.Info("compile worker stopped")
 	return nil
 }

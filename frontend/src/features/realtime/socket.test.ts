@@ -99,6 +99,7 @@ describe("parseEvent", () => {
     expect(parseEvent('{"type":"attachment.updated","data":{"conversationId":"c","messageId":null,"attachmentId":"a","status":"clean"}}')?.type).toBe(
       "attachment.updated",
     );
+    expect(parseEvent('{"type":"compile.updated","data":{"projectId":"p","compile":{"id":"c"}}}')?.type).toBe("compile.updated");
     expect(parseEvent('{"type":"message.deleted","data":{"conversationId":"c","messageId":"m"}}')?.type).toBe("message.deleted");
     expect(parseEvent('{"type":"message.updated","data":{"message":{"id":"m"}}}')?.type).toBe("message.updated");
   });

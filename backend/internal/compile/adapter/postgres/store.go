@@ -468,3 +468,30 @@ func (s *Store) MemberIDs(ctx context.Context, projectID string) ([]string, erro
 	}
 	return out, nil
 }
+
+// OutputBefore lists the compiles that started before before and still hold a PDF or a log.
+func (s *Store) OutputBefore(ctx context.Context, before time.Time) ([]domain.Output, error) {
+	rows, err := s.q(ctx).CompileOutputBefore(ctx, pgtype.Timestamptz{Time: before, Valid: true})
+	if err != nil {
+		return nil, fmt.Errorf("list compile output: %w", err)
+	}
+	out := make([]domain.Output, len(rows))
+	for i, r := range rows {
+		out[i] = domain.Output{JobID: r.ID.String(), ProjectID: r.ProjectID.String(), FinishedAt: optTime(r.FinishedAt), HasPDF: r.HasPdf, HasLog: r.HasLog}
+	}
+	return out, nil
+}
+
+// ClearOutputBefore drops the PDFs and logs of the compiles that started before before; each
+// PDF's stored_files row goes and its object is queued for deletion, in the same statement.
+func (s *Store) ClearOutputBefore(ctx context.Context, before time.Time) ([]domain.Output, error) {
+	rows, err := s.q(ctx).ClearCompileOutputBefore(ctx, pgtype.Timestamptz{Time: before, Valid: true})
+	if err != nil {
+		return nil, fmt.Errorf("clear compile output: %w", err)
+	}
+	out := make([]domain.Output, len(rows))
+	for i, r := range rows {
+		out[i] = domain.Output{JobID: r.ID.String(), ProjectID: r.ProjectID.String(), FinishedAt: optTime(r.FinishedAt), HasPDF: r.HasPdf, HasLog: r.HasLog}
+	}
+	return out, nil
+}

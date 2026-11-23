@@ -45,6 +45,9 @@ export type EditorHandle = {
   // applyText puts text in as this member's own edit: saved, synced and undoable.
   applyText: (text: string) => void;
   focus: () => void;
+  // goToLine puts the cursor at the start of a line (1-based, clamped) and scrolls it into
+  // view (FR-13.3).
+  goToLine: (line: number) => void;
 };
 
 // replacement is the smallest change that turns from into to: the common start and end stay,
@@ -159,7 +162,14 @@ export default function LatexEditor({ source, label, readOnly, wrap, onSave, onR
       state: EditorState.create({
         doc: source.kind === "yjs" ? source.text.toString() : source.source.text,
         extensions: [
-          Prec.highest(keymap.of([{ key: "Mod-s", preventDefault: true, run: () => (save.current(), true) }])),
+          // Ctrl/Cmd+Enter compiles (the workspace listens on the window), so the editor does not
+          // insert a blank line for it.
+          Prec.highest(
+            keymap.of([
+              { key: "Mod-s", preventDefault: true, run: () => (save.current(), true) },
+              { key: "Mod-Enter", run: () => true },
+            ]),
+          ),
           lineNumbers(),
           highlightActiveLineGutter(),
           highlightActiveLine(),
@@ -189,6 +199,12 @@ export default function LatexEditor({ source, label, readOnly, wrap, onSave, onR
         v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: text }, annotations: fromServer.of(true) }),
       applyText: (text) => v.dispatch({ changes: replacement(v.state.doc.toString(), text), userEvent: "input.replace" }),
       focus: () => v.focus(),
+      goToLine: (line) => {
+        const doc = v.state.doc;
+        const at = doc.line(Math.min(Math.max(1, Math.floor(line) || 1), doc.lines)).from;
+        v.dispatch({ selection: { anchor: at }, effects: EditorView.scrollIntoView(at, { y: "center" }) });
+        v.focus();
+      },
     });
     return () => {
       ready.current?.(null);

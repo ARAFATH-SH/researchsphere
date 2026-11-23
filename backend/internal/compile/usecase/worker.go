@@ -386,3 +386,22 @@ func (s *Service) RunSweep(ctx context.Context, interval time.Duration) {
 		}
 	}
 }
+
+// ErrCutoffInFuture refuses a purge whose cutoff is not in the past: it would also drop the
+// output of compiles still to come.
+var ErrCutoffInFuture = errors.New("compile: the cutoff must be in the past")
+
+// PurgeOutputBefore drops the PDF and the log of every compile that started before before
+// (cmd/purgecompileoutput), so no output a broken sandbox made stays downloadable. With apply
+// false it only lists them. The compile records, their status and their errors stay; a
+// project whose PDF went shows "no PDF" until it compiles again. The PDFs' objects are
+// queued for deletion in the same transaction; the caller drains that queue.
+func (s *Service) PurgeOutputBefore(ctx context.Context, before time.Time, apply bool) ([]domain.Output, error) {
+	if before.IsZero() || !before.Before(s.d.Now()) {
+		return nil, ErrCutoffInFuture
+	}
+	if !apply {
+		return s.d.Store.OutputBefore(ctx, before)
+	}
+	return s.d.Store.ClearOutputBefore(ctx, before)
+}

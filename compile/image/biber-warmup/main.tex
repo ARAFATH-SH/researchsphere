@@ -1,0 +1,10 @@
+% Run once at image build time with biber, so PAR unpacks every library a normal biber run
+% loads into the image (Dockerfile, RS_BIBER_CACHE). Two passes: authoryear, then numeric.
+\documentclass{article}
+\usepackage[T1]{fontenc}
+\usepackage[backend=biber, style=\rsstyle, sorting=nyt, maxbibnames=99]{biblatex}
+\addbibresource{refs.bib}
+\begin{document}
+\cite{a, b, c, d}
+\printbibliography
+\end{document}
