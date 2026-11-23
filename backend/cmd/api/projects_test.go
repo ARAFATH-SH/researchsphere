@@ -442,3 +442,18 @@ func (okProjects) LoadCollabFile(context.Context, string) (projectdomain.CollabF
 func (okProjects) StoreCollabFile(context.Context, string, projectdomain.CollabState) (int, error) {
 	return 2, nil
 }
+
+func (okProjects) PrepareArchive(_ context.Context, _, projectID string) (projectdomain.Archive, error) {
+	if projectID != okProjectID {
+		return projectdomain.Archive{}, projectdomain.ErrNotFound
+	}
+	c := "\\documentclass{article}"
+	return projectdomain.Archive{Name: "Graph learning.zip", Files: []projectdomain.StoredFile{{
+		File: projectdomain.File{Path: "main.tex", Kind: projectdomain.KindText, Size: int64(len(c))}, Content: &c,
+	}}}, nil
+}
+
+func (okProjects) WriteArchive(_ context.Context, a projectdomain.Archive, w io.Writer) error {
+	_, err := io.WriteString(w, "PK-"+a.Name)
+	return err
+}

@@ -32,6 +32,8 @@ import (
 	authredis "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/adapter/redis"
 	authdomain "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/domain"
 	authusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/usecase"
+	compilehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/compile/adapter/http"
+	compileusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/compile/usecase"
 	embeddinghttp "github.com/ARAFATH-SH/researchsphere/backend/internal/embedding/adapter/http"
 	embeddingusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/embedding/usecase"
 	mediahttp "github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/http"
@@ -100,6 +102,8 @@ type mediaEnv struct {
 	// embeddings serves the admin embedding operations (AI-1.6) with opt.ai, or a Fake AI
 	// service when it is nil; no worker runs unless a test starts one.
 	embeddings *embeddingusecase.Service
+	// compiles is the compile module (slice 23); compileCfg its settings.
+	compiles *compileusecase.Service
 	// embedWorker is the queue worker on the same AI service, watched by the project
 	// recommendations; it never runs on its own, a test calls Tick.
 	embedWorker *embeddingusecase.Worker
@@ -149,6 +153,19 @@ type envOptions struct {
 	ai aiclient.Embedder
 	// figures, when set, replaces the figure limits of the settings' defaults (FR-12.2).
 	figures *figureLimits
+	// compile, when set, replaces the compile settings' defaults (slice 23).
+	compile *config.Config
+}
+
+// compileConfig is opt.compile, or the compile settings' defaults.
+func (opt envOptions) compileConfig() config.Config {
+	if opt.compile != nil {
+		return *opt.compile
+	}
+	return config.Config{
+		CompileMaxPDFBytes: config.DefaultCompileMaxPDFBytes, CompileMaxInputBytes: config.DefaultCompileMaxInputBytes,
+		CompileQueueMax: config.DefaultCompileQueueMax, ArchiveMaxBytes: config.DefaultArchiveMaxBytes,
+	}
 }
 
 // figureLimits are opt.figures, or FIGURE_MAX_BYTES' and PROJECT_STORAGE_MAX_BYTES' defaults.
@@ -316,8 +333,10 @@ func wireEnv(t *testing.T, pool *pgxpool.Pool, rdb *goredis.Client, files *stora
 		search.embedder = projectQueryEmbedder{q: queryEmbedder{ai: opt.ai}}
 	}
 	projects, projectLimits := newProjects(pool, rdb, standings, search, projectChanges{recs: recommendations, people: recCache, sync: syncEv, logger: logger},
-		projectNotifier{notifications: notifications}, files, opt.figureLimits(), syncEv, logger)
+		projectNotifier{notifications: notifications}, files, opt.figureLimits(), syncEv, opt.compileConfig().ArchiveMaxBytes, logger)
 	t.Cleanup(func() { _ = projectLimits.Close() })
+	compiles, compileKeys := newCompile(pool, rdb, opt.compileConfig(), projects, files, realtime.events, logger)
+	t.Cleanup(func() { _ = compileKeys.Close() })
 	memberships.projects = projects
 	titles.projects = projects
 	if err := enableProjectMatching(recommendations, recStore, recCache, projects, recsCfg); err != nil {
@@ -335,11 +354,12 @@ func wireEnv(t *testing.T, pool *pgxpool.Pool, rdb *goredis.Client, files *stora
 		embeddinghttp.NewHandler(embeddings),
 		recommendationhttp.NewHandler(recommendations),
 		projecthttp.NewHandler(projects),
-		serviceAndSessionAuth([]byte(testSyncToken), httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now)))
+		compilehttp.NewHandler(compiles),
+		serviceAndSessionAuth([]byte(testSyncToken), []byte(testCompileToken), httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now)))
 	// As run serves them: the public port without the internal operations, the internal
 	// listener with them only (slice 22).
 	router, internal := publicOnly(full), internalOnly(full)
-	return mediaEnv{internal: internal, projects: projects, embeddings: embeddings, embedWorker: embedWorker, recommendations: recommendations, recCache: recCache, router: router, pool: pool, files: files, rdb: rdb, auth: auth, moderation: moderation, standings: standings, hub: realtime.hub, events: realtime.events, opt: opt,
+	return mediaEnv{internal: internal, projects: projects, compiles: compiles, embeddings: embeddings, embedWorker: embedWorker, recommendations: recommendations, recCache: recCache, router: router, pool: pool, files: files, rdb: rdb, auth: auth, moderation: moderation, standings: standings, hub: realtime.hub, events: realtime.events, opt: opt,
 		messaging: messaging, notifier: notifications, digests: digests, digestMail: digestMail}
 }
 

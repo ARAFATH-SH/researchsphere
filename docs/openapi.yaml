@@ -4205,12 +4205,14 @@ paths:
         Needs the access cookie and the platform action "View profiles, search, feed,
         events and recommendations" (SRS 2.3); a project the caller cannot see gets 404
         `not_found`. Then each field named needs its project action: `title`,
-        `description`, `requiredSkills` and `status` the row "Edit project details and
-        status" (owner), `abstract` the row "Compile, use the assistant, edit the abstract"
+        `description`, `requiredSkills`, `status` and `mainFilePath` the row "Edit project
+        details and status" (owner), `abstract` the row "Compile, use the assistant, edit the abstract"
         (editor, owner); otherwise 403 `forbidden` and nothing changes. A missing field keeps
         its value; `null` clears `abstract` and is refused for the others. `requiredSkills`
         replaces the whole list. The rules of `createProject` apply; `status` is `open`,
-        `closed` or `archived`, and the owner may move between any of them.
+        `closed` or `archived`, and the owner may move between any of them. `mainFilePath`
+        (FR-13.1) must name an existing text file ending in `.tex` (409 `main_file_invalid`);
+        `null` is refused.
       tags: [projects]
       parameters:
         - $ref: "#/components/parameters/ProjectId"
@@ -4235,6 +4237,12 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          description: "`main_file_invalid`: `mainFilePath` is not an existing `.tex` text file."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "500":
           $ref: "#/components/responses/InternalError"
     delete:
@@ -5824,6 +5832,253 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  # Compile (FR-13; slice 23, docs/compile.md). The API never runs LaTeX: it queues a job,
+  # and the compile worker (compile/) claims it on the internal listener and runs it in a
+  # sandbox container (NFR-4).
+  /projects/{projectId}/compiles:
+    post:
+      operationId: startCompile
+      summary: Compile the project's main file (FR-13.1, FR-13.4)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, ..." (SRS
+        2.3), then the project action "Compile, use the assistant, edit the abstract" (editor,
+        owner): a non-member, an administrator included, gets 404 `not_found`, a viewer 403
+        `forbidden`, a suspended account 403 `account_suspended`.
+
+        Queues one compile of the project's main file (`mainFilePath` of the file tree, by
+        default `main.tex`) with pdfLaTeX and BibTeX, and answers at once with the job
+        (`queued`); `compile.updated` events report its progress to every member
+        (docs/realtime.md). A project runs one compile at a time (FR-13.4): while one is
+        queued or running the answer is 409 `compile_running` with its `compileId`.
+        409 `main_file_missing`: no text file is at the main file's path. Each user may start
+        10 compiles a minute (429 `rate_limited`). 503 `compile_unavailable`: no compile
+        worker has asked for work in the last 30 seconds; 503 `compile_busy`: too many
+        compiles are waiting. Neither queues anything.
+      tags: [compile]
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "202":
+          description: The compile is queued.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Compile"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/AccountSuspendedOrForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: |
+            `compile_running`: a compile of this project is queued or running; `compileId`
+            names it. `main_file_missing`: there is no text file at the main file's path.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompileConflict"
+        "429":
+          $ref: "#/components/responses/CompileRateLimited"
+        "503":
+          description: "`compile_unavailable` or `compile_busy`: nothing was queued; try again later."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/compiles/latest:
+    get:
+      operationId: getLatestCompile
+      summary: The project's most recent compile, with its errors (FR-13.2)
+      description: |
+        Needs the project action "Open the workspace, read files, view the PDF" (every
+        member); others get 404 `not_found`. 404 `no_compile` when the project was never
+        compiled. A client reads it when the workspace opens and after a real-time reconnect.
+      tags: [compile]
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: The newest compile, in any status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Compile"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/compiles/{compileId}:
+    get:
+      operationId: getCompile
+      summary: One compile, with its errors (FR-13.2)
+      description: |
+        Members only, as `getLatestCompile`. The project keeps its 10 newest compiles; an
+        older one, or one of another project, gets 404 `not_found`.
+      tags: [compile]
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/CompileId"
+      responses:
+        "200":
+          description: The compile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Compile"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/compiles/{compileId}/log:
+    get:
+      operationId: getCompileLog
+      summary: The compile log (FR-13.2)
+      description: |
+        Members only, as `getLatestCompile`. The log is kept for the project's newest
+        finished compile only (SRS 7, Retention): for any other compile, or one still running,
+        404 `no_log`. At most 2 MiB; a longer log keeps its beginning and ends with a line
+        saying it was cut.
+      tags: [compile]
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/CompileId"
+      responses:
+        "200":
+          description: The pdfLaTeX log, as UTF-8 text.
+          headers:
+            Cache-Control:
+              description: Always `no-store`.
+              required: true
+              schema:
+                type: string
+          content:
+            text/plain:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/pdf:
+    get:
+      operationId: downloadProjectPdf
+      summary: The project's latest PDF (FR-13.6)
+      description: |
+        Members only, as `getLatestCompile`. The PDF of the newest compile that succeeded
+        (SRS 7, Retention); 404 `no_pdf` when there is none. The API streams it from storage
+        itself, never by a storage URL, so that the answer carries these headers: a PDF can
+        hold JavaScript, which `Content-Security-Policy: sandbox` and `nosniff` keep from
+        running in the app's origin when a browser shows it (docs/decisions.md):
+        `Content-Type: application/pdf`, `Content-Disposition` `inline` (for the viewer) or
+        `attachment` (to save; the default) with the project's title as the file name,
+        `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox; default-src
+        'none'; ...`, `Cache-Control: private, no-store` and `X-Compile-Id`, the compile it
+        came from.
+      tags: [compile]
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - name: disposition
+          in: query
+          required: false
+          description: "`attachment` (default) to save the file, `inline` to show it."
+          schema:
+            type: string
+            enum: [inline, attachment]
+      responses:
+        "200":
+          description: The PDF.
+          headers:
+            Content-Disposition:
+              required: true
+              schema:
+                type: string
+            X-Content-Type-Options:
+              required: true
+              schema:
+                type: string
+            Content-Security-Policy:
+              required: true
+              schema:
+                type: string
+            X-Compile-Id:
+              required: true
+              schema:
+                type: string
+                format: uuid
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: "`bad_request` (`field: disposition`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /projects/{projectId}/archive:
+    get:
+      operationId: downloadProjectArchive
+      summary: Download the project's files as a ZIP archive (FR-13.7)
+      description: |
+        Members only ("Open the workspace, read files, view the PDF"); others get 404
+        `not_found`. Streams a ZIP of every folder, text file (the stored text: live edits
+        reach it within 5 seconds, NFR-10.1) and figure whose malware scan found it clean;
+        a figure still pending, failed or infected is left out. Text is compressed, figures
+        are stored as they are. 413 `archive_too_large` when the files would pass
+        `ARCHIVE_MAX_BYTES` (default 768 MiB). Each user may download 10 archives an hour
+        (429 `rate_limited`). The file name is the project's title.
+      tags: [project-files]
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: The ZIP archive.
+          headers:
+            Content-Disposition:
+              required: true
+              schema:
+                type: string
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          description: "`archive_too_large`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/ProjectFileRateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   # Internal operations for the sync server (slice 22, docs/sync.md). The API serves them
   # only on its internal listener (INTERNAL_API_ADDR), never on the public port, and only with
   # the sync service's bearer token. Browsers never call them.
@@ -5964,6 +6219,146 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  # Internal operations for the compile worker (slice 23, docs/compile.md). Served only on the
+  # internal listener, only with the compile service's bearer token (`compileToken`), which
+  # is a different secret from the sync server's.
+  /internal/compile/claim:
+    post:
+      operationId: claimCompileJob
+      summary: Take the oldest queued compile (internal, compile worker only)
+      description: |
+        Waits up to 10 seconds for a queued compile, then answers 204. A claimed job is
+        `running` and leased to the worker for 120 seconds: a job not finished by then fails
+        as `worker_lost`. Every call also tells the API that a worker is alive
+        (`startCompile` answers `compile_unavailable` when none asked for 30 seconds).
+      tags: [internal]
+      security:
+        - compileToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompileClaim"
+      responses:
+        "200":
+          description: The job to run.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompileJob"
+        "204":
+          description: No compile is waiting.
+        "400":
+          $ref: "#/components/responses/BadSyncRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /internal/compile/jobs/{compileId}/source:
+    get:
+      operationId: getCompileSource
+      summary: The files to compile, as a tar archive (internal, compile worker only)
+      description: |
+        First asks the sync server to store the project's open documents (docs/sync.md,
+        flush) and waits up to 5 seconds, so live edits are compiled. Then answers a POSIX tar
+        of the project's folders, text files and clean figures at their project paths; a
+        figure that is pending, failed or infected is left out and listed in the job's
+        `skipped`. 404 `not_found` unless the job is running and leased. 409
+        `input_too_large`: the files pass the input limit, and the job has already failed.
+      tags: [internal]
+      security:
+        - compileToken: []
+      parameters:
+        - $ref: "#/components/parameters/CompileId"
+      responses:
+        "200":
+          description: The files.
+          content:
+            application/x-tar:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: "`input_too_large`: the job failed."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /internal/compile/jobs/{compileId}/pdf:
+    put:
+      operationId: storeCompilePdf
+      summary: Store the PDF a compile made (internal, compile worker only)
+      description: |
+        The body is the PDF, at most `COMPILE_MAX_PDF_BYTES` (100 MiB, else 413
+        `file_too_large`), starting with `%PDF-` (else 400 `bad_request`). Call it before
+        `finishCompileJob`. 404 `not_found` unless the job is running and leased.
+      tags: [internal]
+      security:
+        - compileToken: []
+      parameters:
+        - $ref: "#/components/parameters/CompileId"
+      requestBody:
+        required: true
+        content:
+          application/pdf:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "204":
+          description: Stored.
+        "400":
+          $ref: "#/components/responses/BadSyncRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/FileTooLarge"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /internal/compile/jobs/{compileId}/finish:
+    post:
+      operationId: finishCompileJob
+      summary: Report how a compile ended (internal, compile worker only)
+      description: |
+        The API parses the errors from the logs (FR-13.2), decides the status (a compile
+        succeeds when it stored a PDF; `docs/compile.md`), keeps the log and the PDF as SRS 7
+        says, and tells the members. A second report of a finished job changes nothing (204).
+        404 `not_found` for an unknown job or one that ended as `worker_lost`.
+      tags: [internal]
+      security:
+        - compileToken: []
+      parameters:
+        - $ref: "#/components/parameters/CompileId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompileResult"
+      responses:
+        "204":
+          description: Recorded.
+        "400":
+          $ref: "#/components/responses/BadSyncRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
   securitySchemes:
     cookieAuth:
@@ -5978,6 +6373,12 @@ components:
         `SYNC_SERVICE_TOKEN`, shared by the API and the sync server only. Accepted on the
         API's internal listener; the public port answers 404 for `/internal/` paths.
 
+    compileToken:
+      type: http
+      scheme: bearer
+      description: |
+        `COMPILE_SERVICE_TOKEN`, shared by the API and the compile worker only, and different
+        from `SYNC_SERVICE_TOKEN`. Accepted on the API's internal listener only.
   parameters:
     PageFromOne:
       name: page
@@ -6022,6 +6423,13 @@ components:
       description: |
         The file's or folder's ID, a UUID, declared as a plain string like `projectId`; a
         value that is not a UUID gets 404 `not_found`.
+      schema:
+        type: string
+    CompileId:
+      name: compileId
+      in: path
+      required: true
+      description: The compile's ID, a UUID, declared as a plain string like `projectId`.
       schema:
         type: string
     MembershipPageSize:
@@ -8679,6 +9087,214 @@ components:
           type: string
         current:
           $ref: "#/components/schemas/ProjectFileCurrent"
+    CompileStatus:
+      type: string
+      description: |
+        `queued` and `running` are active (one per project, FR-13.4). `succeeded`: a PDF was
+        made, even when the log reports errors, which `errors` lists. `failed`: no PDF was
+        made (`failure` says why when the reason is not in the log). `timed_out`: stopped
+        after 60 seconds (FR-13.5). `cancelled`: no worker took it within 5 minutes.
+      enum: [queued, running, succeeded, failed, timed_out, cancelled]
+
+    CompileEngine:
+      type: string
+      description: The TeX engine; only `pdflatex` for now (FR-13.1), with BibTeX.
+      enum: [pdflatex]
+
+    CompileFailure:
+      type: string
+      description: |
+        Why a compile ended without a PDF when the log alone does not say:
+        `input_too_large` (the project's files pass the compile limit),
+        `output_too_large` (the PDF passes 100 MiB), `out_of_memory` (1 GB, NFR-4),
+        `no_pdf` (LaTeX ended without one), `worker_lost` (the compile service stopped
+        answering), `sandbox_error` (the container could not run), `queue_expired`
+        (cancelled after 5 minutes in the queue).
+      enum: [input_too_large, output_too_large, out_of_memory, no_pdf, worker_lost, sandbox_error, queue_expired]
+
+    CompileError:
+      type: object
+      description: |
+        One problem from the log (FR-13.2). `file` is a project path, or null when the
+        problem is not in a project file (a package, the class, the engine). `line` is null
+        when the log gives none.
+      required: [file, line, message, severity]
+      properties:
+        file:
+          type: string
+          nullable: true
+        line:
+          type: integer
+          nullable: true
+        message:
+          type: string
+          description: At most 500 characters.
+        severity:
+          type: string
+          enum: [error, warning]
+
+    CompileSkippedFile:
+      type: object
+      description: A figure left out of the compile because its malware scan has not found it clean.
+      required: [path, reason]
+      properties:
+        path:
+          type: string
+        reason:
+          type: string
+          enum: [scan_pending, scan_failed, infected]
+
+    Compile:
+      type: object
+      description: A compile job (FR-13.1, FR-13.2, FR-13.5).
+      required: [id, projectId, status, engine, mainFilePath, requestedBy, createdAt, startedAt, finishedAt, durationMs, failure, errors, skipped, liveTextConfirmed, pages, hasLog, hasPdf]
+      properties:
+        id:
+          type: string
+          format: uuid
+        projectId:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/CompileStatus"
+        engine:
+          $ref: "#/components/schemas/CompileEngine"
+        mainFilePath:
+          type: string
+          description: The file compiled, as it was when the compile was asked for.
+        requestedBy:
+          type: string
+          format: uuid
+          nullable: true
+          description: The member who asked; null when that account is gone.
+        createdAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        finishedAt:
+          type: string
+          format: date-time
+          nullable: true
+        durationMs:
+          type: integer
+          nullable: true
+          description: How long the sandbox ran, in milliseconds.
+        failure:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/CompileFailure"
+        errors:
+          type: array
+          description: Errors first, then warnings, each in log order; at most 100.
+          items:
+            $ref: "#/components/schemas/CompileError"
+        skipped:
+          type: array
+          items:
+            $ref: "#/components/schemas/CompileSkippedFile"
+        liveTextConfirmed:
+          type: boolean
+          description: |
+            False when files were open for real-time editing and the sync server did not
+            confirm within 5 seconds that it stored them: edits of the last seconds may be
+            missing from this compile.
+        pages:
+          type: integer
+          nullable: true
+          description: The PDF's page count, from the log.
+        hasLog:
+          type: boolean
+          description: Whether `getCompileLog` has a log for it.
+        hasPdf:
+          type: boolean
+          description: Whether this compile's PDF is the one `downloadProjectPdf` serves.
+
+    CompileConflict:
+      type: object
+      description: |
+        The `Error` shape; on `compile_running`, `compileId` names the compile that is queued
+        or running.
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          example: compile_running
+        message:
+          type: string
+        compileId:
+          type: string
+          format: uuid
+
+    CompileClaim:
+      type: object
+      required: [workerId]
+      properties:
+        workerId:
+          type: string
+          description: The worker's name for its logs, 1 to 100 characters.
+          maxLength: 100
+
+    CompileJob:
+      type: object
+      description: What the compile worker runs.
+      required: [id, projectId, mainFilePath, engine]
+      properties:
+        id:
+          type: string
+          format: uuid
+        projectId:
+          type: string
+          format: uuid
+        mainFilePath:
+          type: string
+        engine:
+          $ref: "#/components/schemas/CompileEngine"
+
+    CompileResult:
+      type: object
+      description: How the sandbox run ended, as the compile worker saw it.
+      required: [outcome, durationMs, log, bibtexLog]
+      properties:
+        outcome:
+          type: string
+          description: |
+            `completed`: LaTeX ran to its end (with or without errors). `timed_out`: killed
+            at 60 seconds. `failed`: the run could not complete; `failure` says why.
+          enum: [completed, timed_out, failed]
+        failure:
+          nullable: true
+          description: "With `failed`: `output_too_large`, `out_of_memory` or `sandbox_error`."
+          allOf:
+            - $ref: "#/components/schemas/CompileFailure"
+        exitCode:
+          type: integer
+          nullable: true
+        durationMs:
+          type: integer
+          minimum: 0
+        log:
+          type: string
+          description: The pdfLaTeX log (`<main>.log`), at most 2 MiB of UTF-8; may be empty.
+        bibtexLog:
+          type: string
+          description: The BibTeX log (`<main>.blg`), at most 256 KiB; may be empty.
+
+    RealtimeCompileUpdated:
+      type: object
+      description: |
+        A compile of a project the user is a member of was queued, started or finished
+        (FR-13.1). Sent to every current member.
+      required: [projectId, compile]
+      properties:
+        projectId:
+          type: string
+          format: uuid
+        compile:
+          $ref: "#/components/schemas/Compile"
+
     Project:
       type: object
       description: A research project's page (FR-10.1, SRS 2.3).
@@ -8785,6 +9401,18 @@ components:
           nullable: true
           allOf:
             - $ref: "#/components/schemas/ProjectStatus"
+          x-go-type: nullable.Nullable[string]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        mainFilePath:
+          type: string
+          nullable: true
+          maxLength: 255
+          description: |
+            The file compile starts from (FR-13.1): the path of an existing text file ending
+            in `.tex`, letter case as stored (the path is matched ignoring case and stored as
+            the file's own). Else 409 `main_file_invalid`.
           x-go-type: nullable.Nullable[string]
           x-go-type-skip-optional-pointer: true
           x-go-type-import:
@@ -9192,13 +9820,15 @@ components:
         - presence
         - notification.created
         - notifications.unread
+        - compile.updated
 
     RealtimeEvent:
       type: object
       description: |
         One server-to-client WebSocket frame, as JSON text. `data` is `RealtimeMessageCreated`,
         `RealtimeMessageUpdated`, `RealtimeMessageDeleted`, `RealtimeAttachmentUpdated`, `RealtimeConversationRead`, `RealtimeConversationUpdated`, `RealtimeConversationMembers`, `MessageUnreadCount`,
-        `RealtimeTyping`, `PresenceStatus`, `Notification` or `UnreadNotificationCount`,
+        `RealtimeTyping`, `PresenceStatus`, `Notification`, `UnreadNotificationCount` or
+        `RealtimeCompileUpdated`,
         by `type`.
       required: [type, data]
       properties:
@@ -10832,8 +11462,20 @@ components:
     ProjectFileRateLimited:
       description: |
         `rate_limited`: the caller has uploaded 30 figures in the current hour, saved 120
-        times in the current minute, or asked for 60 collaboration tickets in the current
-        minute.
+        times in the current minute, asked for 60 collaboration tickets in the current
+        minute, or downloaded 10 archives in the current hour.
+      headers:
+        Retry-After:
+          description: Seconds until the window ends.
+          required: true
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    CompileRateLimited:
+      description: "`rate_limited`: the caller has started 10 compiles in the current minute."
       headers:
         Retry-After:
           description: Seconds until the window ends.

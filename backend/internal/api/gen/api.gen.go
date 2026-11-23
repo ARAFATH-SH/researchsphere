@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"time"
@@ -21,8 +22,9 @@ import (
 )
 
 const (
-	CookieAuthScopes cookieAuthContextKey = "cookieAuth.Scopes"
-	SyncTokenScopes  syncTokenContextKey  = "syncToken.Scopes"
+	CompileTokenScopes compileTokenContextKey = "compileToken.Scopes"
+	CookieAuthScopes   cookieAuthContextKey   = "cookieAuth.Scopes"
+	SyncTokenScopes    syncTokenContextKey    = "syncToken.Scopes"
 )
 
 // Defines values for AttachmentStatus.
@@ -43,6 +45,144 @@ func (e AttachmentStatus) Valid() bool {
 	case AttachmentStatusInfected:
 		return true
 	case AttachmentStatusPending:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CompileEngine.
+const (
+	Pdflatex CompileEngine = "pdflatex"
+)
+
+// Valid indicates whether the value is a known member of the CompileEngine enum.
+func (e CompileEngine) Valid() bool {
+	switch e {
+	case Pdflatex:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CompileErrorSeverity.
+const (
+	CompileErrorSeverityError   CompileErrorSeverity = "error"
+	CompileErrorSeverityWarning CompileErrorSeverity = "warning"
+)
+
+// Valid indicates whether the value is a known member of the CompileErrorSeverity enum.
+func (e CompileErrorSeverity) Valid() bool {
+	switch e {
+	case CompileErrorSeverityError:
+		return true
+	case CompileErrorSeverityWarning:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CompileFailure.
+const (
+	InputTooLarge  CompileFailure = "input_too_large"
+	NoPdf          CompileFailure = "no_pdf"
+	OutOfMemory    CompileFailure = "out_of_memory"
+	OutputTooLarge CompileFailure = "output_too_large"
+	QueueExpired   CompileFailure = "queue_expired"
+	SandboxError   CompileFailure = "sandbox_error"
+	WorkerLost     CompileFailure = "worker_lost"
+)
+
+// Valid indicates whether the value is a known member of the CompileFailure enum.
+func (e CompileFailure) Valid() bool {
+	switch e {
+	case InputTooLarge:
+		return true
+	case NoPdf:
+		return true
+	case OutOfMemory:
+		return true
+	case OutputTooLarge:
+		return true
+	case QueueExpired:
+		return true
+	case SandboxError:
+		return true
+	case WorkerLost:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CompileResultOutcome.
+const (
+	CompileResultOutcomeCompleted CompileResultOutcome = "completed"
+	CompileResultOutcomeFailed    CompileResultOutcome = "failed"
+	CompileResultOutcomeTimedOut  CompileResultOutcome = "timed_out"
+)
+
+// Valid indicates whether the value is a known member of the CompileResultOutcome enum.
+func (e CompileResultOutcome) Valid() bool {
+	switch e {
+	case CompileResultOutcomeCompleted:
+		return true
+	case CompileResultOutcomeFailed:
+		return true
+	case CompileResultOutcomeTimedOut:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CompileSkippedFileReason.
+const (
+	CompileSkippedFileReasonInfected    CompileSkippedFileReason = "infected"
+	CompileSkippedFileReasonScanFailed  CompileSkippedFileReason = "scan_failed"
+	CompileSkippedFileReasonScanPending CompileSkippedFileReason = "scan_pending"
+)
+
+// Valid indicates whether the value is a known member of the CompileSkippedFileReason enum.
+func (e CompileSkippedFileReason) Valid() bool {
+	switch e {
+	case CompileSkippedFileReasonInfected:
+		return true
+	case CompileSkippedFileReasonScanFailed:
+		return true
+	case CompileSkippedFileReasonScanPending:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CompileStatus.
+const (
+	CompileStatusCancelled CompileStatus = "cancelled"
+	CompileStatusFailed    CompileStatus = "failed"
+	CompileStatusQueued    CompileStatus = "queued"
+	CompileStatusRunning   CompileStatus = "running"
+	CompileStatusSucceeded CompileStatus = "succeeded"
+	CompileStatusTimedOut  CompileStatus = "timed_out"
+)
+
+// Valid indicates whether the value is a known member of the CompileStatus enum.
+func (e CompileStatus) Valid() bool {
+	switch e {
+	case CompileStatusCancelled:
+		return true
+	case CompileStatusFailed:
+		return true
+	case CompileStatusQueued:
+		return true
+	case CompileStatusRunning:
+		return true
+	case CompileStatusSucceeded:
+		return true
+	case CompileStatusTimedOut:
 		return true
 	default:
 		return false
@@ -507,25 +647,25 @@ func (e MessageVersionEndedBy) Valid() bool {
 
 // Defines values for ModerationActionKind.
 const (
-	Restoration       ModerationActionKind = "restoration"
-	Restriction       ModerationActionKind = "restriction"
-	RestrictionLifted ModerationActionKind = "restriction_lifted"
-	Suspension        ModerationActionKind = "suspension"
-	Warning           ModerationActionKind = "warning"
+	ModerationActionKindRestoration       ModerationActionKind = "restoration"
+	ModerationActionKindRestriction       ModerationActionKind = "restriction"
+	ModerationActionKindRestrictionLifted ModerationActionKind = "restriction_lifted"
+	ModerationActionKindSuspension        ModerationActionKind = "suspension"
+	ModerationActionKindWarning           ModerationActionKind = "warning"
 )
 
 // Valid indicates whether the value is a known member of the ModerationActionKind enum.
 func (e ModerationActionKind) Valid() bool {
 	switch e {
-	case Restoration:
+	case ModerationActionKindRestoration:
 		return true
-	case Restriction:
+	case ModerationActionKindRestriction:
 		return true
-	case RestrictionLifted:
+	case ModerationActionKindRestrictionLifted:
 		return true
-	case Suspension:
+	case ModerationActionKindSuspension:
 		return true
-	case Warning:
+	case ModerationActionKindWarning:
 		return true
 	default:
 		return false
@@ -1006,6 +1146,7 @@ func (e RealtimeConversationMembersChange) Valid() bool {
 // Defines values for RealtimeEventType.
 const (
 	AttachmentUpdated   RealtimeEventType = "attachment.updated"
+	CompileUpdated      RealtimeEventType = "compile.updated"
 	ConversationMembers RealtimeEventType = "conversation.members"
 	ConversationRead    RealtimeEventType = "conversation.read"
 	ConversationUpdated RealtimeEventType = "conversation.updated"
@@ -1023,6 +1164,8 @@ const (
 func (e RealtimeEventType) Valid() bool {
 	switch e {
 	case AttachmentUpdated:
+		return true
+	case CompileUpdated:
 		return true
 	case ConversationMembers:
 		return true
@@ -1210,6 +1353,24 @@ func (e Visibility) Valid() bool {
 	case LoggedIn:
 		return true
 	case OnlyMe:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DownloadProjectPdfParamsDisposition.
+const (
+	DownloadProjectPdfParamsDispositionAttachment DownloadProjectPdfParamsDisposition = "attachment"
+	DownloadProjectPdfParamsDispositionInline     DownloadProjectPdfParamsDisposition = "inline"
+)
+
+// Valid indicates whether the value is a known member of the DownloadProjectPdfParamsDisposition enum.
+func (e DownloadProjectPdfParamsDisposition) Valid() bool {
+	switch e {
+	case DownloadProjectPdfParamsDispositionAttachment:
+		return true
+	case DownloadProjectPdfParamsDispositionInline:
 		return true
 	default:
 		return false
@@ -1416,6 +1577,139 @@ type CollabTicket struct {
 	// Ticket Opaque; send it as the Hocuspocus token within 30 seconds.
 	Ticket string `json:"ticket"`
 }
+
+// Compile A compile job (FR-13.1, FR-13.2, FR-13.5).
+type Compile struct {
+	CreatedAt time.Time `json:"createdAt"`
+
+	// DurationMs How long the sandbox ran, in milliseconds.
+	DurationMs *int `json:"durationMs"`
+
+	// Engine The TeX engine; only `pdflatex` for now (FR-13.1), with BibTeX.
+	Engine CompileEngine `json:"engine"`
+
+	// Errors Errors first, then warnings, each in log order; at most 100.
+	Errors     []CompileError  `json:"errors"`
+	Failure    *CompileFailure `json:"failure"`
+	FinishedAt *time.Time      `json:"finishedAt"`
+
+	// HasLog Whether `getCompileLog` has a log for it.
+	HasLog bool `json:"hasLog"`
+
+	// HasPdf Whether this compile's PDF is the one `downloadProjectPdf` serves.
+	HasPdf bool               `json:"hasPdf"`
+	Id     openapi_types.UUID `json:"id"`
+
+	// LiveTextConfirmed False when files were open for real-time editing and the sync server did not
+	// confirm within 5 seconds that it stored them: edits of the last seconds may be
+	// missing from this compile.
+	LiveTextConfirmed bool `json:"liveTextConfirmed"`
+
+	// MainFilePath The file compiled, as it was when the compile was asked for.
+	MainFilePath string `json:"mainFilePath"`
+
+	// Pages The PDF's page count, from the log.
+	Pages     *int               `json:"pages"`
+	ProjectId openapi_types.UUID `json:"projectId"`
+
+	// RequestedBy The member who asked; null when that account is gone.
+	RequestedBy *openapi_types.UUID  `json:"requestedBy"`
+	Skipped     []CompileSkippedFile `json:"skipped"`
+	StartedAt   *time.Time           `json:"startedAt"`
+
+	// Status `queued` and `running` are active (one per project, FR-13.4). `succeeded`: a PDF was
+	// made, even when the log reports errors, which `errors` lists. `failed`: no PDF was
+	// made (`failure` says why when the reason is not in the log). `timed_out`: stopped
+	// after 60 seconds (FR-13.5). `cancelled`: no worker took it within 5 minutes.
+	Status CompileStatus `json:"status"`
+}
+
+// CompileClaim defines model for CompileClaim.
+type CompileClaim struct {
+	// WorkerId The worker's name for its logs, 1 to 100 characters.
+	WorkerId string `json:"workerId"`
+}
+
+// CompileConflict The `Error` shape; on `compile_running`, `compileId` names the compile that is queued
+// or running.
+type CompileConflict struct {
+	// Code Example: compile_running
+	Code      string              `json:"code"`
+	CompileId *openapi_types.UUID `json:"compileId,omitempty"`
+	Message   string              `json:"message"`
+}
+
+// CompileEngine The TeX engine; only `pdflatex` for now (FR-13.1), with BibTeX.
+type CompileEngine string
+
+// CompileError One problem from the log (FR-13.2). `file` is a project path, or null when the
+// problem is not in a project file (a package, the class, the engine). `line` is null
+// when the log gives none.
+type CompileError struct {
+	File *string `json:"file"`
+	Line *int    `json:"line"`
+
+	// Message At most 500 characters.
+	Message  string               `json:"message"`
+	Severity CompileErrorSeverity `json:"severity"`
+}
+
+// CompileErrorSeverity defines model for CompileError.Severity.
+type CompileErrorSeverity string
+
+// CompileFailure Why a compile ended without a PDF when the log alone does not say:
+// `input_too_large` (the project's files pass the compile limit),
+// `output_too_large` (the PDF passes 100 MiB), `out_of_memory` (1 GB, NFR-4),
+// `no_pdf` (LaTeX ended without one), `worker_lost` (the compile service stopped
+// answering), `sandbox_error` (the container could not run), `queue_expired`
+// (cancelled after 5 minutes in the queue).
+type CompileFailure string
+
+// CompileJob What the compile worker runs.
+type CompileJob struct {
+	// Engine The TeX engine; only `pdflatex` for now (FR-13.1), with BibTeX.
+	Engine       CompileEngine      `json:"engine"`
+	Id           openapi_types.UUID `json:"id"`
+	MainFilePath string             `json:"mainFilePath"`
+	ProjectId    openapi_types.UUID `json:"projectId"`
+}
+
+// CompileResult How the sandbox run ended, as the compile worker saw it.
+type CompileResult struct {
+	// BibtexLog The BibTeX log (`<main>.blg`), at most 256 KiB; may be empty.
+	BibtexLog  string `json:"bibtexLog"`
+	DurationMs int    `json:"durationMs"`
+	ExitCode   *int   `json:"exitCode,omitempty"`
+
+	// Failure With `failed`: `output_too_large`, `out_of_memory` or `sandbox_error`.
+	Failure *CompileFailure `json:"failure,omitempty"`
+
+	// Log The pdfLaTeX log (`<main>.log`), at most 2 MiB of UTF-8; may be empty.
+	Log string `json:"log"`
+
+	// Outcome `completed`: LaTeX ran to its end (with or without errors). `timed_out`: killed
+	// at 60 seconds. `failed`: the run could not complete; `failure` says why.
+	Outcome CompileResultOutcome `json:"outcome"`
+}
+
+// CompileResultOutcome `completed`: LaTeX ran to its end (with or without errors). `timed_out`: killed
+// at 60 seconds. `failed`: the run could not complete; `failure` says why.
+type CompileResultOutcome string
+
+// CompileSkippedFile A figure left out of the compile because its malware scan has not found it clean.
+type CompileSkippedFile struct {
+	Path   string                   `json:"path"`
+	Reason CompileSkippedFileReason `json:"reason"`
+}
+
+// CompileSkippedFileReason defines model for CompileSkippedFile.Reason.
+type CompileSkippedFileReason string
+
+// CompileStatus `queued` and `running` are active (one per project, FR-13.4). `succeeded`: a PDF was
+// made, even when the log reports errors, which `errors` lists. `failed`: no PDF was
+// made (`failure` says why when the reason is not in the log). `timed_out`: stopped
+// after 60 seconds (FR-13.5). `cancelled`: no worker took it within 5 minutes.
+type CompileStatus string
 
 // Connection A connection (FR-7.4). The person fields describe the other user of the
 // connection; `connectionStatus` and `connectionRequestId` are the caller's own link
@@ -3389,6 +3683,11 @@ type ProjectUpdate struct {
 	Abstract    nullable.Nullable[string] `json:"abstract,omitempty"`
 	Description nullable.Nullable[string] `json:"description,omitempty"`
 
+	// MainFilePath The file compile starts from (FR-13.1): the path of an existing text file ending
+	// in `.tex`, letter case as stored (the path is matched ignoring case and stored as
+	// the file's own). Else 409 `main_file_invalid`.
+	MainFilePath nullable.Nullable[string] `json:"mainFilePath,omitempty"`
+
 	// RequiredSkills Replaces the whole list.
 	RequiredSkills nullable.Nullable[[]string] `json:"requiredSkills,omitempty"`
 	Status         nullable.Nullable[string]   `json:"status,omitempty"`
@@ -3577,6 +3876,14 @@ type RealtimeClientEvent struct {
 // RealtimeClientEventType defines model for RealtimeClientEvent.Type.
 type RealtimeClientEventType string
 
+// RealtimeCompileUpdated A compile of a project the user is a member of was queued, started or finished
+// (FR-13.1). Sent to every current member.
+type RealtimeCompileUpdated struct {
+	// Compile A compile job (FR-13.1, FR-13.2, FR-13.5).
+	Compile   Compile            `json:"compile"`
+	ProjectId openapi_types.UUID `json:"projectId"`
+}
+
 // RealtimeConversationMembers A group's name, members or owner changed (FR-16.6). Sent to every current member after
 // the change, new members included. Refetch the conversation for the full member list.
 type RealtimeConversationMembers struct {
@@ -3617,7 +3924,8 @@ type RealtimeConversationUpdated struct {
 
 // RealtimeEvent One server-to-client WebSocket frame, as JSON text. `data` is `RealtimeMessageCreated`,
 // `RealtimeMessageUpdated`, `RealtimeMessageDeleted`, `RealtimeAttachmentUpdated`, `RealtimeConversationRead`, `RealtimeConversationUpdated`, `RealtimeConversationMembers`, `MessageUnreadCount`,
-// `RealtimeTyping`, `PresenceStatus`, `Notification` or `UnreadNotificationCount`,
+// `RealtimeTyping`, `PresenceStatus`, `Notification`, `UnreadNotificationCount` or
+// `RealtimeCompileUpdated`,
 // by `type`.
 type RealtimeEvent struct {
 	Data map[string]interface{} `json:"data"`
@@ -4088,6 +4396,9 @@ type YearMonth struct {
 // AttachmentId defines model for AttachmentId.
 type AttachmentId = string
 
+// CompileId defines model for CompileId.
+type CompileId = string
+
 // ConnectionListPage defines model for ConnectionListPage.
 type ConnectionListPage = int
 
@@ -4180,6 +4491,9 @@ type AttachmentRemoved = Error
 
 // BadSyncRequest The shape of every error response (SRS 5.3).
 type BadSyncRequest = Error
+
+// CompileRateLimited The shape of every error response (SRS 5.3).
+type CompileRateLimited = Error
 
 // DOINotFound The shape of every error response (SRS 5.3).
 type DOINotFound = Error
@@ -4320,6 +4634,9 @@ type UnsupportedImageType = Error
 
 // UploadRateLimited The shape of every error response (SRS 5.3).
 type UploadRateLimited = Error
+
+// compileTokenContextKey is the context key for compileToken security scheme
+type compileTokenContextKey string
 
 // cookieAuthContextKey is the context key for cookieAuth security scheme
 type cookieAuthContextKey string
@@ -4599,6 +4916,15 @@ type ListProjectMembersParams struct {
 	PageSize *MembershipPageSize `form:"pageSize,omitempty" json:"pageSize,omitempty"`
 }
 
+// DownloadProjectPdfParams defines parameters for DownloadProjectPdf.
+type DownloadProjectPdfParams struct {
+	// Disposition `attachment` (default) to save the file, `inline` to show it.
+	Disposition *DownloadProjectPdfParamsDisposition `form:"disposition,omitempty" json:"disposition,omitempty"`
+}
+
+// DownloadProjectPdfParamsDisposition defines parameters for DownloadProjectPdf.
+type DownloadProjectPdfParamsDisposition string
+
 // LookupPublicationByDOIParams defines parameters for LookupPublicationByDOI.
 type LookupPublicationByDOIParams struct {
 	// Doi A DOI such as `10.1145/3292500.3330701`, optionally as a `https://doi.org/` link
@@ -4768,6 +5094,12 @@ type MarkConversationReadJSONRequestBody = MarkConversationReadRequest
 
 // ReportConversationJSONRequestBody defines body for ReportConversation for application/json ContentType.
 type ReportConversationJSONRequestBody = ReportConversationRequest
+
+// ClaimCompileJobJSONRequestBody defines body for ClaimCompileJob for application/json ContentType.
+type ClaimCompileJobJSONRequestBody = CompileClaim
+
+// FinishCompileJobJSONRequestBody defines body for FinishCompileJob for application/json ContentType.
+type FinishCompileJobJSONRequestBody = CompileResult
 
 // CheckSyncAccessJSONRequestBody defines body for CheckSyncAccess for application/json ContentType.
 type CheckSyncAccessJSONRequestBody = SyncAccessRequest
@@ -5044,6 +5376,18 @@ type ServerInterface interface {
 	// GetHealth Report whether the database, Redis, object storage and the AI service respond
 	// (GET /health)
 	GetHealth(w http.ResponseWriter, r *http.Request)
+	// ClaimCompileJob Take the oldest queued compile (internal, compile worker only)
+	// (POST /internal/compile/claim)
+	ClaimCompileJob(w http.ResponseWriter, r *http.Request)
+	// FinishCompileJob Report how a compile ended (internal, compile worker only)
+	// (POST /internal/compile/jobs/{compileId}/finish)
+	FinishCompileJob(w http.ResponseWriter, r *http.Request, compileId CompileId)
+	// StoreCompilePdf Store the PDF a compile made (internal, compile worker only)
+	// (PUT /internal/compile/jobs/{compileId}/pdf)
+	StoreCompilePdf(w http.ResponseWriter, r *http.Request, compileId CompileId)
+	// GetCompileSource The files to compile, as a tar archive (internal, compile worker only)
+	// (GET /internal/compile/jobs/{compileId}/source)
+	GetCompileSource(w http.ResponseWriter, r *http.Request, compileId CompileId)
 	// CheckSyncAccess Read the current role of users on files (internal, sync server only)
 	// (POST /internal/sync/access)
 	CheckSyncAccess(w http.ResponseWriter, r *http.Request)
@@ -5221,6 +5565,21 @@ type ServerInterface interface {
 	// UpdateProject Change a project's details or status (FR-10.2)
 	// (PATCH /projects/{projectId})
 	UpdateProject(w http.ResponseWriter, r *http.Request, projectId ProjectId)
+	// DownloadProjectArchive Download the project's files as a ZIP archive (FR-13.7)
+	// (GET /projects/{projectId}/archive)
+	DownloadProjectArchive(w http.ResponseWriter, r *http.Request, projectId ProjectId)
+	// StartCompile Compile the project's main file (FR-13.1, FR-13.4)
+	// (POST /projects/{projectId}/compiles)
+	StartCompile(w http.ResponseWriter, r *http.Request, projectId ProjectId)
+	// GetLatestCompile The project's most recent compile, with its errors (FR-13.2)
+	// (GET /projects/{projectId}/compiles/latest)
+	GetLatestCompile(w http.ResponseWriter, r *http.Request, projectId ProjectId)
+	// GetCompile One compile, with its errors (FR-13.2)
+	// (GET /projects/{projectId}/compiles/{compileId})
+	GetCompile(w http.ResponseWriter, r *http.Request, projectId ProjectId, compileId CompileId)
+	// GetCompileLog The compile log (FR-13.2)
+	// (GET /projects/{projectId}/compiles/{compileId}/log)
+	GetCompileLog(w http.ResponseWriter, r *http.Request, projectId ProjectId, compileId CompileId)
 	// ListProjectFiles The project's whole file tree (FR-12.1)
 	// (GET /projects/{projectId}/files)
 	ListProjectFiles(w http.ResponseWriter, r *http.Request, projectId ProjectId)
@@ -5290,6 +5649,9 @@ type ServerInterface interface {
 	// UpdateProjectMember Change a member's role (FR-11.4)
 	// (PATCH /projects/{projectId}/members/{userId})
 	UpdateProjectMember(w http.ResponseWriter, r *http.Request, projectId ProjectId, userId MemberUserId)
+	// DownloadProjectPdf The project's latest PDF (FR-13.6)
+	// (GET /projects/{projectId}/pdf)
+	DownloadProjectPdf(w http.ResponseWriter, r *http.Request, projectId ProjectId, params DownloadProjectPdfParams)
 	// RecommendProjectResearchers Researchers whose profiles are most similar to a project, for its owner (AI-2.3, AI-2.4)
 	// (GET /projects/{projectId}/recommended-researchers)
 	RecommendProjectResearchers(w http.ResponseWriter, r *http.Request, projectId ProjectId)
@@ -7191,6 +7553,122 @@ func (siw *ServerInterfaceWrapper) GetHealth(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
+// ClaimCompileJob operation middleware
+func (siw *ServerInterfaceWrapper) ClaimCompileJob(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CompileTokenScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ClaimCompileJob(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// FinishCompileJob operation middleware
+func (siw *ServerInterfaceWrapper) FinishCompileJob(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "compileId" -------------
+	var compileId CompileId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "compileId", r.PathValue("compileId"), &compileId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "compileId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CompileTokenScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.FinishCompileJob(w, r, compileId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StoreCompilePdf operation middleware
+func (siw *ServerInterfaceWrapper) StoreCompilePdf(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "compileId" -------------
+	var compileId CompileId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "compileId", r.PathValue("compileId"), &compileId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "compileId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CompileTokenScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StoreCompilePdf(w, r, compileId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetCompileSource operation middleware
+func (siw *ServerInterfaceWrapper) GetCompileSource(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "compileId" -------------
+	var compileId CompileId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "compileId", r.PathValue("compileId"), &compileId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "compileId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CompileTokenScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetCompileSource(w, r, compileId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // CheckSyncAccess operation middleware
 func (siw *ServerInterfaceWrapper) CheckSyncAccess(w http.ResponseWriter, r *http.Request) {
 
@@ -8984,6 +9462,184 @@ func (siw *ServerInterfaceWrapper) UpdateProject(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// DownloadProjectArchive operation middleware
+func (siw *ServerInterfaceWrapper) DownloadProjectArchive(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", r.PathValue("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DownloadProjectArchive(w, r, projectId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StartCompile operation middleware
+func (siw *ServerInterfaceWrapper) StartCompile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", r.PathValue("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StartCompile(w, r, projectId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetLatestCompile operation middleware
+func (siw *ServerInterfaceWrapper) GetLatestCompile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", r.PathValue("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetLatestCompile(w, r, projectId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetCompile operation middleware
+func (siw *ServerInterfaceWrapper) GetCompile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", r.PathValue("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "compileId" -------------
+	var compileId CompileId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "compileId", r.PathValue("compileId"), &compileId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "compileId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetCompile(w, r, projectId, compileId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetCompileLog operation middleware
+func (siw *ServerInterfaceWrapper) GetCompileLog(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", r.PathValue("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "compileId" -------------
+	var compileId CompileId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "compileId", r.PathValue("compileId"), &compileId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "compileId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetCompileLog(w, r, projectId, compileId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListProjectFiles operation middleware
 func (siw *ServerInterfaceWrapper) ListProjectFiles(w http.ResponseWriter, r *http.Request) {
 
@@ -9933,6 +10589,54 @@ func (siw *ServerInterfaceWrapper) UpdateProjectMember(w http.ResponseWriter, r 
 	handler.ServeHTTP(w, r)
 }
 
+// DownloadProjectPdf operation middleware
+func (siw *ServerInterfaceWrapper) DownloadProjectPdf(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", r.PathValue("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DownloadProjectPdfParams
+
+	// ------------- Optional query parameter "disposition" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "disposition", r.URL.Query(), &params.Disposition, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "disposition"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "disposition", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DownloadProjectPdf(w, r, projectId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // RecommendProjectResearchers operation middleware
 func (siw *ServerInterfaceWrapper) RecommendProjectResearchers(w http.ResponseWriter, r *http.Request) {
 
@@ -10725,10 +11429,20 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/projects/{projectId}/recommended-researchers", wrapper.RecommendProjectResearchers)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/ws", wrapper.OpenWebSocket)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/presence", wrapper.GetPresence)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/projects/{projectId}/compiles", wrapper.StartCompile)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/projects/{projectId}/compiles/latest", wrapper.GetLatestCompile)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/projects/{projectId}/compiles/{compileId}", wrapper.GetCompile)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/projects/{projectId}/compiles/{compileId}/log", wrapper.GetCompileLog)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/projects/{projectId}/pdf", wrapper.DownloadProjectPdf)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/projects/{projectId}/archive", wrapper.DownloadProjectArchive)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/internal/sync/tickets/redeem", wrapper.RedeemSyncTicket)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/internal/sync/access", wrapper.CheckSyncAccess)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/internal/sync/files/{fileId}", wrapper.LoadSyncFile)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/internal/sync/files/{fileId}/state", wrapper.StoreSyncFile)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/internal/compile/claim", wrapper.ClaimCompileJob)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/internal/compile/jobs/{compileId}/source", wrapper.GetCompileSource)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/internal/compile/jobs/{compileId}/pdf", wrapper.StoreCompilePdf)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/internal/compile/jobs/{compileId}/finish", wrapper.FinishCompileJob)
 
 	return m
 }
@@ -10758,6 +11472,15 @@ type AttachmentRedirectResponse struct {
 type AttachmentRemovedJSONResponse Error
 
 type BadSyncRequestJSONResponse Error
+
+type CompileRateLimitedResponseHeaders struct {
+	RetryAfter int
+}
+type CompileRateLimitedJSONResponse struct {
+	Body Error
+
+	Headers CompileRateLimitedResponseHeaders
+}
 
 type DOINotFoundJSONResponse Error
 
@@ -15723,6 +16446,322 @@ func (response GetHealth503JSONResponse) VisitGetHealthResponse(w http.ResponseW
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClaimCompileJobRequestObject struct {
+	Body *ClaimCompileJobJSONRequestBody
+}
+
+type ClaimCompileJobResponseObject interface {
+	VisitClaimCompileJobResponse(w http.ResponseWriter) error
+}
+
+type ClaimCompileJob200JSONResponse CompileJob
+
+func (response ClaimCompileJob200JSONResponse) VisitClaimCompileJobResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClaimCompileJob204Response struct {
+}
+
+func (response ClaimCompileJob204Response) VisitClaimCompileJobResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type ClaimCompileJob400JSONResponse struct{ BadSyncRequestJSONResponse }
+
+func (response ClaimCompileJob400JSONResponse) VisitClaimCompileJobResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClaimCompileJob401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ClaimCompileJob401JSONResponse) VisitClaimCompileJobResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClaimCompileJob500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response ClaimCompileJob500JSONResponse) VisitClaimCompileJobResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type FinishCompileJobRequestObject struct {
+	CompileId CompileId `json:"compileId"`
+	Body      *FinishCompileJobJSONRequestBody
+}
+
+type FinishCompileJobResponseObject interface {
+	VisitFinishCompileJobResponse(w http.ResponseWriter) error
+}
+
+type FinishCompileJob204Response struct {
+}
+
+func (response FinishCompileJob204Response) VisitFinishCompileJobResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type FinishCompileJob400JSONResponse struct{ BadSyncRequestJSONResponse }
+
+func (response FinishCompileJob400JSONResponse) VisitFinishCompileJobResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type FinishCompileJob401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response FinishCompileJob401JSONResponse) VisitFinishCompileJobResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type FinishCompileJob404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response FinishCompileJob404JSONResponse) VisitFinishCompileJobResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type FinishCompileJob500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response FinishCompileJob500JSONResponse) VisitFinishCompileJobResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StoreCompilePdfRequestObject struct {
+	CompileId CompileId `json:"compileId"`
+	Body      io.Reader
+}
+
+type StoreCompilePdfResponseObject interface {
+	VisitStoreCompilePdfResponse(w http.ResponseWriter) error
+}
+
+type StoreCompilePdf204Response struct {
+}
+
+func (response StoreCompilePdf204Response) VisitStoreCompilePdfResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type StoreCompilePdf400JSONResponse struct{ BadSyncRequestJSONResponse }
+
+func (response StoreCompilePdf400JSONResponse) VisitStoreCompilePdfResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StoreCompilePdf401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response StoreCompilePdf401JSONResponse) VisitStoreCompilePdfResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StoreCompilePdf404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response StoreCompilePdf404JSONResponse) VisitStoreCompilePdfResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StoreCompilePdf413JSONResponse struct{ FileTooLargeJSONResponse }
+
+func (response StoreCompilePdf413JSONResponse) VisitStoreCompilePdfResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(413)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StoreCompilePdf500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response StoreCompilePdf500JSONResponse) VisitStoreCompilePdfResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCompileSourceRequestObject struct {
+	CompileId CompileId `json:"compileId"`
+}
+
+type GetCompileSourceResponseObject interface {
+	VisitGetCompileSourceResponse(w http.ResponseWriter) error
+}
+
+type GetCompileSource200ApplicationxTarResponse struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response GetCompileSource200ApplicationxTarResponse) VisitGetCompileSourceResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "application/x-tar")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type GetCompileSource401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetCompileSource401JSONResponse) VisitGetCompileSourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCompileSource404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetCompileSource404JSONResponse) VisitGetCompileSourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCompileSource409JSONResponse Error
+
+func (response GetCompileSource409JSONResponse) VisitGetCompileSourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCompileSource500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response GetCompileSource500JSONResponse) VisitGetCompileSourceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -20787,9 +21826,452 @@ func (response UpdateProject404JSONResponse) VisitUpdateProjectResponse(w http.R
 	return err
 }
 
+type UpdateProject409JSONResponse Error
+
+func (response UpdateProject409JSONResponse) VisitUpdateProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type UpdateProject500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response UpdateProject500JSONResponse) VisitUpdateProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DownloadProjectArchiveRequestObject struct {
+	ProjectId ProjectId `json:"projectId"`
+}
+
+type DownloadProjectArchiveResponseObject interface {
+	VisitDownloadProjectArchiveResponse(w http.ResponseWriter) error
+}
+
+type DownloadProjectArchive200ResponseHeaders struct {
+	ContentDisposition string
+}
+
+type DownloadProjectArchive200ApplicationzipResponse struct {
+	Body          io.Reader
+	Headers       DownloadProjectArchive200ResponseHeaders
+	ContentLength int64
+}
+
+func (response DownloadProjectArchive200ApplicationzipResponse) VisitDownloadProjectArchiveResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "application/zip")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.Header().Set("Content-Disposition", fmt.Sprint(response.Headers.ContentDisposition))
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type DownloadProjectArchive401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response DownloadProjectArchive401JSONResponse) VisitDownloadProjectArchiveResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DownloadProjectArchive404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DownloadProjectArchive404JSONResponse) VisitDownloadProjectArchiveResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DownloadProjectArchive413JSONResponse Error
+
+func (response DownloadProjectArchive413JSONResponse) VisitDownloadProjectArchiveResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(413)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DownloadProjectArchive429JSONResponse struct {
+	ProjectFileRateLimitedJSONResponse
+}
+
+func (response DownloadProjectArchive429JSONResponse) VisitDownloadProjectArchiveResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DownloadProjectArchive500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response DownloadProjectArchive500JSONResponse) VisitDownloadProjectArchiveResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartCompileRequestObject struct {
+	ProjectId ProjectId `json:"projectId"`
+}
+
+type StartCompileResponseObject interface {
+	VisitStartCompileResponse(w http.ResponseWriter) error
+}
+
+type StartCompile202JSONResponse Compile
+
+func (response StartCompile202JSONResponse) VisitStartCompileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartCompile401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response StartCompile401JSONResponse) VisitStartCompileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartCompile403JSONResponse struct {
+	AccountSuspendedOrForbiddenJSONResponse
+}
+
+func (response StartCompile403JSONResponse) VisitStartCompileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartCompile404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response StartCompile404JSONResponse) VisitStartCompileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartCompile409JSONResponse CompileConflict
+
+func (response StartCompile409JSONResponse) VisitStartCompileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartCompile429JSONResponse struct{ CompileRateLimitedJSONResponse }
+
+func (response StartCompile429JSONResponse) VisitStartCompileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Retry-After", fmt.Sprint(response.Headers.RetryAfter))
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartCompile500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response StartCompile500JSONResponse) VisitStartCompileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartCompile503JSONResponse Error
+
+func (response StartCompile503JSONResponse) VisitStartCompileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetLatestCompileRequestObject struct {
+	ProjectId ProjectId `json:"projectId"`
+}
+
+type GetLatestCompileResponseObject interface {
+	VisitGetLatestCompileResponse(w http.ResponseWriter) error
+}
+
+type GetLatestCompile200JSONResponse Compile
+
+func (response GetLatestCompile200JSONResponse) VisitGetLatestCompileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetLatestCompile401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetLatestCompile401JSONResponse) VisitGetLatestCompileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetLatestCompile404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetLatestCompile404JSONResponse) VisitGetLatestCompileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetLatestCompile500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response GetLatestCompile500JSONResponse) VisitGetLatestCompileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCompileRequestObject struct {
+	ProjectId ProjectId `json:"projectId"`
+	CompileId CompileId `json:"compileId"`
+}
+
+type GetCompileResponseObject interface {
+	VisitGetCompileResponse(w http.ResponseWriter) error
+}
+
+type GetCompile200JSONResponse Compile
+
+func (response GetCompile200JSONResponse) VisitGetCompileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCompile401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetCompile401JSONResponse) VisitGetCompileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCompile404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetCompile404JSONResponse) VisitGetCompileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCompile500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response GetCompile500JSONResponse) VisitGetCompileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCompileLogRequestObject struct {
+	ProjectId ProjectId `json:"projectId"`
+	CompileId CompileId `json:"compileId"`
+}
+
+type GetCompileLogResponseObject interface {
+	VisitGetCompileLogResponse(w http.ResponseWriter) error
+}
+
+type GetCompileLog200ResponseHeaders struct {
+	CacheControl string
+}
+
+type GetCompileLog200TextResponse struct {
+	Body    string
+	Headers GetCompileLog200ResponseHeaders
+}
+
+func (response GetCompileLog200TextResponse) VisitGetCompileLogResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.WriteHeader(200)
+
+	_, err := w.Write([]byte(fmt.Sprint(response.Body)))
+	return err
+}
+
+type GetCompileLog401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetCompileLog401JSONResponse) VisitGetCompileLogResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCompileLog404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetCompileLog404JSONResponse) VisitGetCompileLogResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCompileLog500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response GetCompileLog500JSONResponse) VisitGetCompileLogResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -23223,6 +24705,103 @@ func (response UpdateProjectMember500JSONResponse) VisitUpdateProjectMemberRespo
 	return err
 }
 
+type DownloadProjectPdfRequestObject struct {
+	ProjectId ProjectId `json:"projectId"`
+	Params    DownloadProjectPdfParams
+}
+
+type DownloadProjectPdfResponseObject interface {
+	VisitDownloadProjectPdfResponse(w http.ResponseWriter) error
+}
+
+type DownloadProjectPdf200ResponseHeaders struct {
+	ContentDisposition    string
+	ContentSecurityPolicy string
+	XCompileId            openapi_types.UUID
+	XContentTypeOptions   string
+}
+
+type DownloadProjectPdf200ApplicationpdfResponse struct {
+	Body          io.Reader
+	Headers       DownloadProjectPdf200ResponseHeaders
+	ContentLength int64
+}
+
+func (response DownloadProjectPdf200ApplicationpdfResponse) VisitDownloadProjectPdfResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "application/pdf")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.Header().Set("Content-Disposition", fmt.Sprint(response.Headers.ContentDisposition))
+	w.Header().Set("Content-Security-Policy", fmt.Sprint(response.Headers.ContentSecurityPolicy))
+	w.Header().Set("X-Compile-Id", fmt.Sprint(response.Headers.XCompileId))
+	w.Header().Set("X-Content-Type-Options", fmt.Sprint(response.Headers.XContentTypeOptions))
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type DownloadProjectPdf400JSONResponse Error
+
+func (response DownloadProjectPdf400JSONResponse) VisitDownloadProjectPdfResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DownloadProjectPdf401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response DownloadProjectPdf401JSONResponse) VisitDownloadProjectPdfResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DownloadProjectPdf404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DownloadProjectPdf404JSONResponse) VisitDownloadProjectPdfResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DownloadProjectPdf500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response DownloadProjectPdf500JSONResponse) VisitDownloadProjectPdfResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type RecommendProjectResearchersRequestObject struct {
 	ProjectId ProjectId `json:"projectId"`
 }
@@ -24439,6 +26018,18 @@ type StrictServerInterface interface {
 	// GetHealth Report whether the database, Redis, object storage and the AI service respond
 	// (GET /health)
 	GetHealth(ctx context.Context, request GetHealthRequestObject) (GetHealthResponseObject, error)
+	// ClaimCompileJob Take the oldest queued compile (internal, compile worker only)
+	// (POST /internal/compile/claim)
+	ClaimCompileJob(ctx context.Context, request ClaimCompileJobRequestObject) (ClaimCompileJobResponseObject, error)
+	// FinishCompileJob Report how a compile ended (internal, compile worker only)
+	// (POST /internal/compile/jobs/{compileId}/finish)
+	FinishCompileJob(ctx context.Context, request FinishCompileJobRequestObject) (FinishCompileJobResponseObject, error)
+	// StoreCompilePdf Store the PDF a compile made (internal, compile worker only)
+	// (PUT /internal/compile/jobs/{compileId}/pdf)
+	StoreCompilePdf(ctx context.Context, request StoreCompilePdfRequestObject) (StoreCompilePdfResponseObject, error)
+	// GetCompileSource The files to compile, as a tar archive (internal, compile worker only)
+	// (GET /internal/compile/jobs/{compileId}/source)
+	GetCompileSource(ctx context.Context, request GetCompileSourceRequestObject) (GetCompileSourceResponseObject, error)
 	// CheckSyncAccess Read the current role of users on files (internal, sync server only)
 	// (POST /internal/sync/access)
 	CheckSyncAccess(ctx context.Context, request CheckSyncAccessRequestObject) (CheckSyncAccessResponseObject, error)
@@ -24616,6 +26207,21 @@ type StrictServerInterface interface {
 	// UpdateProject Change a project's details or status (FR-10.2)
 	// (PATCH /projects/{projectId})
 	UpdateProject(ctx context.Context, request UpdateProjectRequestObject) (UpdateProjectResponseObject, error)
+	// DownloadProjectArchive Download the project's files as a ZIP archive (FR-13.7)
+	// (GET /projects/{projectId}/archive)
+	DownloadProjectArchive(ctx context.Context, request DownloadProjectArchiveRequestObject) (DownloadProjectArchiveResponseObject, error)
+	// StartCompile Compile the project's main file (FR-13.1, FR-13.4)
+	// (POST /projects/{projectId}/compiles)
+	StartCompile(ctx context.Context, request StartCompileRequestObject) (StartCompileResponseObject, error)
+	// GetLatestCompile The project's most recent compile, with its errors (FR-13.2)
+	// (GET /projects/{projectId}/compiles/latest)
+	GetLatestCompile(ctx context.Context, request GetLatestCompileRequestObject) (GetLatestCompileResponseObject, error)
+	// GetCompile One compile, with its errors (FR-13.2)
+	// (GET /projects/{projectId}/compiles/{compileId})
+	GetCompile(ctx context.Context, request GetCompileRequestObject) (GetCompileResponseObject, error)
+	// GetCompileLog The compile log (FR-13.2)
+	// (GET /projects/{projectId}/compiles/{compileId}/log)
+	GetCompileLog(ctx context.Context, request GetCompileLogRequestObject) (GetCompileLogResponseObject, error)
 	// ListProjectFiles The project's whole file tree (FR-12.1)
 	// (GET /projects/{projectId}/files)
 	ListProjectFiles(ctx context.Context, request ListProjectFilesRequestObject) (ListProjectFilesResponseObject, error)
@@ -24685,6 +26291,9 @@ type StrictServerInterface interface {
 	// UpdateProjectMember Change a member's role (FR-11.4)
 	// (PATCH /projects/{projectId}/members/{userId})
 	UpdateProjectMember(ctx context.Context, request UpdateProjectMemberRequestObject) (UpdateProjectMemberResponseObject, error)
+	// DownloadProjectPdf The project's latest PDF (FR-13.6)
+	// (GET /projects/{projectId}/pdf)
+	DownloadProjectPdf(ctx context.Context, request DownloadProjectPdfRequestObject) (DownloadProjectPdfResponseObject, error)
 	// RecommendProjectResearchers Researchers whose profiles are most similar to a project, for its owner (AI-2.3, AI-2.4)
 	// (GET /projects/{projectId}/recommended-researchers)
 	RecommendProjectResearchers(ctx context.Context, request RecommendProjectResearchersRequestObject) (RecommendProjectResearchersResponseObject, error)
@@ -26372,6 +27981,124 @@ func (sh *strictHandler) GetHealth(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// ClaimCompileJob operation middleware
+func (sh *strictHandler) ClaimCompileJob(w http.ResponseWriter, r *http.Request) {
+	var request ClaimCompileJobRequestObject
+
+	var body ClaimCompileJobJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ClaimCompileJob(ctx, request.(ClaimCompileJobRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ClaimCompileJob")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ClaimCompileJobResponseObject); ok {
+		if err := validResponse.VisitClaimCompileJobResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// FinishCompileJob operation middleware
+func (sh *strictHandler) FinishCompileJob(w http.ResponseWriter, r *http.Request, compileId CompileId) {
+	var request FinishCompileJobRequestObject
+
+	request.CompileId = compileId
+
+	var body FinishCompileJobJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.FinishCompileJob(ctx, request.(FinishCompileJobRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "FinishCompileJob")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(FinishCompileJobResponseObject); ok {
+		if err := validResponse.VisitFinishCompileJobResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// StoreCompilePdf operation middleware
+func (sh *strictHandler) StoreCompilePdf(w http.ResponseWriter, r *http.Request, compileId CompileId) {
+	var request StoreCompilePdfRequestObject
+
+	request.CompileId = compileId
+
+	request.Body = r.Body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StoreCompilePdf(ctx, request.(StoreCompilePdfRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StoreCompilePdf")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StoreCompilePdfResponseObject); ok {
+		if err := validResponse.VisitStoreCompilePdfResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetCompileSource operation middleware
+func (sh *strictHandler) GetCompileSource(w http.ResponseWriter, r *http.Request, compileId CompileId) {
+	var request GetCompileSourceRequestObject
+
+	request.CompileId = compileId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetCompileSource(ctx, request.(GetCompileSourceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetCompileSource")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetCompileSourceResponseObject); ok {
+		if err := validResponse.VisitGetCompileSourceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // CheckSyncAccess operation middleware
 func (sh *strictHandler) CheckSyncAccess(w http.ResponseWriter, r *http.Request) {
 	var request CheckSyncAccessRequestObject
@@ -28026,6 +29753,138 @@ func (sh *strictHandler) UpdateProject(w http.ResponseWriter, r *http.Request, p
 	}
 }
 
+// DownloadProjectArchive operation middleware
+func (sh *strictHandler) DownloadProjectArchive(w http.ResponseWriter, r *http.Request, projectId ProjectId) {
+	var request DownloadProjectArchiveRequestObject
+
+	request.ProjectId = projectId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DownloadProjectArchive(ctx, request.(DownloadProjectArchiveRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DownloadProjectArchive")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DownloadProjectArchiveResponseObject); ok {
+		if err := validResponse.VisitDownloadProjectArchiveResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// StartCompile operation middleware
+func (sh *strictHandler) StartCompile(w http.ResponseWriter, r *http.Request, projectId ProjectId) {
+	var request StartCompileRequestObject
+
+	request.ProjectId = projectId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StartCompile(ctx, request.(StartCompileRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StartCompile")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StartCompileResponseObject); ok {
+		if err := validResponse.VisitStartCompileResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetLatestCompile operation middleware
+func (sh *strictHandler) GetLatestCompile(w http.ResponseWriter, r *http.Request, projectId ProjectId) {
+	var request GetLatestCompileRequestObject
+
+	request.ProjectId = projectId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetLatestCompile(ctx, request.(GetLatestCompileRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetLatestCompile")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetLatestCompileResponseObject); ok {
+		if err := validResponse.VisitGetLatestCompileResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetCompile operation middleware
+func (sh *strictHandler) GetCompile(w http.ResponseWriter, r *http.Request, projectId ProjectId, compileId CompileId) {
+	var request GetCompileRequestObject
+
+	request.ProjectId = projectId
+	request.CompileId = compileId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetCompile(ctx, request.(GetCompileRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetCompile")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetCompileResponseObject); ok {
+		if err := validResponse.VisitGetCompileResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetCompileLog operation middleware
+func (sh *strictHandler) GetCompileLog(w http.ResponseWriter, r *http.Request, projectId ProjectId, compileId CompileId) {
+	var request GetCompileLogRequestObject
+
+	request.ProjectId = projectId
+	request.CompileId = compileId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetCompileLog(ctx, request.(GetCompileLogRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetCompileLog")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetCompileLogResponseObject); ok {
+		if err := validResponse.VisitGetCompileLogResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListProjectFiles operation middleware
 func (sh *strictHandler) ListProjectFiles(w http.ResponseWriter, r *http.Request, projectId ProjectId) {
 	var request ListProjectFilesRequestObject
@@ -28690,6 +30549,33 @@ func (sh *strictHandler) UpdateProjectMember(w http.ResponseWriter, r *http.Requ
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateProjectMemberResponseObject); ok {
 		if err := validResponse.VisitUpdateProjectMemberResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DownloadProjectPdf operation middleware
+func (sh *strictHandler) DownloadProjectPdf(w http.ResponseWriter, r *http.Request, projectId ProjectId, params DownloadProjectPdfParams) {
+	var request DownloadProjectPdfRequestObject
+
+	request.ProjectId = projectId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DownloadProjectPdf(ctx, request.(DownloadProjectPdfRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DownloadProjectPdf")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DownloadProjectPdfResponseObject); ok {
+		if err := validResponse.VisitDownloadProjectPdfResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

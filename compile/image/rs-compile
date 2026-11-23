@@ -1,0 +1,62 @@
+#!/bin/sh
+# The compile sandbox's entrypoint (docs/compile.md). It runs as uid 10001 in a container with
+# no network, a read-only root, and a memory-backed /work. The project's files arrive as a tar
+# on stdin; the PDF, the logs and a status file leave as a tar on stdout. Everything else this
+# script or LaTeX prints goes to stderr, which the worker keeps only for its own log.
+#
+# Usage: rs-compile MAIN_FILE   (a project path such as main.tex or paper/thesis.tex)
+set -u
+
+main="${1:-}"
+case "$main" in
+  ""|/*|*..*|.*|*/.*) echo "rs-compile: invalid main file" >&2; exit 64 ;;
+esac
+case "$main" in
+  *[!A-Za-z0-9_./-]*) echo "rs-compile: invalid main file" >&2; exit 64 ;;
+esac
+
+max_pdf="${RS_MAX_PDF_BYTES:-104857600}"
+max_log="${RS_MAX_LOG_BYTES:-2097152}"
+max_blg="${RS_MAX_BLG_BYTES:-262144}"
+limit="${RS_TIMEOUT:-55}"
+
+cd /work || exit 70
+umask 077
+# The files: plain files and folders only (the worker checked every entry), never owners.
+tar -x -f - --no-same-owner --no-same-permissions --no-overwrite-dir 1>&2 || { echo "rs-compile: could not unpack the files" >&2; exit 65; }
+
+out=/work/.rs-out
+mkdir "$out" || exit 70
+
+base="${main##*/}"
+base="${base%.*}"
+
+# The engine runs from the project's root, so \input and \includegraphics take project paths
+# (as Overleaf does). -norc: a project file named latexmkrc is never read (it would be Perl).
+status=0
+timeout -s TERM -k 2 "$limit" \
+  latexmk -norc -r /etc/rs-compile/latexmkrc "$main" </dev/null 1>&2 || status=$?
+
+timedout=0
+[ "$status" -eq 124 ] && timedout=1
+
+# Free /work of everything but the outputs before writing them: a document that filled it
+# (the size is capped) must still get its status and log out.
+find /work -mindepth 1 -maxdepth 1 ! -name .rs-out ! -name "$base.pdf" ! -name "$base.log" ! -name "$base.blg" \
+  -exec rm -rf {} + 2>/dev/null
+
+pdf=missing
+if [ -f "$base.pdf" ] && [ -s "$base.pdf" ]; then
+  size=$(stat -c %s "$base.pdf")
+  if [ "$size" -gt "$max_pdf" ]; then
+    pdf=too_large
+  else
+    pdf=ok
+    mv "$base.pdf" "$out/output.pdf"
+  fi
+fi
+[ -f "$base.log" ] && head -c "$max_log" "$base.log" > "$out/output.log"
+[ -f "$base.blg" ] && head -c "$max_blg" "$base.blg" > "$out/output.blg"
+printf 'exit=%s\ntimedout=%s\npdf=%s\n' "$status" "$timedout" "$pdf" > "$out/status"
+
+tar -c -f - -C "$out" status $(cd "$out" && ls output.* 2>/dev/null)

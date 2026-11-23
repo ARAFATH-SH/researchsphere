@@ -27,7 +27,7 @@ import (
 // passed to watcher, and membership events (FR-9.2) to notifier.
 //
 // Project files (FR-12) keep figures in files, within the figures limits.
-func newProjects(pool *pgxpool.Pool, rdb *goredis.Client, standings *moderationusecase.Standings, search projectSearch, watcher projectdomain.Watcher, notifier projectdomain.Notifier, files storage.Storage, figures figureLimits, sync *syncEvents, logger *slog.Logger) (*projectusecase.Service, *projectredis.Limits) {
+func newProjects(pool *pgxpool.Pool, rdb *goredis.Client, standings *moderationusecase.Standings, search projectSearch, watcher projectdomain.Watcher, notifier projectdomain.Notifier, files storage.Storage, figures figureLimits, sync *syncEvents, archiveMax int64, logger *slog.Logger) (*projectusecase.Service, *projectredis.Limits) {
 	limits := projectredis.New(rdb)
 	store := projectpg.NewStore(pool)
 	svc := projectusecase.New(projectusecase.Deps{
@@ -60,6 +60,9 @@ func newProjects(pool *pgxpool.Pool, rdb *goredis.Client, standings *moderationu
 			Live:            limits.Collab(),
 			CollabEvents:    sync,
 			TicketLimiter:   limits.Ticket(),
+			Flusher:         projectredis.NewFlusher(rdb),
+			ArchiveLimiter:  limits.Archive(),
+			ArchiveMaxBytes: archiveMax,
 		},
 	})
 	return svc, limits
@@ -88,6 +91,7 @@ var projectActions = map[projectdomain.Action]authz.ProjectAction{
 	projectdomain.ActRequestToJoin: authz.RequestToJoin,
 	projectdomain.ActReadFiles:     authz.OpenWorkspace,
 	projectdomain.ActEditFiles:     authz.EditFiles,
+	projectdomain.ActCompile:       authz.CompileAndAssist,
 	// AI-2.3 (recommended researchers, owner only) has no row of its own; its list is for
 	// finding people to invite (decisions.md 2026-11-16).
 	projectdomain.ActManageMembers: authz.ManageMembers,

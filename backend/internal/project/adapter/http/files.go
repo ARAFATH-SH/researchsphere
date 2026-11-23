@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/api/gen"
@@ -46,6 +47,8 @@ type FileService interface {
 	CollabService
 	StartFigureUpload(ctx context.Context, userID, projectID, path string, size int64) (usecase.UploadTicket, error)
 	CompleteFigureUpload(ctx context.Context, userID, projectID, uploadID string) (domain.File, error)
+	PrepareArchive(ctx context.Context, userID, projectID string) (domain.Archive, error)
+	WriteArchive(ctx context.Context, a domain.Archive, w io.Writer) error
 }
 
 var (

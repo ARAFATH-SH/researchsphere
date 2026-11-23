@@ -61,6 +61,18 @@ func (m *memLive) LiveSession(_ context.Context, fileID string) (bool, error) {
 	return m.live[fileID], nil
 }
 
+func (m *memLive) AnyLive(_ context.Context, fileIDs []string) (bool, error) {
+	if m.err != nil {
+		return false, m.err
+	}
+	for _, id := range fileIDs {
+		if m.live[id] {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // memCollab answers the collab store from memFiles and the project store's members.
 type memCollab struct {
 	files     *memFiles

@@ -24,6 +24,7 @@ const (
 	EventPresence            = "presence"
 	EventNotificationCreated = "notification.created"
 	EventNotificationsUnread = "notifications.unread"
+	EventCompileUpdated      = "compile.updated"
 )
 
 // Event types a client sends.

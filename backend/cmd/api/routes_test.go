@@ -163,7 +163,13 @@ func tamper(token string) string {
 func checkInternalRoute(t *testing.T, router http.Handler, method, path, cookie string, validParams bool) {
 	t.Helper()
 	checkUnauthenticated(t, "no token", sendInternal(t, router, method, path, `{}`, ""))
-	checkUnauthenticated(t, "wrong token", sendInternal(t, router, method, path, `{}`, testSyncToken+"x"))
+	right, other := testSyncToken, testCompileToken
+	if strings.Contains(path, "/internal/compile/") {
+		right, other = other, right
+	}
+	checkUnauthenticated(t, "wrong token", sendInternal(t, router, method, path, `{}`, right+"x"))
+	// Each service's operations refuse the other service's token (docs/compile.md).
+	checkUnauthenticated(t, "the other service's token", sendInternal(t, router, method, path, `{}`, other))
 	req := httptest.NewRequestWithContext(t.Context(), method, path, strings.NewReader(`{}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Cookie", httpx.AccessCookie+"="+cookie)
@@ -171,7 +177,7 @@ func checkInternalRoute(t *testing.T, router http.Handler, method, path, cookie 
 	router.ServeHTTP(rec, req)
 	checkUnauthenticated(t, "a session cookie", rec)
 	if validParams {
-		if rec := sendInternal(t, router, method, path, `{}`, testSyncToken); rec.Code == http.StatusUnauthorized {
+		if rec := sendInternal(t, router, method, path, `{}`, right); rec.Code == http.StatusUnauthorized {
 			t.Errorf("right token: 401 %s", rec.Body)
 		}
 	}

@@ -40,3 +40,9 @@ export class LiveMarks {
 export function eventsChannel(db: number): string {
   return `sync:${db}:events`;
 }
+
+/**
+ * The list a flush's answer goes to, followed by its request ID (projectredis.FlushAckPrefix):
+ * the API waits on it with BLPOP.
+ */
+export const flushAckPrefix = "sync:flushack:";

@@ -852,3 +852,32 @@ before the cap, the store waits a full debounce more (worst case `maxDebounce + 
 server now arms its own timer at the oldest unsaved change and stores at that deadline
 (`armDeadline` in `sync/src/server.ts`; test "stores by the 4 s deadline when typing stops just
 before it"). The maximum is now the deadline plus one store.
+
+## Compile speed (NFR-3), slice 23, chunk 23.1
+
+`make bench-compile [runs=5]` (`compile/cmd/bench`; needs `make compile-image`). Run on
+2026-11-23 on the development laptop (Intel i5-1135G7, 8 threads, 14 GB, Docker 29.8.1, runc).
+It compiles `compile/bench/sample` in the real sandbox (one container per run, 1 CPU, 1 GiB,
+no network): a 10-page `article` with an abstract, a table of contents, three `\input`
+sections, 9 numbered equations and an `align`, a TikZ plot, a 20-row `booktabs` table,
+`hyperref`, `lipsum` text and 20 BibTeX references, so latexmk runs pdfLaTeX, BibTeX and
+pdfLaTeX twice more. The time is from creating the container to having the PDF back, cleanup
+included.
+
+| Measure | Result | Target |
+| --- | --- | --- |
+| Pages | 10 | 10 |
+| Sandbox run p50 / max (5 runs) | 2.26 / 2.28 s | under 20 s |
+| Of which inside the container | 2.18 to 2.22 s | |
+| PDF size | 217 KB | |
+
+**End to end**, by hand on the same machine against `make api` and `make compile-worker`: a
+new project's `main.tex` (1 page), from `POST /compiles` to `compiles/latest` saying
+`succeeded`, 0.89 to 1.01 s over 3 runs (the sandbox 0.64 s of it; the rest is the claim poll
+of at most 0.5 s, reading the files and storing the PDF).
+
+**What it does not measure.** One compile at a time on an idle machine: with
+`COMPILE_CONCURRENCY` compiles at once each still has its own CPU only while the host has that
+many free. The first compile after the image is pulled reads it from disk; later ones find it
+in the page cache. A document with many large figures spends longer reading them through the
+API (up to `COMPILE_MAX_INPUT_BYTES`) than the sample.

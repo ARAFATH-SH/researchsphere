@@ -116,6 +116,12 @@ linters:
           allow:
             - $gostd
             - github.com/ARAFATH-SH/researchsphere/backend/internal/project/domain
+        usecase-compile:
+          files: ["**/internal/compile/usecase/**"]
+          list-mode: strict
+          allow:
+            - $gostd
+            - github.com/ARAFATH-SH/researchsphere/backend/internal/compile/domain
         # The image codec sees only bytes and the media domain: no HTTP, database or
         # storage, so a decoding bug cannot reach anything else (FR-4.6).
         adapter-imaging:

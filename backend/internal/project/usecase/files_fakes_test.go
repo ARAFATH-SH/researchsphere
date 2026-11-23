@@ -541,3 +541,47 @@ func (e *fileEnv) upload(ctx context.Context, user, project, path string, data [
 	}
 	return e.service.CompleteFigureUpload(ctx, user, project, t.ID)
 }
+
+func (m *memFiles) SourceFiles(_ context.Context, projectID string) ([]domain.StoredFile, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []domain.StoredFile
+	for _, f := range m.project(projectID) {
+		out = append(out, f.StoredFile)
+	}
+	return out, nil
+}
+
+func (m *memFiles) MainFile(_ context.Context, projectID string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, err := m.s.Get(context.Background(), projectID, ""); err != nil {
+		return "", err
+	}
+	return m.mainPath(projectID), nil
+}
+
+func (m *memFiles) SetMainFile(_ context.Context, projectID, path string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.main[projectID] = path
+	return nil
+}
+
+func (m *memFiles) ProjectTitle(ctx context.Context, projectID string) (string, error) {
+	p, err := m.s.Get(ctx, projectID, "")
+	if err != nil {
+		return "", err
+	}
+	return p.Title, nil
+}
+
+func (o *memObjects) Get(_ context.Context, key string) (io.ReadCloser, error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	b, ok := o.objects[key]
+	if !ok {
+		return nil, domain.ErrObjectMissing
+	}
+	return io.NopCloser(bytes.NewReader(b)), nil
+}

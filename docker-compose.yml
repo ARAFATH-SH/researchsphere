@@ -165,6 +165,37 @@ services:
       redis:
         condition: service_healthy
 
+  # The compile worker (slice 23, docs/compile.md), for running it as a container; in
+  # development `make compile-worker` runs it on the host instead, as `make api` runs the API.
+  # It is the ONLY service that gets the Docker socket, which is root on this host: never mount
+  # it into the API or any other service. The API's internal listener must be reachable from
+  # the container (INTERNAL_API_ADDR on an address the container can reach, never public).
+  compile-worker:
+    profiles: ["compile"]
+    build: ./compile
+    image: researchsphere-compile-worker:local
+    environment:
+      COMPILE_SERVICE_TOKEN: ${COMPILE_SERVICE_TOKEN:-}
+      COMPILE_API_URL: ${COMPILE_DOCKER_API_URL:-http://host.docker.internal:8081}
+      COMPILE_IMAGE: ${COMPILE_IMAGE:-researchsphere-compile:dev}
+      COMPILE_RUNTIME: ${COMPILE_RUNTIME:-}
+      COMPILE_CONCURRENCY: ${COMPILE_CONCURRENCY:-2}
+      COMPILE_MAX_PDF_BYTES: ${COMPILE_MAX_PDF_BYTES:-100M}
+      COMPILE_MAX_INPUT_BYTES: ${COMPILE_MAX_INPUT_BYTES:-384M}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ${COMPILE_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
+    group_add:
+      - "${DOCKER_GID:-999}"
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    stop_grace_period: 90s
+
 volumes:
   pgdata:
   miniodata:

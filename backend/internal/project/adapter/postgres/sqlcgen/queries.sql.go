@@ -1544,7 +1544,7 @@ func (q *Queries) ProjectFile(ctx context.Context, arg ProjectFileParams) (Proje
 }
 
 const projectFileAt = `-- name: ProjectFileAt :one
-SELECT f.id, f.kind::text AS kind
+SELECT f.id, f.kind::text AS kind, f.path
 FROM project_files f
 WHERE f.project_id = $1 AND lower(f.path) = lower($2::text)
 `
@@ -1557,12 +1557,13 @@ type ProjectFileAtParams struct {
 type ProjectFileAtRow struct {
 	ID   pgtype.UUID
 	Kind string
+	Path string
 }
 
 func (q *Queries) ProjectFileAt(ctx context.Context, arg ProjectFileAtParams) (ProjectFileAtRow, error) {
 	row := q.db.QueryRow(ctx, projectFileAt, arg.ProjectID, arg.Path)
 	var i ProjectFileAtRow
-	err := row.Scan(&i.ID, &i.Kind)
+	err := row.Scan(&i.ID, &i.Kind, &i.Path)
 	return i, err
 }
 
@@ -1882,6 +1883,17 @@ func (q *Queries) ProjectStorageUsed(ctx context.Context, projectID pgtype.UUID)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const projectTitle = `-- name: ProjectTitle :one
+SELECT title FROM projects WHERE id = $1
+`
+
+func (q *Queries) ProjectTitle(ctx context.Context, id pgtype.UUID) (string, error) {
+	row := q.db.QueryRow(ctx, projectTitle, id)
+	var title string
+	err := row.Scan(&title)
+	return title, err
 }
 
 const projectsWithoutFiles = `-- name: ProjectsWithoutFiles :many
@@ -2295,6 +2307,20 @@ func (q *Queries) SetHNSWIterativeScan(ctx context.Context) error {
 	return err
 }
 
+const setMainFilePath = `-- name: SetMainFilePath :exec
+UPDATE projects SET main_file_path = $1 WHERE id = $2
+`
+
+type SetMainFilePathParams struct {
+	Path string
+	ID   pgtype.UUID
+}
+
+func (q *Queries) SetMainFilePath(ctx context.Context, arg SetMainFilePathParams) error {
+	_, err := q.db.Exec(ctx, setMainFilePath, arg.Path, arg.ID)
+	return err
+}
+
 const setMemberRole = `-- name: SetMemberRole :exec
 UPDATE project_members SET role = ($1::text)::project_role
 WHERE project_id = $2 AND user_id = $3
@@ -2380,6 +2406,60 @@ func (q *Queries) SkillsOfProjects(ctx context.Context, ids []pgtype.UUID) ([]Sk
 	for rows.Next() {
 		var i SkillsOfProjectsRow
 		if err := rows.Scan(&i.ProjectID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const sourceFiles = `-- name: SourceFiles :many
+SELECT f.id, f.path, f.kind::text AS kind, f.size_bytes, f.version, f.updated_at, f.content,
+       sf.object_key, sf.content_type, sf.scan_status
+FROM project_files f
+LEFT JOIN stored_files sf ON sf.id = f.stored_file_id
+WHERE f.project_id = $1
+ORDER BY lower(f.path), f.path
+`
+
+type SourceFilesRow struct {
+	ID          pgtype.UUID
+	Path        string
+	Kind        string
+	SizeBytes   int64
+	Version     int32
+	UpdatedAt   pgtype.Timestamptz
+	Content     pgtype.Text
+	ObjectKey   pgtype.Text
+	ContentType pgtype.Text
+	ScanStatus  pgtype.Text
+}
+
+// Every entry with its text or object key, for a compile or an archive (slice 23).
+func (q *Queries) SourceFiles(ctx context.Context, projectID pgtype.UUID) ([]SourceFilesRow, error) {
+	rows, err := q.db.Query(ctx, sourceFiles, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SourceFilesRow
+	for rows.Next() {
+		var i SourceFilesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Path,
+			&i.Kind,
+			&i.SizeBytes,
+			&i.Version,
+			&i.UpdatedAt,
+			&i.Content,
+			&i.ObjectKey,
+			&i.ContentType,
+			&i.ScanStatus,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

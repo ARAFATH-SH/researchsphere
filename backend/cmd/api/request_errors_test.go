@@ -76,6 +76,8 @@ var jsonBodyRoutes = []struct {
 	{http.MethodPost, "/api/v1/internal/sync/tickets/redeem", "fileId", `{"fileId":"` + okProjectFileID + `","ticket":5}`, "ticket", "ticket must be a string."},
 	{http.MethodPost, "/api/v1/internal/sync/access", "checks", `{"checks":5}`, "checks", "checks must be a list."},
 	{http.MethodPut, "/api/v1/internal/sync/files/" + okProjectFileID + "/state", "baseVersion", `{"baseVersion":"1"}`, "baseVersion", "baseVersion must be a whole number."},
+	{http.MethodPost, "/api/v1/internal/compile/claim", "workerId", `{"workerId":5}`, "workerId", "workerId must be a string."},
+	{http.MethodPost, "/api/v1/internal/compile/jobs/" + okCompileID + "/finish", "bibtexLog", `{"outcome":"completed","durationMs":"1","log":"","bibtexLog":""}`, "durationMs", "durationMs must be a whole number."},
 }
 
 // Every operation with a JSON body goes through the same decoder and the same error shape.
@@ -89,7 +91,11 @@ func TestEveryJSONBodyGetsFieldErrors(t *testing.T) {
 		}
 		var rec *httptest.ResponseRecorder
 		if strings.HasPrefix(path, internalPrefix) {
-			rec = sendInternal(t, router, method, path, body, testSyncToken)
+			token := testSyncToken
+			if strings.Contains(path, "/internal/compile/") {
+				token = testCompileToken
+			}
+			rec = sendInternal(t, router, method, path, body, token)
 		} else {
 			rec = sendAs(t, router, method, path, strings.NewReader(body), "application/json", string(role))
 		}

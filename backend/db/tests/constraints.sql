@@ -541,10 +541,24 @@ SELECT pg_temp.expect_ok('Stored file: a photo of exactly 2 MB is accepted',
        VALUES ('00000000-0000-0000-0000-000000000001', 'photo', pg_temp.t('photo/ok-1'), 'image/jpeg', 2097152, 400, 400)$s$);
 SELECT pg_temp.expect_true('Stored file: scan status starts as pending', $q$
     SELECT scan_status = 'pending' FROM stored_files WHERE object_key = pg_temp.t('photo/ok-1')$q$);
-SELECT pg_temp.expect_ok('Stored file: every purpose a user owns is accepted, a 5 MB pdf too',
+SELECT pg_temp.expect_ok('Stored file: every purpose a user owns is accepted',
     $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes)
        SELECT '00000000-0000-0000-0000-000000000001', p, pg_temp.t('any/') || p, 'application/pdf', 5242880
-         FROM unnest(ARRAY['cover', 'pdf', 'attachment']) AS p$s$);
+         FROM unnest(ARRAY['cover', 'attachment']) AS p$s$);
+-- A compiled PDF belongs to its project (slice 23, migration 000038), is never scanned and is
+-- recorded clean, and is at most 200 MiB.
+SELECT pg_temp.expect_error('Stored file: a user owns no compiled PDF',
+    $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes, scan_status)
+       VALUES ('00000000-0000-0000-0000-000000000001', 'pdf', pg_temp.t('x/pdf1'), 'application/pdf', 10, 'clean')$s$, '23514');
+SELECT pg_temp.expect_ok('Stored file: a compiled PDF belongs to a project, clean',
+    $s$INSERT INTO stored_files (project_id, purpose, object_key, content_type, size_bytes, scan_status)
+       VALUES ('00000000-0000-0000-0000-0000000000a1', 'pdf', pg_temp.t('compiled/pdf'), 'application/pdf', 209715200, 'clean')$s$);
+SELECT pg_temp.expect_error('Stored file: a compiled PDF is recorded clean, not pending',
+    $s$INSERT INTO stored_files (project_id, purpose, object_key, content_type, size_bytes)
+       VALUES ('00000000-0000-0000-0000-0000000000a1', 'pdf', pg_temp.t('x/pdf2'), 'application/pdf', 10)$s$, '23514');
+SELECT pg_temp.expect_error('Stored file: a compiled PDF is at most 200 MiB',
+    $s$INSERT INTO stored_files (project_id, purpose, object_key, content_type, size_bytes, scan_status)
+       VALUES ('00000000-0000-0000-0000-0000000000a1', 'pdf', pg_temp.t('x/pdf3'), 'application/pdf', 209715201, 'clean')$s$, '23514');
 SELECT pg_temp.expect_ok('Stored file: a figure belongs to a project, with its uploader (FR-12.2)',
     $s$INSERT INTO stored_files (project_id, uploaded_by, purpose, object_key, content_type, size_bytes)
        VALUES ('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000000002', 'figure',
@@ -599,9 +613,9 @@ SELECT pg_temp.expect_error('Stored file: content type looks like type/subtype',
     $s$INSERT INTO stored_files (owner_user_id, purpose, object_key, content_type, size_bytes)
        VALUES ('00000000-0000-0000-0000-000000000001', 'photo', pg_temp.t('x/8'), 'image', 10)$s$, '23514');
 SELECT pg_temp.expect_ok('Stored file: deleting a row queues its object for deletion',
-    $s$DELETE FROM stored_files WHERE object_key = pg_temp.t('any/pdf')$s$);
+    $s$DELETE FROM stored_files WHERE object_key = pg_temp.t('any/cover')$s$);
 SELECT pg_temp.expect_true('Stored file: the deleted row''s key is in storage_deletions', $q$
-    SELECT EXISTS (SELECT 1 FROM storage_deletions WHERE object_key = pg_temp.t('any/pdf') AND attempts = 0)$q$);
+    SELECT EXISTS (SELECT 1 FROM storage_deletions WHERE object_key = pg_temp.t('any/cover') AND attempts = 0)$q$);
 
 -- ---------------------------------------------------------------------------
 -- Profile photo and cover (FR-4.6, migration 000008)
@@ -1033,13 +1047,43 @@ SET CONSTRAINTS ALL DEFERRED;
 -- Compile job (FR-13.4)
 -- ---------------------------------------------------------------------------
 
-INSERT INTO compile_jobs (id, project_id, status) VALUES
-    ('00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-0000000000a1', 'running');
+INSERT INTO compile_jobs (id, project_id, status, engine, main_file_path, started_at, lease_until, worker_id) VALUES
+    ('00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-0000000000a1', 'running', 'pdflatex', 'main.tex',
+     now(), now() + interval '2 minutes', 'w1');
 SELECT pg_temp.expect_error('Compile job: one compile per project at a time',
-    $s$INSERT INTO compile_jobs (project_id) VALUES ('00000000-0000-0000-0000-0000000000a1')$s$, '23505');
-UPDATE compile_jobs SET status = 'succeeded' WHERE id = '00000000-0000-0000-0000-000000000101';
+    $s$INSERT INTO compile_jobs (project_id, engine, main_file_path) VALUES ('00000000-0000-0000-0000-0000000000a1', 'pdflatex', 'main.tex')$s$, '23505');
+-- Slice 23 (migration 000038): the status and the columns that go with it.
+SELECT pg_temp.expect_error('Compile job: a status of the list',
+    $s$UPDATE compile_jobs SET status = 'done' WHERE id = '00000000-0000-0000-0000-000000000101'$s$, '23514');
+SELECT pg_temp.expect_error('Compile job: pdfLaTeX only, for now',
+    $s$UPDATE compile_jobs SET engine = 'xelatex' WHERE id = '00000000-0000-0000-0000-000000000101'$s$, '23514');
+SELECT pg_temp.expect_error('Compile job: running has a lease',
+    $s$UPDATE compile_jobs SET lease_until = NULL WHERE id = '00000000-0000-0000-0000-000000000101'$s$, '23514');
+SELECT pg_temp.expect_error('Compile job: finished has a finish time',
+    $s$UPDATE compile_jobs SET status = 'succeeded', lease_until = NULL WHERE id = '00000000-0000-0000-0000-000000000101'$s$, '23514');
+SELECT pg_temp.expect_error('Compile job: a failure only for failed or cancelled',
+    $s$UPDATE compile_jobs SET status = 'succeeded', finished_at = now(), failure = 'no_pdf' WHERE id = '00000000-0000-0000-0000-000000000101'$s$, '23514');
+SELECT pg_temp.expect_error('Compile job: cancelled only as queue_expired',
+    $s$UPDATE compile_jobs SET status = 'cancelled', finished_at = now(), failure = 'no_pdf' WHERE id = '00000000-0000-0000-0000-000000000101'$s$, '23514');
+SELECT pg_temp.expect_error('Compile job: errors are a list of at most 100',
+    $s$UPDATE compile_jobs SET errors = (SELECT jsonb_agg(i) FROM generate_series(1, 101) AS i) WHERE id = '00000000-0000-0000-0000-000000000101'$s$, '23514');
+SELECT pg_temp.expect_error('Compile job: a log of at most 2 MiB',
+    $s$UPDATE compile_jobs SET status = 'failed', finished_at = now(), log = repeat('x', 2097153) WHERE id = '00000000-0000-0000-0000-000000000101'$s$, '23514');
+SELECT pg_temp.expect_error('Compile job: the PDF is its own project''s',
+    $s$UPDATE compile_jobs SET pdf_file_id = (SELECT id FROM stored_files WHERE purpose = 'photo' LIMIT 1)
+       WHERE id = '00000000-0000-0000-0000-000000000101'$s$, '23503');
+UPDATE compile_jobs SET pdf_file_id = (SELECT id FROM stored_files WHERE object_key = pg_temp.t('compiled/pdf'))
+    WHERE id = '00000000-0000-0000-0000-000000000101';
+SELECT pg_temp.expect_error('Compile job: only a succeeded job keeps a PDF',
+    $s$UPDATE compile_jobs SET status = 'failed', finished_at = now() WHERE id = '00000000-0000-0000-0000-000000000101'$s$, '23514');
+UPDATE compile_jobs SET status = 'succeeded', finished_at = now(), lease_until = NULL WHERE id = '00000000-0000-0000-0000-000000000101';
 SELECT pg_temp.expect_ok('Compile job: a new compile once the last one finished',
-    $s$INSERT INTO compile_jobs (project_id) VALUES ('00000000-0000-0000-0000-0000000000a1')$s$);
+    $s$INSERT INTO compile_jobs (project_id, engine, main_file_path) VALUES ('00000000-0000-0000-0000-0000000000a1', 'pdflatex', 'main.tex')$s$);
+-- Its PDF goes with the job, and the stored file's trigger queues the object.
+DELETE FROM compile_jobs WHERE id = '00000000-0000-0000-0000-000000000101';
+SELECT pg_temp.expect_true('Compile job: deleting it deletes its PDF and queues the object', $q$
+    SELECT NOT EXISTS (SELECT 1 FROM stored_files WHERE object_key = pg_temp.t('compiled/pdf'))
+       AND EXISTS (SELECT 1 FROM storage_deletions WHERE object_key = pg_temp.t('compiled/pdf'))$q$);
 
 -- ---------------------------------------------------------------------------
 -- Venue (FR-14.5)

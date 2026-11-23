@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/api/gen"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/auth/adapter/argon2"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/auth/adapter/emaildomain"
 	authhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/adapter/http"
@@ -25,6 +26,7 @@ import (
 	authredis "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/adapter/redis"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/auth/adapter/smtp"
 	authusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/usecase"
+	compilehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/compile/adapter/http"
 	embeddinghttp "github.com/ARAFATH-SH/researchsphere/backend/internal/embedding/adapter/http"
 	healthpg "github.com/ARAFATH-SH/researchsphere/backend/internal/health/adapter/postgres"
 	healthredis "github.com/ARAFATH-SH/researchsphere/backend/internal/health/adapter/redis"
@@ -269,7 +271,7 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 		vectors:  projectQueryVectors{cache: lookups.QueryVectors()},
 		timeout:  cfg.SearchAITimeout,
 	}, projectChanges{recs: recommendations, people: recCache, sync: syncEv, logger: logger}, projectNotifier{notifications: notifications}, files,
-		figureLimits{figure: cfg.FigureMaxBytes, storage: cfg.ProjectStorageMaxBytes}, syncEv, logger)
+		figureLimits{figure: cfg.FigureMaxBytes, storage: cfg.ProjectStorageMaxBytes}, syncEv, cfg.ArchiveMaxBytes, logger)
 	defer func() { _ = projectLimits.Close() }()
 	// Figure uploads never completed expire; the database queues their objects (FR-12.2).
 	go projects.RunUploadSweep(ctx, uploadSweepInterval)
@@ -282,6 +284,10 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 	}
 	embedWorker.Watch(embeddingChanges{recs: recommendations})
 	go embedWorker.Run(ctx)
+	// Compile (slice 23): jobs queue here; the compile worker runs them (docs/compile.md).
+	compiles, compileKeys := newCompile(pool, rdb, cfg, projects, files, realtime.events, logger)
+	defer func() { _ = compileKeys.Close() }()
+	go compiles.RunSweep(ctx, compileSweepInterval)
 	handler := newRouter(logger, healthpg.NewPinger(pool), healthredis.NewPinger(rdb), files, ai,
 		authhttp.NewHandler(auth, authhttp.CookieConfig{Secure: cfg.CookieSecure}),
 		profilehttp.NewHandler(profiles),
@@ -294,17 +300,23 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 		embeddinghttp.NewHandler(embeddings),
 		recommendationhttp.NewHandler(recommendations),
 		projecthttp.NewHandler(projects),
-		serviceAndSessionAuth([]byte(cfg.SyncServiceToken), httpx.RequireAuth(tokens, time.Now)))
+		compilehttp.NewHandler(compiles),
+		serviceAndSessionAuth([]byte(cfg.SyncServiceToken), []byte(cfg.CompileServiceToken), httpx.RequireAuth(tokens, time.Now)))
 
 	var lc net.ListenConfig
 	ln, err := lc.Listen(ctx, "tcp", ":"+strconv.Itoa(cfg.Port))
 	if err != nil {
 		return fmt.Errorf("listen on port %d: %w", cfg.Port, err)
 	}
-	// The sync server's internal operations listen apart (docs/sync.md); without its token
-	// there is nothing to serve there.
+	// The internal operations of the sync server and the compile worker listen apart
+	// (docs/sync.md, docs/compile.md); without either token there is nothing to serve there.
 	if cfg.SyncServiceToken == "" {
 		logger.Warn("SYNC_SERVICE_TOKEN is not set: real-time editing is off")
+	}
+	if cfg.CompileServiceToken == "" {
+		logger.Warn("COMPILE_SERVICE_TOKEN is not set: compiles are refused as unavailable")
+	}
+	if cfg.SyncServiceToken == "" && cfg.CompileServiceToken == "" {
 		return httpserver.Serve(ctx, ln, publicOnly(handler), logger, realtime.hub.Shutdown)
 	}
 	internalLn, err := lc.Listen(ctx, "tcp", cfg.InternalAPIAddr)
@@ -326,10 +338,14 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 	return errors.Join(err, <-internalErr)
 }
 
-// serviceAndSessionAuth checks the sync service's token on the operations the contract gives
-// it, then the session on the rest (httpx.RequireServiceToken, httpx.RequireAuth).
-func serviceAndSessionAuth(serviceToken []byte, requireAuth func(http.Handler) http.Handler) func(http.Handler) http.Handler {
-	service := httpx.RequireServiceToken(serviceToken)
+// serviceAndSessionAuth checks the sync server's and the compile worker's tokens on the
+// operations the contract gives each, then the session on the rest
+// (httpx.RequireServiceTokens, httpx.RequireAuth).
+func serviceAndSessionAuth(syncToken, compileToken []byte, requireAuth func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+	service := httpx.RequireServiceTokens(
+		httpx.ServiceScheme{Scopes: gen.SyncTokenScopes, Token: syncToken},
+		httpx.ServiceScheme{Scopes: gen.CompileTokenScopes, Token: compileToken},
+	)
 	return func(next http.Handler) http.Handler { return service(requireAuth(next)) }
 }
 

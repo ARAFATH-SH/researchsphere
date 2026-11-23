@@ -1,0 +1,39 @@
+# golangci-lint v2 settings for the compile worker, as the backend's (CI runs v2.14.0).
+version: "2"
+
+run:
+  # Also lint the sandbox tests that need Docker and the image (make test-compile-sandbox).
+  build-tags: [sandbox]
+
+linters:
+  enable:
+    - bodyclose
+    - depguard   # standard library only: the worker has no dependency (docs/compile.md)
+    - errorlint
+    - gosec
+    - misspell
+    - noctx
+    - sloglint
+  settings:
+    depguard:
+      rules:
+        stdlib-only:
+          list-mode: strict
+          allow:
+            - $gostd
+            - github.com/ARAFATH-SH/researchsphere/compile
+    sloglint:
+      attr-only: false
+      no-mixed-args: true
+  exclusions:
+    presets:
+      - std-error-handling
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/ARAFATH-SH/researchsphere/compile

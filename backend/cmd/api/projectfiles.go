@@ -61,6 +61,14 @@ func (o figureObjects) Stat(ctx context.Context, key string) (projectdomain.Obje
 	return projectdomain.ObjectVersion{Size: info.Size, ETag: info.ETag}, nil
 }
 
+func (o figureObjects) Get(ctx context.Context, key string) (io.ReadCloser, error) {
+	r, err := o.Storage.Get(ctx, key)
+	if err != nil {
+		return nil, objectError(err)
+	}
+	return r, nil
+}
+
 func (o figureObjects) Open(ctx context.Context, key, etag string) (io.ReadCloser, error) {
 	r, err := o.GetIfMatch(ctx, key, etag)
 	if err != nil {

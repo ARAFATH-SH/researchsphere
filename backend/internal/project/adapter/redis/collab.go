@@ -87,6 +87,8 @@ type SyncEvent struct {
 	ProjectID string   `json:"projectId,omitempty"`
 	UserIDs   []string `json:"userIds,omitempty"`
 	FileIDs   []string `json:"fileIds,omitempty"`
+	// RequestID names a flush; the sync server answers on FlushAckPrefix + RequestID.
+	RequestID string `json:"requestId,omitempty"`
 }
 
 // Kinds of SyncEvent.
@@ -95,7 +97,13 @@ const (
 	SyncFilesDeleted   = "files_deleted"
 	SyncProjectDeleted = "project_deleted"
 	SyncUserEnded      = "user_ended"
+	// SyncFlush asks the sync server to store the project's documents now (slice 23).
+	SyncFlush = "flush"
 )
+
+// FlushAckPrefix is followed by a flush's request ID: the list the sync server pushes its
+// answer to, "ok" when it stored every document of the project, else "failed".
+const FlushAckPrefix = "sync:flushack:"
 
 // SyncChannel is the pub/sub channel of sync events. Pub/sub ignores database numbers, so
 // the name carries the database's, as the realtime channels do: tests on DB 15 never reach a
@@ -113,4 +121,20 @@ func (c Collab) PublishSync(ctx context.Context, ev SyncEvent) error {
 		return fmt.Errorf("publish sync event: %w", err)
 	}
 	return nil
+}
+
+// AnyLive reports whether the sync server holds the document of any of the files.
+func (c Collab) AnyLive(ctx context.Context, fileIDs []string) (bool, error) {
+	if len(fileIDs) == 0 {
+		return false, nil
+	}
+	keys := make([]string, len(fileIDs))
+	for i, id := range fileIDs {
+		keys[i] = LivePrefix + id
+	}
+	n, err := c.client.Exists(ctx, keys...).Result()
+	if err != nil {
+		return false, fmt.Errorf("read live marks: %w", err)
+	}
+	return n > 0, nil
 }

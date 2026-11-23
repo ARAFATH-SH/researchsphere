@@ -5,6 +5,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"slices"
 	"strings"
@@ -194,6 +195,8 @@ type UpdateInput struct {
 	SetAbstract bool
 	Abstract    *string
 	Status      *string
+	// MainFilePath is the file compile starts from (FR-13.1): an existing .tex text file.
+	MainFilePath *string
 }
 
 // Update changes the fields in, after checking, in this order and inside one transaction
@@ -210,7 +213,7 @@ func (s *Service) Update(ctx context.Context, viewerID, projectID string, in Upd
 		if !a.Visible() {
 			return domain.ErrNotFound
 		}
-		details := in.Title != nil || in.Description != nil || in.Skills != nil || in.Status != nil
+		details := in.Title != nil || in.Description != nil || in.Skills != nil || in.Status != nil || in.MainFilePath != nil
 		if details && !s.d.Permissions.Can(a.Role, domain.ActEditDetails) ||
 			in.SetAbstract && !s.d.Permissions.Can(a.Role, domain.ActEditAbstract) {
 			return domain.ErrForbidden
@@ -221,6 +224,11 @@ func (s *Service) Update(ctx context.Context, viewerID, projectID string, in Upd
 		}
 		if !details && !in.SetAbstract {
 			return nil
+		}
+		if in.MainFilePath != nil {
+			if err := s.setMainFile(ctx, projectID, *in.MainFilePath); err != nil {
+				return err
+			}
 		}
 		if err := s.d.Store.Update(ctx, projectID, c); err != nil {
 			return err
@@ -241,6 +249,27 @@ func (s *Service) Update(ctx context.Context, viewerID, projectID string, in Upd
 		return domain.Project{}, err
 	}
 	return forViewer(p), nil
+}
+
+// setMainFile makes the text file at path, found ignoring letter case, the main file, under
+// its own spelling; domain.ErrMainFileInvalid unless it is an existing .tex text file. The
+// caller holds the project row, so the tree cannot change meanwhile.
+func (s *Service) setMainFile(ctx context.Context, projectID, path string) error {
+	if s.d.Files == nil {
+		return errors.New("project: files are not configured")
+	}
+	clean, err := CleanPath(path)
+	if err != nil {
+		return domain.ErrMainFileInvalid
+	}
+	f, ok, err := s.d.Files.FileAt(ctx, projectID, clean)
+	if err != nil {
+		return err
+	}
+	if !ok || f.Kind != domain.KindText || !strings.HasSuffix(strings.ToLower(f.Path), ".tex") {
+		return domain.ErrMainFileInvalid
+	}
+	return s.d.Files.SetMainFile(ctx, projectID, f.Path)
 }
 
 func validChanges(in UpdateInput) (domain.Changes, error) {

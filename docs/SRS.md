@@ -513,7 +513,7 @@ The database holds the 18 core kinds of record below, plus 19 added for profile 
 | Membership | Project, user, role | One role per user per project; exactly one owner per project |
 | Join request | Project, user, kind (request or invitation), status, message | One pending request per user per project |
 | File | Project, path, kind (text, figure or folder), text content, version, real-time editing state, stored file (figure), size, who last changed it | Path is unique within a project ignoring letter case, uses only letters, digits, `_`, `-` and `.` (no spaces), has at most 8 levels and 255 characters, and cannot point outside it; every entry is inside a folder of the same project; at most 200 entries per project, folders included; text at most 1 MiB; a figure is a PNG, JPG or PDF of at most the figure limit (50 MB by default, never over 200 MiB) whose stored file belongs to the same project; a project's figures together stay within its storage limit (500 MB by default); deleting a figure deletes its stored file |
-| Compile job | Project, requester, status, PDF key, log, times | Belongs to one project |
+| Compile job | Project, requester, status, main file, engine, PDF (a stored file), log, errors, times | Belongs to one project; at most one queued or running per project (FR-13.4). Status is queued, running, succeeded (a PDF was made, even when the log reports errors), failed (no PDF was made), timed_out (stopped after 60 seconds, FR-13.5) or cancelled (no compile service took it within 5 minutes) |
 | Venue | Name, type, scope, field, location, dates, deadline, source | An imported venue is unique by its source and source identifier |
 | Embedding | Owner (profile, project, post or venue), model, text hash, vector | One per owner; deleted with its owner |
 | Notification | Receiver, type, actor, item, read time | Deleted with its receiver; a system type has no actor, every other type has one |
@@ -543,7 +543,7 @@ The database holds the 18 core kinds of record below, plus 19 added for profile 
 
 - Deleting an account removes the user's personal data at once (FR-2.8). Publications shared with a co-author stay for that co-author.
 - Deleting an account deletes the user's direct conversations with all their messages, also the other member's copy. In a group it deletes the user's membership and their messages, including the system messages they made; the group stays for the others, and if the user owned it, ownership passes to the member who joined earliest.
-- The compile log and PDF are kept for the latest compile of each project only.
+- The compile log is kept for the latest finished compile of each project only, and the PDF for the latest compile that succeeded only, so a failed compile never removes the last good PDF. At most 10 compile records are kept per project, besides the one holding the PDF.
 - Earlier versions of edited messages and the text of deleted ones are deleted 30 days after they
   were replaced. A version of a conversation that was reported while or after that text was shown
   is kept until 30 days after the report is resolved (purge job: slice 29A).

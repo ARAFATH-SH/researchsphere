@@ -90,6 +90,8 @@ type TicketStore interface {
 // holds the document.
 type LiveSessions interface {
 	LiveSession(ctx context.Context, fileID string) (bool, error)
+	// AnyLive reports whether any of the files is open on the sync server.
+	AnyLive(ctx context.Context, fileIDs []string) (bool, error)
 }
 
 // CollabEvents tells the sync server about changes that end access to open documents.

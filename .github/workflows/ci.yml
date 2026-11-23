@@ -6,7 +6,10 @@
 # (PostgreSQL, Redis, MinIO, migrations, database and repository tests) once they pass. The
 # clamav job (EICAR with a real clamd) runs only on push to main, nightly and by hand. The
 # ai-model job (the real embedding model, about 1.1 GB to download) runs only nightly and by
-# hand; on pull requests the ai job tests the service with a stub model.
+# hand; on pull requests the ai job tests the service with a stub model. The compile job tests
+# the compile worker with a fake Docker daemon on every change; the compile-sandbox job builds
+# the TeX Live sandbox image (cached) and runs the real-sandbox tests and the NFR-3 benchmark
+# nightly, by hand, and on pull requests and pushes that change compile code.
 #
 # A change that touches only docs/**, design/** or Markdown files (never docs/openapi.yaml,
 # never testdata) skips every job but detect. The jobs then show as skipped, which branch
@@ -43,6 +46,8 @@ jobs:
       node: ${{ steps.detect.outputs.node }}
       python: ${{ steps.detect.outputs.python }}
       sync: ${{ steps.detect.outputs.sync }}
+      compile: ${{ steps.detect.outputs.compile }}
+      compile_changed: ${{ steps.changes.outputs.compile_changed }}
     steps:
       # A pull request checks out its merge commit, whose first parent is the base: depth 2
       # is enough to diff it. A push needs the commit before it.
@@ -64,17 +69,24 @@ jobs:
           case "$EVENT" in
             pull_request) base="HEAD^1" ;;
             push) base="$BEFORE" ;;
-            schedule) echo "code=false" >> "$GITHUB_OUTPUT"; echo "Nightly run: ClamAV only."; exit 0 ;;
+            schedule) echo "code=false" >> "$GITHUB_OUTPUT"; echo "Nightly run: ClamAV, the AI model and the compile sandbox only."; exit 0 ;;
             *) base="" ;;
           esac
           if [[ -z "$base" ]] || ! files=$(git diff --name-only "$base" HEAD 2>/dev/null); then
             echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "compile_changed=true" >> "$GITHUB_OUTPUT"
             echo "No diff to compare; all jobs run."
             exit 0
           fi
           code=false
+          compile_changed=false
           while IFS= read -r f; do
             [[ -z "$f" ]] && continue
+            # The real-sandbox tests run when compile code changes: the worker and the image,
+            # or the API's compile module and its wiring.
+            if [[ "$f" == compile/* || "$f" == backend/internal/compile/* || "$f" == backend/cmd/api/compile* ]]; then
+              compile_changed=true
+            fi
             if [[ "$f" == docs/openapi.yaml || "$f" == */testdata/* ]] ||
                ! [[ "$f" == docs/* || "$f" == design/* || "$f" == *.md ]]; then
               code=true
@@ -82,6 +94,7 @@ jobs:
             fi
           done <<< "$files"
           echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "compile_changed=$compile_changed" >> "$GITHUB_OUTPUT"
           [[ "$code" == true ]] || echo "Only docs, design or Markdown changed; the other jobs are skipped."
 
       # A job is skipped only when its folder has no manifest AND no source files.
@@ -115,6 +128,7 @@ jobs:
           detect node   frontend package.json   -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' -o -name '*.mjs'
           detect python ai       pyproject.toml -name '*.py'
           detect sync   sync     package.json   -name '*.ts' -o -name '*.js' -o -name '*.mjs'
+          detect compile compile go.mod         -name '*.go'
           exit "$status"
 
   backend:
@@ -272,6 +286,100 @@ jobs:
 
       - name: Test
         run: npm test
+
+  compile:
+    name: Compile (Go)
+    needs: detect
+    if: needs.detect.outputs.code == 'true' && needs.detect.outputs.compile == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: compile
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: compile/go.mod
+          cache: false  # no dependencies: standard library only
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.14.0
+          working-directory: compile
+
+      - name: Build
+        run: go build ./...
+
+      # A fake Docker daemon; the real sandbox is the compile-sandbox job's.
+      - name: Test
+        run: go test -race -count=1 ./...
+
+  # The real sandbox (NFR-4, FR-13.5) and NFR-3: builds the TeX Live image (about 2.8 GB to
+  # pull, 9 GB on disk), cached by the hash of compile/image so it is built again only when it
+  # changes. Nightly, by hand, and on pull requests and pushes that change compile code.
+  compile-sandbox:
+    name: Compile sandbox (TeX Live)
+    needs: detect
+    if: >-
+      needs.detect.outputs.compile == 'true' && (
+      github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
+      needs.detect.outputs.compile_changed == 'true')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      COMPILE_IMAGE: researchsphere-compile:ci
+    steps:
+      - uses: actions/checkout@v7
+
+      # The image and its cached archive need about 15 GB; the runner's preinstalled
+      # toolchains this job never uses take more than that.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: compile/go.mod
+          cache: false
+
+      - name: Restore the sandbox image
+        id: image-cache
+        uses: actions/cache@v6
+        with:
+          path: /tmp/compile-image.tar.zst
+          key: compile-image-${{ hashFiles('compile/image/**') }}
+
+      - name: Load the cached image
+        if: steps.image-cache.outputs.cache-hit == 'true'
+        run: zstd -d --stdout /tmp/compile-image.tar.zst | docker load
+
+      - name: Build the image
+        if: steps.image-cache.outputs.cache-hit != 'true'
+        run: |
+          docker build -t "$COMPILE_IMAGE" compile/image
+          docker save "$COMPILE_IMAGE" | zstd -T0 -3 -o /tmp/compile-image.tar.zst
+
+      - name: Image size
+        run: docker image ls "$COMPILE_IMAGE" --format 'image {{.Repository}}:{{.Tag}} {{.Size}}'
+
+      - name: Sandbox tests (real Docker)
+        working-directory: compile
+        run: go test -race -count=1 -tags sandbox -timeout 15m -v ./internal/sandbox/
+
+      - name: NFR-3 benchmark (10-page sample)
+        working-directory: compile
+        run: go run ./cmd/bench -runs 3
+
+      - name: No compile container left
+        if: always()
+        run: |
+          left=$(docker ps -aq --filter label=org.researchsphere.compile=1 | wc -l)
+          echo "compile containers left: $left"
+          test "$left" -eq 0
 
   # Runs after the fast checks pass (a job skipped for a missing manifest counts as passed).
   # It starts no ClamAV: the real-clamd test is the clamav job's.

@@ -6,7 +6,7 @@ import * as Y from "yjs";
 import { ApiError, type AccessCheck, type AccessRole, type Api, type Role } from "./api.ts";
 import { redisDb, type Config } from "./config.ts";
 import { Bucket } from "./limits.ts";
-import { LiveMarks, eventsChannel } from "./live.ts";
+import { LiveMarks, eventsChannel, flushAckPrefix } from "./live.ts";
 import type { Logger } from "./log.ts";
 import { Sessions, type Entry } from "./sessions.ts";
 
@@ -302,7 +302,7 @@ export function createSyncServer(opts: SyncServerOptions): SyncServer {
 
   /** An event from the API (docs/sync.md, Events). */
   const onEvent = (raw: string) => {
-    let ev: { kind?: string; projectId?: string; userIds?: string[]; fileIds?: string[] };
+    let ev: { kind?: string; projectId?: string; userIds?: string[]; fileIds?: string[]; requestId?: string };
     try {
       ev = JSON.parse(raw) as typeof ev;
     } catch {
@@ -324,9 +324,46 @@ export function createSyncServer(opts: SyncServerOptions): SyncServer {
       case "user_ended":
         for (const doc of sessions.documents()) for (const id of users) endUser(doc, id, Reason.sessionEnded);
         break;
+      case "flush":
+        void flush(ev.projectId, ev.requestId);
+        break;
       default:
         logger.warn("unknown sync event", { kind: ev.kind });
     }
+  };
+
+  /**
+   * A compile asks for the project's documents to be stored now, so it reads live edits
+   * (slice 23, docs/sync.md "Flush"). Every document of the project with changes not yet stored
+   * is stored at once (after a store already running); then the answer goes to the list the
+   * API waits on: "ok" when all are stored, "failed" when one could not be. Edits that arrive
+   * after the request may or may not be in it.
+   */
+  const flush = async (projectId: string | undefined, requestId: string | undefined) => {
+    if (projectId === undefined || requestId === undefined || !/^[0-9a-f]{32}$/.test(requestId)) {
+      logger.warn("flush request without a project or a valid request ID");
+      return;
+    }
+    const docs = [...server.hocuspocus.documents.values()].filter((d) => {
+      const m = metas.get(d.name);
+      return m !== undefined && !m.gone && m.projectId === projectId;
+    });
+    await Promise.all(docs.map(async (d) => {
+      const m = metas.get(d.name);
+      if (m === undefined || (m.changes === 0 && !m.fresh && m.failures === 0)) return;
+      clearTimeout(m.retry);
+      await server.hocuspocus.storeDocumentHooks(d, storePayload(d), true);
+    }));
+    const ok = docs.every((d) => {
+      const m = metas.get(d.name);
+      return m === undefined || m.gone || m.failures === 0;
+    });
+    try {
+      await redis.multi().lpush(flushAckPrefix + requestId, ok ? "ok" : "failed").pexpire(flushAckPrefix + requestId, 30_000).exec();
+    } catch (err) {
+      logger.warn("flush answer not sent; the compile reads the stored text", { error: err });
+    }
+    logger.debug("flushed", { projectId, documents: docs.length, ok });
   };
 
   /** The epoch the document has, or will have when loaded (null: it will get a new one). */

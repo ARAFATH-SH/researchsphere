@@ -59,6 +59,9 @@ const (
 	// row of its own in SRS 2.3; its list exists to find people to invite, so it uses this
 	// row (owner only), decisions.md 2026-11-16.
 	ActManageMembers Action = "manage_members"
+	// ActCompile is the row "Compile, use the assistant, edit the abstract", for compiling
+	// (FR-13.1; slice 23).
+	ActCompile Action = "compile"
 )
 
 // Permissions answers SRS 2.3's project table (authz.CanInProject).

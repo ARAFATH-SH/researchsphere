@@ -630,6 +630,46 @@ func (fakeAPI) StoreSyncFile(context.Context, gen.StoreSyncFileRequestObject) (g
 	return nil, nil
 }
 
+func (fakeAPI) ClaimCompileJob(context.Context, gen.ClaimCompileJobRequestObject) (gen.ClaimCompileJobResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) GetCompileSource(context.Context, gen.GetCompileSourceRequestObject) (gen.GetCompileSourceResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) StoreCompilePdf(context.Context, gen.StoreCompilePdfRequestObject) (gen.StoreCompilePdfResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) FinishCompileJob(context.Context, gen.FinishCompileJobRequestObject) (gen.FinishCompileJobResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) StartCompile(context.Context, gen.StartCompileRequestObject) (gen.StartCompileResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) GetLatestCompile(context.Context, gen.GetLatestCompileRequestObject) (gen.GetLatestCompileResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) GetCompile(context.Context, gen.GetCompileRequestObject) (gen.GetCompileResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) GetCompileLog(context.Context, gen.GetCompileLogRequestObject) (gen.GetCompileLogResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) DownloadProjectPdf(context.Context, gen.DownloadProjectPdfRequestObject) (gen.DownloadProjectPdfResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) DownloadProjectArchive(context.Context, gen.DownloadProjectArchiveRequestObject) (gen.DownloadProjectArchiveResponseObject, error) {
+	return nil, nil
+}
+
 var _ gen.StrictServerInterface = fakeAPI{}
 
 var testSigner = accesstoken.New([]byte("test-secret-that-is-at-least-32-bytes-long"), 15*time.Minute)
@@ -1004,8 +1044,8 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 
 func TestRoutes(t *testing.T) {
 	got := Routes()
-	if len(got) != 150 {
-		t.Errorf("Routes() returned %d routes, want the 150 operations in the contract: %v", len(got), got)
+	if len(got) != 160 {
+		t.Errorf("Routes() returned %d routes, want the 160 operations in the contract: %v", len(got), got)
 	}
 	seen := map[string]bool{}
 	for _, p := range got {

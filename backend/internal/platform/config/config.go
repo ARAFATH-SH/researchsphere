@@ -54,7 +54,15 @@ const (
 	// most FIGURE_MAX_BYTES may be in any environment; the database refuses a larger figure.
 	DefaultFigureMaxBytes         = 50 << 20
 	DefaultProjectStorageMaxBytes = 500 << 20
-	MaxFigureBytesCeiling         = 200 << 20
+	// Compile (slice 23, docs/compile.md): the largest PDF (the database allows 200 MiB),
+	// the most a compile reads, the largest ZIP archive, and how many compiles may wait.
+	DefaultCompileMaxPDFBytes   = 100 << 20
+	MaxCompilePDFBytesCeiling   = 200 << 20
+	DefaultCompileMaxInputBytes = 384 << 20
+	MaxCompileInputBytesCeiling = 512 << 20
+	DefaultArchiveMaxBytes      = 768 << 20
+	DefaultCompileQueueMax      = 50
+	MaxFigureBytesCeiling       = 200 << 20
 	// Days after sign-up an account that never verified its email address is deleted (FR-17.4).
 	DefaultUnverifiedAccountDays = 7
 	// The AI service (AI-1), as docker-compose.yml publishes it on this machine.
@@ -186,6 +194,15 @@ type Config struct {
 	// must never be reachable from the internet.
 	SyncServiceToken string
 	InternalAPIAddr  string
+
+	// Compile (slice 23, docs/compile.md). CompileServiceToken is the bearer token the compile
+	// worker sends to its internal operations on InternalAPIAddr: never log it. Empty
+	// (development only) refuses every compile as unavailable.
+	CompileServiceToken  string
+	CompileMaxPDFBytes   int64
+	CompileMaxInputBytes int64
+	CompileQueueMax      int
+	ArchiveMaxBytes      int64
 
 	// The recommendation score map (AI-2.2): the embedding model it was fitted for
 	// ("name@revision") and its slope (> 0) and intercept. A model change needs a refit
@@ -373,6 +390,9 @@ func Load(getenv func(string) string) (Config, error) {
 		{"CLAMAV_MAX_BYTES", DefaultClamAVMaxBytes, &cfg.ClamAVMaxBytes},
 		{"FIGURE_MAX_BYTES", DefaultFigureMaxBytes, &cfg.FigureMaxBytes},
 		{"PROJECT_STORAGE_MAX_BYTES", DefaultProjectStorageMaxBytes, &cfg.ProjectStorageMaxBytes},
+		{"COMPILE_MAX_PDF_BYTES", DefaultCompileMaxPDFBytes, &cfg.CompileMaxPDFBytes},
+		{"COMPILE_MAX_INPUT_BYTES", DefaultCompileMaxInputBytes, &cfg.CompileMaxInputBytes},
+		{"ARCHIVE_MAX_BYTES", DefaultArchiveMaxBytes, &cfg.ArchiveMaxBytes},
 	}
 	sizesOK := true
 	for _, sz := range sizes {
@@ -383,6 +403,13 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	if sizesOK {
 		errs = append(errs, checkFigureLimits(cfg)...)
+		if cfg.CompileMaxPDFBytes > MaxCompilePDFBytesCeiling {
+			errs = append(errs, fmt.Errorf("COMPILE_MAX_PDF_BYTES must be at most %d (200M), got %d", MaxCompilePDFBytesCeiling, cfg.CompileMaxPDFBytes))
+		}
+		if cfg.CompileMaxInputBytes > MaxCompileInputBytesCeiling {
+			errs = append(errs, fmt.Errorf("COMPILE_MAX_INPUT_BYTES must be at most %d (512M): it lives in the sandbox's 768 MiB memory-backed /work, got %d",
+				MaxCompileInputBytesCeiling, cfg.CompileMaxInputBytes))
+		}
 	}
 
 	cfg.AIServiceURL = strings.TrimRight(orDefault(getenv("AI_SERVICE_URL"), DefaultAIServiceURL), "/")
@@ -407,6 +434,19 @@ func Load(getenv func(string) string) (Config, error) {
 		errs = append(errs, fmt.Errorf("SYNC_SERVICE_TOKEN must be at least %d characters; generate one with: openssl rand -base64 48", MinAIServiceTokenLen))
 	case cfg.SyncServiceToken != "" && (cfg.SyncServiceToken == string(cfg.JWTSecret) || cfg.SyncServiceToken == string(cfg.UnsubscribeSecret) || cfg.SyncServiceToken == cfg.AIServiceToken):
 		errs = append(errs, errors.New("SYNC_SERVICE_TOKEN must differ from JWT_SECRET, UNSUBSCRIBE_SECRET and AI_SERVICE_TOKEN"))
+	}
+	cfg.CompileServiceToken = strings.TrimSpace(getenv("COMPILE_SERVICE_TOKEN"))
+	switch {
+	case cfg.CompileServiceToken == "" && production:
+		errs = append(errs, errors.New("COMPILE_SERVICE_TOKEN is required when APP_ENV=production"))
+	case cfg.CompileServiceToken != "" && len(cfg.CompileServiceToken) < MinAIServiceTokenLen:
+		errs = append(errs, fmt.Errorf("COMPILE_SERVICE_TOKEN must be at least %d characters; generate one with: openssl rand -base64 48", MinAIServiceTokenLen))
+	case cfg.CompileServiceToken != "" && (cfg.CompileServiceToken == string(cfg.JWTSecret) || cfg.CompileServiceToken == string(cfg.UnsubscribeSecret) ||
+		cfg.CompileServiceToken == cfg.AIServiceToken || cfg.CompileServiceToken == cfg.SyncServiceToken):
+		errs = append(errs, errors.New("COMPILE_SERVICE_TOKEN must differ from JWT_SECRET, UNSUBSCRIBE_SECRET, AI_SERVICE_TOKEN and SYNC_SERVICE_TOKEN"))
+	}
+	if cfg.CompileQueueMax, err = parsePositive("COMPILE_QUEUE_MAX", getenv("COMPILE_QUEUE_MAX"), DefaultCompileQueueMax); err != nil {
+		errs = append(errs, err)
 	}
 	cfg.InternalAPIAddr = orDefault(getenv("INTERNAL_API_ADDR"), DefaultInternalAPIAddr)
 	if err := checkHostPort("INTERNAL_API_ADDR", cfg.InternalAPIAddr); err != nil {
@@ -488,6 +528,11 @@ func (c Config) LogValue() slog.Value {
 		slog.String("recs_score_model", c.RecsScoreModel),
 		slog.Bool("ai_service_configured", c.AIServiceToken != ""),
 		slog.Bool("sync_service_configured", c.SyncServiceToken != ""),
+		slog.Bool("compile_service_configured", c.CompileServiceToken != ""),
+		slog.Int64("compile_max_pdf_bytes", c.CompileMaxPDFBytes),
+		slog.Int64("compile_max_input_bytes", c.CompileMaxInputBytes),
+		slog.Int("compile_queue_max", c.CompileQueueMax),
+		slog.Int64("archive_max_bytes", c.ArchiveMaxBytes),
 		slog.String("internal_api_addr", c.InternalAPIAddr),
 		slog.Any("test_email_domains", c.TestEmailDomains),
 		slog.Int("unverified_account_days", c.UnverifiedAccountDays),
