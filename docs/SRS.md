@@ -286,11 +286,11 @@ Security notes for FR-17.5 and FR-17.6: the authorization code flow with PKCE an
 | FR-12.1 | let an editor create, rename and delete files and folders in the workspace | Must |
 | FR-12.2 | let an editor upload figure files (PNG, JPG, PDF) of up to 50 MB each, stored without recompression, within 500 MB per project (both limits configurable) | Must |
 | FR-12.3 | provide a LaTeX editor with syntax highlighting, line numbers, undo, redo and find | Must |
-| FR-12.4 | let up to 6 members edit the same file at the same time and merge their changes so that no member's text is lost | Must |
+| FR-12.4 | let up to 4 members edit the same file at the same time and merge their changes so that no member's text is lost | Must |
 | FR-12.5 | show each active member's cursor and name in a distinct colour | Must |
 | FR-12.6 | save changes automatically, with no save action from the user | Must |
 | FR-12.7 | check a member's identity and role before accepting a real-time connection, and discard edits sent by a viewer | Must |
-| FR-12.8 | open the file read-only for a seventh member and say why | Should |
+| FR-12.8 | open the file read-only for a fifth member and say why | Should |
 | FR-12.9 | merge the edits a member made while disconnected when the connection returns | Should |
 
 **FR-13 Compile**
@@ -490,7 +490,7 @@ NFR-1 to NFR-7 come from the proposal. NFR-8 to NFR-14 are added here.
 | NFR-10.2 | Reliability | A failure of the AI service, the compile service or an outside service shall leave the remaining features working | Must |
 | NFR-11.1 | Maintainability | Database changes shall be made only through numbered migrations that can be applied and undone | Must |
 | NFR-11.2 | Maintainability | The API server's business logic shall have automated tests covering at least 70% of its lines | Should |
-| NFR-12 | Capacity | The deployment shall support 10 files being edited at once, each by 6 editors | Should |
+| NFR-12 | Capacity | The deployment shall support 10 files being edited at once, each by 4 editors | Should |
 | NFR-13 | Security | Messages and attachments shall be readable only by the conversation's members, and by administrators only for conversations reported to them; all traffic is encrypted in transit and stored files are encrypted at rest. Every read and write of a conversation or message shall check on the server that the user is a member; anyone else, an administrator included, shall get the same "not found" answer as for a conversation that does not exist. An administrator may read a conversation only through a report on it, only the messages up to the moment of that report, and every such read shall be recorded with the administrator, the report and the time. Uploaded files shall be kept in private object storage and served only through short-lived presigned URLs after a permission check | Must |
 | NFR-14 | Reliability | The database shall be backed up every day, and a backup shall be restored as a test at least once a month | Must |
 

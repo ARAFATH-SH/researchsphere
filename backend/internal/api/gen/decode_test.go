@@ -196,3 +196,24 @@ func TestDecodeJSONBodyNeverRepeatsTheValue(t *testing.T) {
 		}
 	}
 }
+
+// `format: byte` fields are base64 text, required or nullable (slice 22, SyncFileStore).
+func TestDecodeJSONBodyReadsBase64(t *testing.T) {
+	type state struct {
+		State []byte  `json:"state"`
+		Maybe *[]byte `json:"maybe,omitempty"`
+	}
+	var got state
+	if err := decodeJSONBody(strings.NewReader(`{"state":"AQID","maybe":"BA=="}`), &got); err != nil {
+		t.Fatal(err)
+	}
+	if string(got.State) != "\x01\x02\x03" || got.Maybe == nil || string(*got.Maybe) != "\x04" {
+		t.Errorf("got %v %v", got.State, got.Maybe)
+	}
+	for _, in := range []string{`{"state":[1,2]}`, `{"state":"not base64!"}`, `{"state":5}`} {
+		var fe *FieldError
+		if err := decodeJSONBody(strings.NewReader(in), &state{}); !errors.As(err, &fe) || fe.Field != "state" || !strings.Contains(fe.Error(), "base64 text") {
+			t.Errorf("%s: %v, want a field error about base64 text", in, err)
+		}
+	}
+}

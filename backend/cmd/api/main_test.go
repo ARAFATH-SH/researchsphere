@@ -137,6 +137,9 @@ func TestRunStopsOnMissingSettings(t *testing.T) {
 
 const testSecret = "test-jwt-secret-0123456789abcdefghij"
 
+// testSyncToken is SYNC_SERVICE_TOKEN in tests (slice 22).
+const testSyncToken = "test-sync-service-token-0123456789ab" //nolint:gosec // test value, not a credential
+
 // testUnsubscribeSecret signs unsubscribe tokens in tests (UNSUBSCRIBE_SECRET).
 const testUnsubscribeSecret = "test-unsubscribe-secret-0123456789ab" //nolint:gosec // test value, not a credential
 
@@ -160,7 +163,7 @@ func testRouter() http.Handler {
 		embeddinghttp.NewHandler(okEmbeddings{}),
 		recommendationhttp.NewHandler(okRecommendations{}),
 		projecthttp.NewHandler(okProjects{}),
-		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
+		serviceAndSessionAuth([]byte(testSyncToken), httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now)))
 }
 
 func TestHealthThroughRouter(t *testing.T) {
@@ -191,7 +194,7 @@ func healthRouter(storage, ai healthdomain.Pinger) http.Handler {
 		embeddinghttp.NewHandler(okEmbeddings{}),
 		recommendationhttp.NewHandler(okRecommendations{}),
 		projecthttp.NewHandler(okProjects{}),
-		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
+		serviceAndSessionAuth([]byte(testSyncToken), httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now)))
 }
 
 // The AI service is optional (NFR-10.2): through the real client, GET /health says ok when

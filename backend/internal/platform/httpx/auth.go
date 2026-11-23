@@ -2,7 +2,10 @@ package httpx
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/api/gen"
@@ -32,6 +35,7 @@ type (
 	verifiedKey    struct{}
 	tokenExpiryKey struct{}
 	requestKey     struct{}
+	serviceKey     struct{}
 )
 
 // WithTokenExpiry returns a context that carries when the caller's access token expires.
@@ -105,6 +109,12 @@ func RequireAuth(v TokenVerifier, now func() time.Time) func(http.Handler) http.
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Context().Value(gen.CookieAuthScopes) == nil {
+				// Deny by default: an operation for the sync service passes only when
+				// RequireServiceToken checked its token first (docs/sync.md).
+				if r.Context().Value(gen.SyncTokenScopes) != nil && !serviceVerified(r.Context()) {
+					WriteError(w, http.StatusUnauthorized, CodeUnauthenticated, "A service token is required.")
+					return
+				}
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -125,4 +135,34 @@ func RequireAuth(v TokenVerifier, now func() time.Time) func(http.Handler) http.
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+// RequireServiceToken checks the bearer token of the operations the contract gives the
+// `syncToken` scheme: the internal operations only the sync server calls (docs/sync.md). The
+// generated wrapper marks them with gen.SyncTokenScopes; it must run outside RequireAuth,
+// which refuses such an operation unless this middleware passed it. A missing or wrong token
+// gets 401; the comparison takes the same time whatever the token. An empty token refuses
+// every such request, so a server without SYNC_SERVICE_TOKEN serves no internal operation.
+func RequireServiceToken(token []byte) func(http.Handler) http.Handler {
+	want := sha256.Sum256(token)
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Context().Value(gen.SyncTokenScopes) == nil {
+				next.ServeHTTP(w, r)
+				return
+			}
+			got, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+			sum := sha256.Sum256([]byte(got))
+			if !ok || len(token) == 0 || subtle.ConstantTimeCompare(sum[:], want[:]) != 1 {
+				WriteError(w, http.StatusUnauthorized, CodeUnauthenticated, "A service token is required.")
+				return
+			}
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), serviceKey{}, true)))
+		})
+	}
+}
+
+func serviceVerified(ctx context.Context) bool {
+	v, _ := ctx.Value(serviceKey{}).(bool)
+	return v
 }

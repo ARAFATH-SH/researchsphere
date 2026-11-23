@@ -77,7 +77,9 @@ import (
 )
 
 type mediaEnv struct {
-	router     http.Handler
+	router http.Handler
+	// internal is the internal listener's handler: the sync server's operations (slice 22).
+	internal   http.Handler
 	pool       *pgxpool.Pool
 	files      *storage.S3
 	rdb        *goredis.Client
@@ -212,6 +214,9 @@ func wireEnv(t *testing.T, pool *pgxpool.Pool, rdb *goredis.Client, files *stora
 	realtimeConfig := realtimeusecase.DefaultConfig()
 	realtimeConfig.OfflineGrace = 50 * time.Millisecond
 	realtime := newRealtime(rdb, standings, realtimeConfig, logger)
+	syncEv := newSyncEvents(rdb, logger)
+	t.Cleanup(func() { _ = syncEv.Close() })
+	realtime.events.sync = syncEv
 	hubCtx, stopHub := context.WithCancel(context.Background())
 	hubDone := make(chan struct{})
 	go func() {
@@ -310,8 +315,8 @@ func wireEnv(t *testing.T, pool *pgxpool.Pool, rdb *goredis.Client, files *stora
 	if opt.ai != nil {
 		search.embedder = projectQueryEmbedder{q: queryEmbedder{ai: opt.ai}}
 	}
-	projects, projectLimits := newProjects(pool, rdb, standings, search, projectChanges{recs: recommendations, people: recCache, logger: logger},
-		projectNotifier{notifications: notifications}, files, opt.figureLimits(), logger)
+	projects, projectLimits := newProjects(pool, rdb, standings, search, projectChanges{recs: recommendations, people: recCache, sync: syncEv, logger: logger},
+		projectNotifier{notifications: notifications}, files, opt.figureLimits(), syncEv, logger)
 	t.Cleanup(func() { _ = projectLimits.Close() })
 	memberships.projects = projects
 	titles.projects = projects
@@ -319,7 +324,7 @@ func wireEnv(t *testing.T, pool *pgxpool.Pool, rdb *goredis.Client, files *stora
 		t.Fatal(err)
 	}
 	embedWorker.Watch(embeddingChanges{recs: recommendations})
-	router := newRouter(logger, up, up, up, up, authAPI,
+	full := newRouter(logger, up, up, up, up, authAPI,
 		profilehttp.NewHandler(profileusecase.New(profileStore, profileOpts...)),
 		mediahttp.NewHandler(images),
 		socialhttp.NewHandler(social),
@@ -330,8 +335,11 @@ func wireEnv(t *testing.T, pool *pgxpool.Pool, rdb *goredis.Client, files *stora
 		embeddinghttp.NewHandler(embeddings),
 		recommendationhttp.NewHandler(recommendations),
 		projecthttp.NewHandler(projects),
-		httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now))
-	return mediaEnv{projects: projects, embeddings: embeddings, embedWorker: embedWorker, recommendations: recommendations, recCache: recCache, router: router, pool: pool, files: files, rdb: rdb, auth: auth, moderation: moderation, standings: standings, hub: realtime.hub, events: realtime.events, opt: opt,
+		serviceAndSessionAuth([]byte(testSyncToken), httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now)))
+	// As run serves them: the public port without the internal operations, the internal
+	// listener with them only (slice 22).
+	router, internal := publicOnly(full), internalOnly(full)
+	return mediaEnv{internal: internal, projects: projects, embeddings: embeddings, embedWorker: embedWorker, recommendations: recommendations, recCache: recCache, router: router, pool: pool, files: files, rdb: rdb, auth: auth, moderation: moderation, standings: standings, hub: realtime.hub, events: realtime.events, opt: opt,
 		messaging: messaging, notifier: notifications, digests: digests, digestMail: digestMail}
 }
 

@@ -952,6 +952,23 @@ SELECT pg_temp.expect_error('File: a figure is a stored file of the same project
 SELECT pg_temp.expect_error('File: a stored file backs one figure',
     $s$INSERT INTO project_files (project_id, path, kind, stored_file_id, size_bytes)
        VALUES ('00000000-0000-0000-0000-0000000000a1', 'again.png', 'binary', '00000000-0000-0000-0000-0000000000f1', 10)$s$, '23505');
+-- Real-time state (slice 22, migration 000037): a Yjs state always has its epoch and the
+-- other way round, and is at most 8 MiB.
+SELECT pg_temp.expect_ok('File: Yjs state with its epoch (FR-12.4)',
+    $s$UPDATE project_files SET ydoc_state = '\x0100'::bytea, ydoc_epoch = '00000000-0000-0000-0000-0000000000e1'
+       WHERE project_id = '00000000-0000-0000-0000-0000000000a1' AND path = 'main.tex'$s$);
+SELECT pg_temp.expect_error('File: Yjs state without an epoch is refused',
+    $s$UPDATE project_files SET ydoc_epoch = NULL
+       WHERE project_id = '00000000-0000-0000-0000-0000000000a1' AND path = 'main.tex'$s$, '23514');
+SELECT pg_temp.expect_error('File: an epoch without Yjs state is refused',
+    $s$UPDATE project_files SET ydoc_state = NULL
+       WHERE project_id = '00000000-0000-0000-0000-0000000000a1' AND path = 'main.tex'$s$, '23514');
+SELECT pg_temp.expect_error('File: Yjs state over 8 MiB is refused',
+    $s$UPDATE project_files SET ydoc_state = convert_to(repeat('x', 8388609), 'UTF8')
+       WHERE project_id = '00000000-0000-0000-0000-0000000000a1' AND path = 'main.tex'$s$, '23514');
+SELECT pg_temp.expect_ok('File: a REST save clears both',
+    $s$UPDATE project_files SET ydoc_state = NULL, ydoc_epoch = NULL
+       WHERE project_id = '00000000-0000-0000-0000-0000000000a1' AND path = 'main.tex'$s$);
 SELECT pg_temp.expect_error('File: a folder has no content',
     $s$INSERT INTO project_files (project_id, path, kind, content) VALUES ('00000000-0000-0000-0000-0000000000a1', 'sections', 'folder', 'x')$s$, '23514');
 SELECT pg_temp.expect_ok('File: deleting a figure deletes its stored file',

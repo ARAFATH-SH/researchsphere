@@ -581,7 +581,7 @@ RETURNING id;
 -- and is cleared; the sync server builds it again from the text.
 UPDATE project_files
 SET content = @content::text, size_bytes = octet_length(@content::text), version = version + 1,
-    ydoc_state = NULL, updated_by = @updated_by, updated_at = now()
+    ydoc_state = NULL, ydoc_epoch = NULL, updated_by = @updated_by, updated_at = now()
 WHERE id = @id AND kind = 'text'
 RETURNING version;
 
@@ -683,3 +683,49 @@ SELECT coalesce((SELECT m.role::text FROM project_members m WHERE m.project_id =
 FROM projects p
 WHERE p.id = @id
 FOR SHARE OF p;
+
+-- Real-time editing (slice 22, docs/decisions.md 2026-11-19).
+
+-- name: CollabFile :one
+-- A text file as the sync server loads it.
+SELECT project_id, content, version, ydoc_state, ydoc_epoch
+FROM project_files
+WHERE id = @id AND kind = 'text';
+
+-- name: CollabFileShared :one
+-- CollabFile holding the row shared, so a REST save that locked it first finishes first.
+SELECT project_id, content, version, ydoc_state, ydoc_epoch
+FROM project_files
+WHERE id = @id AND kind = 'text'
+FOR SHARE;
+
+-- name: StoreCollabState :one
+-- The sync server's save (NFR-10.1): state, epoch, text, version + 1, who and when, in one
+-- UPDATE, only while the file is at @base_version. A last editor whose account is gone is
+-- stored as nobody.
+UPDATE project_files AS f
+SET ydoc_state = @ydoc_state::bytea, ydoc_epoch = @ydoc_epoch::uuid, content = @content::text,
+    size_bytes = octet_length(@content::text), version = f.version + 1,
+    updated_by = (SELECT u.id FROM users u WHERE u.id = sqlc.narg(updated_by)::uuid), updated_at = now()
+WHERE f.id = @file_id::uuid AND f.kind = 'text' AND f.version = @base_version::integer
+RETURNING f.version;
+
+-- name: CollabRoles :many
+-- One row per check, in order (ord): the user's role in the project of the text file, or
+-- 'none' without a member row, for an unverified or suspended account, or when the file is
+-- not a text file. A suspension that has ended by time no longer counts.
+SELECT uu.ord::integer AS ord, COALESCE(m.role::text, 'none')::text AS role
+FROM unnest(@user_ids::uuid[]) WITH ORDINALITY AS uu(user_id, ord)
+JOIN unnest(@file_ids::uuid[]) WITH ORDINALITY AS ff(file_id, ord) ON ff.ord = uu.ord
+LEFT JOIN project_files f ON f.id = ff.file_id AND f.kind = 'text'
+LEFT JOIN users u ON u.id = uu.user_id AND u.email_verified_at IS NOT NULL
+    AND (u.suspended_at IS NULL OR (u.suspended_until IS NOT NULL AND u.suspended_until <= now()))
+LEFT JOIN project_members m ON m.project_id = f.project_id AND m.user_id = u.id
+ORDER BY uu.ord;
+
+-- name: TextFileIDsUnder :many
+SELECT f.id
+FROM project_files f
+WHERE f.project_id = @project_id AND f.kind = 'text'
+  AND (lower(f.path) = lower(@path::text)
+       OR left(lower(f.path), char_length(@path::text) + 1) = lower(@path::text) || '/');

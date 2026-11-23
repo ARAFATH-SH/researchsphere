@@ -418,3 +418,27 @@ func TestNormalizeSkillNameMatchesProfileTags(t *testing.T) {
 		}
 	}
 }
+
+// Real-time editing (slice 22): fixed answers, so the router tests reach the handlers.
+func (okProjects) CollabTicket(_ context.Context, _, _, _ string) (projectdomain.IssuedTicket, error) {
+	return projectdomain.IssuedTicket{Ticket: "t", ExpiresAt: time.Date(2026, 11, 19, 10, 0, 30, 0, time.UTC), Role: projectdomain.RoleEditor, DisplayName: "Ada"}, nil
+}
+
+func (okProjects) RedeemTicket(_ context.Context, ticket, fileID string) (projectdomain.SyncSession, error) {
+	if ticket != "t" {
+		return projectdomain.SyncSession{}, projectdomain.ErrTicketNotFound
+	}
+	return projectdomain.SyncSession{UserID: okUserID, ProjectID: okProjectID, FileID: fileID, Role: projectdomain.RoleEditor, DisplayName: "Ada"}, nil
+}
+
+func (okProjects) SyncAccess(_ context.Context, checks []projectdomain.AccessCheck) ([]projectdomain.Role, error) {
+	return make([]projectdomain.Role, len(checks)), nil
+}
+
+func (okProjects) LoadCollabFile(context.Context, string) (projectdomain.CollabFile, error) {
+	return projectdomain.CollabFile{ProjectID: okProjectID, Content: "abc", Version: 1}, nil
+}
+
+func (okProjects) StoreCollabFile(context.Context, string, projectdomain.CollabState) (int, error) {
+	return 2, nil
+}

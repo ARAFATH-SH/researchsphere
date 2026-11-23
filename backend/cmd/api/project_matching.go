@@ -68,6 +68,8 @@ func (a recommendationProjectAccess) CanSeeRecommendedResearchers(ctx context.Co
 type projectChanges struct {
 	recs   *recommendationusecase.Service
 	people recommendationdomain.Cache
+	// sync tells the sync server, which closes or downgrades open connections (slice 22).
+	sync   *syncEvents
 	logger *slog.Logger
 }
 
@@ -78,6 +80,7 @@ func (w projectChanges) ProjectChanged(ctx context.Context, projectID string) {
 }
 
 func (w projectChanges) MembersChanged(ctx context.Context, projectID string, userIDs ...string) {
+	w.sync.MembersChanged(ctx, projectID, userIDs...)
 	postgres.AfterCommit(ctx, func(ctx context.Context) {
 		w.recs.MembersChanged(ctx, projectID, userIDs...)
 		if w.people == nil {

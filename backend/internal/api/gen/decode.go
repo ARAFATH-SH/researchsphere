@@ -80,6 +80,9 @@ func decodesItself(t reflect.Type) bool {
 	return p.Implements(unmarshalerType) || p.Implements(textUnmarshalerType)
 }
 
+// bytesType is a `format: byte` field.
+var bytesType = reflect.TypeFor[[]byte]()
+
 // isNullable reports whether t is a nullable.Nullable, a map with its own decoding.
 func isNullable(t reflect.Type) bool {
 	return t.Kind() == reflect.Map && decodesItself(t)
@@ -105,6 +108,15 @@ func decodeValue(path string, raw json.RawMessage, v reflect.Value) error {
 		return nil
 	case t.Kind() == reflect.Struct:
 		return decodeStruct(path, raw, v)
+	case t == bytesType:
+		// `format: byte`: base64 text only (encoding/json would also take a list of numbers).
+		if len(raw) == 0 || raw[0] != '"' {
+			return wrongValue(path, t)
+		}
+		if err := json.Unmarshal(raw, v.Addr().Interface()); err != nil {
+			return wrongValue(path, t)
+		}
+		return nil
 	case t.Kind() == reflect.Slice:
 		var items []json.RawMessage
 		if err := json.Unmarshal(raw, &items); err != nil {
@@ -199,6 +211,8 @@ func expected(t reflect.Type) string {
 		return "a date and time"
 	case reflect.TypeFor[openapi_types.Date]():
 		return "a date"
+	case bytesType:
+		return "base64 text"
 	}
 	if isNullable(t) {
 		return expected(t.Elem())

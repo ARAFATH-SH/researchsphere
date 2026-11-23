@@ -215,8 +215,11 @@ var platformGuards = map[string]authz.Action{
 	"PATCH /api/v1/projects/{projectId}/files/{fileId}":                   authz.ActAsMember,
 	"DELETE /api/v1/projects/{projectId}/files/{fileId}":                  authz.ActAsMember,
 	"PUT /api/v1/projects/{projectId}/files/{fileId}/content":             authz.ActAsMember,
-	"GET /api/v1/me/join-requests":                                        authz.ViewContent,
-	"GET /api/v1/me/invitations":                                          authz.ViewContent,
+	// Real-time editing (slice 22): the ticket only opens what the role already allows; the
+	// sync server makes a viewer read-only (FR-12.7).
+	"POST /api/v1/projects/{projectId}/files/{fileId}/collab-ticket": authz.ViewContent,
+	"GET /api/v1/me/join-requests":                                   authz.ViewContent,
+	"GET /api/v1/me/invitations":                                     authz.ViewContent,
 
 	// Connections (FR-7): sending and answering requests and removing a connection are
 	// the row "Edit own profile, connect, ..."; the lists are viewing content.
@@ -352,6 +355,11 @@ var bodyLimits = map[string]int64{
 	// FR-12.1, FR-12.6: text of 1 MiB, which JSON escaping can make up to 3 times longer.
 	"POST /api/v1/projects/{projectId}/files":                 maxFileJSONBody,
 	"PUT /api/v1/projects/{projectId}/files/{fileId}/content": maxFileJSONBody,
+	// The sync server's internal operations (slice 22): a store carries the text and up to
+	// 8 MiB of Yjs state in base64; the others are small.
+	"PUT /api/v1/internal/sync/files/{fileId}/state": maxFileJSONBody + 12<<20,
+	"POST /api/v1/internal/sync/tickets/redeem":      4 << 10,
+	"POST /api/v1/internal/sync/access":              64 << 10,
 }
 
 // maxFileJSONBody caps a JSON body that carries a text file: 3 MiB and some room for the

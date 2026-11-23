@@ -813,3 +813,42 @@ Planning:
 Planning Time: 0.594 ms
 Execution Time: 1.154 ms
 ```
+
+## Real-time editing speed and saving (NFR-2, NFR-10.1, NFR-12), slice 22, chunk 22.1
+
+`make sync-load [seconds=60]` (`sync/scripts/load.ts`; needs Redis from `make up`, empties
+`TEST_REDIS_URL`). Run on 2026-11-23 on the development laptop (Intel i5-1135G7, 8 threads,
+14 GB). It starts the sync server as its own process (production settings: debounce 2 s, store
+deadline 4 s) and, in the load script's process, an in-memory fake of the API's internal
+operations whose stores take 20 ms (`STORE_MS`), then 10 files with 4 editors each (40
+Hocuspocus providers, NFR-12; `SYNC_MAX_EDITORS_PER_FILE=4`), every editor typing a short unique token 5 times a second at the
+end of the text for 60 s.
+
+- **Update latency (NFR-2):** from one editor's local change to each of the other three seeing it,
+  every delivery counted.
+- **Save delay (NFR-10.1):** from an edit to the first store that contains it.
+
+| Measure | Result | Target |
+| --- | --- | --- |
+| Edits / deliveries | 11,976 / 35,928 (all expected deliveries arrived) | |
+| Update latency p50 / p95 / p99 / max | 1 / 3 / 4 / 41 ms | p95 under 1 s |
+| Save delay p50 / p95 / max | 2,037 / 3,833 / 4,039 ms | every edit within 5 s |
+| Last edit to everything stored | 40 ms | |
+| Stores (10 files) | 160 | |
+| Lost edits / files whose four copies differ | 0 / 0 | 0 / 0 |
+
+The first run, on 2026-11-19 with 6 editors a file (the SRS limit then), gave update latency
+p95 6 ms (max 32 ms) and save delay p95 3,830 ms (max 4,034 ms), nothing lost.
+
+**What it does not measure.** Clients and server share one machine, so there is no network
+latency: a browser on broadband adds its round trip (typically 20 to 100 ms) to the latency
+above, far inside 1 s. Stores go to the fake, not PostgreSQL; the API's store is one UPDATE by
+primary key, measured end to end against the real API and database by hand
+(`docs/decisions.md` 2026-11-19), not under this load.
+
+**A fault this test found.** A first 60 s run gave a maximum save delay of 5,786 ms. Cause:
+Hocuspocus checks its `maxDebounce` only when another change arrives, so when typing stops just
+before the cap, the store waits a full debounce more (worst case `maxDebounce + debounce`). The
+server now arms its own timer at the oldest unsaved change and stores at that deadline
+(`armDeadline` in `sync/src/server.ts`; test "stores by the 4 s deadline when typing stops just
+before it"). The maximum is now the deadline plus one store.

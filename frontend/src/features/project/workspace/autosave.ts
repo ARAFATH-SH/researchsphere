@@ -27,7 +27,9 @@ export const retryDelaysMs = [1000, 2000, 4000, 8000, 16000, 30000];
 const keepaliveBytes = 60 * 1024;
 
 function retryable(res: Extract<SaveResult, { ok: false }>): boolean {
-  return res.status === 0 || res.status >= 500 || res.status === 429;
+  // live_session_open: the sync server still holds the file (its mark lasts up to 30 s after
+  // it stops), so the REST save waits for it (docs/sync.md).
+  return res.status === 0 || res.status >= 500 || res.status === 429 || res.code === "live_session_open";
 }
 
 function failureText(res: Extract<SaveResult, { ok: false }>): string {

@@ -85,6 +85,10 @@ func TestEveryRouteRequiresLoginUnlessPublic(t *testing.T) {
 		}
 		for label, path := range paths {
 			t.Run(route+"/"+label, func(t *testing.T) {
+				if strings.HasPrefix(pattern, internalPrefix) {
+					checkInternalRoute(t, router, method, path, valid, label == "valid parameters")
+					return
+				}
 				if publicRoutes[route] {
 					if rec := send(t, method, path, ""); rec.Code == http.StatusUnauthorized {
 						t.Errorf("public route without a token: 401 %s", rec.Body)
@@ -151,4 +155,61 @@ func tamper(token string) string {
 		c = 'B'
 	}
 	return token[:i] + string(c) + token[i+1:]
+}
+
+// checkInternalRoute requires the sync service's token on an internal route (slice 22): no
+// token, a wrong one and a valid access cookie all get 401; the right token gets past the
+// check.
+func checkInternalRoute(t *testing.T, router http.Handler, method, path, cookie string, validParams bool) {
+	t.Helper()
+	checkUnauthenticated(t, "no token", sendInternal(t, router, method, path, `{}`, ""))
+	checkUnauthenticated(t, "wrong token", sendInternal(t, router, method, path, `{}`, testSyncToken+"x"))
+	req := httptest.NewRequestWithContext(t.Context(), method, path, strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Cookie", httpx.AccessCookie+"="+cookie)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	checkUnauthenticated(t, "a session cookie", rec)
+	if validParams {
+		if rec := sendInternal(t, router, method, path, `{}`, testSyncToken); rec.Code == http.StatusUnauthorized {
+			t.Errorf("right token: 401 %s", rec.Body)
+		}
+	}
+}
+
+// sendInternal sends body to an internal route with token as the bearer token ("" for none).
+func sendInternal(t *testing.T, router http.Handler, method, path, body, token string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequestWithContext(t.Context(), method, path, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	return rec
+}
+
+// The public port never serves the internal operations, and the internal listener serves
+// nothing else (slice 22): each answers 404 for the other's routes, token or not.
+func TestListenersSplitTheRoutes(t *testing.T) {
+	full := testRouter()
+	public, internal := publicOnly(full), internalOnly(full)
+	for _, route := range httpserver.Routes() {
+		method, pattern, _ := strings.Cut(route, " ")
+		path := pathParam.ReplaceAllString(pattern, okUserID)
+		isInternal := strings.HasPrefix(pattern, internalPrefix)
+		other := internal
+		if isInternal {
+			other = public
+		}
+		rec := sendInternal(t, other, method, path, `{}`, testSyncToken)
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("%s on the wrong listener: %d %s, want 404", route, rec.Code, rec.Body)
+		}
+	}
+	// A path that only looks internal after cleaning is still refused on the public port.
+	if rec := sendInternal(t, public, http.MethodGet, "/api/v1/internal/sync/files/"+okUserID, "", testSyncToken); rec.Code != http.StatusNotFound {
+		t.Errorf("public internal path: %d", rec.Code)
+	}
 }

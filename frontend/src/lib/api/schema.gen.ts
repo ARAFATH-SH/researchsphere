@@ -3010,9 +3010,46 @@ export interface paths {
          *     file's `current` version and text, so that two tabs never overwrite each other
          *     silently. The same content again still counts as a save. Each user may save 120
          *     times a minute (429 `rate_limited`).
+         *
+         *     While the file is open on the sync server (slice 22, docs/sync.md), REST saves are
+         *     refused with 409 `live_session_open`: the web client edits it there and uses this
+         *     operation only when the sync server cannot be reached. A save also clears the file's
+         *     real-time state, so the sync server builds it again from this text with a new epoch.
          */
         put: operations["saveProjectFileContent"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{projectId}/files/{fileId}/collab-ticket": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Get a one-time ticket to open a text file on the sync server (FR-12.7)
+         * @description Needs the access cookie and the platform action "View profiles, search, ..." (SRS
+         *     2.3), then the project action "Open the workspace, read files, view the PDF": members
+         *     only, so a non-member, an administrator included, gets 404 `not_found` as for every
+         *     file operation. A suspended account gets 403 `account_suspended`. Only text files sync
+         *     (409 `not_a_text_file`).
+         *
+         *     The answer's `ticket` opens one WebSocket to the sync server for this file, once,
+         *     within 30 seconds (docs/sync.md); it carries no rights of its own: the sync server
+         *     redeems it with the API and reads the role then. `role` is the caller's role now:
+         *     a viewer's connection is read-only (FR-12.7). `epoch` names the file's Yjs history
+         *     (null when the sync server has not built one since the last REST save); a client
+         *     merges offline edits only into the same epoch (FR-12.9). Each user may ask for 60
+         *     tickets a minute (429 `rate_limited`).
+         */
+        post: operations["createCollabTicket"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3409,6 +3446,97 @@ export interface paths {
          */
         get: operations["getPresence"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal/sync/tickets/redeem": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Redeem a collaboration ticket (internal, sync server only)
+         * @description Spends the ticket whatever the answer: it works once. 404 `not_found` for an unknown,
+         *     expired or spent ticket and for one issued for another file. The role is read now,
+         *     not when the ticket was issued; a user who is no longer a member, is suspended or
+         *     whose file is gone gets 404 too.
+         */
+        post: operations["redeemSyncTicket"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal/sync/access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read the current role of users on files (internal, sync server only)
+         * @description One answer per check, in order. `none` when the user is not a member of the file's
+         *     project, is suspended or unverified, or the file is gone or not a text file. The sync
+         *     server asks for every open connection every 60 s and after each event (docs/sync.md).
+         */
+        post: operations["checkSyncAccess"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal/sync/files/{fileId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a text file's text and Yjs state (internal, sync server only)
+         * @description The sync server marks the file live in Redis before it calls this, and this read
+         *     waits for a REST save in progress, so no REST save can land after it unseen.
+         *     404 `not_found` for a file that does not exist or is not a text file.
+         */
+        get: operations["loadSyncFile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal/sync/files/{fileId}/state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Store a text file's Yjs state and text (internal, sync server only)
+         * @description One UPDATE writes `ydocState`, `ydocEpoch`, `content`, `version + 1`, `updatedBy`
+         *     and the time (NFR-10.1), only when the file is still at `baseVersion`; otherwise
+         *     nothing is stored and the answer is 409 `version_conflict`. 413 `file_too_large`:
+         *     the text is over 1 MiB of UTF-8 or the state over 8 MiB. `updatedBy` is the last
+         *     member who edited; an account deleted since leaves it empty.
+         */
+        put: operations["storeSyncFile"];
         post?: never;
         delete?: never;
         options?: never;
@@ -4831,6 +4959,86 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
         };
+        /** @description A one-time ticket for the sync server (FR-12.7, docs/sync.md). */
+        CollabTicket: {
+            /** @description Opaque; send it as the Hocuspocus token within 30 seconds. */
+            ticket: string;
+            /** Format: date-time */
+            expiresAt: string;
+            role: components["schemas"]["ProjectRole"];
+            /** @description The caller's profile name, as the other members will see it. */
+            displayName: string;
+            /**
+             * Format: uuid
+             * @description The file's Yjs history, or null when none is stored.
+             */
+            epoch: string | null;
+        };
+        SyncTicketRedeem: {
+            ticket: string;
+            /** Format: uuid */
+            fileId: string;
+        };
+        /**
+         * @description A member's role in the file's project, or `none` without access.
+         * @enum {string}
+         */
+        SyncRole: "owner" | "editor" | "viewer" | "none";
+        SyncSession: {
+            /** Format: uuid */
+            userId: string;
+            /** Format: uuid */
+            projectId: string;
+            /** Format: uuid */
+            fileId: string;
+            role: components["schemas"]["ProjectRole"];
+            displayName: string;
+        };
+        SyncAccessCheck: {
+            /** Format: uuid */
+            userId: string;
+            /** Format: uuid */
+            fileId: string;
+        };
+        SyncAccessRequest: {
+            checks: components["schemas"]["SyncAccessCheck"][];
+        };
+        SyncAccessAnswer: {
+            /** Format: uuid */
+            userId: string;
+            /** Format: uuid */
+            fileId: string;
+            role: components["schemas"]["SyncRole"];
+        };
+        SyncAccessResult: {
+            results: components["schemas"]["SyncAccessAnswer"][];
+        };
+        SyncFile: {
+            /** Format: uuid */
+            projectId: string;
+            content: string;
+            version: number;
+            /**
+             * Format: byte
+             * @description `Y.encodeStateAsUpdate` of the document, base64; null: build it from `content`.
+             */
+            ydocState: string | null;
+            /** Format: uuid */
+            ydocEpoch: string | null;
+        };
+        SyncFileStore: {
+            /** Format: byte */
+            ydocState: string;
+            /** Format: uuid */
+            ydocEpoch: string;
+            content: string;
+            baseVersion: number;
+            /** Format: uuid */
+            updatedBy?: string | null;
+        };
+        SyncFileStored: {
+            version: number;
+        };
         /**
          * @description The `Error` shape with one **conflict-specific extension** (docs/decisions.md,
          *     2026-11-17): on `version_conflict`, `current` holds the file's version and text as
@@ -5840,6 +6048,15 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
+        /** @description The body is not valid (`bad_request`, with `field` when one field is at fault). */
+        BadSyncRequest: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
         /**
          * @description `forbidden`: the user's role does not permit the action (FR-3.2).
          *     `account_suspended`: the caller's account was suspended after this session began, with
@@ -6245,8 +6462,9 @@ export interface components {
             };
         };
         /**
-         * @description `rate_limited`: the caller has uploaded 30 figures in the current hour, or saved 120
-         *     times in the current minute.
+         * @description `rate_limited`: the caller has uploaded 30 figures in the current hour, saved 120
+         *     times in the current minute, or asked for 60 collaboration tickets in the current
+         *     minute.
          */
         ProjectFileRateLimited: {
             headers: {
@@ -11623,6 +11841,8 @@ export interface operations {
             /**
              * @description `version_conflict`: the file changed since `version`; `current` holds what it is
              *     now. `not_a_text_file`: the file is a folder or a figure (no `current`).
+             *     `live_session_open`: the file is open on the sync server (real-time editing,
+             *     docs/sync.md), whose saves would overwrite this one; edit it there (no `current`).
              */
             409: {
                 headers: {
@@ -11633,6 +11853,65 @@ export interface operations {
                 };
             };
             413: components["responses"]["FileTooLarge"];
+            429: components["responses"]["ProjectFileRateLimited"];
+            500: components["responses"]["InternalError"];
+            /**
+             * @description `live_check_unavailable`: the server cannot tell whether the file is open for
+             *     real-time editing (Redis does not answer), so it stores nothing. Try again.
+             */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    createCollabTicket: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The project's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                projectId: components["parameters"]["ProjectId"];
+                /**
+                 * @description The file's or folder's ID, a UUID, declared as a plain string like `projectId`; a
+                 *     value that is not a UUID gets 404 `not_found`.
+                 */
+                fileId: components["parameters"]["ProjectFileId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A ticket for the sync server. */
+            200: {
+                headers: {
+                    /** @description Always `no-store`; a ticket works once. */
+                    "Cache-Control": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollabTicket"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["AccountSuspendedOrForbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description `not_a_text_file`: the file is a folder or a figure. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             429: components["responses"]["ProjectFileRateLimited"];
             500: components["responses"]["InternalError"];
         };
@@ -12085,6 +12364,134 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    redeemSyncTicket: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SyncTicketRedeem"];
+            };
+        };
+        responses: {
+            /** @description Who the ticket was for, and their role now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncSession"];
+                };
+            };
+            400: components["responses"]["BadSyncRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    checkSyncAccess: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SyncAccessRequest"];
+            };
+        };
+        responses: {
+            /** @description The roles. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncAccessResult"];
+                };
+            };
+            400: components["responses"]["BadSyncRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    loadSyncFile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The file's or folder's ID, a UUID, declared as a plain string like `projectId`; a
+                 *     value that is not a UUID gets 404 `not_found`.
+                 */
+                fileId: components["parameters"]["ProjectFileId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The file. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncFile"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    storeSyncFile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The file's or folder's ID, a UUID, declared as a plain string like `projectId`; a
+                 *     value that is not a UUID gets 404 `not_found`.
+                 */
+                fileId: components["parameters"]["ProjectFileId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SyncFileStore"];
+            };
+        };
+        responses: {
+            /** @description Stored. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncFileStored"];
+                };
+            };
+            400: components["responses"]["BadSyncRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description `version_conflict`: the file changed since `baseVersion`. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            413: components["responses"]["FileTooLarge"];
             500: components["responses"]["InternalError"];
         };
     };

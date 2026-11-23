@@ -30,6 +30,9 @@ const (
 	CodeScanPending      = "scan_pending"
 	CodeScanFailed       = "scan_failed"
 	CodeFileRemoved      = "file_removed"
+	// Real-time editing (slice 22).
+	CodeLiveSessionOpen      = "live_session_open"
+	CodeLiveCheckUnavailable = "live_check_unavailable"
 )
 
 // FileService is what the file handlers need from the usecase.
@@ -40,6 +43,7 @@ type FileService interface {
 	MoveFile(ctx context.Context, userID, projectID, fileID, path string) (domain.File, error)
 	DeleteFile(ctx context.Context, userID, projectID, fileID string) error
 	SaveContent(ctx context.Context, userID, projectID, fileID, content string, version int) (domain.File, error)
+	CollabService
 	StartFigureUpload(ctx context.Context, userID, projectID, path string, size int64) (usecase.UploadTicket, error)
 	CompleteFigureUpload(ctx context.Context, userID, projectID, uploadID string) (domain.File, error)
 }
@@ -118,6 +122,12 @@ func classifyFile(err error) fileError {
 		return fileError{status: 409, body: gen.Error{Code: CodeParentNotFolder, Message: "Part of this path is a file, not a folder."}}
 	case errors.Is(err, domain.ErrFileLimit):
 		return fileError{status: 409, body: gen.Error{Code: CodeFileLimit, Message: "A project can hold at most 200 files and folders."}}
+	case errors.Is(err, domain.ErrLiveSessionOpen):
+		return fileError{status: 409, body: gen.Error{Code: CodeLiveSessionOpen,
+			Message: "This file is open for live editing. Your changes are saved there."}}
+	case errors.Is(err, domain.ErrLiveCheckUnavailable):
+		return fileError{status: 503, body: gen.Error{Code: CodeLiveCheckUnavailable,
+			Message: "The file could not be saved just now. Try again in a moment."}}
 	case errors.Is(err, domain.ErrNotTextFile):
 		return fileError{status: 409, body: gen.Error{Code: CodeNotTextFile, Message: "Only a text file has content to save."}}
 	case errors.Is(err, domain.ErrFileTooLarge):
@@ -327,6 +337,8 @@ func (h *Handler) SaveProjectFileContent(ctx context.Context, req gen.SaveProjec
 		return gen.SaveProjectFileContent429JSONResponse{
 			ProjectFileRateLimitedJSONResponse: e.rateLimited("You are saving too often. Try again in a moment."),
 		}, nil
+	case 503:
+		return gen.SaveProjectFileContent503JSONResponse(e.body), nil
 	}
 	if err != nil {
 		return nil, err

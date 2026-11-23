@@ -42,6 +42,7 @@ jobs:
       go: ${{ steps.detect.outputs.go }}
       node: ${{ steps.detect.outputs.node }}
       python: ${{ steps.detect.outputs.python }}
+      sync: ${{ steps.detect.outputs.sync }}
     steps:
       # A pull request checks out its merge commit, whose first parent is the base: depth 2
       # is enough to diff it. A push needs the commit before it.
@@ -113,6 +114,7 @@ jobs:
           detect go     backend  go.mod         -name '*.go'
           detect node   frontend package.json   -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' -o -name '*.mjs'
           detect python ai       pyproject.toml -name '*.py'
+          detect sync   sync     package.json   -name '*.ts' -o -name '*.js' -o -name '*.mjs'
           exit "$status"
 
   backend:
@@ -229,6 +231,47 @@ jobs:
       # pytest exits with 5 when it collects no tests; that stays a failure.
       - name: Test
         run: uv run pytest
+
+  # The sync server (slice 22): real Hocuspocus servers and clients against a Redis service
+  # container (DB 15) and a fake of the API's internal operations.
+  sync:
+    name: Sync (Node.js)
+    needs: detect
+    if: needs.detect.outputs.code == 'true' && needs.detect.outputs.sync == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: sync
+    services:
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      TEST_REDIS_URL: redis://localhost:6379/15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: sync/.nvmrc
+          cache: npm
+          cache-dependency-path: sync/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
 
   # Runs after the fast checks pass (a job skipped for a missing manifest counts as passed).
   # It starts no ClamAV: the real-clamd test is the clamav job's.
