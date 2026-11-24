@@ -9,6 +9,8 @@ import (
 	compilehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/compile/adapter/http"
 	compileusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/compile/usecase"
 	embeddinghttp "github.com/ARAFATH-SH/researchsphere/backend/internal/embedding/adapter/http"
+	eventhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/event/adapter/http"
+	eventusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/event/usecase"
 	healthhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/health/adapter/http"
 	healthdomain "github.com/ARAFATH-SH/researchsphere/backend/internal/health/domain"
 	healthusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/health/usecase"
@@ -45,6 +47,7 @@ type (
 	recommendationHandler = recommendationhttp.Handler
 	projectHandler        = projecthttp.Handler
 	compileHandler        = compilehttp.Handler
+	eventHandler          = eventhttp.Handler
 )
 
 // handlers implements every operation in the contract by embedding each module's HTTP
@@ -63,6 +66,7 @@ type handlers struct {
 	*recommendationHandler
 	*projectHandler
 	*compileHandler
+	*eventHandler
 }
 
 var _ gen.StrictServerInterface = handlers{}
@@ -76,6 +80,19 @@ var platformGuards = map[string]authz.Action{
 	// The AI matching model's embeddings (AI-1.6).
 	"GET /api/v1/admin/ai/embeddings":          authz.ManageAI,
 	"POST /api/v1/admin/ai/embeddings/rebuild": authz.ManageAI,
+
+	// Venues (FR-14, FR-15.1): reading is the row "View profiles, search, feed, events and
+	// recommendations"; adding, changing, removing and importing are "Add, edit and remove
+	// venues", which only an administrator has.
+	"GET /api/v1/venues":                         authz.ViewContent,
+	"GET /api/v1/venues/fields":                  authz.ViewContent,
+	"GET /api/v1/venues/{venueId}":               authz.ViewContent,
+	"POST /api/v1/admin/venues":                  authz.ManageVenues,
+	"PATCH /api/v1/admin/venues/{venueId}":       authz.ManageVenues,
+	"POST /api/v1/admin/venues/{venueId}/remove": authz.ManageVenues,
+	"POST /api/v1/admin/venues/import":           authz.ManageVenues,
+	"GET /api/v1/admin/venues/sync":              authz.ManageVenues,
+	"POST /api/v1/admin/venues/sync":             authz.ManageVenues,
 
 	// Moderation (FR-15.3, FR-15.5 to FR-15.9). Warnings are the user's own, so reading and
 	// acknowledging one needs what reading the app needs.
@@ -359,8 +376,10 @@ const multipartOverhead = 64 << 10
 // read (FR-4.6): a larger body fails with http.MaxBytesError, which the media handler
 // answers with 413. The usecase also stops reading the file part at its exact limit.
 var bodyLimits = map[string]int64{
-	"PUT /api/v1/profiles/me/photo": mediausecase.Specs[mediadomain.PurposePhoto].MaxBytes + multipartOverhead,
-	"PUT /api/v1/profiles/me/cover": mediausecase.Specs[mediadomain.PurposeCover].MaxBytes + multipartOverhead,
+	// FR-14.5: an import file of 1 MiB.
+	"POST /api/v1/admin/venues/import": eventusecase.MaxImportBytes + multipartOverhead,
+	"PUT /api/v1/profiles/me/photo":    mediausecase.Specs[mediadomain.PurposePhoto].MaxBytes + multipartOverhead,
+	"PUT /api/v1/profiles/me/cover":    mediausecase.Specs[mediadomain.PurposeCover].MaxBytes + multipartOverhead,
 	// FR-16.7: 25 MB.
 	"POST /api/v1/conversations/{conversationId}/attachments": mediausecase.MaxAttachmentBytes + multipartOverhead,
 	// FR-12.2: only the path and size; the figure goes straight to storage.
@@ -427,7 +446,7 @@ func guardPlatform(next http.Handler) http.Handler {
 // Tests pass fakes; run passes the real PostgreSQL, Redis, SMTP and AI service adapters. requireAuth
 // guards the operations the contract secures (httpx.RequireAuth); guardPlatform runs
 // inside it, and limitBody inside that.
-func newRouter(logger *slog.Logger, db, redis, storage, ai healthdomain.Pinger, auth *authhttp.Handler, profile *profilehttp.Handler, media *mediahttp.Handler, social *socialhttp.Handler, notifications *notificationhttp.Handler, messaging *messaginghttp.Handler, moderation *moderationhttp.Handler, realtime *realtimehttp.Handler, embedding *embeddinghttp.Handler, recommendation *recommendationhttp.Handler, projects *projecthttp.Handler, compile *compilehttp.Handler, requireAuth func(http.Handler) http.Handler) http.Handler {
+func newRouter(logger *slog.Logger, db, redis, storage, ai healthdomain.Pinger, auth *authhttp.Handler, profile *profilehttp.Handler, media *mediahttp.Handler, social *socialhttp.Handler, notifications *notificationhttp.Handler, messaging *messaginghttp.Handler, moderation *moderationhttp.Handler, realtime *realtimehttp.Handler, embedding *embeddinghttp.Handler, recommendation *recommendationhttp.Handler, projects *projecthttp.Handler, compile *compilehttp.Handler, venues *eventhttp.Handler, requireAuth func(http.Handler) http.Handler) http.Handler {
 	checker := healthusecase.New(healthusecase.DefaultTimeout,
 		healthdomain.Dependency{Name: "database", Pinger: db},
 		healthdomain.Dependency{Name: "redis", Pinger: redis},
@@ -449,5 +468,6 @@ func newRouter(logger *slog.Logger, db, redis, storage, ai healthdomain.Pinger, 
 		recommendationHandler: recommendation,
 		projectHandler:        projects,
 		compileHandler:        compile,
+		eventHandler:          venues,
 	}, func(next http.Handler) http.Handler { return requireAuth(guardPlatform(limitBody(next))) })
 }

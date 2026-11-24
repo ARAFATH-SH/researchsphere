@@ -173,6 +173,60 @@ SELECT count(*)::bigint                                  AS total,
        count(*) FILTER (WHERE model = @model)::bigint    AS current_model
 FROM project_embeddings;
 
+-- Venues (AI-1.3; slice 24). Only a venue not removed has an embedding; removing one deletes
+-- it in the removal's transaction (migration 000039).
+
+-- name: VenueSourceFields :one
+SELECT name, short_name, scope FROM venues WHERE id = @venue_id AND removed_at IS NULL;
+
+-- name: VenueFieldLabels :many
+SELECT rf.label
+FROM venue_fields vf
+JOIN research_fields rf ON rf.key = vf.field_key
+WHERE vf.venue_id = @venue_id
+ORDER BY rf.position, rf.key;
+
+-- name: StoredVenueEmbedding :one
+SELECT model, content_hash FROM venue_embeddings WHERE venue_id = @venue_id;
+
+-- name: SaveVenueEmbedding :execrows
+-- Only while the venue is live. FOR UPDATE holds it: a removal that comes first is seen
+-- here (no row stored), one that comes later waits and its trigger deletes this. (FOR KEY
+-- SHARE would not make a removal wait: it changes no key.)
+WITH owner AS (
+    SELECT id FROM venues WHERE id = @venue_id AND removed_at IS NULL FOR UPDATE
+)
+INSERT INTO venue_embeddings (venue_id, model, content_hash, embedding, chunk_count)
+SELECT owner.id, @model, @content_hash, CAST(@embedding::text AS vector), @chunk_count FROM owner
+ON CONFLICT (venue_id) DO UPDATE
+SET model        = EXCLUDED.model,
+    content_hash = EXCLUDED.content_hash,
+    embedding    = EXCLUDED.embedding,
+    chunk_count  = EXCLUDED.chunk_count,
+    updated_at   = now();
+
+-- name: DeleteVenueEmbedding :exec
+DELETE FROM venue_embeddings WHERE venue_id = @venue_id;
+
+-- name: QueueStaleVenues :execrows
+INSERT INTO embedding_jobs (owner_type, owner_id, priority)
+SELECT 'venue', e.venue_id, 1
+FROM venue_embeddings e
+WHERE e.model <> @model
+  AND NOT EXISTS (SELECT 1 FROM embedding_jobs j WHERE j.owner_type = 'venue' AND j.owner_id = e.venue_id)
+ORDER BY e.venue_id
+LIMIT @lim
+ON CONFLICT (owner_type, owner_id) DO NOTHING;
+
+-- name: QueueAllVenues :one
+SELECT count(*)::bigint AS queued
+FROM (SELECT embedding_enqueue('venue', v.id, 1::smallint, @force::boolean) FROM venues v WHERE v.removed_at IS NULL) q;
+
+-- name: VenueEmbeddingStats :one
+SELECT count(*)::bigint                                  AS total,
+       count(*) FILTER (WHERE model = @model)::bigint    AS current_model
+FROM venue_embeddings;
+
 -- name: InsertAIAdminAction :exec
 INSERT INTO ai_admin_actions (admin_id, action, queued) VALUES (@admin_id, @action, @queued);
 

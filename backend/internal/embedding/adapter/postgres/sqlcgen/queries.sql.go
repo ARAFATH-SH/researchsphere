@@ -95,6 +95,15 @@ func (q *Queries) DeleteProjectEmbedding(ctx context.Context, projectID pgtype.U
 	return err
 }
 
+const deleteVenueEmbedding = `-- name: DeleteVenueEmbedding :exec
+DELETE FROM venue_embeddings WHERE venue_id = $1
+`
+
+func (q *Queries) DeleteVenueEmbedding(ctx context.Context, venueID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteVenueEmbedding, venueID)
+	return err
+}
+
 const finishJob = `-- name: FinishJob :execrows
 DELETE FROM embedding_jobs
 WHERE owner_type = $1 AND owner_id = $2 AND generation = $3
@@ -394,6 +403,18 @@ func (q *Queries) QueueAllProjects(ctx context.Context, force bool) (int64, erro
 	return queued, err
 }
 
+const queueAllVenues = `-- name: QueueAllVenues :one
+SELECT count(*)::bigint AS queued
+FROM (SELECT embedding_enqueue('venue', v.id, 1::smallint, $1::boolean) FROM venues v WHERE v.removed_at IS NULL) q
+`
+
+func (q *Queries) QueueAllVenues(ctx context.Context, force bool) (int64, error) {
+	row := q.db.QueryRow(ctx, queueAllVenues, force)
+	var queued int64
+	err := row.Scan(&queued)
+	return queued, err
+}
+
 const queueStaleProfiles = `-- name: QueueStaleProfiles :execrows
 INSERT INTO embedding_jobs (owner_type, owner_id, priority)
 SELECT 'profile', e.user_id, 1
@@ -437,6 +458,30 @@ type QueueStaleProjectsParams struct {
 
 func (q *Queries) QueueStaleProjects(ctx context.Context, arg QueueStaleProjectsParams) (int64, error) {
 	result, err := q.db.Exec(ctx, queueStaleProjects, arg.Model, arg.Lim)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const queueStaleVenues = `-- name: QueueStaleVenues :execrows
+INSERT INTO embedding_jobs (owner_type, owner_id, priority)
+SELECT 'venue', e.venue_id, 1
+FROM venue_embeddings e
+WHERE e.model <> $1
+  AND NOT EXISTS (SELECT 1 FROM embedding_jobs j WHERE j.owner_type = 'venue' AND j.owner_id = e.venue_id)
+ORDER BY e.venue_id
+LIMIT $2
+ON CONFLICT (owner_type, owner_id) DO NOTHING
+`
+
+type QueueStaleVenuesParams struct {
+	Model string
+	Lim   int32
+}
+
+func (q *Queries) QueueStaleVenues(ctx context.Context, arg QueueStaleVenuesParams) (int64, error) {
+	result, err := q.db.Exec(ctx, queueStaleVenues, arg.Model, arg.Lim)
 	if err != nil {
 		return 0, err
 	}
@@ -571,6 +616,45 @@ func (q *Queries) SaveProjectEmbedding(ctx context.Context, arg SaveProjectEmbed
 	return result.RowsAffected(), nil
 }
 
+const saveVenueEmbedding = `-- name: SaveVenueEmbedding :execrows
+WITH owner AS (
+    SELECT id FROM venues WHERE id = $5 AND removed_at IS NULL FOR UPDATE
+)
+INSERT INTO venue_embeddings (venue_id, model, content_hash, embedding, chunk_count)
+SELECT owner.id, $1, $2, CAST($3::text AS vector), $4 FROM owner
+ON CONFLICT (venue_id) DO UPDATE
+SET model        = EXCLUDED.model,
+    content_hash = EXCLUDED.content_hash,
+    embedding    = EXCLUDED.embedding,
+    chunk_count  = EXCLUDED.chunk_count,
+    updated_at   = now()
+`
+
+type SaveVenueEmbeddingParams struct {
+	Model       string
+	ContentHash string
+	Embedding   string
+	ChunkCount  int16
+	VenueID     pgtype.UUID
+}
+
+// Only while the venue is live. FOR UPDATE holds it: a removal that comes first is seen
+// here (no row stored), one that comes later waits and its trigger deletes this. (FOR KEY
+// SHARE would not make a removal wait: it changes no key.)
+func (q *Queries) SaveVenueEmbedding(ctx context.Context, arg SaveVenueEmbeddingParams) (int64, error) {
+	result, err := q.db.Exec(ctx, saveVenueEmbedding,
+		arg.Model,
+		arg.ContentHash,
+		arg.Embedding,
+		arg.ChunkCount,
+		arg.VenueID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const storedProfileEmbedding = `-- name: StoredProfileEmbedding :one
 SELECT model, content_hash FROM profile_embeddings WHERE user_id = $1
 `
@@ -600,5 +684,87 @@ func (q *Queries) StoredProjectEmbedding(ctx context.Context, projectID pgtype.U
 	row := q.db.QueryRow(ctx, storedProjectEmbedding, projectID)
 	var i StoredProjectEmbeddingRow
 	err := row.Scan(&i.Model, &i.ContentHash)
+	return i, err
+}
+
+const storedVenueEmbedding = `-- name: StoredVenueEmbedding :one
+SELECT model, content_hash FROM venue_embeddings WHERE venue_id = $1
+`
+
+type StoredVenueEmbeddingRow struct {
+	Model       string
+	ContentHash string
+}
+
+func (q *Queries) StoredVenueEmbedding(ctx context.Context, venueID pgtype.UUID) (StoredVenueEmbeddingRow, error) {
+	row := q.db.QueryRow(ctx, storedVenueEmbedding, venueID)
+	var i StoredVenueEmbeddingRow
+	err := row.Scan(&i.Model, &i.ContentHash)
+	return i, err
+}
+
+const venueEmbeddingStats = `-- name: VenueEmbeddingStats :one
+SELECT count(*)::bigint                                  AS total,
+       count(*) FILTER (WHERE model = $1)::bigint    AS current_model
+FROM venue_embeddings
+`
+
+type VenueEmbeddingStatsRow struct {
+	Total        int64
+	CurrentModel int64
+}
+
+func (q *Queries) VenueEmbeddingStats(ctx context.Context, model string) (VenueEmbeddingStatsRow, error) {
+	row := q.db.QueryRow(ctx, venueEmbeddingStats, model)
+	var i VenueEmbeddingStatsRow
+	err := row.Scan(&i.Total, &i.CurrentModel)
+	return i, err
+}
+
+const venueFieldLabels = `-- name: VenueFieldLabels :many
+SELECT rf.label
+FROM venue_fields vf
+JOIN research_fields rf ON rf.key = vf.field_key
+WHERE vf.venue_id = $1
+ORDER BY rf.position, rf.key
+`
+
+func (q *Queries) VenueFieldLabels(ctx context.Context, venueID pgtype.UUID) ([]string, error) {
+	rows, err := q.db.Query(ctx, venueFieldLabels, venueID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var label string
+		if err := rows.Scan(&label); err != nil {
+			return nil, err
+		}
+		items = append(items, label)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const venueSourceFields = `-- name: VenueSourceFields :one
+
+SELECT name, short_name, scope FROM venues WHERE id = $1 AND removed_at IS NULL
+`
+
+type VenueSourceFieldsRow struct {
+	Name      string
+	ShortName pgtype.Text
+	Scope     string
+}
+
+// Venues (AI-1.3; slice 24). Only a venue not removed has an embedding; removing one deletes
+// it in the removal's transaction (migration 000039).
+func (q *Queries) VenueSourceFields(ctx context.Context, venueID pgtype.UUID) (VenueSourceFieldsRow, error) {
+	row := q.db.QueryRow(ctx, venueSourceFields, venueID)
+	var i VenueSourceFieldsRow
+	err := row.Scan(&i.Name, &i.ShortName, &i.Scope)
 	return i, err
 }

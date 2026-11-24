@@ -17,6 +17,7 @@ import (
 const (
 	textVersion        = "profile-text-v1\n"
 	projectTextVersion = "project-text-v1\n"
+	venueTextVersion   = "venue-text-v1\n"
 )
 
 // ProfileText is the one place a profile's embedding text is built (AI-1.1): headline,
@@ -70,6 +71,30 @@ func ContentHash(text string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// VenueText is the one place a venue's embedding text is built (AI-1.3): name, short name,
+// research fields, then scope, each on its own line with its whitespace collapsed. The scope
+// may hold a little Markdown; it is embedded as written. Removed venues have no text: the
+// worker never asks for one.
+func VenueText(src domain.VenueSource) string {
+	var lines []string
+	add := func(s string) {
+		if s = oneLine(s); s != "" {
+			lines = append(lines, s)
+		}
+	}
+	add(src.Name)
+	add(src.ShortName)
+	add(joinTags(src.Fields))
+	add(src.Scope)
+	return strings.Join(lines, "\n")
+}
+
+// VenueContentHash is ContentHash for a venue text.
+func VenueContentHash(text string) string {
+	sum := sha256.Sum256([]byte(venueTextVersion + text))
+	return hex.EncodeToString(sum[:])
+}
+
 // ProjectContentHash is ContentHash for a project text.
 func ProjectContentHash(text string) string {
 	sum := sha256.Sum256([]byte(projectTextVersion + text))
@@ -78,8 +103,11 @@ func ProjectContentHash(text string) string {
 
 // hashOf is the content hash of an owner's text.
 func hashOf(owner domain.OwnerType, text string) string {
-	if owner == domain.OwnerProject {
+	switch owner {
+	case domain.OwnerProject:
 		return ProjectContentHash(text)
+	case domain.OwnerVenue:
+		return VenueContentHash(text)
 	}
 	return ContentHash(text)
 }

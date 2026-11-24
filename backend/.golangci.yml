@@ -122,6 +122,12 @@ linters:
           allow:
             - $gostd
             - github.com/ARAFATH-SH/researchsphere/backend/internal/compile/domain
+        usecase-event:
+          files: ["**/internal/event/usecase/**"]
+          list-mode: strict
+          allow:
+            - $gostd
+            - github.com/ARAFATH-SH/researchsphere/backend/internal/event/domain
         # The image codec sees only bytes and the media domain: no HTTP, database or
         # storage, so a decoding bug cannot reach anything else (FR-4.6).
         adapter-imaging:
@@ -153,6 +159,15 @@ linters:
           allow:
             - $gostd
             - github.com/ARAFATH-SH/researchsphere/backend/internal/profile/domain
+        # The venue feeds see only HTTP, YAML and the event domain: no database, Redis or
+        # generated API code (FR-14.5, docs/venues-sync.md).
+        adapter-feeds:
+          files: ["**/internal/event/adapter/feeds/**"]
+          list-mode: strict
+          allow:
+            - $gostd
+            - go.yaml.in/yaml/v3
+            - github.com/ARAFATH-SH/researchsphere/backend/internal/event/domain
         # The email domain checker sees only DNS, its embedded list and the auth domain
         # (FR-17.2).
         adapter-emaildomain:

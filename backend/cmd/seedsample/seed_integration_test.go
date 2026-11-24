@@ -286,3 +286,97 @@ func TestPurgeRemovesOnlySampleAccounts(t *testing.T) {
 		t.Errorf("second purge = %d, %v; want 0, nil", deleted, err)
 	}
 }
+
+// -venues: 200 fictional venues through the event module's store, each marked in
+// sample_venues and queued for its embedding at low priority; a second run adds none; the
+// purge deletes them and their jobs, and leaves a real venue alone.
+func TestSeedVenues(t *testing.T) {
+	pool := testenv.DB(t)
+	ctx := t.Context()
+	g := testGenerator(t, defaultSeed)
+	today := time.Now().UTC()
+	if err := runVenues(ctx, pool, g, today, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if got := count(t, pool, `SELECT count(*) FROM venues v JOIN sample_venues s ON s.venue_id = v.id
+		WHERE v.removed_at IS NULL AND EXISTS (SELECT 1 FROM venue_fields f WHERE f.venue_id = v.id AND f.field_key = s.cluster)`); got != 200 {
+		t.Fatalf("sample venues in their cluster = %d, want 200", got)
+	}
+	if got := count(t, pool, `SELECT count(*) FROM venues WHERE submission_deadline < now()`); got == 0 {
+		t.Error("no sample venue has a past deadline")
+	}
+	if got := count(t, pool, `SELECT count(*) FROM embedding_jobs WHERE owner_type = 'venue' AND priority = 1`); got != 200 {
+		t.Errorf("low-priority venue jobs = %d, want 200", got)
+	}
+	var name string
+	if err := pool.QueryRow(ctx, `SELECT v.name FROM venues v JOIN sample_venues s ON s.venue_id = v.id WHERE s.seq = 57`).Scan(&name); err != nil ||
+		name != g.venue(57, today).in.Name {
+		t.Errorf("venue 57 = %q, %v; generator %q", name, err, g.venue(57, today).in.Name)
+	}
+	if err := runVenues(ctx, pool, g, today, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if got := count(t, pool, `SELECT count(*) FROM venues`); got != 200 {
+		t.Errorf("a second run made %d venues", got)
+	}
+
+	// A venue an administrator added is not sample data.
+	if _, err := pool.Exec(ctx, `WITH v AS (INSERT INTO venues (name, type, scope, deadline_tz, submission_deadline, official_url)
+		VALUES ('Real journal', 'journal', 'Real.', 'UTC', now() + interval '30 days', 'https://real.example.org') RETURNING id)
+		INSERT INTO venue_fields (venue_id, field_key) SELECT id, 'other' FROM v`); err != nil {
+		t.Fatal(err)
+	}
+	n, err := purgeVenues(ctx, pool)
+	if err != nil || n != 200 {
+		t.Fatalf("purgeVenues = %d, %v; want 200", n, err)
+	}
+	if got := count(t, pool, `SELECT count(*) FROM venues`); got != 1 {
+		t.Errorf("%d venues left, want the real one", got)
+	}
+	if got := count(t, pool, `SELECT count(*) FROM embedding_jobs WHERE owner_type = 'venue'`) +
+		count(t, pool, `SELECT count(*) FROM sample_venues`); got != 1 {
+		t.Errorf("%d venue jobs and markers left, want only the real venue's job", got)
+	}
+}
+
+// make sample-venues-purge deletes the sample venues with their embeddings and jobs, and
+// keeps every sample account and project.
+func TestPurgeVenuesKeepsSampleAccountsAndProjects(t *testing.T) {
+	pool := testenv.DB(t)
+	ctx := t.Context()
+	g := testGenerator(t, defaultSeed)
+	seedTo(t, pool, g, 20)
+	ids, err := existingSamples(ctx, pool, g.seed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runProjects(ctx, pool, g, ids, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if err := runVenues(ctx, pool, g, time.Now().UTC(), io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO venue_embeddings (venue_id, model, content_hash, embedding)
+		SELECT venue_id, 'test-model@1', repeat('a', 64), array_fill(0.1::real, ARRAY[768])::vector FROM sample_venues`); err != nil {
+		t.Fatal(err)
+	}
+	users, projects := count(t, pool, sampleUsers), count(t, pool, `SELECT count(*) FROM sample_projects`)
+
+	n, err := purgeVenues(ctx, pool)
+	if err != nil || n != 200 {
+		t.Fatalf("purgeVenues = %d, %v; want 200", n, err)
+	}
+	for sql, want := range map[string]int{
+		`SELECT count(*) FROM venues`:                                    0,
+		`SELECT count(*) FROM venue_embeddings`:                          0,
+		`SELECT count(*) FROM embedding_jobs WHERE owner_type = 'venue'`: 0,
+		sampleUsers:                            users,
+		`SELECT count(*) FROM sample_profiles`: 20,
+		`SELECT count(*) FROM sample_projects`: projects,
+		`SELECT count(*) FROM projects`:        projects,
+	} {
+		if got := count(t, pool, sql); got != want {
+			t.Errorf("%s = %d, want %d", sql, got, want)
+		}
+	}
+}

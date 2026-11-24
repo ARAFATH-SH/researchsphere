@@ -10,17 +10,18 @@ import (
 )
 
 // OwnerType is what an embedding belongs to. Each source slice adds one: project (AI-1.2),
-// post and venue (AI-1.3). The values match embedding_jobs.owner_type.
+// venue (AI-1.3, slice 24) and post (AI-1.3). The values match embedding_jobs.owner_type.
 type OwnerType string
 
 // Owner types.
 const (
 	OwnerProfile OwnerType = "profile"
 	OwnerProject OwnerType = "project"
+	OwnerVenue   OwnerType = "venue"
 )
 
 // OwnerTypes lists every owner type, in the order the admin statistics show them.
-var OwnerTypes = []OwnerType{OwnerProfile, OwnerProject}
+var OwnerTypes = []OwnerType{OwnerProfile, OwnerProject, OwnerVenue}
 
 // MaxChunks is how many chunks of at most 512 tokens one embedding averages (AI-1.1).
 const MaxChunks = 8
@@ -73,6 +74,15 @@ type ProjectSource struct {
 	Description string
 	Abstract    string
 	Skills      []string // by name
+}
+
+// VenueSource is what a venue's embedding is made from (AI-1.3): its name, short name,
+// research fields and scope. Only a venue not removed may have one.
+type VenueSource struct {
+	Name      string
+	ShortName string
+	Fields    []string // labels, in the order of the fixed list
+	Scope     string
 }
 
 // PublicationText is a confirmed publication's text, newest first in ProfileSource.
@@ -129,6 +139,8 @@ type Store interface {
 	ProfileSource(ctx context.Context, userID string) (ProfileSource, error)
 	// ProjectSource returns ErrNotFound when the project is gone.
 	ProjectSource(ctx context.Context, projectID string) (ProjectSource, error)
+	// VenueSource returns ErrNotFound when the venue is gone or was removed.
+	VenueSource(ctx context.Context, venueID string) (VenueSource, error)
 	// StoredEmbedding returns ErrNotFound when the owner has none.
 	StoredEmbedding(ctx context.Context, owner OwnerType, ownerID string) (Stored, error)
 	// SaveEmbedding inserts or replaces the embedding, only while the owner is still

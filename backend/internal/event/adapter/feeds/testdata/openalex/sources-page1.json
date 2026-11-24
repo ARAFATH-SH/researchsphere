@@ -1,0 +1,370 @@
+{
+ "meta": {
+  "count": 882,
+  "page": 1,
+  "per_page": 6
+ },
+ "results": [
+  {
+   "id": "https://openalex.org/S196734849",
+   "display_name": "Scientific Reports",
+   "homepage_url": "http://www.nature.com/srep/index.html",
+   "issn_l": "2045-2322",
+   "host_organization_name": "Nature Portfolio",
+   "works_count": 322715,
+   "topics": [
+    {
+     "display_name": "Advanced Neural Network Applications",
+     "subfield": {
+      "id": "https://openalex.org/subfields/1707",
+      "display_name": "Computer Vision and Pattern Recognition"
+     },
+     "field": {
+      "id": "https://openalex.org/fields/17"
+     }
+    },
+    {
+     "display_name": "Gut microbiota and health",
+     "subfield": {
+      "id": "https://openalex.org/subfields/1312",
+      "display_name": "Molecular Biology"
+     },
+     "field": {
+      "id": "https://openalex.org/fields/13"
+     }
+    },
+    {
+     "display_name": "Genetic Associations and Epidemiology",
+     "subfield": {
+      "id": "https://openalex.org/subfields/1311",
+      "display_name": "Genetics"
+     },
+     "field": {
+      "id": "https://openalex.org/fields/13"
+     }
+    },
+    {
+     "display_name": "Computational Drug Discovery Methods",
+     "subfield": {
+      "id": "https://openalex.org/subfields/3002",
+      "display_name": "Drug Discovery"
+     },
+     "field": {
+      "id": "https://openalex.org/fields/30"
+     }
+    },
+    {
+     "display_name": "Genomics and Phylogenetic Studies",
+     "subfield": {
+      "id": "https://openalex.org/subfields/1312",
+      "display_name": "Molecular Biology"
+     },
+     "field": {
+      "id": "https://openalex.org/fields/13"
+     }
+    }
+   ]
+  },
+  {
+   "id": "https://openalex.org/S11296630",
+   "display_name": "The Journal of the Acoustical Society of America",
+   "homepage_url": "http://asadl.org/jasa",
+   "issn_l": "0001-4966",
+   "host_organization_name": "Acoustical Society of America",
+   "works_count": 173731,
+   "topics": [
+    {
+     "display_name": "Acoustic Wave Phenomena Research",
+     "subfield": {
+      "id": "https://openalex.org/subfields/3102",
+      "display_name": "Acoustics and Ultrasonics"
+     },
+     "field": {
+      "id": "https://openalex.org/fields/31"
+     }
+    },
+    {
+     "display_name": "Ultrasonics and Acoustic Wave Propagation",
+     "subfield": {
+      "id": "https://openalex.org/subfields/2211",
+      "display_name": "Mechanics of Materials"
+     },
+     "field": {
+      "id": "https://openalex.org/fields/22"
+     }
+    },
+    {
+     "display_name": "Underwater Acoustics Research",
+     "subfield": {
+      "id": "https://openalex.org/subfields/1910",
+      "display_name": "Oceanography"
+     },
+     "field": {
+      "id": "https://openalex.org/fields/19"
+     }
+    },
+    {
+     "display_name": "Speech and Audio Processing",
+     "subfield": {
+      "id": "https://openalex.org/subfields/1711",
+      "display_name": "Signal Processing"
+     },
+     "field": {
+      "id": "https://openalex.org/fields/17"
+     }
+    },
+    {
+     "display_name": "Phonetics and Phonology Research",
+     "subfield": {
+      "id": "https://openalex.org/subfields/3205",
+      "display_name": "Experimental and Cognitive Psychology"
+     },
+     "field": {
+      "id": "https://openalex.org/fields/32"
+     }
+    }
+   ]
+  },
+  {
+   "id": "https://openalex.org/S30525748",
+   "display_name": "The Journal of Urology",
+   "homepage_url": "https://journals.lww.com/auajuro/Pages/default.aspx",
+   "issn_l": "0022-5347",
+   "host_organization_name": "Lippincott Williams & Wilkins",
+   "works_count": 147149,
+   "topics": [
+    {
+     "display_name": "Urinary Bladder and Prostate Research",
+     "subfield": {
+      "id": "https://openalex.org/subfields/2748",
+      "display_name": "Urology"
+     },
+     "field": {
+      "id": "https://openalex.org/fields/27"
+     }
+    },
+    {
+     "display_name": "Urological Disorders and Treatments",
+     "subfield": {
+      "id": "https://openalex.org/subfields/2748",
+      "display_name": "Urology"
+     },
+     "field": {
+      "id": "https://openalex.org/fields/27"
+     }
+    },
+    {
+     "display_name": "Prostate Cancer Diagnosis and Treatment",
+     "subfield": {
+      "id": "https://openalex.org/subfields/2748",
+      "display_name": "Urology"
+     },
+     "field": {
+      "id": "https://openalex.org/fields/27"
+     }
+    },
+    {
+     "display_name": "Bladder and Urothelial Cancer Treatments",
+     "subfield": {
+      "id": "https://openalex.org/subfields/2746",
+      "display_name": "Surgery"
+     },
+     "field": {
+      "id": "https://openalex.org/fields/27"
+     }
+    },
+    {
+     "display_name": "Prostate Cancer Treatment and Research",
+     "subfield": {
+      "id": "https://openalex.org/subfields/1306",
+      "display_name": "Cancer Research"
+     },
+     "field": {
+      "id": "https://openalex.org/fields/13"
+     }
+    }
+   ]
+  },
+  {
+   "id": "https://openalex.org/S191963794",
+   "display_name": "Analytical Chemistry",
+   "homepage_url": "http://pubs.acs.org/journal/ancham",
+   "issn_l": "0003-2700",
+   "host_organization_name": "American Chemical Society",
+   "works_count": 140533,
+   "topics": [
+    {
+     "display_name": "Analytical chemistry methods development",
+     "subfield": {
+      "id": "https://openalex.org/subfields/1602",
+      "display_name": "Analytical Chemistry"
+     },
+     "field": {
+      "id": "https://openalex.org/fields/16"
+     }
+    },
+    {
+     "display_name": "Analytical Chemistry and Chromatography",
+     "subfield": {
+      "id": "https://openalex.org/subfields/1602",
+      "display_name": "Analytical Chemistry"
+     },
+     "field": {
+      "id": "https://openalex.org/fields/16"
+     }
+    },
+    {
+     "display_name": "Mass Spectrometry Techniques and Applications",
+     "subfield": {
+      "id": "https://openalex.org/subfields/1607",
+      "display_name": "Spectroscopy"
+     },
+     "field": {
+      "id": "https://openalex.org/fields/16"
+     }
+    },
+    {
+     "display_name": "Electrochemical Analysis and Applications",
+     "subfield": {
+      "id": "https://openalex.org/subfields/1603",
+      "display_name": "Electrochemistry"
+     },
+     "field": {
+      "id": "https://openalex.org/fields/16"
+     }
+    },
+    {
+     "display_name": "Electrochemical sensors and biosensors",
+     "subfield": {
+      "id": "https://openalex.org/subfields/1602",
+      "display_name": "Analytical Chemistry"
+     },
+     "field": {
+      "id": "https://openalex.org/fields/16"
+     }
+    }
+   ]
+  },
+  {
+   "id": "https://openalex.org/S60865174",
+   "display_name": "Journal of the American College of Cardiology",
+   "homepage_url": "https://www.sciencedirect.com/journal/journal-of-the-american-college-of-cardiology",
+   "issn_l": "0735-1097",
+   "host_organization_name": "Elsevier BV",
+   "works_count": 133529,
+   "topics": [
+    {
+     "display_name": "Coronary Interventions and Diagnostics",
+     "subfield": {
+      "id": "https://openalex.org/subfields/2705",
+      "display_name": "Cardiology and Cardiovascular Medicine"
+     },
+     "field": {
+      "id": "https://openalex.org/fields/27"
+     }
+    },
+    {
+     "display_name": "Cardiac Imaging and Diagnostics",
+     "subfield": {
+      "id": "https://openalex.org/subfields/2741",
+      "display_name": "Radiology, Nuclear Medicine and Imaging"
+     },
+     "field": {
+      "id": "https://openalex.org/fields/27"
+     }
+    },
+    {
+     "display_name": "Acute Myocardial Infarction Research",
+     "subfield": {
+      "id": "https://openalex.org/subfields/2705",
+      "display_name": "Cardiology and Cardiovascular Medicine"
+     },
+     "field": {
+      "id": "https://openalex.org/fields/27"
+     }
+    },
+    {
+     "display_name": "Cardiac Valve Diseases and Treatments",
+     "subfield": {
+      "id": "https://openalex.org/subfields/2705",
+      "display_name": "Cardiology and Cardiovascular Medicine"
+     },
+     "field": {
+      "id": "https://openalex.org/fields/27"
+     }
+    },
+    {
+     "display_name": "Cardiovascular Function and Risk Factors",
+     "subfield": {
+      "id": "https://openalex.org/subfields/2705",
+      "display_name": "Cardiology and Cardiovascular Medicine"
+     },
+     "field": {
+      "id": "https://openalex.org/fields/27"
+     }
+    }
+   ]
+  },
+  {
+   "id": "https://openalex.org/S116251202",
+   "display_name": "Circulation",
+   "homepage_url": "http://circ.ahajournals.org/",
+   "issn_l": "0009-7322",
+   "host_organization_name": "Lippincott Williams & Wilkins",
+   "works_count": 125617,
+   "topics": [
+    {
+     "display_name": "Cardiac electrophysiology and arrhythmias",
+     "subfield": {
+      "id": "https://openalex.org/subfields/2705",
+      "display_name": "Cardiology and Cardiovascular Medicine"
+     },
+     "field": {
+      "id": "https://openalex.org/fields/27"
+     }
+    },
+    {
+     "display_name": "Cardiac Imaging and Diagnostics",
+     "subfield": {
+      "id": "https://openalex.org/subfields/2741",
+      "display_name": "Radiology, Nuclear Medicine and Imaging"
+     },
+     "field": {
+      "id": "https://openalex.org/fields/27"
+     }
+    },
+    {
+     "display_name": "Cardiovascular Function and Risk Factors",
+     "subfield": {
+      "id": "https://openalex.org/subfields/2705",
+      "display_name": "Cardiology and Cardiovascular Medicine"
+     },
+     "field": {
+      "id": "https://openalex.org/fields/27"
+     }
+    },
+    {
+     "display_name": "Acute Myocardial Infarction Research",
+     "subfield": {
+      "id": "https://openalex.org/subfields/2705",
+      "display_name": "Cardiology and Cardiovascular Medicine"
+     },
+     "field": {
+      "id": "https://openalex.org/fields/27"
+     }
+    },
+    {
+     "display_name": "Coronary Interventions and Diagnostics",
+     "subfield": {
+      "id": "https://openalex.org/subfields/2705",
+      "display_name": "Cardiology and Cardiovascular Medicine"
+     },
+     "field": {
+      "id": "https://openalex.org/fields/27"
+     }
+    }
+   ]
+  }
+ ],
+ "group_by": []
+}

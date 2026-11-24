@@ -23,7 +23,7 @@ COMPILE_IMAGE     ?= researchsphere-compile:dev
 MIGRATIONS_DIR := backend/db/migrations
 
 .DEFAULT_GOAL := help
-.PHONY: help up down logs ps psql check migrate migrate-down migrate-new admin unadmin seed-ui-compare seed-dev sample-data sample-purge purge-unverified send-digests calibrate-recs eval-recs bench-recs eval-search bench-search embed-backfill backfill-main-tex purge-compile-output update-disposable-domains api web stop web-clean ai-build ai-up ai-fetch-model ai-logs sync sync-build sync-load compile-image compile-worker bench-compile compile-trace generate check-generated test test-prepare test-db test-go test-integration test-one test-web test-ai test-sync test-compile test-compile-sandbox lint lint-go lint-web lint-ai lint-sync lint-compile
+.PHONY: help up down logs ps psql check migrate migrate-down migrate-new admin unadmin seed-ui-compare seed-dev sample-data sample-purge sample-venues-purge purge-unverified send-digests venue-sync calibrate-recs eval-recs bench-recs eval-search bench-search embed-backfill backfill-main-tex purge-compile-output update-disposable-domains api web stop web-clean ai-build ai-up ai-fetch-model ai-logs sync sync-build sync-load compile-image compile-worker bench-compile compile-trace generate check-generated test test-prepare test-db test-go test-integration test-one test-web test-ai test-sync test-compile test-compile-sandbox lint lint-go lint-web lint-ai lint-sync lint-compile
 
 help: ## List the available commands
 	@grep -hE '^[a-zA-Z_-]+:.*## ' $(firstword $(MAKEFILE_LIST)) | awk 'BEGIN {FS = ":.*## "} {printf "  make %-16s %s\n", $$1, $$2}'
@@ -101,17 +101,24 @@ seed-dev: ## Create or repair the dev accounts test1..test4@example.com and admi
 # Sample profiles for development (slice 16): n is how many there should be (default 1000; a
 # second run tops up), wait=1 waits until the running API has embedded them, projects=1 also
 # makes one sample project per 10 profiles (slice 19). Never in production.
-sample-data: ## Load deterministic sample profiles into the dev database: make sample-data [n=10000] [wait=1] [projects=1] (needs make migrate and SAMPLE_PASSWORD)
-	@cd backend && go run ./cmd/seedsample -n "$(or $(n),1000)" $(if $(filter 1 true yes,$(wait)),-wait) $(if $(filter 1 true yes,$(projects)),-projects)
+sample-data: ## Load deterministic sample profiles into the dev database: make sample-data [n=10000] [wait=1] [projects=1] [venues=1] (needs make migrate and SAMPLE_PASSWORD)
+	@cd backend && go run ./cmd/seedsample -n "$(or $(n),1000)" $(if $(filter 1 true yes,$(wait)),-wait) $(if $(filter 1 true yes,$(projects)),-projects) $(if $(filter 1 true yes,$(venues)),-venues)
 
-sample-purge: ## Delete every sample account (@sample.researchsphere.local) through the account deletion
+sample-purge: ## Delete every sample account (@sample.researchsphere.local) through the account deletion, and every sample venue
 	@cd backend && go run ./cmd/seedsample -purge
+
+sample-venues-purge: ## Delete only the sample venues (sample_venues), with their embeddings and jobs; keeps sample accounts and projects
+	@cd backend && go run ./cmd/seedsample -purge-venues
 
 purge-unverified: ## Run the FR-17.4 purge of old unverified accounts once, now (settings from .env), then exit
 	cd backend && go run ./cmd/api -purge-unverified
 
 send-digests: ## Send the FR-16.11 unread message digests now due once (settings from .env), then exit
 	cd backend && go run ./cmd/api -send-digests
+
+# The source names reach the command through the environment, never pasted into its text.
+venue-sync: ## Run the FR-14.5 automatic venue import once now and print each source's counts: dry=1 writes nothing, sources=ccfddl,openalex limits it
+	cd backend && go run ./cmd/api -venue-sync $(if $(filter 1,$(dry)),-dry-run) -sources "$$sources"
 
 calibrate-recs: ## Fit the AI-2.2 score map on the sample TUNING split and print RECS_SCORE_*, then check it on profile-project pairs and print RECS_PROJECT_SCORE_* (dev sample data)
 	@cd backend && go run ./cmd/recseval calibrate
@@ -135,7 +142,7 @@ purge-compile-output: ## Delete PDFs and logs of compiles that started before=<R
 	@test -n "$(before)" || { echo "Usage: make purge-compile-output before=2026-11-23T21:10:27+06:00 [apply=1]"; exit 1; }
 	cd backend && go run ./cmd/purgecompileoutput -before "$(before)" $(if $(filter 1,$(apply)),-apply,)
 
-embed-backfill: ## Queue every verified, not suspended profile for its AI embedding once (AI-1.5); the running API embeds them
+embed-backfill: ## Queue every verified, not suspended profile, every project and every venue for its AI embedding once (AI-1.5); the running API embeds them
 	cd backend && go run ./cmd/api -embed-backfill
 
 # The list of disposable email domains (FR-17.2), CC0, from github.com/disposable-email-domains.
@@ -207,7 +214,7 @@ generate: ## Regenerate Go code (oapi-codegen, sqlc) and TypeScript types
 	cd backend && go generate ./...
 	cd frontend && npm run generate
 
-GENERATED := backend/internal/api backend/internal/compile/adapter/postgres/sqlcgen backend/internal/auth/adapter/postgres/sqlcgen backend/internal/profile/adapter/postgres/sqlcgen backend/internal/media/adapter/postgres/sqlcgen backend/internal/notification/adapter/postgres/sqlcgen backend/internal/moderation/adapter/postgres/sqlcgen frontend/src/lib/api
+GENERATED := backend/internal/api backend/internal/compile/adapter/postgres/sqlcgen backend/internal/auth/adapter/postgres/sqlcgen backend/internal/profile/adapter/postgres/sqlcgen backend/internal/media/adapter/postgres/sqlcgen backend/internal/notification/adapter/postgres/sqlcgen backend/internal/moderation/adapter/postgres/sqlcgen backend/internal/event/adapter/postgres/sqlcgen frontend/src/lib/api
 
 check-generated: generate ## Fail if generated code is out of date
 	@if [[ -n "$$(git status --porcelain -- $(GENERATED))" ]]; then \

@@ -3,6 +3,7 @@ import { act, render, screen } from "@testing-library/react";
 import AdminPage from "@/app/(app)/admin/page";
 import AdminReportPage from "@/app/(app)/admin/reports/[reportId]/page";
 import AdminUserPage from "@/app/(app)/admin/users/[userId]/page";
+import { getVenueSyncStatus, listResearchFields, listVenues } from "@/features/event/api";
 import { getMessageReport, getUserModeration, listMessageReports } from "@/features/moderation/api";
 
 import { AccessNotice, noAccessMessage } from "./access-notice";
@@ -17,6 +18,7 @@ jest.mock("./api");
 const mockListUsers = jest.mocked(listUsers);
 jest.mock("@/features/moderation/api");
 const mockListReports = jest.mocked(listMessageReports);
+jest.mock("@/features/event/api");
 
 const mockReplace = jest.fn();
 jest.mock("next/navigation", () => ({ useRouter: () => ({ replace: mockReplace }) }));
@@ -68,6 +70,8 @@ describe("/admin", () => {
     await act(async () => {});
     expect(mockReplace).toHaveBeenCalledWith("/home");
     expect(mockListUsers).not.toHaveBeenCalled();
+    expect(listVenues).not.toHaveBeenCalled();
+    expect(getVenueSyncStatus).not.toHaveBeenCalled();
     expect(screen.queryByRole("table")).toBeNull();
     expect(screen.queryByRole("navigation", { name: "Admin sections" })).toBeNull();
   });
@@ -76,9 +80,17 @@ describe("/admin", () => {
     mockUseSession.mockReturnValue(signedInAs("admin"));
     mockListUsers.mockResolvedValue({ ok: true, data: { items: [], page: 1, pageSize: 20, total: 0 } });
     mockListReports.mockResolvedValue({ ok: true, data: { items: [], page: 1, pageSize: 20, total: 0 } });
+    jest.mocked(listResearchFields).mockResolvedValue({ ok: true, data: [] });
+    jest.mocked(listVenues).mockResolvedValue({
+      ok: true,
+      data: { items: [], page: 1, pageSize: 20, total: 0, facets: { types: [], fields: [] } },
+    });
+    jest.mocked(getVenueSyncStatus).mockResolvedValue({ ok: true, data: { daily: true, sources: [] } });
     render(<AdminPage />);
-    expect(await screen.findByRole("table")).toBeTruthy();
+    expect(await screen.findByRole("table", { name: /Venues/ })).toBeTruthy();
     await screen.findByText("No open reports.");
+    await screen.findByText("No users on this page.");
+    await screen.findByText("Daily schedule on");
     expect(mockListUsers).toHaveBeenCalledWith(1, 20);
     expect(mockReplace).not.toHaveBeenCalled();
   });
@@ -98,5 +110,7 @@ describe("/admin", () => {
     expect(getUserModeration).not.toHaveBeenCalled();
     expect(listMessageReports).not.toHaveBeenCalled();
     expect(mockListUsers).not.toHaveBeenCalled();
+    expect(listVenues).not.toHaveBeenCalled();
+    expect(getVenueSyncStatus).not.toHaveBeenCalled();
   });
 });

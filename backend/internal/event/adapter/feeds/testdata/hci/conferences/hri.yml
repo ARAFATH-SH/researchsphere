@@ -1,0 +1,62 @@
+- title: HRI
+  year: 2023
+  id: hri23
+  link: https://humanrobotinteraction.org/2023/
+  deadline: '2022-10-03 23:59:59'
+  timezone: UTC-12
+  place: Stockholm, Sweden
+  date: March, 13-16, 2023
+  start: 2023-03-13
+  end: 2023-03-16
+  sub: HRI
+
+- title: HRI
+  year: 2024
+  id: hri24
+  link: https://humanrobotinteraction.org/2024
+  deadline: '2023-09-29 23:59:59'
+  timezone: UTC-12
+  place: Boulder, Colorado, USA
+  date: March, 11-15, 2024
+  start: 2024-03-11
+  end: 2024-03-15
+  sub: HRI
+
+- title: HRI
+  year: 2025
+  id: hri25
+  link: https://humanrobotinteraction.org/2025
+  deadline: '2024-10-01 23:59:59'
+  abstract_deadline: '2024-09-23 23:59:59'
+  timezone: UTC-12
+  place: Melbourne, Australia
+  date: March, 3-6, 2025
+  start: 2025-03-03
+  end: 2025-03-06
+  sub: HRI
+
+- title: HRI
+  year: 2026
+  id: hri26
+  link: https://humanrobotinteraction.org/2026
+  deadline: '2025-09-30 23:59:59'
+  abstract_deadline: '2025-09-22 23:59:59'
+  timezone: UTC-12
+  place: Edinburgh, Scotland
+  date: March, 16-19, 2026
+  start: 2026-03-16
+  end: 2026-03-19
+  sub: HRI
+
+- title: HRI
+  year: 2027
+  id: hri27
+  link: https://humanrobotinteraction.org/2027/
+  deadline: '2026-09-18 23:59:59'
+  abstract_deadline: '2026-09-11 23:59:59'
+  timezone: UTC-12
+  place: Santa Clara, California, USA
+  date: March, 8-12, 2027
+  start: 2027-03-08
+  end: 2027-03-12
+  sub: HRI

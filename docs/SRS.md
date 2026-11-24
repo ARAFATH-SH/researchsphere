@@ -572,7 +572,7 @@ Each question blocks the requirement named beside it and needs an answer before 
 
 - [ ] Which language model API will the assistant use, and what does it cost at 30 requests per user per day? (AI-7, AI-8)
 - [ ] Which email service will send verification and reset links? (FR-1.3, FR-2.3)
-- [ ] Which call-for-papers listing will venues come from, and do its terms allow automated import? (FR-14.5)
+- [x] Which call-for-papers listing will venues come from, and do its terms allow automated import? (FR-14.5) Decided 24 November 2026: conferences are imported daily from open, licence-checked deadline repositories (ccf-deadlines and similar), journals from OpenAlex sources; venues not in any source (including local Bangladeshi events) are added by an administrator. WikiCFP and other sites without an API are not scraped
 - [x] Decided 18 October 2026: photos, figures, PDFs and message attachments are stored in S3-compatible object storage (MinIO for local development; docs/decisions.md, 2026-10-18 and 2026-10-20). (FR-4.6, FR-12.2, FR-13.1, FR-16.7)
 - [ ] What server will host the deployment, and does it have enough memory to run the embedding model and TeX Live together? (NFR-1, NFR-3)
 - [ ] Which public data will the AI evaluation use as its test set? (NFR-6) Partly decided 15 November 2026: collaborator matching uses the held-out 20% split of the synthetic sample profiles (relevant = same main research cluster), noting that recall on template text will be higher than on real profiles. Still open for venue top-5

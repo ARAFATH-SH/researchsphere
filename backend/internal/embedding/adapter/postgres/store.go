@@ -158,6 +158,27 @@ func (s *Store) ProjectSource(ctx context.Context, projectID string) (domain.Pro
 	return src, nil
 }
 
+// VenueSource reads what a live venue's text is made from (AI-1.3).
+func (s *Store) VenueSource(ctx context.Context, venueID string) (domain.VenueSource, error) {
+	id, ok := parseUUID(venueID)
+	if !ok {
+		return domain.VenueSource{}, domain.ErrNotFound
+	}
+	q := s.q(ctx)
+	row, err := q.VenueSourceFields(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.VenueSource{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.VenueSource{}, fmt.Errorf("read venue source: %w", err)
+	}
+	src := domain.VenueSource{Name: row.Name, ShortName: row.ShortName.String, Scope: row.Scope}
+	if src.Fields, err = q.VenueFieldLabels(ctx, id); err != nil {
+		return domain.VenueSource{}, fmt.Errorf("read venue fields: %w", err)
+	}
+	return src, nil
+}
+
 // StoredEmbedding returns the owner's model and hash.
 func (s *Store) StoredEmbedding(ctx context.Context, owner domain.OwnerType, ownerID string) (domain.Stored, error) {
 	id, ok := parseUUID(ownerID)
@@ -176,6 +197,10 @@ func (s *Store) StoredEmbedding(ctx context.Context, owner domain.OwnerType, own
 	case domain.OwnerProject:
 		var row sqlcgen.StoredProjectEmbeddingRow
 		row, err = s.q(ctx).StoredProjectEmbedding(ctx, id)
+		model, hash = row.Model, row.ContentHash
+	case domain.OwnerVenue:
+		var row sqlcgen.StoredVenueEmbeddingRow
+		row, err = s.q(ctx).StoredVenueEmbedding(ctx, id)
 		model, hash = row.Model, row.ContentHash
 	default:
 		return domain.Stored{}, unknownOwner(owner)
@@ -208,6 +233,10 @@ func (s *Store) SaveEmbedding(ctx context.Context, e domain.Embedding) (bool, er
 		n, err = s.q(ctx).SaveProjectEmbedding(ctx, sqlcgen.SaveProjectEmbeddingParams{
 			Model: e.Model, ContentHash: e.ContentHash, Embedding: vectorText(e.Vector), ChunkCount: int16(e.ChunkCount), ProjectID: id,
 		})
+	case domain.OwnerVenue:
+		n, err = s.q(ctx).SaveVenueEmbedding(ctx, sqlcgen.SaveVenueEmbeddingParams{
+			Model: e.Model, ContentHash: e.ContentHash, Embedding: vectorText(e.Vector), ChunkCount: int16(e.ChunkCount), VenueID: id,
+		})
 	default:
 		return false, unknownOwner(e.OwnerType)
 	}
@@ -221,7 +250,7 @@ func (s *Store) SaveEmbedding(ctx context.Context, e domain.Embedding) (bool, er
 func (s *Store) DeleteEmbedding(ctx context.Context, owner domain.OwnerType, ownerID string) error {
 	id, ok := parseUUID(ownerID)
 	if !ok {
-		if owner == domain.OwnerProfile || owner == domain.OwnerProject {
+		if owner == domain.OwnerProfile || owner == domain.OwnerProject || owner == domain.OwnerVenue {
 			return nil
 		}
 		return unknownOwner(owner)
@@ -232,6 +261,8 @@ func (s *Store) DeleteEmbedding(ctx context.Context, owner domain.OwnerType, own
 		err = s.q(ctx).DeleteProfileEmbedding(ctx, id)
 	case domain.OwnerProject:
 		err = s.q(ctx).DeleteProjectEmbedding(ctx, id)
+	case domain.OwnerVenue:
+		err = s.q(ctx).DeleteVenueEmbedding(ctx, id)
 	default:
 		return unknownOwner(owner)
 	}
@@ -263,10 +294,22 @@ func (s *Store) QueueStale(ctx context.Context, model string, limit int) (int, e
 		}
 		n += m
 	}
+	if left := limit - int(n); left > 0 {
+		rest, err := int32Of(left)
+		if err != nil {
+			return 0, err
+		}
+		m, err := q.QueueStaleVenues(ctx, sqlcgen.QueueStaleVenuesParams{Model: model, Lim: rest})
+		if err != nil {
+			return 0, fmt.Errorf("queue stale venue embeddings: %w", err)
+		}
+		n += m
+	}
 	return int(n), nil
 }
 
-// QueueAll queues every eligible owner at low priority: profiles, then projects.
+// QueueAll queues every eligible owner at low priority: profiles, projects, then venues not
+// removed.
 func (s *Store) QueueAll(ctx context.Context, force bool) (int, error) {
 	q := s.q(ctx)
 	n, err := q.QueueAllProfiles(ctx, force)
@@ -277,7 +320,11 @@ func (s *Store) QueueAll(ctx context.Context, force bool) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("queue all project embeddings: %w", err)
 	}
-	return int(n + m), nil
+	v, err := q.QueueAllVenues(ctx, force)
+	if err != nil {
+		return 0, fmt.Errorf("queue all venue embeddings: %w", err)
+	}
+	return int(n + m + v), nil
 }
 
 // Rebuild queues every eligible owner, forced, and records the action, in one transaction.
@@ -318,6 +365,10 @@ func (s *Store) Stats(ctx context.Context, model string) ([]domain.OwnerStats, e
 	if err != nil {
 		return nil, fmt.Errorf("project embedding stats: %w", err)
 	}
+	venue, err := q.VenueEmbeddingStats(ctx, model)
+	if err != nil {
+		return nil, fmt.Errorf("venue embedding stats: %w", err)
+	}
 	jobs, err := q.JobStats(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("job stats: %w", err)
@@ -325,6 +376,7 @@ func (s *Store) Stats(ctx context.Context, model string) ([]domain.OwnerStats, e
 	byType := map[domain.OwnerType]domain.OwnerStats{
 		domain.OwnerProfile: {OwnerType: domain.OwnerProfile, Total: int(prof.Total), CurrentModel: int(prof.CurrentModel)},
 		domain.OwnerProject: {OwnerType: domain.OwnerProject, Total: int(proj.Total), CurrentModel: int(proj.CurrentModel)},
+		domain.OwnerVenue:   {OwnerType: domain.OwnerVenue, Total: int(venue.Total), CurrentModel: int(venue.CurrentModel)},
 	}
 	for _, j := range jobs {
 		t := domain.OwnerType(j.OwnerType)

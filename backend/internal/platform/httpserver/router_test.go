@@ -670,6 +670,42 @@ func (fakeAPI) DownloadProjectArchive(context.Context, gen.DownloadProjectArchiv
 	return nil, nil
 }
 
+func (fakeAPI) ListVenues(context.Context, gen.ListVenuesRequestObject) (gen.ListVenuesResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) ListResearchFields(context.Context, gen.ListResearchFieldsRequestObject) (gen.ListResearchFieldsResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) GetVenue(context.Context, gen.GetVenueRequestObject) (gen.GetVenueResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) CreateVenue(context.Context, gen.CreateVenueRequestObject) (gen.CreateVenueResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) UpdateVenue(context.Context, gen.UpdateVenueRequestObject) (gen.UpdateVenueResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) RemoveVenue(context.Context, gen.RemoveVenueRequestObject) (gen.RemoveVenueResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) ImportVenues(context.Context, gen.ImportVenuesRequestObject) (gen.ImportVenuesResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) GetVenueSyncStatus(context.Context, gen.GetVenueSyncStatusRequestObject) (gen.GetVenueSyncStatusResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) StartVenueSync(context.Context, gen.StartVenueSyncRequestObject) (gen.StartVenueSyncResponseObject, error) {
+	return nil, nil
+}
+
 var _ gen.StrictServerInterface = fakeAPI{}
 
 var testSigner = accesstoken.New([]byte("test-secret-that-is-at-least-32-bytes-long"), 15*time.Minute)
@@ -1044,8 +1080,8 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 
 func TestRoutes(t *testing.T) {
 	got := Routes()
-	if len(got) != 160 {
-		t.Errorf("Routes() returned %d routes, want the 160 operations in the contract: %v", len(got), got)
+	if len(got) != 169 {
+		t.Errorf("Routes() returned %d routes, want the 169 operations in the contract: %v", len(got), got)
 	}
 	seen := map[string]bool{}
 	for _, p := range got {

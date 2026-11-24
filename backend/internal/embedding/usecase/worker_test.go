@@ -35,6 +35,7 @@ type memStore struct {
 	embeddings map[string]domain.Embedding
 	sources    map[string]domain.ProfileSource
 	projects   map[string]domain.ProjectSource
+	venues     map[string]domain.VenueSource // a live venue; a removed one is absent
 	staleCalls []string
 	staleLeft  int // owners QueueStale still has to queue
 	queueAll   []bool
@@ -44,7 +45,7 @@ type memStore struct {
 
 func newMemStore() *memStore {
 	return &memStore{jobs: map[string]*fakeJob{}, embeddings: map[string]domain.Embedding{}, sources: map[string]domain.ProfileSource{},
-		projects: map[string]domain.ProjectSource{}}
+		projects: map[string]domain.ProjectSource{}, venues: map[string]domain.VenueSource{}}
 }
 
 func (s *memStore) enqueue(id string) {
@@ -130,6 +131,16 @@ func (s *memStore) ProjectSource(_ context.Context, id string) (domain.ProjectSo
 	src, ok := s.projects[id]
 	if !ok {
 		return domain.ProjectSource{}, domain.ErrNotFound
+	}
+	return src, nil
+}
+
+func (s *memStore) VenueSource(_ context.Context, id string) (domain.VenueSource, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	src, ok := s.venues[id]
+	if !ok {
+		return domain.VenueSource{}, domain.ErrNotFound
 	}
 	return src, nil
 }
@@ -308,6 +319,39 @@ func TestWorkerEmbedsAQueuedProject(t *testing.T) {
 	e.w.Tick(t.Context())
 	if _, ok := e.store.embeddings["p1"]; ok || len(e.store.jobs) != 0 {
 		t.Errorf("gone project: embedding kept %v, jobs %+v", ok, e.store.jobs)
+	}
+}
+
+// AI-1.3: a venue job embeds the venue's name, short name, field labels and scope with the
+// venue hash; a venue removed (no longer a source) loses its embedding and its job.
+func TestWorkerEmbedsAQueuedVenue(t *testing.T) {
+	e := newWorkerEnv(t)
+	src := domain.VenueSource{Name: "Workshop on  Graph Learning", ShortName: "GLW",
+		Fields: []string{"Artificial intelligence and machine learning", "Networks and communications"}, Scope: "Graphs.\n\n**Topics**: GNNs"}
+	e.store.venues["v1"] = src
+	e.store.enqueueOwner(domain.OwnerVenue, "v1")
+	e.w.Tick(t.Context())
+	got, ok := e.store.embeddings["v1"]
+	if !ok {
+		t.Fatal("no embedding stored")
+	}
+	if got.OwnerType != domain.OwnerVenue || got.ContentHash != VenueContentHash(VenueText(src)) {
+		t.Errorf("embedding = %+v", got)
+	}
+	want := "Workshop on Graph Learning\nGLW\nArtificial intelligence and machine learning, Networks and communications\nGraphs. **Topics**: GNNs"
+	if e.ai.texts[0] != want {
+		t.Errorf("text sent = %q, want %q", e.ai.texts[0], want)
+	}
+	if VenueContentHash("x") == ProjectContentHash("x") || VenueContentHash("x") == ContentHash("x") {
+		t.Error("the venue hash must differ from the profile and project hashes")
+	}
+
+	// Removed: the source is gone, so the embedding is deleted and the job finished.
+	delete(e.store.venues, "v1")
+	e.store.enqueueOwner(domain.OwnerVenue, "v1")
+	e.w.Tick(t.Context())
+	if _, ok := e.store.embeddings["v1"]; ok || len(e.store.jobs) != 0 {
+		t.Errorf("removed venue: embedding kept %v, jobs %+v", ok, e.store.jobs)
 	}
 }
 

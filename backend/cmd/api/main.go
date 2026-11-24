@@ -91,6 +91,9 @@ func main() {
 	purgeOnce := flag.Bool("purge-unverified", false, "delete the accounts still unverified after UNVERIFIED_ACCOUNT_DAYS once (FR-17.4), then exit; make purge-unverified runs it")
 	digestsOnce := flag.Bool("send-digests", false, "send the unread message digests now due once (FR-16.11), then exit; make send-digests runs it")
 	backfillOnce := flag.Bool("embed-backfill", false, "queue every verified, not suspended profile for embedding once (AI-1.5), then exit; make embed-backfill runs it")
+	venueSyncOnce := flag.Bool("venue-sync", false, "run the automatic venue import once now (FR-14.5), print each source's counts, then exit; make venue-sync runs it")
+	venueSyncDry := flag.Bool("dry-run", false, "with -venue-sync: read the sources and report, writing no venue")
+	venueSyncSources := flag.String("sources", "", "with -venue-sync: comma-separated sources (ccfddl, hci_deadlines, openalex); all when empty")
 	flag.Parse()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -98,10 +101,16 @@ func main() {
 
 	runner := run
 	switch {
-	case btoi(*purgeOnce)+btoi(*digestsOnce)+btoi(*backfillOnce) > 1:
-		fmt.Fprintln(os.Stderr, "api: use one of -purge-unverified, -send-digests and -embed-backfill")
+	case btoi(*purgeOnce)+btoi(*digestsOnce)+btoi(*backfillOnce)+btoi(*venueSyncOnce) > 1:
+		fmt.Fprintln(os.Stderr, "api: use one of -purge-unverified, -send-digests, -embed-backfill and -venue-sync")
 		stop()
 		os.Exit(2)
+	case (*venueSyncDry || *venueSyncSources != "") && !*venueSyncOnce:
+		fmt.Fprintln(os.Stderr, "api: -dry-run and -sources go with -venue-sync")
+		stop()
+		os.Exit(2)
+	case *venueSyncOnce:
+		runner = runVenueSyncOnce(*venueSyncSources, *venueSyncDry)
 	case *backfillOnce:
 		runner = runEmbedBackfillOnce
 	case *purgeOnce:
@@ -288,6 +297,9 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 	compiles, compileKeys := newCompile(pool, rdb, cfg, projects, files, realtime.events, logger)
 	defer func() { _ = compileKeys.Close() }()
 	go compiles.RunSweep(ctx, compileSweepInterval)
+	// The automatic venue import (FR-14.5): daily when VENUE_SYNC_DAILY is on, and on demand.
+	venueSync := newVenueSyncer(ctx, pool, cfg, newVenueFeeds(cfg), logger)
+	go venueSync.RunSchedule(ctx, venueSyncInterval)
 	handler := newRouter(logger, healthpg.NewPinger(pool), healthredis.NewPinger(rdb), files, ai,
 		authhttp.NewHandler(auth, authhttp.CookieConfig{Secure: cfg.CookieSecure}),
 		profilehttp.NewHandler(profiles),
@@ -301,6 +313,7 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 		recommendationhttp.NewHandler(recommendations),
 		projecthttp.NewHandler(projects),
 		compilehttp.NewHandler(compiles),
+		newVenues(pool, venueSync),
 		serviceAndSessionAuth([]byte(cfg.SyncServiceToken), []byte(cfg.CompileServiceToken), httpx.RequireAuth(tokens, time.Now)))
 
 	var lc net.ListenConfig
