@@ -36,6 +36,7 @@ import (
 	compileusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/compile/usecase"
 	embeddinghttp "github.com/ARAFATH-SH/researchsphere/backend/internal/embedding/adapter/http"
 	embeddingusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/embedding/usecase"
+	eventusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/event/usecase"
 	mediahttp "github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/http"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/imaging"
 	mediapg "github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/postgres"
@@ -80,6 +81,8 @@ import (
 
 type mediaEnv struct {
 	router http.Handler
+	// venueSync is the automatic venue import (slice 25A).
+	venueSync *eventusecase.Syncer
 	// internal is the internal listener's handler: the sync server's operations (slice 22).
 	internal   http.Handler
 	pool       *pgxpool.Pool
@@ -155,6 +158,15 @@ type envOptions struct {
 	figures *figureLimits
 	// compile, when set, replaces the compile settings' defaults (slice 23).
 	compile *config.Config
+	// venueSync, when set, gives the automatic venue import its settings and feeds
+	// (slice 25A); otherwise it has no contact address and no feeds.
+	venueSync *venueSyncSetup
+}
+
+// venueSyncSetup is the automatic venue import of a test environment.
+type venueSyncSetup struct {
+	cfg   config.Config
+	feeds venueFeeds
 }
 
 // compileConfig is opt.compile, or the compile settings' defaults.
@@ -343,6 +355,12 @@ func wireEnv(t *testing.T, pool *pgxpool.Pool, rdb *goredis.Client, files *stora
 		t.Fatal(err)
 	}
 	embedWorker.Watch(embeddingChanges{recs: recommendations})
+	vs := venueSyncSetup{}
+	if opt.venueSync != nil {
+		vs = *opt.venueSync
+	}
+	venueSync := newVenueSyncer(t.Context(), pool, vs.cfg, vs.feeds, logger)
+	t.Cleanup(venueSync.Wait)
 	full := newRouter(logger, up, up, up, up, authAPI,
 		profilehttp.NewHandler(profileusecase.New(profileStore, profileOpts...)),
 		mediahttp.NewHandler(images),
@@ -355,12 +373,12 @@ func wireEnv(t *testing.T, pool *pgxpool.Pool, rdb *goredis.Client, files *stora
 		recommendationhttp.NewHandler(recommendations),
 		projecthttp.NewHandler(projects),
 		compilehttp.NewHandler(compiles),
-		newVenues(pool),
+		newVenues(pool, venueSync),
 		serviceAndSessionAuth([]byte(testSyncToken), []byte(testCompileToken), httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now)))
 	// As run serves them: the public port without the internal operations, the internal
 	// listener with them only (slice 22).
 	router, internal := publicOnly(full), internalOnly(full)
-	return mediaEnv{internal: internal, projects: projects, compiles: compiles, embeddings: embeddings, embedWorker: embedWorker, recommendations: recommendations, recCache: recCache, router: router, pool: pool, files: files, rdb: rdb, auth: auth, moderation: moderation, standings: standings, hub: realtime.hub, events: realtime.events, opt: opt,
+	return mediaEnv{venueSync: venueSync, internal: internal, projects: projects, compiles: compiles, embeddings: embeddings, embedWorker: embedWorker, recommendations: recommendations, recCache: recCache, router: router, pool: pool, files: files, rdb: rdb, auth: auth, moderation: moderation, standings: standings, hub: realtime.hub, events: realtime.events, opt: opt,
 		messaging: messaging, notifier: notifications, digests: digests, digestMail: digestMail}
 }
 

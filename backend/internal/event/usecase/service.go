@@ -43,6 +43,7 @@ func New(store domain.Store, tx domain.Transactor, now func() time.Time) *Servic
 type ListInput struct {
 	Page, PageSize int
 	IncludePast    bool
+	Rolling        bool
 	Types, Fields  []string
 	DeadlineFrom   string
 	DeadlineTo     string
@@ -69,7 +70,18 @@ func (s *Service) List(ctx context.Context, in ListInput) (p domain.Page, page, 
 }
 
 func (s *Service) query(ctx context.Context, in ListInput) (domain.Query, int, int, error) {
-	q := domain.Query{Now: s.now(), IncludePast: in.IncludePast}
+	q := domain.Query{Now: s.now(), IncludePast: in.IncludePast, Rolling: in.Rolling}
+	if in.Rolling {
+		// A rolling journal has no deadline: these filters cannot apply.
+		switch {
+		case in.IncludePast:
+			return q, 0, 0, domain.Invalid("includePast", domain.CodeNotAllowed)
+		case strings.TrimSpace(in.DeadlineFrom) != "":
+			return q, 0, 0, domain.Invalid("deadlineFrom", domain.CodeNotAllowed)
+		case strings.TrimSpace(in.DeadlineTo) != "":
+			return q, 0, 0, domain.Invalid("deadlineTo", domain.CodeNotAllowed)
+		}
+	}
 	page, size := in.Page, in.PageSize
 	switch {
 	case page == 0:
@@ -170,8 +182,15 @@ type Opt struct {
 	Value string
 }
 
+// OptBool is a true/false field of a PATCH: absent, or a value (null means false).
+type OptBool struct {
+	Set   bool
+	Value bool
+}
+
 // Patch is the fields of a venue to change. Fields is the whole new list.
 type Patch struct {
+	Rolling                                                            OptBool
 	Name, ShortName, Type, Attendance, City, Country, StartsOn, EndsOn Opt
 	TimeZone, SubmissionDeadline, AbstractDeadline, NotificationAt     Opt
 	OfficialURL, Scope                                                 Opt
@@ -182,7 +201,8 @@ type Patch struct {
 // Update changes the fields p names (FR-15.1). The venue as changed must follow every rule.
 // A change writes an update audit row naming the changed fields; no change writes nothing.
 // Changing the time zone alone keeps the deadlines' local times and reads them in the new
-// zone.
+// zone. A change to a venue of the automatic import locks it: the import no longer changes
+// it. A new link is the venue's own (LinkOfficial).
 func (s *Service) Update(ctx context.Context, adminID, id string, p Patch) (domain.Venue, error) {
 	known, err := s.catalog(ctx)
 	if err != nil {
@@ -206,8 +226,17 @@ func (s *Service) Update(ctx context.Context, adminID, id string, p Patch) (doma
 			return nil
 		}
 		v.ID, v.Source, v.SourceKey = old.ID, old.Source, old.SourceKey
+		v.LinkKind = old.Link()
+		if v.OfficialURL != old.OfficialURL {
+			v.LinkKind = domain.LinkOfficial
+		}
 		if err := s.store.Update(ctx, v); err != nil {
 			return err
+		}
+		if old.Source.IsSync() {
+			if err := s.store.Lock(ctx, id, s.now()); err != nil {
+				return err
+			}
 		}
 		name, err := s.store.AdminName(ctx, adminID)
 		if err != nil {
@@ -275,7 +304,7 @@ func inputOf(v domain.Venue) Input {
 		return FormatDate(t)
 	}
 	return Input{
-		Name: v.Name, ShortName: v.ShortName, Type: string(v.Type), Fields: v.FieldKeys(),
+		Name: v.Name, ShortName: v.ShortName, Type: string(v.Type), Rolling: v.Rolling, Fields: v.FieldKeys(),
 		Attendance: string(v.Attendance), City: v.City, Country: v.Country,
 		StartsOn: date(v.StartsOn), EndsOn: date(v.EndsOn), TimeZone: v.TimeZone,
 		SubmissionDeadline: local(v.SubmissionDeadline), AbstractDeadline: local(v.AbstractDeadline),
@@ -286,6 +315,9 @@ func inputOf(v domain.Venue) Input {
 // applyPatch sets the fields p names. null clears an optional field and is refused for a
 // required one.
 func applyPatch(in Input, p Patch) (Input, error) {
+	if p.Rolling.Set {
+		in.Rolling = p.Rolling.Value
+	}
 	type slot struct {
 		field    string
 		opt      Opt
@@ -338,6 +370,7 @@ func changedFields(a, b domain.Venue) []string {
 	add("name", a.Name != b.Name)
 	add("shortName", a.ShortName != b.ShortName)
 	add("type", a.Type != b.Type)
+	add("rolling", a.Rolling != b.Rolling)
 	add("fields", !slices.Equal(a.FieldKeys(), b.FieldKeys()))
 	add("attendance", a.Attendance != b.Attendance)
 	add("city", a.City != b.City)
@@ -349,6 +382,7 @@ func changedFields(a, b domain.Venue) []string {
 	add("abstractDeadline", !a.AbstractDeadline.Equal(b.AbstractDeadline))
 	add("notificationAt", !a.NotificationAt.Equal(b.NotificationAt))
 	add("officialUrl", a.OfficialURL != b.OfficialURL)
+	add("linkKind", a.Link() != b.Link())
 	add("scope", a.Scope != b.Scope)
 	return out
 }

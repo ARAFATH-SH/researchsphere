@@ -1344,18 +1344,45 @@ func (e SystemEventType) Valid() bool {
 	}
 }
 
+// Defines values for VenueLinkKind.
+const (
+	VenueLinkKindIssnPortal VenueLinkKind = "issn_portal"
+	VenueLinkKindOfficial   VenueLinkKind = "official"
+)
+
+// Valid indicates whether the value is a known member of the VenueLinkKind enum.
+func (e VenueLinkKind) Valid() bool {
+	switch e {
+	case VenueLinkKindIssnPortal:
+		return true
+	case VenueLinkKindOfficial:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for VenueSource.
 const (
-	VenueSourceImport VenueSource = "import"
-	VenueSourceManual VenueSource = "manual"
+	VenueSourceCcfddl       VenueSource = "ccfddl"
+	VenueSourceHciDeadlines VenueSource = "hci_deadlines"
+	VenueSourceImport       VenueSource = "import"
+	VenueSourceManual       VenueSource = "manual"
+	VenueSourceOpenalex     VenueSource = "openalex"
 )
 
 // Valid indicates whether the value is a known member of the VenueSource enum.
 func (e VenueSource) Valid() bool {
 	switch e {
+	case VenueSourceCcfddl:
+		return true
+	case VenueSourceHciDeadlines:
+		return true
 	case VenueSourceImport:
 		return true
 	case VenueSourceManual:
+		return true
+	case VenueSourceOpenalex:
 		return true
 	default:
 		return false
@@ -1401,6 +1428,87 @@ func (e VenueImportRowOutcome) Valid() bool {
 	case VenueImportRowOutcomeUnchanged:
 		return true
 	case VenueImportRowOutcomeUpdated:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VenueSummaryLinkKind.
+const (
+	VenueSummaryLinkKindIssnPortal VenueSummaryLinkKind = "issn_portal"
+	VenueSummaryLinkKindOfficial   VenueSummaryLinkKind = "official"
+)
+
+// Valid indicates whether the value is a known member of the VenueSummaryLinkKind enum.
+func (e VenueSummaryLinkKind) Valid() bool {
+	switch e {
+	case VenueSummaryLinkKindIssnPortal:
+		return true
+	case VenueSummaryLinkKindOfficial:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VenueSyncRunStatus.
+const (
+	VenueSyncRunStatusFailed    VenueSyncRunStatus = "failed"
+	VenueSyncRunStatusRunning   VenueSyncRunStatus = "running"
+	VenueSyncRunStatusSucceeded VenueSyncRunStatus = "succeeded"
+)
+
+// Valid indicates whether the value is a known member of the VenueSyncRunStatus enum.
+func (e VenueSyncRunStatus) Valid() bool {
+	switch e {
+	case VenueSyncRunStatusFailed:
+		return true
+	case VenueSyncRunStatusRunning:
+		return true
+	case VenueSyncRunStatusSucceeded:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VenueSyncRunTrigger.
+const (
+	Command  VenueSyncRunTrigger = "command"
+	OnDemand VenueSyncRunTrigger = "on_demand"
+	Schedule VenueSyncRunTrigger = "schedule"
+)
+
+// Valid indicates whether the value is a known member of the VenueSyncRunTrigger enum.
+func (e VenueSyncRunTrigger) Valid() bool {
+	switch e {
+	case Command:
+		return true
+	case OnDemand:
+		return true
+	case Schedule:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VenueSyncSourceName.
+const (
+	VenueSyncSourceNameCcfddl       VenueSyncSourceName = "ccfddl"
+	VenueSyncSourceNameHciDeadlines VenueSyncSourceName = "hci_deadlines"
+	VenueSyncSourceNameOpenalex     VenueSyncSourceName = "openalex"
+)
+
+// Valid indicates whether the value is a known member of the VenueSyncSourceName enum.
+func (e VenueSyncSourceName) Valid() bool {
+	switch e {
+	case VenueSyncSourceNameCcfddl:
+		return true
+	case VenueSyncSourceNameHciDeadlines:
+		return true
+	case VenueSyncSourceNameOpenalex:
 		return true
 	default:
 		return false
@@ -4473,37 +4581,57 @@ type Venue struct {
 	EndsOn    *openapi_types.Date `json:"endsOn"`
 
 	// Fields 1 to 5 fields, in the order of the fixed list.
-	Fields         []ResearchField    `json:"fields"`
-	Id             openapi_types.UUID `json:"id"`
-	Name           string             `json:"name"`
-	NotificationAt *VenueTime         `json:"notificationAt"`
+	Fields []ResearchField    `json:"fields"`
+	Id     openapi_types.UUID `json:"id"`
+
+	// LinkKind `official`: the venue's own site. `issn_portal`: the automatic import found no working
+	// https homepage for this journal and links its ISSN portal record instead, until an
+	// administrator sets the link.
+	LinkKind VenueLinkKind `json:"linkKind"`
+
+	// Locked An administrator edited this venue after the automatic import made it, so the
+	// import no longer changes it. Always false for other venues.
+	Locked         bool       `json:"locked"`
+	Name           string     `json:"name"`
+	NotificationAt *VenueTime `json:"notificationAt"`
 
 	// OfficialUrl Always `https://`.
 	OfficialUrl string `json:"officialUrl"`
 
-	// Past The submission deadline has passed.
+	// Past The submission deadline has passed. Always false for a rolling journal.
 	Past bool `json:"past"`
+
+	// Rolling A journal that takes submissions at any time; it has no deadline or time zone.
+	Rolling bool `json:"rolling"`
 
 	// Scope Plain text or a small Markdown subset. Show it as text, never as HTML (NFR-8.2).
 	Scope string `json:"scope"`
 
 	// ShortName The acronym, such as `ICML`.
-	ShortName *string             `json:"shortName"`
-	Source    VenueSource         `json:"source"`
-	StartsOn  *openapi_types.Date `json:"startsOn"`
+	ShortName *string `json:"shortName"`
 
-	// SubmissionDeadline A deadline or date of a venue. `at` is the instant (UTC). `local` is the wall time in
-	// the venue's `timeZone`, as the call for papers states it.
-	SubmissionDeadline VenueTime `json:"submissionDeadline"`
+	// Source `manual`: added by an administrator. `import`: from an import file. `ccfddl`,
+	// `hci_deadlines`, `openalex`: from the automatic import (docs/venues-sync.md).
+	Source   VenueSource         `json:"source"`
+	StartsOn *openapi_types.Date `json:"startsOn"`
+
+	// SubmissionDeadline Null only for a rolling journal.
+	SubmissionDeadline *VenueTime `json:"submissionDeadline"`
 
 	// TimeZone The zone the deadlines are stated in: `AoE` (anywhere on Earth, UTC-12 all year), `UTC`
-	// or an IANA name such as `Asia/Dhaka`.
-	TimeZone  string    `json:"timeZone"`
+	// or an IANA name such as `Asia/Dhaka`. Null for a rolling journal.
+	TimeZone  *string   `json:"timeZone"`
 	Type      VenueType `json:"type"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
-// VenueSource defines model for Venue.Source.
+// VenueLinkKind `official`: the venue's own site. `issn_portal`: the automatic import found no working
+// https homepage for this journal and links its ISSN portal record instead, until an
+// administrator sets the link.
+type VenueLinkKind string
+
+// VenueSource `manual`: added by an administrator. `import`: from an import file. `ccfddl`,
+// `hci_deadlines`, `openalex`: from the automatic import (docs/venues-sync.md).
 type VenueSource string
 
 // VenueAttendance How a conference or workshop takes place. A journal or special issue has none.
@@ -4530,7 +4658,8 @@ type VenueImportReason struct {
 	// Code `required`, `too_long`, `invalid`, `not_https`, `unknown_field`, `duplicate_field`,
 	// `too_many_fields`, `not_allowed`, `invalid_time_zone`, `invalid_date`,
 	// `ends_before_starts`, `after_deadline`, `before_deadline`, `duplicate_in_file` or
-	// `venue_removed`.
+	// `venue_removed`. The automatic import (`VenueSyncReject`) adds `deadline_tbd`,
+	// `unknown_country` and `unreadable`.
 	Code string `json:"code"`
 
 	// Field The column or key at fault, or `row`.
@@ -4576,6 +4705,9 @@ type VenueImportRowOutcome string
 // `startsOn` or `endsOn`. `city` (at most 100 characters) and `country` (ISO 3166-1
 // alpha-2) are needed when attendance is `in_person` or `hybrid` and refused when it is
 // `online`. `endsOn` is not before `startsOn`.
+// `rolling: true` makes a journal that takes submissions at any time: it has no
+// `timeZone` and no deadlines (`not_allowed`), and only a journal can be rolling.
+// Otherwise `timeZone` and `submissionDeadline` are required.
 // `timeZone` is `AoE` (UTC-12, no daylight saving), `UTC` or an IANA name. The deadlines are
 // local times in that zone, `YYYY-MM-DD`, `YYYY-MM-DDTHH:MM` or `YYYY-MM-DDTHH:MM:SS`; a date
 // alone means 23:59:59 that day. `abstractDeadline` is not after `submissionDeadline`, and
@@ -4599,6 +4731,7 @@ type VenueInput struct {
 
 	// OfficialUrl Example: https://example.org/cfp
 	OfficialUrl string  `json:"officialUrl"`
+	Rolling     *bool   `json:"rolling,omitempty"`
 	Scope       string  `json:"scope"`
 	ShortName   *string `json:"shortName,omitempty"`
 
@@ -4606,10 +4739,10 @@ type VenueInput struct {
 	StartsOn *string `json:"startsOn,omitempty"`
 
 	// SubmissionDeadline Example: 2027-03-01T23:59
-	SubmissionDeadline string `json:"submissionDeadline"`
+	SubmissionDeadline *string `json:"submissionDeadline,omitempty"`
 
 	// TimeZone Example: AoE
-	TimeZone string `json:"timeZone"`
+	TimeZone *string `json:"timeZone,omitempty"`
 
 	// Type A `VenueType` value.
 	Type string `json:"type"`
@@ -4635,16 +4768,19 @@ type VenuePatch struct {
 	EndsOn           nullable.Nullable[string] `json:"endsOn,omitempty"`
 
 	// Fields Replaces the whole list.
-	Fields             nullable.Nullable[[]string] `json:"fields,omitempty"`
-	Name               nullable.Nullable[string]   `json:"name,omitempty"`
-	NotificationAt     nullable.Nullable[string]   `json:"notificationAt,omitempty"`
-	OfficialUrl        nullable.Nullable[string]   `json:"officialUrl,omitempty"`
-	Scope              nullable.Nullable[string]   `json:"scope,omitempty"`
-	ShortName          nullable.Nullable[string]   `json:"shortName,omitempty"`
-	StartsOn           nullable.Nullable[string]   `json:"startsOn,omitempty"`
-	SubmissionDeadline nullable.Nullable[string]   `json:"submissionDeadline,omitempty"`
-	TimeZone           nullable.Nullable[string]   `json:"timeZone,omitempty"`
-	Type               nullable.Nullable[string]   `json:"type,omitempty"`
+	Fields         nullable.Nullable[[]string] `json:"fields,omitempty"`
+	Name           nullable.Nullable[string]   `json:"name,omitempty"`
+	NotificationAt nullable.Nullable[string]   `json:"notificationAt,omitempty"`
+	OfficialUrl    nullable.Nullable[string]   `json:"officialUrl,omitempty"`
+
+	// Rolling `null` means false.
+	Rolling            nullable.Nullable[bool]   `json:"rolling,omitempty"`
+	Scope              nullable.Nullable[string] `json:"scope,omitempty"`
+	ShortName          nullable.Nullable[string] `json:"shortName,omitempty"`
+	StartsOn           nullable.Nullable[string] `json:"startsOn,omitempty"`
+	SubmissionDeadline nullable.Nullable[string] `json:"submissionDeadline,omitempty"`
+	TimeZone           nullable.Nullable[string] `json:"timeZone,omitempty"`
+	Type               nullable.Nullable[string] `json:"type,omitempty"`
 }
 
 // VenueRemoval defines model for VenueRemoval.
@@ -4664,29 +4800,128 @@ type VenueSummary struct {
 	EndsOn  *openapi_types.Date `json:"endsOn"`
 
 	// Fields 1 to 5 fields, in the order of the fixed list.
-	Fields         []ResearchField    `json:"fields"`
-	Id             openapi_types.UUID `json:"id"`
-	Name           string             `json:"name"`
-	NotificationAt *VenueTime         `json:"notificationAt"`
+	Fields []ResearchField    `json:"fields"`
+	Id     openapi_types.UUID `json:"id"`
+
+	// LinkKind `official`: the venue's own site. `issn_portal`: the automatic import found no working
+	// https homepage for this journal and links its ISSN portal record instead, until an
+	// administrator sets the link.
+	LinkKind       VenueSummaryLinkKind `json:"linkKind"`
+	Name           string               `json:"name"`
+	NotificationAt *VenueTime           `json:"notificationAt"`
 
 	// OfficialUrl Always `https://`.
 	OfficialUrl string `json:"officialUrl"`
 
-	// Past The submission deadline has passed.
+	// Past The submission deadline has passed. Always false for a rolling journal.
 	Past bool `json:"past"`
+
+	// Rolling A journal that takes submissions at any time; it has no deadline or time zone.
+	Rolling bool `json:"rolling"`
 
 	// ShortName The acronym, such as `ICML`.
 	ShortName *string             `json:"shortName"`
 	StartsOn  *openapi_types.Date `json:"startsOn"`
 
-	// SubmissionDeadline A deadline or date of a venue. `at` is the instant (UTC). `local` is the wall time in
-	// the venue's `timeZone`, as the call for papers states it.
-	SubmissionDeadline VenueTime `json:"submissionDeadline"`
+	// SubmissionDeadline Null only for a rolling journal.
+	SubmissionDeadline *VenueTime `json:"submissionDeadline"`
 
 	// TimeZone The zone the deadlines are stated in: `AoE` (anywhere on Earth, UTC-12 all year), `UTC`
-	// or an IANA name such as `Asia/Dhaka`.
-	TimeZone string    `json:"timeZone"`
+	// or an IANA name such as `Asia/Dhaka`. Null for a rolling journal.
+	TimeZone *string   `json:"timeZone"`
 	Type     VenueType `json:"type"`
+}
+
+// VenueSummaryLinkKind `official`: the venue's own site. `issn_portal`: the automatic import found no working
+// https homepage for this journal and links its ISSN portal record instead, until an
+// administrator sets the link.
+type VenueSummaryLinkKind string
+
+// VenueSyncReject defines model for VenueSyncReject.
+type VenueSyncReject struct {
+	Name      string              `json:"name"`
+	Reasons   []VenueImportReason `json:"reasons"`
+	SourceKey string              `json:"sourceKey"`
+}
+
+// VenueSyncRequest defines model for VenueSyncRequest.
+type VenueSyncRequest struct {
+	// Sources The sources to run; every source when absent or empty.
+	Sources *[]string `json:"sources,omitempty"`
+}
+
+// VenueSyncRun defines model for VenueSyncRun.
+type VenueSyncRun struct {
+	// Commit The repository commit this run read.
+	Commit  *string `json:"commit"`
+	Created int     `json:"created"`
+	DryRun  bool    `json:"dryRun"`
+
+	// Errors What went wrong reading the source, such as a file that is not valid YAML; never secrets.
+	Errors     []string           `json:"errors"`
+	FinishedAt *time.Time         `json:"finishedAt"`
+	Id         openapi_types.UUID `json:"id"`
+	Rejected   int                `json:"rejected"`
+
+	// Rejects The rejected entries with every reason, at most 200.
+	Rejects []VenueSyncReject `json:"rejects"`
+
+	// Skipped Entries left alone because their venue is locked or removed, or another source has the same conference edition.
+	Skipped   int                 `json:"skipped"`
+	StartedAt time.Time           `json:"startedAt"`
+	Status    VenueSyncRunStatus  `json:"status"`
+	Trigger   VenueSyncRunTrigger `json:"trigger"`
+	Unchanged int                 `json:"unchanged"`
+	Updated   int                 `json:"updated"`
+}
+
+// VenueSyncRunStatus defines model for VenueSyncRun.Status.
+type VenueSyncRunStatus string
+
+// VenueSyncRunTrigger defines model for VenueSyncRun.Trigger.
+type VenueSyncRunTrigger string
+
+// VenueSyncSource defines model for VenueSyncSource.
+type VenueSyncSource struct {
+	// Commit The commit of the repository the last real run read; null for OpenAlex or before the first run.
+	Commit *string `json:"commit"`
+
+	// Label Example: ccf-deadlines (conferences)
+	Label      string        `json:"label"`
+	LastDryRun *VenueSyncRun `json:"lastDryRun"`
+	LastRun    *VenueSyncRun `json:"lastRun"`
+
+	// Licence Example: MIT
+	Licence string `json:"licence"`
+
+	// NextRunAt When the next scheduled run is due at the earliest; null while the schedule is off.
+	NextRunAt *time.Time          `json:"nextRunAt"`
+	Source    VenueSyncSourceName `json:"source"`
+
+	// Url Where it is read from, such as the repository and its branch.
+	Url string `json:"url"`
+}
+
+// VenueSyncSourceName defines model for VenueSyncSourceName.
+type VenueSyncSourceName string
+
+// VenueSyncStarted defines model for VenueSyncStarted.
+type VenueSyncStarted struct {
+	DryRun bool                  `json:"dryRun"`
+	Runs   []VenueSyncStartedRun `json:"runs"`
+}
+
+// VenueSyncStartedRun defines model for VenueSyncStartedRun.
+type VenueSyncStartedRun struct {
+	Id     openapi_types.UUID  `json:"id"`
+	Source VenueSyncSourceName `json:"source"`
+}
+
+// VenueSyncStatus defines model for VenueSyncStatus.
+type VenueSyncStatus struct {
+	// Daily Whether the daily schedule is on (`VENUE_SYNC_DAILY`).
+	Daily   bool              `json:"daily"`
+	Sources []VenueSyncSource `json:"sources"`
 }
 
 // VenueTime A deadline or date of a venue. `at` is the instant (UTC). `local` is the wall time in
@@ -5054,6 +5289,12 @@ type ImportVenuesParams struct {
 	DryRun *bool `form:"dryRun,omitempty" json:"dryRun,omitempty"`
 }
 
+// StartVenueSyncParams defines parameters for StartVenueSync.
+type StartVenueSyncParams struct {
+	// DryRun Report what would happen and change nothing.
+	DryRun *bool `form:"dryRun,omitempty" json:"dryRun,omitempty"`
+}
+
 // LogoutUserParams defines parameters for LogoutUser.
 type LogoutUserParams struct {
 	// RsRefresh The refresh token set by `POST /auth/login` or `POST /auth/refresh`.
@@ -5400,6 +5641,9 @@ type ListVenuesParams struct {
 	// IncludePast Show venues whose submission deadline has passed, after the upcoming ones.
 	IncludePast *bool `form:"includePast,omitempty" json:"includePast,omitempty"`
 
+	// Rolling List only rolling journals (no deadline), by name. Not with `includePast` or a deadline range.
+	Rolling *bool `form:"rolling,omitempty" json:"rolling,omitempty"`
+
 	// Type `conference`, `journal`, `workshop` or `special_issue`; may repeat.
 	Type *[]string `form:"type,omitempty" json:"type,omitempty"`
 
@@ -5448,6 +5692,9 @@ type CreateVenueJSONRequestBody = VenueInput
 
 // ImportVenuesMultipartRequestBody defines body for ImportVenues for multipart/form-data ContentType.
 type ImportVenuesMultipartRequestBody ImportVenuesMultipartBody
+
+// StartVenueSyncJSONRequestBody defines body for StartVenueSync for application/json ContentType.
+type StartVenueSyncJSONRequestBody = VenueSyncRequest
 
 // UpdateVenueJSONRequestBody defines body for UpdateVenue for application/json ContentType.
 type UpdateVenueJSONRequestBody = VenuePatch
@@ -5676,6 +5923,12 @@ type ServerInterface interface {
 	// ImportVenues Add and update venues from a CSV or JSON file (FR-14.5, interim; docs/venues-import.md)
 	// (POST /admin/venues/import)
 	ImportVenues(w http.ResponseWriter, r *http.Request, params ImportVenuesParams)
+	// GetVenueSyncStatus The state of the automatic venue import, per source (FR-14.5; docs/venues-sync.md)
+	// (GET /admin/venues/sync)
+	GetVenueSyncStatus(w http.ResponseWriter, r *http.Request)
+	// StartVenueSync Run the automatic venue import now, or a dry run of it (FR-14.5; docs/venues-sync.md)
+	// (POST /admin/venues/sync)
+	StartVenueSync(w http.ResponseWriter, r *http.Request, params StartVenueSyncParams)
 	// UpdateVenue Change a venue (FR-15.1)
 	// (PATCH /admin/venues/{venueId})
 	UpdateVenue(w http.ResponseWriter, r *http.Request, venueId VenueId)
@@ -6790,6 +7043,65 @@ func (siw *ServerInterfaceWrapper) ImportVenues(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ImportVenues(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetVenueSyncStatus operation middleware
+func (siw *ServerInterfaceWrapper) GetVenueSyncStatus(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetVenueSyncStatus(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StartVenueSync operation middleware
+func (siw *ServerInterfaceWrapper) StartVenueSync(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params StartVenueSyncParams
+
+	// ------------- Optional query parameter "dryRun" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "dryRun", r.URL.Query(), &params.DryRun, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "dryRun"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "dryRun", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StartVenueSync(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -11752,6 +12064,19 @@ func (siw *ServerInterfaceWrapper) ListVenues(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// ------------- Optional query parameter "rolling" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "rolling", r.URL.Query(), &params.Rolling, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "rolling"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "rolling", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "type" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "type", r.URL.Query(), &params.Type, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
@@ -12059,6 +12384,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/admin/venues/{venueId}", wrapper.UpdateVenue)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/admin/venues/{venueId}/remove", wrapper.RemoveVenue)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/admin/venues/import", wrapper.ImportVenues)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/admin/venues/sync", wrapper.GetVenueSyncStatus)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/admin/venues/sync", wrapper.StartVenueSync)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/admin/users/{userId}/warnings", wrapper.WarnUser)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/admin/users/{userId}/restrictions", wrapper.RestrictUser)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/admin/restrictions/{restrictionId}/lift", wrapper.LiftRestriction)
@@ -14147,6 +14474,190 @@ func (response ImportVenues500JSONResponse) VisitImportVenuesResponse(w http.Res
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetVenueSyncStatusRequestObject struct {
+}
+
+type GetVenueSyncStatusResponseObject interface {
+	VisitGetVenueSyncStatusResponse(w http.ResponseWriter) error
+}
+
+type GetVenueSyncStatus200JSONResponse VenueSyncStatus
+
+func (response GetVenueSyncStatus200JSONResponse) VisitGetVenueSyncStatusResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetVenueSyncStatus401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetVenueSyncStatus401JSONResponse) VisitGetVenueSyncStatusResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetVenueSyncStatus403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetVenueSyncStatus403JSONResponse) VisitGetVenueSyncStatusResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetVenueSyncStatus500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response GetVenueSyncStatus500JSONResponse) VisitGetVenueSyncStatusResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartVenueSyncRequestObject struct {
+	Params StartVenueSyncParams
+	Body   *StartVenueSyncJSONRequestBody
+}
+
+type StartVenueSyncResponseObject interface {
+	VisitStartVenueSyncResponse(w http.ResponseWriter) error
+}
+
+type StartVenueSync202JSONResponse VenueSyncStarted
+
+func (response StartVenueSync202JSONResponse) VisitStartVenueSyncResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartVenueSync400JSONResponse struct{ InvalidVenueJSONResponse }
+
+func (response StartVenueSync400JSONResponse) VisitStartVenueSyncResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartVenueSync401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response StartVenueSync401JSONResponse) VisitStartVenueSyncResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartVenueSync403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response StartVenueSync403JSONResponse) VisitStartVenueSyncResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartVenueSync409JSONResponse Error
+
+func (response StartVenueSync409JSONResponse) VisitStartVenueSyncResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartVenueSync429JSONResponse Error
+
+func (response StartVenueSync429JSONResponse) VisitStartVenueSyncResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartVenueSync500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response StartVenueSync500JSONResponse) VisitStartVenueSyncResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartVenueSync503JSONResponse Error
+
+func (response StartVenueSync503JSONResponse) VisitStartVenueSyncResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -27236,6 +27747,12 @@ type StrictServerInterface interface {
 	// ImportVenues Add and update venues from a CSV or JSON file (FR-14.5, interim; docs/venues-import.md)
 	// (POST /admin/venues/import)
 	ImportVenues(ctx context.Context, request ImportVenuesRequestObject) (ImportVenuesResponseObject, error)
+	// GetVenueSyncStatus The state of the automatic venue import, per source (FR-14.5; docs/venues-sync.md)
+	// (GET /admin/venues/sync)
+	GetVenueSyncStatus(ctx context.Context, request GetVenueSyncStatusRequestObject) (GetVenueSyncStatusResponseObject, error)
+	// StartVenueSync Run the automatic venue import now, or a dry run of it (FR-14.5; docs/venues-sync.md)
+	// (POST /admin/venues/sync)
+	StartVenueSync(ctx context.Context, request StartVenueSyncRequestObject) (StartVenueSyncResponseObject, error)
 	// UpdateVenue Change a venue (FR-15.1)
 	// (PATCH /admin/venues/{venueId})
 	UpdateVenue(ctx context.Context, request UpdateVenueRequestObject) (UpdateVenueResponseObject, error)
@@ -28273,6 +28790,66 @@ func (sh *strictHandler) ImportVenues(w http.ResponseWriter, r *http.Request, pa
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ImportVenuesResponseObject); ok {
 		if err := validResponse.VisitImportVenuesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetVenueSyncStatus operation middleware
+func (sh *strictHandler) GetVenueSyncStatus(w http.ResponseWriter, r *http.Request) {
+	var request GetVenueSyncStatusRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetVenueSyncStatus(ctx, request.(GetVenueSyncStatusRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetVenueSyncStatus")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetVenueSyncStatusResponseObject); ok {
+		if err := validResponse.VisitGetVenueSyncStatusResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// StartVenueSync operation middleware
+func (sh *strictHandler) StartVenueSync(w http.ResponseWriter, r *http.Request, params StartVenueSyncParams) {
+	var request StartVenueSyncRequestObject
+
+	request.Params = params
+
+	var body StartVenueSyncJSONRequestBody
+	if err := decodeJSONBody(r.Body, &body); err != nil {
+		if !errors.Is(err, io.EOF) {
+			sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+			return
+		}
+	} else {
+		request.Body = &body
+	}
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StartVenueSync(ctx, request.(StartVenueSyncRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StartVenueSync")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StartVenueSyncResponseObject); ok {
+		if err := validResponse.VisitStartVenueSyncResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

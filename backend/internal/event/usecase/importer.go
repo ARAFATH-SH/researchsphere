@@ -49,15 +49,17 @@ type ImportResult struct {
 	Rows                                  []ImportRow
 }
 
-// fileRow is one row of the file: a venue and its key.
+// fileRow is one row of the file: a venue and its key. badRolling is a rolling cell that is
+// not true, false or empty.
 type fileRow struct {
 	Input
-	SourceKey string
+	SourceKey  string
+	badRolling bool
 }
 
 // columns are the CSV columns and JSON keys, as in VenueInput plus sourceKey.
 var columns = []string{
-	"sourceKey", "name", "shortName", "type", "fields", "attendance", "city", "country", "startsOn",
+	"sourceKey", "name", "shortName", "type", "rolling", "fields", "attendance", "city", "country", "startsOn",
 	"endsOn", "timeZone", "submissionDeadline", "abstractDeadline", "notificationAt", "officialUrl", "scope",
 }
 
@@ -100,7 +102,7 @@ func (s *Service) Import(ctx context.Context, adminID, filename string, r io.Rea
 		if err := s.store.LockImports(ctx); err != nil {
 			return err
 		}
-		existing, err := s.store.ImportedByKeys(ctx, nonEmpty(keys))
+		existing, err := s.store.ImportedByKeys(ctx, domain.SourceImport, nonEmpty(keys))
 		if err != nil {
 			return err
 		}
@@ -112,6 +114,9 @@ func (s *Service) Import(ctx context.Context, adminID, filename string, r io.Rea
 		for i, row := range rows {
 			out := ImportRow{Row: i + 1, SourceKey: keys[i]}
 			v, problems := validate(row.Input, known)
+			if row.badRolling {
+				problems = append([]domain.Problem{{Field: "rolling", Code: domain.CodeInvalid}}, problems...)
+			}
 			if keyProblems[i] != nil {
 				problems = append([]domain.Problem{*keyProblems[i]}, problems...)
 			}
@@ -184,8 +189,8 @@ func (s *Service) Import(ctx context.Context, adminID, filename string, r io.Rea
 }
 
 // importKey returns the row's key: its sourceKey, or "auto:" + the folded name + ":" + the
-// year of startsOn (of the deadline when there is no startsOn). A key that cannot be made is
-// "" with a problem.
+// year of startsOn (of the deadline when there is no startsOn); a rolling journal, which has
+// no year, is "auto:" + the folded name. A key that cannot be made is "" with a problem.
 func importKey(row fileRow) (string, *domain.Problem) {
 	if k := strings.TrimSpace(row.SourceKey); k != "" {
 		switch {
@@ -200,6 +205,12 @@ func importKey(row fileRow) (string, *domain.Problem) {
 	if name == "" {
 		// validate reports the missing name.
 		return "", nil
+	}
+	if row.Rolling {
+		if utf8.RuneCountInString(name) > maxDerivedNameChars {
+			name = string([]rune(name)[:maxDerivedNameChars])
+		}
+		return "auto:" + name, nil
 	}
 	year := ""
 	for _, s := range []string{row.StartsOn, row.SubmissionDeadline} {
@@ -273,6 +284,7 @@ type jsonRow struct {
 	Name               string   `json:"name"`
 	ShortName          string   `json:"shortName"`
 	Type               string   `json:"type"`
+	Rolling            string   `json:"rolling"`
 	Fields             []string `json:"fields"`
 	Attendance         string   `json:"attendance"`
 	City               string   `json:"city"`
@@ -302,8 +314,9 @@ func parseJSON(data []byte) ([]fileRow, error) {
 		if err := dec.Decode(&j); err != nil {
 			return nil, jsonError(err, len(rows)+1)
 		}
-		rows = append(rows, fileRow{SourceKey: j.SourceKey, Input: Input{
-			Name: j.Name, ShortName: j.ShortName, Type: j.Type, Fields: j.Fields, Attendance: j.Attendance,
+		rolling, ok := parseRolling(j.Rolling)
+		rows = append(rows, fileRow{SourceKey: j.SourceKey, badRolling: !ok, Input: Input{
+			Name: j.Name, ShortName: j.ShortName, Type: j.Type, Rolling: rolling, Fields: j.Fields, Attendance: j.Attendance,
 			City: j.City, Country: j.Country, StartsOn: j.StartsOn, EndsOn: j.EndsOn, TimeZone: j.TimeZone,
 			SubmissionDeadline: j.SubmissionDeadline, AbstractDeadline: j.AbstractDeadline,
 			NotificationAt: j.NotificationAt, OfficialURL: j.OfficialURL, Scope: j.Scope,
@@ -383,8 +396,9 @@ func parseCSV(data []byte) ([]fileRow, error) {
 		if f := get("fields"); strings.TrimSpace(f) != "" {
 			fields = strings.Split(f, ";")
 		}
-		rows = append(rows, fileRow{SourceKey: get("sourceKey"), Input: Input{
-			Name: get("name"), ShortName: get("shortName"), Type: get("type"), Fields: fields,
+		rolling, ok := parseRolling(get("rolling"))
+		rows = append(rows, fileRow{SourceKey: get("sourceKey"), badRolling: !ok, Input: Input{
+			Name: get("name"), ShortName: get("shortName"), Type: get("type"), Rolling: rolling, Fields: fields,
 			Attendance: get("attendance"), City: get("city"), Country: get("country"),
 			StartsOn: get("startsOn"), EndsOn: get("endsOn"), TimeZone: get("timeZone"),
 			SubmissionDeadline: get("submissionDeadline"), AbstractDeadline: get("abstractDeadline"),
@@ -392,6 +406,17 @@ func parseCSV(data []byte) ([]fileRow, error) {
 		}})
 	}
 	return rows, nil
+}
+
+// parseRolling reads a rolling cell: true or false in any letter case, empty for false.
+func parseRolling(s string) (rolling, ok bool) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "", "false":
+		return false, true
+	case "true":
+		return true, true
+	}
+	return false, false
 }
 
 // columnName matches a header to a column, ignoring case and surrounding spaces.

@@ -644,6 +644,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/venues/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The state of the automatic venue import, per source (FR-14.5; docs/venues-sync.md)
+         * @description Needs the platform action "Add, edit and remove venues". One entry per source, in the
+         *     order `ccfddl`, `hci_deadlines`, `openalex`: its licence and where it is read from,
+         *     the commit last read (repositories only), the latest real run and the latest dry run
+         *     with their counts, errors and rejected entries, and when the next scheduled run is due
+         *     (null while the daily schedule is off, `VENUE_SYNC_DAILY`).
+         */
+        get: operations["getVenueSyncStatus"];
+        put?: never;
+        /**
+         * Run the automatic venue import now, or a dry run of it (FR-14.5; docs/venues-sync.md)
+         * @description Needs the platform action "Add, edit and remove venues". Starts one run per source
+         *     named in `sources` (every source when the body or the list is absent) in the
+         *     background and answers at once with the runs' IDs; `GET /admin/venues/sync` shows
+         *     their progress and results. A run reads its source politely (conditional requests,
+         *     timeouts, backoff, a User-Agent with the operator's contact address), maps each entry
+         *     to a venue with the rules of `VenueInput` and upserts it by source and key. A venue
+         *     added by hand, by a file import, removed, or edited by an administrator after import
+         *     (`locked`) is never changed. Every change has an `import_create` or `import_update` audit
+         *     row with the actor `import` and the run's ID.
+         *
+         *     **`dryRun=true`** reads the sources and reports the same outcomes, but writes no venue
+         *     and stores nothing it read; only its run record is kept.
+         *
+         *     Refused for every source when any is refused: 409 `venue_sync_running` while a run of a
+         *     named source is in progress; 429 `venue_sync_too_soon` for a real run less than
+         *     `VENUE_SYNC_MIN_INTERVAL` (default 1 hour) after the last real run of that source;
+         *     503 `venue_sync_unconfigured` when `VENUE_SYNC_CONTACT_EMAIL` is not set. An unknown
+         *     source gets 400 `bad_request` with `field: sources`.
+         */
+        post: operations["startVenueSync"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/users/{userId}/warnings": {
         parameters: {
             query?: never;
@@ -3922,6 +3967,12 @@ export interface paths {
          * @description Needs the access cookie and the platform action "View profiles, search, feed, events
          *     and recommendations" (SRS 2.3). Removed venues never appear.
          *
+         *     **Rolling journals** (`rolling: true`, no submission deadline) are a separate list:
+         *     `rolling=true` returns only them, by name then ID, and the default (`rolling=false`)
+         *     returns only venues with a deadline, in the order below. `includePast`, `deadlineFrom`
+         *     and `deadlineTo` do not apply to rolling journals and get 400 `bad_request` with
+         *     `rolling=true`. The facets count within the list asked for.
+         *
          *     **Order:** venues whose submission deadline has not passed come first, nearest
          *     deadline first. A deadline has passed when its instant is at or before now. Past
          *     venues are left out unless `includePast=true`; they then follow the upcoming ones,
@@ -4049,23 +4100,42 @@ export interface components {
             endsOn: string | null;
             /**
              * @description The zone the deadlines are stated in: `AoE` (anywhere on Earth, UTC-12 all year), `UTC`
-             *     or an IANA name such as `Asia/Dhaka`.
+             *     or an IANA name such as `Asia/Dhaka`. Null for a rolling journal.
              */
-            timeZone: string;
-            submissionDeadline: components["schemas"]["VenueTime"];
+            timeZone: string | null;
+            /** @description Null only for a rolling journal. */
+            submissionDeadline: components["schemas"]["VenueTime"] | null;
             abstractDeadline: components["schemas"]["VenueTime"] | null;
             notificationAt: components["schemas"]["VenueTime"] | null;
             /** @description Always `https://`. */
             officialUrl: string;
-            /** @description The submission deadline has passed. */
+            /**
+             * @description `official`: the venue's own site. `issn_portal`: the automatic import found no working
+             *     https homepage for this journal and links its ISSN portal record instead, until an
+             *     administrator sets the link.
+             * @enum {string}
+             */
+            linkKind: "official" | "issn_portal";
+            /** @description A journal that takes submissions at any time; it has no deadline or time zone. */
+            rolling: boolean;
+            /** @description The submission deadline has passed. Always false for a rolling journal. */
             past: boolean;
         };
         /** @description A venue with its full scope text (FR-14.4). */
         Venue: components["schemas"]["VenueSummary"] & {
             /** @description Plain text or a small Markdown subset. Show it as text, never as HTML (NFR-8.2). */
             scope: string;
-            /** @enum {string} */
-            source: "manual" | "import";
+            /**
+             * @description `manual`: added by an administrator. `import`: from an import file. `ccfddl`,
+             *     `hci_deadlines`, `openalex`: from the automatic import (docs/venues-sync.md).
+             * @enum {string}
+             */
+            source: "manual" | "import" | "ccfddl" | "hci_deadlines" | "openalex";
+            /**
+             * @description An administrator edited this venue after the automatic import made it, so the
+             *     import no longer changes it. Always false for other venues.
+             */
+            locked: boolean;
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
@@ -4102,6 +4172,9 @@ export interface components {
          *     `startsOn` or `endsOn`. `city` (at most 100 characters) and `country` (ISO 3166-1
          *     alpha-2) are needed when attendance is `in_person` or `hybrid` and refused when it is
          *     `online`. `endsOn` is not before `startsOn`.
+         *     `rolling: true` makes a journal that takes submissions at any time: it has no
+         *     `timeZone` and no deadlines (`not_allowed`), and only a journal can be rolling.
+         *     Otherwise `timeZone` and `submissionDeadline` are required.
          *     `timeZone` is `AoE` (UTC-12, no daylight saving), `UTC` or an IANA name. The deadlines are
          *     local times in that zone, `YYYY-MM-DD`, `YYYY-MM-DDTHH:MM` or `YYYY-MM-DDTHH:MM:SS`; a date
          *     alone means 23:59:59 that day. `abstractDeadline` is not after `submissionDeadline`, and
@@ -4115,6 +4188,8 @@ export interface components {
             shortName?: string | null;
             /** @description A `VenueType` value. */
             type: string;
+            /** @default false */
+            rolling: boolean;
             fields: string[];
             /** @description A `VenueAttendance` value. */
             attendance?: string | null;
@@ -4125,9 +4200,9 @@ export interface components {
             /** @description `YYYY-MM-DD`. */
             endsOn?: string | null;
             /** @example AoE */
-            timeZone: string;
+            timeZone?: string | null;
             /** @example 2027-03-01T23:59 */
-            submissionDeadline: string;
+            submissionDeadline?: string | null;
             abstractDeadline?: string | null;
             notificationAt?: string | null;
             /** @example https://example.org/cfp */
@@ -4136,6 +4211,8 @@ export interface components {
         };
         /** @description The fields of `VenueInput` to change. See `updateVenue`. */
         VenuePatch: {
+            /** @description `null` means false. */
+            rolling?: boolean | null;
             name?: string | null;
             shortName?: string | null;
             type?: string | null;
@@ -4188,9 +4265,78 @@ export interface components {
              * @description `required`, `too_long`, `invalid`, `not_https`, `unknown_field`, `duplicate_field`,
              *     `too_many_fields`, `not_allowed`, `invalid_time_zone`, `invalid_date`,
              *     `ends_before_starts`, `after_deadline`, `before_deadline`, `duplicate_in_file` or
-             *     `venue_removed`.
+             *     `venue_removed`. The automatic import (`VenueSyncReject`) adds `deadline_tbd`,
+             *     `unknown_country` and `unreadable`.
              */
             code: string;
+        };
+        /** @enum {string} */
+        VenueSyncSourceName: "ccfddl" | "hci_deadlines" | "openalex";
+        VenueSyncRequest: {
+            /** @description The sources to run; every source when absent or empty. */
+            sources?: string[];
+        };
+        VenueSyncStarted: {
+            dryRun: boolean;
+            runs: components["schemas"]["VenueSyncStartedRun"][];
+        };
+        VenueSyncStartedRun: {
+            /** Format: uuid */
+            id: string;
+            source: components["schemas"]["VenueSyncSourceName"];
+        };
+        VenueSyncStatus: {
+            /** @description Whether the daily schedule is on (`VENUE_SYNC_DAILY`). */
+            daily: boolean;
+            sources: components["schemas"]["VenueSyncSource"][];
+        };
+        VenueSyncSource: {
+            source: components["schemas"]["VenueSyncSourceName"];
+            /** @example ccf-deadlines (conferences) */
+            label: string;
+            /** @example MIT */
+            licence: string;
+            /** @description Where it is read from, such as the repository and its branch. */
+            url: string;
+            /** @description The commit of the repository the last real run read; null for OpenAlex or before the first run. */
+            commit: string | null;
+            lastRun: components["schemas"]["VenueSyncRun"] | null;
+            lastDryRun: components["schemas"]["VenueSyncRun"] | null;
+            /**
+             * Format: date-time
+             * @description When the next scheduled run is due at the earliest; null while the schedule is off.
+             */
+            nextRunAt: string | null;
+        };
+        VenueSyncRun: {
+            /** Format: uuid */
+            id: string;
+            dryRun: boolean;
+            /** @enum {string} */
+            trigger: "schedule" | "on_demand" | "command";
+            /** @enum {string} */
+            status: "running" | "succeeded" | "failed";
+            /** Format: date-time */
+            startedAt: string;
+            /** Format: date-time */
+            finishedAt: string | null;
+            /** @description The repository commit this run read. */
+            commit: string | null;
+            created: number;
+            updated: number;
+            unchanged: number;
+            /** @description Entries left alone because their venue is locked or removed, or another source has the same conference edition. */
+            skipped: number;
+            rejected: number;
+            /** @description What went wrong reading the source, such as a file that is not valid YAML; never secrets. */
+            errors: string[];
+            /** @description The rejected entries with every reason, at most 200. */
+            rejects: components["schemas"]["VenueSyncReject"][];
+        };
+        VenueSyncReject: {
+            sourceKey: string;
+            name: string;
+            reasons: components["schemas"]["VenueImportReason"][];
         };
         /** @description The shape of every error response (SRS 5.3). */
         Error: {
@@ -8628,6 +8774,87 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             413: components["responses"]["FileTooLarge"];
             500: components["responses"]["InternalError"];
+        };
+    };
+    getVenueSyncStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every source. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VenueSyncStatus"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    startVenueSync: {
+        parameters: {
+            query?: {
+                /** @description Report what would happen and change nothing. */
+                dryRun?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["VenueSyncRequest"];
+            };
+        };
+        responses: {
+            /** @description The runs started. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VenueSyncStarted"];
+                };
+            };
+            400: components["responses"]["InvalidVenue"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description `venue_sync_running`: a run of a named source is in progress. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `venue_sync_too_soon`: a real run of a named source started less than `VENUE_SYNC_MIN_INTERVAL` ago. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            500: components["responses"]["InternalError"];
+            /** @description `venue_sync_unconfigured`: no contact address is set for the sources (`VENUE_SYNC_CONTACT_EMAIL`). */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     warnUser: {
@@ -13825,6 +14052,8 @@ export interface operations {
                 pageSize?: components["parameters"]["MembershipPageSize"];
                 /** @description Show venues whose submission deadline has passed, after the upcoming ones. */
                 includePast?: boolean;
+                /** @description List only rolling journals (no deadline), by name. Not with `includePast` or a deadline range. */
+                rolling?: boolean;
                 /** @description `conference`, `journal`, `workshop` or `special_issue`; may repeat. */
                 type?: string[];
                 /** @description A research field key from `GET /venues/fields`; may repeat (at most 21). */

@@ -169,7 +169,7 @@ func testRouter() http.Handler {
 		recommendationhttp.NewHandler(okRecommendations{}),
 		projecthttp.NewHandler(okProjects{}),
 		compilehttp.NewHandler(okCompiles{}),
-		eventhttp.NewHandler(okVenues{}, nil),
+		eventhttp.NewHandler(okVenues{}, okSync{}, nil),
 		serviceAndSessionAuth([]byte(testSyncToken), []byte(testCompileToken), httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now)))
 }
 
@@ -202,7 +202,7 @@ func healthRouter(storage, ai healthdomain.Pinger) http.Handler {
 		recommendationhttp.NewHandler(okRecommendations{}),
 		projecthttp.NewHandler(okProjects{}),
 		compilehttp.NewHandler(okCompiles{}),
-		eventhttp.NewHandler(okVenues{}, nil),
+		eventhttp.NewHandler(okVenues{}, okSync{}, nil),
 		serviceAndSessionAuth([]byte(testSyncToken), []byte(testCompileToken), httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now)))
 }
 

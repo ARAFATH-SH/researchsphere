@@ -19,7 +19,10 @@ recommendations. One developer builds it in 30 slices over 12 weeks.
   must do after a reconnect. OpenAPI covers only the upgrade.
 - `docs/sync.md` is the real-time editing contract (slice 22): the ticket, the token, the
   `session` message, refusal and close reasons, epochs and offline edits, saving, limits.
-- `docs/venues-import.md` is the venue import file (FR-14.5, interim): columns, rules, time zones
+- `docs/venues-sync.md` is the automatic venue import (FR-14.5, slice 25A): the sources and their
+  licences, when it runs, polite fetching, the mapping tables (areas, time zones, places, OpenAlex
+  subfields), journal links, locked venues and the run status.
+- `docs/venues-import.md` is the venue import file (FR-14.5, for venues no source lists): columns, rules, time zones
   (AoE), matching by key and the research fields.
 - `docs/compile.md` is the compile contract (slice 23): jobs and their states, retention, the
   worker's internal operations, the sandbox's settings, error parsing, downloads and the threat
@@ -62,6 +65,7 @@ Run these from the repository root. `make help` prints the current list.
 | `make sample-purge` | Delete every sample account (a `sample_profiles` row and an address at `sample.researchsphere.local`, both) through the account deletion of FR-2.8, one transaction each, then every sample venue (a `sample_venues` row) for good; touches no other account or venue |
 | `make purge-unverified` | Run the FR-17.4 purge once now, with the `.env` settings: delete the accounts still unverified `UNVERIFIED_ACCOUNT_DAYS` (7) after sign-up, except those at `TEST_EMAIL_DOMAINS` outside production, and log what it deleted. The API also runs it every hour |
 | `make send-digests` | Run the FR-16.11 unread message digest once now, with the `.env` settings: email each verified, not suspended user with the digest on who has messages unread for 24 hours that no digest counted yet and got no digest in the last 24 hours (at most 200 users a run), and log how many it sent. The API also runs it every hour. Mail goes to Mailpit locally (test-domain accounts included); needs `make migrate` and `UNSUBSCRIBE_SECRET` |
+| `make venue-sync [dry=1] [sources=ccfddl,hci_deadlines,openalex]` | Run the FR-14.5 automatic venue import once now with the `.env` settings (`docs/venues-sync.md`) and print each source's counts: created, updated, unchanged, skipped, rejected, errors, and the commit read. `dry=1` reads the sources and writes no venue and stores nothing it read. Reads the live sources: needs `VENUE_SYNC_CONTACT_EMAIL` and `make migrate`. The API also runs it daily when `VENUE_SYNC_DAILY=true`; an administrator starts it with `POST /api/v1/admin/venues/sync` |
 | `make embed-backfill` | Queue every verified, not suspended profile, every project and every venue not removed, for its AI embedding once (AI-1.5), at low priority, then exit; the running API's worker embeds them, skipping a profile whose text and model have not changed. Run it once after migration 000028 on a database with existing profiles. Needs `make migrate`; the API needs the AI service (`AI_SERVICE_TOKEN`) to embed |
 | `make backfill-main-tex` | Give the starting `main.tex` (FR-10.4) to every project that has no file, one transaction per project, and print how many. Idempotent: a project with any file is left alone. Run it once in every environment after migration 000035 (`docs/deploy.md`). Needs `make migrate` |
 | `make calibrate-recs` | Fit the AI-2.2 recommendation score map on the sample TUNING split only (2,000 queries, seed 17) and print `RECS_SCORE_MODEL`, `RECS_SCORE_SLOPE` and `RECS_SCORE_INTERCEPT` with a calibration table; then check that map on profile-project pairs of the tuning split, both directions (slice 19), and print `RECS_PROJECT_SCORE_SLOPE` and `RECS_PROJECT_SCORE_INTERCEPT` when it does not hold; put them into the config defaults and `.env.example`. Needs the sample projects too (`make sample-data projects=1`). Run it again whenever the embedding model changes (`docs/evaluation.md`). Needs the 10,000 embedded sample profiles and `APP_ENV=development`; reads only |
@@ -154,7 +158,8 @@ do not rename them.
 - **Go:** one application (modular monolith). Modules live in `backend/internal/<module>`: health,
   then auth, profile, media, social, project, event, notification, messaging, moderation, realtime,
   embedding (AI-1: the queue, the worker and the stored vectors), event (FR-14, FR-15.1: venues,
-  their research fields, the administrators' changes and audit trail, the file import), recommendation (AI-2,
+  their research fields, the administrators' changes and audit trail, the file import and the
+  automatic import of `docs/venues-sync.md`, whose HTTP feeds are `internal/event/adapter/feeds`), recommendation (AI-2,
   AI-3: collaborator and project recommendations from the embeddings) and compile (FR-13: the
   compile jobs, their logs and PDFs; the worker that runs them is `compile/`). Return errors, do not panic.
   Table-driven tests beside the code they test. Each module is split into layers (clean

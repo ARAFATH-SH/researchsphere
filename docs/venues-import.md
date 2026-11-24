@@ -1,9 +1,10 @@
-# Venue import file (FR-14.5, interim)
+# Venue import file (FR-14.5)
 
 An administrator adds and updates venues in bulk with `POST /api/v1/admin/venues/import`
-(multipart part `file`). This is the interim form of FR-14.5: no public call-for-papers listing
-has been chosen yet (SRS 8.2, `docs/decisions.md` 2026-11-24), so the file is prepared by hand or
-by a script and uploaded. `sourceKey` is ready for an automatic fetcher later.
+(multipart part `file`), prepared by hand or by a script: for venues no automatic source
+lists, such as local events. Most venues now come from the automatic import
+(`docs/venues-sync.md`, slice 25A). The two never touch each other's venues: a file's venues
+have the source `import`, the automatic import's their own source.
 
 Send `?dryRun=true` first: it reports exactly what the import would do and changes nothing.
 
@@ -37,13 +38,14 @@ The rules are those of `VenueInput` in `docs/openapi.yaml`, the same as `POST /a
 | `name` | yes | 1 to 300 characters, one line |
 | `shortName` | no | The acronym, at most 40 characters |
 | `type` | yes | `conference`, `journal`, `workshop` or `special_issue` |
+| `rolling` | no | `true` for a journal that takes submissions at any time: it then has no `timeZone` and no deadlines. `false` or empty otherwise |
 | `fields` | yes | 1 to 5 keys of `GET /api/v1/venues/fields` (the list is below) |
 | `attendance` | conference and workshop | `in_person`, `online` or `hybrid`; empty for a journal or special issue |
 | `city` | in person or hybrid | At most 100 characters; empty when online, or for a journal or special issue |
 | `country` | in person or hybrid | ISO 3166-1 alpha-2, such as `BD` (letter case is ignored) |
 | `startsOn`, `endsOn` | no | `YYYY-MM-DD`; conference and workshop only; the end is not before the start |
-| `timeZone` | yes | `AoE`, `UTC` or an IANA name such as `Asia/Dhaka` |
-| `submissionDeadline` | yes | A local time in `timeZone`: `YYYY-MM-DD`, `YYYY-MM-DDTHH:MM` or `YYYY-MM-DDTHH:MM:SS`. A date alone means 23:59:59 that day |
+| `timeZone` | yes, unless rolling | `AoE`, `UTC` or an IANA name such as `Asia/Dhaka` |
+| `submissionDeadline` | yes, unless rolling | A local time in `timeZone`: `YYYY-MM-DD`, `YYYY-MM-DDTHH:MM` or `YYYY-MM-DDTHH:MM:SS`. A date alone means 23:59:59 that day |
 | `abstractDeadline` | no | Same format and zone; not after the submission deadline |
 | `notificationAt` | no | Same format and zone; not before the submission deadline |
 | `officialUrl` | yes | `https://` only, with a host and no user name, at most 2,048 characters |
@@ -59,7 +61,9 @@ Each row's key is its `sourceKey`. When that is empty, the key is made from the 
 year: `auto:` + the name in lower case with runs of spaces made one (accents are kept) + `:` +
 the year of `startsOn`, or of the submission deadline when there is no `startsOn`. For example,
 `Journal of Floods` with a 2027 deadline gets `auto:journal of floods:2027`, so next year's call
-becomes a new venue.
+becomes a new venue. A rolling journal has no year: its key is `auto:` + the name.
+
+Only venues of this file import (source `import`) are matched.
 
 - No imported venue has the key: the row is **created**.
 - A live imported venue has it, and some value differs: it is **updated** in place, never

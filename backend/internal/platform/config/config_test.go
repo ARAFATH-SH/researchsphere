@@ -420,6 +420,62 @@ func TestLoadOpenAlexSettings(t *testing.T) {
 	}
 }
 
+// The automatic venue import's settings (FR-14.5): the daily schedule needs a contact
+// address; the API key is a secret kept out of the log.
+func TestLoadVenueSyncSettings(t *testing.T) {
+	base := map[string]string{"DATABASE_URL": testDBURL, "REDIS_URL": testRedisURL}
+	with := func(extra map[string]string) map[string]string {
+		v := map[string]string{}
+		for k, x := range base {
+			v[k] = x
+		}
+		for k, x := range extra {
+			v[k] = x
+		}
+		return v
+	}
+	cfg, err := Load(env(base))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.VenueSyncDaily || cfg.VenueSyncContactEmail != "" || cfg.VenueSyncMinInterval != DefaultVenueSyncMinInterval ||
+		cfg.VenueSyncOpenAlexWorks != DefaultVenueSyncOpenAlexWorks || cfg.GitHubAPIURL != DefaultGitHubAPIURL || cfg.GitHubRawURL != DefaultGitHubRawURL {
+		t.Fatalf("defaults = %+v", cfg)
+	}
+	cfg, err = Load(env(with(map[string]string{
+		"VENUE_SYNC_DAILY": "true", "VENUE_SYNC_CONTACT_EMAIL": " ops@example.org ", "VENUE_SYNC_MIN_INTERVAL": "30m",
+		"VENUE_SYNC_OPENALEX_MIN_WORKS": "2000", "OPENALEX_API_KEY": "s3cr3tkey", "VENUE_SYNC_GITHUB_API_URL": "http://127.0.0.1:4012/",
+	})))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.VenueSyncDaily || cfg.VenueSyncContactEmail != "ops@example.org" || cfg.VenueSyncMinInterval != 30*time.Minute ||
+		cfg.VenueSyncOpenAlexWorks != 2000 || cfg.OpenAlexAPIKey != "s3cr3tkey" || cfg.GitHubAPIURL != "http://127.0.0.1:4012" {
+		t.Fatalf("set = %+v", cfg)
+	}
+	var b strings.Builder
+	slog.New(slog.NewTextHandler(&b, nil)).Info("x", slog.Any("config", cfg))
+	if strings.Contains(b.String(), "s3cr3tkey") || strings.Contains(b.String(), "ops@example.org") {
+		t.Errorf("the log shows the key or the contact address: %s", b.String())
+	}
+	for _, bad := range []struct {
+		extra map[string]string
+		name  string
+	}{
+		{map[string]string{"VENUE_SYNC_DAILY": "true"}, "VENUE_SYNC_CONTACT_EMAIL"},
+		{map[string]string{"VENUE_SYNC_DAILY": "yes"}, "VENUE_SYNC_DAILY"},
+		{map[string]string{"VENUE_SYNC_CONTACT_EMAIL": "Ops <ops@example.org>"}, "VENUE_SYNC_CONTACT_EMAIL"},
+		{map[string]string{"VENUE_SYNC_MIN_INTERVAL": "soon"}, "VENUE_SYNC_MIN_INTERVAL"},
+		{map[string]string{"VENUE_SYNC_OPENALEX_MIN_WORKS": "0"}, "VENUE_SYNC_OPENALEX_MIN_WORKS"},
+		{map[string]string{"OPENALEX_API_KEY": "a&b=c"}, "OPENALEX_API_KEY"},
+		{map[string]string{"VENUE_SYNC_GITHUB_RAW_URL": "raw.githubusercontent.com"}, "VENUE_SYNC_GITHUB_RAW_URL"},
+	} {
+		if _, err := Load(env(with(bad.extra))); err == nil || !strings.Contains(err.Error(), bad.name) {
+			t.Errorf("%v: err = %v, want one naming %s", bad.extra, err, bad.name)
+		}
+	}
+}
+
 func TestLoadORCIDSettings(t *testing.T) {
 	tests := []struct {
 		name     string

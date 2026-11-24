@@ -698,6 +698,14 @@ func (fakeAPI) ImportVenues(context.Context, gen.ImportVenuesRequestObject) (gen
 	return nil, nil
 }
 
+func (fakeAPI) GetVenueSyncStatus(context.Context, gen.GetVenueSyncStatusRequestObject) (gen.GetVenueSyncStatusResponseObject, error) {
+	return nil, nil
+}
+
+func (fakeAPI) StartVenueSync(context.Context, gen.StartVenueSyncRequestObject) (gen.StartVenueSyncResponseObject, error) {
+	return nil, nil
+}
+
 var _ gen.StrictServerInterface = fakeAPI{}
 
 var testSigner = accesstoken.New([]byte("test-secret-that-is-at-least-32-bytes-long"), 15*time.Minute)
@@ -1072,8 +1080,8 @@ func TestContractDecidesWhichOperationsNeedASession(t *testing.T) {
 
 func TestRoutes(t *testing.T) {
 	got := Routes()
-	if len(got) != 167 {
-		t.Errorf("Routes() returned %d routes, want the 167 operations in the contract: %v", len(got), got)
+	if len(got) != 169 {
+		t.Errorf("Routes() returned %d routes, want the 169 operations in the contract: %v", len(got), got)
 	}
 	seen := map[string]bool{}
 	for _, p := range got {

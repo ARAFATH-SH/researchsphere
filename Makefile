@@ -23,7 +23,7 @@ COMPILE_IMAGE     ?= researchsphere-compile:dev
 MIGRATIONS_DIR := backend/db/migrations
 
 .DEFAULT_GOAL := help
-.PHONY: help up down logs ps psql check migrate migrate-down migrate-new admin unadmin seed-ui-compare seed-dev sample-data sample-purge purge-unverified send-digests calibrate-recs eval-recs bench-recs eval-search bench-search embed-backfill backfill-main-tex purge-compile-output update-disposable-domains api web stop web-clean ai-build ai-up ai-fetch-model ai-logs sync sync-build sync-load compile-image compile-worker bench-compile compile-trace generate check-generated test test-prepare test-db test-go test-integration test-one test-web test-ai test-sync test-compile test-compile-sandbox lint lint-go lint-web lint-ai lint-sync lint-compile
+.PHONY: help up down logs ps psql check migrate migrate-down migrate-new admin unadmin seed-ui-compare seed-dev sample-data sample-purge purge-unverified send-digests venue-sync calibrate-recs eval-recs bench-recs eval-search bench-search embed-backfill backfill-main-tex purge-compile-output update-disposable-domains api web stop web-clean ai-build ai-up ai-fetch-model ai-logs sync sync-build sync-load compile-image compile-worker bench-compile compile-trace generate check-generated test test-prepare test-db test-go test-integration test-one test-web test-ai test-sync test-compile test-compile-sandbox lint lint-go lint-web lint-ai lint-sync lint-compile
 
 help: ## List the available commands
 	@grep -hE '^[a-zA-Z_-]+:.*## ' $(firstword $(MAKEFILE_LIST)) | awk 'BEGIN {FS = ":.*## "} {printf "  make %-16s %s\n", $$1, $$2}'
@@ -112,6 +112,10 @@ purge-unverified: ## Run the FR-17.4 purge of old unverified accounts once, now 
 
 send-digests: ## Send the FR-16.11 unread message digests now due once (settings from .env), then exit
 	cd backend && go run ./cmd/api -send-digests
+
+# The source names reach the command through the environment, never pasted into its text.
+venue-sync: ## Run the FR-14.5 automatic venue import once now and print each source's counts: dry=1 writes nothing, sources=ccfddl,openalex limits it
+	cd backend && go run ./cmd/api -venue-sync $(if $(filter 1,$(dry)),-dry-run) -sources "$$sources"
 
 calibrate-recs: ## Fit the AI-2.2 score map on the sample TUNING split and print RECS_SCORE_*, then check it on profile-project pairs and print RECS_PROJECT_SCORE_* (dev sample data)
 	@cd backend && go run ./cmd/recseval calibrate

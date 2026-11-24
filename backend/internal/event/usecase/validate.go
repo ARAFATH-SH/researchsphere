@@ -24,11 +24,12 @@ const (
 )
 
 // Input is a venue as an administrator or a file gives it: text as sent, "" for absent.
-// Deadlines are local times in TimeZone.
+// Deadlines are local times in TimeZone. A rolling journal has no zone and no deadlines.
 type Input struct {
 	Name               string
 	ShortName          string
 	Type               string
+	Rolling            bool
 	Fields             []string
 	Attendance         string
 	City               string
@@ -113,16 +114,20 @@ func validate(in Input, known catalog) (domain.Venue, []domain.Problem) {
 
 	problems = checkPlace(&v, in, typeOK, problems)
 
-	v.TimeZone = strings.TrimSpace(in.TimeZone)
-	var loc *time.Location
-	if v.TimeZone == "" {
-		bad("timeZone", domain.CodeRequired)
-	} else if l, err := LoadZone(v.TimeZone); err != nil {
-		bad("timeZone", domain.CodeInvalidTimeZone)
+	if in.Rolling {
+		problems = checkRolling(&v, in, typeOK, problems)
 	} else {
-		loc = l
+		v.TimeZone = strings.TrimSpace(in.TimeZone)
+		var loc *time.Location
+		if v.TimeZone == "" {
+			bad("timeZone", domain.CodeRequired)
+		} else if l, err := LoadZone(v.TimeZone); err != nil {
+			bad("timeZone", domain.CodeInvalidTimeZone)
+		} else {
+			loc = l
+		}
+		problems = checkDeadlines(&v, in, loc, problems)
 	}
-	problems = checkDeadlines(&v, in, loc, problems)
 
 	v.OfficialURL = strings.TrimSpace(in.OfficialURL)
 	if code := checkURL(v.OfficialURL); code != "" {
@@ -249,6 +254,24 @@ func checkPlace(v *domain.Venue, in Input, typeOK bool, problems []domain.Proble
 	}
 	if !v.StartsOn.IsZero() && !v.EndsOn.IsZero() && v.EndsOn.Before(v.StartsOn) {
 		bad("endsOn", domain.CodeEndsBeforeStarts)
+	}
+	return problems
+}
+
+// checkRolling checks a rolling venue: only a journal can be one, and it has no zone and no
+// deadlines.
+func checkRolling(v *domain.Venue, in Input, typeOK bool, problems []domain.Problem) []domain.Problem {
+	v.Rolling = true
+	if typeOK && v.Type != domain.TypeJournal {
+		problems = append(problems, domain.Problem{Field: "rolling", Code: domain.CodeNotAllowed})
+	}
+	for _, f := range []struct{ field, value string }{
+		{"timeZone", in.TimeZone}, {"submissionDeadline", in.SubmissionDeadline},
+		{"abstractDeadline", in.AbstractDeadline}, {"notificationAt", in.NotificationAt},
+	} {
+		if strings.TrimSpace(f.value) != "" {
+			problems = append(problems, domain.Problem{Field: f.field, Code: domain.CodeNotAllowed})
+		}
 	}
 	return problems
 }

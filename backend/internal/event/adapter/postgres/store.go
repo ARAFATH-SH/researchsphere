@@ -64,27 +64,27 @@ func (s *Store) List(ctx context.Context, q domain.Query) (domain.Page, error) {
 	db := s.q(ctx)
 
 	rows, err := db.ListVenues(ctx, sqlcgen.ListVenuesParams{
-		IncludePast: q.IncludePast, Now: now, Types: types, FieldKeys: fields, DeadlineFrom: from, DeadlineTo: to,
+		Rolling: q.Rolling, IncludePast: q.IncludePast, Now: now, Types: types, FieldKeys: fields, DeadlineFrom: from, DeadlineTo: to,
 		Q: q.Q, QLike: like, Lim: lim, Off: off,
 	})
 	if err != nil {
 		return domain.Page{}, fmt.Errorf("list venues: %w", err)
 	}
 	total, err := db.CountVenues(ctx, sqlcgen.CountVenuesParams{
-		IncludePast: q.IncludePast, Now: now, Types: types, FieldKeys: fields, DeadlineFrom: from, DeadlineTo: to,
+		Rolling: q.Rolling, IncludePast: q.IncludePast, Now: now, Types: types, FieldKeys: fields, DeadlineFrom: from, DeadlineTo: to,
 		Q: q.Q, QLike: like,
 	})
 	if err != nil {
 		return domain.Page{}, fmt.Errorf("count venues: %w", err)
 	}
 	typeRows, err := db.VenueTypeCounts(ctx, sqlcgen.VenueTypeCountsParams{
-		IncludePast: q.IncludePast, Now: now, FieldKeys: fields, DeadlineFrom: from, DeadlineTo: to, Q: q.Q, QLike: like,
+		Rolling: q.Rolling, IncludePast: q.IncludePast, Now: now, FieldKeys: fields, DeadlineFrom: from, DeadlineTo: to, Q: q.Q, QLike: like,
 	})
 	if err != nil {
 		return domain.Page{}, fmt.Errorf("count venue types: %w", err)
 	}
 	fieldRows, err := db.VenueFieldCounts(ctx, sqlcgen.VenueFieldCountsParams{
-		IncludePast: q.IncludePast, Now: now, Types: types, DeadlineFrom: from, DeadlineTo: to, Q: q.Q, QLike: like,
+		Rolling: q.Rolling, IncludePast: q.IncludePast, Now: now, Types: types, DeadlineFrom: from, DeadlineTo: to, Q: q.Q, QLike: like,
 	})
 	if err != nil {
 		return domain.Page{}, fmt.Errorf("count venue fields: %w", err)
@@ -152,11 +152,11 @@ func (s *Store) one(ctx context.Context, get func(*sqlcgen.Queries) (sqlcgen.Ven
 func (s *Store) Create(ctx context.Context, v domain.Venue, createdBy string) (string, error) {
 	by, _ := parseUUID(createdBy)
 	id, err := s.q(ctx).InsertVenue(ctx, sqlcgen.InsertVenueParams{
-		Name: v.Name, ShortName: text(v.ShortName), Type: string(v.Type), Attendance: text(string(v.Attendance)),
+		Name: v.Name, ShortName: text(v.ShortName), Type: string(v.Type), Rolling: v.Rolling, Attendance: text(string(v.Attendance)),
 		City: text(v.City), Country: text(v.Country), StartsOn: date(v.StartsOn), EndsOn: date(v.EndsOn),
-		DeadlineTz: v.TimeZone, SubmissionDeadline: ts(v.SubmissionDeadline), AbstractDeadline: optTS(v.AbstractDeadline),
-		NotificationAt: optTS(v.NotificationAt), OfficialUrl: v.OfficialURL, Scope: v.Scope, Source: string(v.Source),
-		SourceKey: text(v.SourceKey), CreatedBy: by,
+		DeadlineTz: text(v.TimeZone), SubmissionDeadline: optTS(v.SubmissionDeadline), AbstractDeadline: optTS(v.AbstractDeadline),
+		NotificationAt: optTS(v.NotificationAt), OfficialUrl: v.OfficialURL, LinkKind: string(v.Link()), Scope: v.Scope,
+		Source: string(v.Source), SourceKey: text(v.SourceKey), CreatedBy: by,
 	})
 	if err != nil {
 		return "", fmt.Errorf("insert venue: %w", err)
@@ -176,10 +176,11 @@ func (s *Store) Update(ctx context.Context, v domain.Venue) error {
 	}
 	q := s.q(ctx)
 	if err := q.UpdateVenue(ctx, sqlcgen.UpdateVenueParams{
-		ID: id, Name: v.Name, ShortName: text(v.ShortName), Type: string(v.Type), Attendance: text(string(v.Attendance)),
-		City: text(v.City), Country: text(v.Country), StartsOn: date(v.StartsOn), EndsOn: date(v.EndsOn),
-		DeadlineTz: v.TimeZone, SubmissionDeadline: ts(v.SubmissionDeadline), AbstractDeadline: optTS(v.AbstractDeadline),
-		NotificationAt: optTS(v.NotificationAt), OfficialUrl: v.OfficialURL, Scope: v.Scope,
+		ID: id, Name: v.Name, ShortName: text(v.ShortName), Type: string(v.Type), Rolling: v.Rolling,
+		Attendance: text(string(v.Attendance)), City: text(v.City), Country: text(v.Country), StartsOn: date(v.StartsOn),
+		EndsOn: date(v.EndsOn), DeadlineTz: text(v.TimeZone), SubmissionDeadline: optTS(v.SubmissionDeadline),
+		AbstractDeadline: optTS(v.AbstractDeadline), NotificationAt: optTS(v.NotificationAt), OfficialUrl: v.OfficialURL,
+		LinkKind: string(v.Link()), Scope: v.Scope,
 	}); err != nil {
 		return fmt.Errorf("update venue: %w", err)
 	}
@@ -189,6 +190,18 @@ func (s *Store) Update(ctx context.Context, v domain.Venue) error {
 	}
 	if err := q.AddVenueFields(ctx, sqlcgen.AddVenueFieldsParams{VenueID: id, Keys: keys}); err != nil {
 		return fmt.Errorf("add venue fields: %w", err)
+	}
+	return nil
+}
+
+// Lock marks a synced venue as edited by an administrator; the first time stays.
+func (s *Store) Lock(ctx context.Context, id string, at time.Time) error {
+	uid, ok := parseUUID(id)
+	if !ok {
+		return domain.ErrNotFound
+	}
+	if err := s.q(ctx).LockVenue(ctx, sqlcgen.LockVenueParams{ID: uid, At: ts(at)}); err != nil {
+		return fmt.Errorf("lock venue: %w", err)
 	}
 	return nil
 }
@@ -219,8 +232,12 @@ func (s *Store) Record(ctx context.Context, a domain.Action) error {
 	admin, _ := parseUUID(a.AdminID)
 	imp, _ := parseUUID(a.ImportID)
 	changed := append([]string{}, a.ChangedFields...)
+	actor := a.Actor
+	if actor == "" {
+		actor = domain.ActorAdmin
+	}
 	if err := s.q(ctx).InsertVenueAction(ctx, sqlcgen.InsertVenueActionParams{
-		VenueID: venue, AdminID: admin, AdminName: a.AdminName, Action: string(a.Kind), Reason: text(a.Reason),
+		VenueID: venue, Actor: string(actor), AdminID: admin, AdminName: a.AdminName, Action: string(a.Kind), Reason: text(a.Reason),
 		ChangedFields: changed, ImportID: imp,
 	}); err != nil {
 		return fmt.Errorf("record venue action: %w", err)
@@ -249,13 +266,13 @@ func (s *Store) LockImports(ctx context.Context) error {
 	return nil
 }
 
-// ImportedByKeys returns the imported venues with these keys, locked.
-func (s *Store) ImportedByKeys(ctx context.Context, keys []string) (map[string]domain.Imported, error) {
+// ImportedByKeys returns the venues of source with these keys, locked.
+func (s *Store) ImportedByKeys(ctx context.Context, source domain.Source, keys []string) (map[string]domain.Imported, error) {
 	out := map[string]domain.Imported{}
-	if len(keys) == 0 {
+	if len(keys) == 0 || source == domain.SourceManual {
 		return out, nil
 	}
-	rows, err := s.q(ctx).ImportedVenuesByKeys(ctx, keys)
+	rows, err := s.q(ctx).ImportedVenuesByKeys(ctx, sqlcgen.ImportedVenuesByKeysParams{Source: string(source), Keys: keys})
 	if err != nil {
 		return nil, fmt.Errorf("read imported venues: %w", err)
 	}
@@ -267,6 +284,14 @@ func (s *Store) ImportedByKeys(ctx context.Context, keys []string) (map[string]d
 		out[v.SourceKey] = domain.Imported{Venue: v, Removed: rows[i].RemovedAt.Valid}
 	}
 	return out, nil
+}
+
+// LowEmbeddingPriority makes the embeddings the transaction queues low priority.
+func (s *Store) LowEmbeddingPriority(ctx context.Context) error {
+	if err := s.q(ctx).LowEmbeddingPriority(ctx); err != nil {
+		return fmt.Errorf("set embedding priority: %w", err)
+	}
+	return nil
 }
 
 // withFields turns rows into venues with their fields.
@@ -295,12 +320,12 @@ func (s *Store) withFields(ctx context.Context, rows []sqlcgen.Venue) ([]domain.
 
 func venueOf(r sqlcgen.Venue) domain.Venue {
 	return domain.Venue{
-		ID: uuidString(r.ID), Name: r.Name, ShortName: r.ShortName.String, Type: domain.VenueType(r.Type),
+		ID: uuidString(r.ID), Name: r.Name, ShortName: r.ShortName.String, Type: domain.VenueType(r.Type), Rolling: r.Rolling,
 		Attendance: domain.Attendance(r.Attendance.String), City: r.City.String, Country: r.Country.String,
-		StartsOn: dateOf(r.StartsOn), EndsOn: dateOf(r.EndsOn), TimeZone: r.DeadlineTz,
-		SubmissionDeadline: r.SubmissionDeadline.Time.UTC(), AbstractDeadline: timeOf(r.AbstractDeadline),
-		NotificationAt: timeOf(r.NotificationAt), OfficialURL: r.OfficialUrl, Scope: r.Scope,
-		Source: domain.Source(r.Source), SourceKey: r.SourceKey.String,
+		StartsOn: dateOf(r.StartsOn), EndsOn: dateOf(r.EndsOn), TimeZone: r.DeadlineTz.String,
+		SubmissionDeadline: timeOf(r.SubmissionDeadline), AbstractDeadline: timeOf(r.AbstractDeadline),
+		NotificationAt: timeOf(r.NotificationAt), OfficialURL: r.OfficialUrl, LinkKind: domain.LinkKind(r.LinkKind), Scope: r.Scope,
+		Source: domain.Source(r.Source), SourceKey: r.SourceKey.String, LockedAt: timeOf(r.LockedAt),
 		CreatedAt: r.CreatedAt.Time, UpdatedAt: r.UpdatedAt.Time,
 	}
 }

@@ -62,6 +62,21 @@ func (okVenues) Import(_ context.Context, _, _ string, r io.Reader, dryRun bool)
 	return eventusecase.ImportResult{DryRun: dryRun}, nil
 }
 
+// okSync answers the automatic import's operations: every start succeeds with one run.
+type okSync struct{}
+
+const okSyncRunID = "0192f0a0-0000-7000-8000-0000000e0002"
+
+func (okSync) Start(_ context.Context, _ string, _ []string, dry bool) ([]eventdomain.SyncRun, error) {
+	return []eventdomain.SyncRun{{ID: okSyncRunID, Source: eventdomain.SourceCCF, DryRun: dry}}, nil
+}
+
+func (okSync) Status(context.Context) ([]eventusecase.SourceStatus, error) {
+	return []eventusecase.SourceStatus{{Source: eventdomain.SourceCCF, Info: eventusecase.SourceInfo{Label: "ccf", Licence: "MIT"}}}, nil
+}
+
+func (okSync) Daily() bool { return true }
+
 // importBody is a multipart body with one file part.
 func importBody(t *testing.T, name string, data []byte) (io.Reader, string) {
 	t.Helper()
@@ -116,6 +131,15 @@ func TestVenueRoutes(t *testing.T) {
 		{"change as admin", http.MethodPatch, a + "/" + okVenueID, "admin", body(`{"scope":"New"}`), http.StatusOK, `"id"`},
 		{"remove as admin", http.MethodPost, a + "/" + okVenueID + "/remove", "admin", body(`{"reason":"Duplicate entry"}`), http.StatusNoContent, ""},
 		{"import as admin", http.MethodPost, a + "/import?dryRun=true", "admin", file, http.StatusOK, `"dryRun":true`},
+
+		// The automatic import (FR-14.5): the administrator only.
+		{"sync status as researcher", http.MethodGet, a + "/sync", "researcher", nil, http.StatusForbidden, `"code":"forbidden"`},
+		{"start sync as researcher", http.MethodPost, a + "/sync?dryRun=true", "researcher", nil, http.StatusForbidden, `"code":"forbidden"`},
+		{"sync status without a session", http.MethodGet, a + "/sync", "", nil, http.StatusUnauthorized, ""},
+		{"sync status as admin", http.MethodGet, a + "/sync", "admin", nil, http.StatusOK, `"licence":"MIT"`},
+		{"start sync as admin", http.MethodPost, a + "/sync?dryRun=true", "admin", nil, http.StatusAccepted, `"id":"` + okSyncRunID},
+		{"start sync as admin, with sources", http.MethodPost, a + "/sync", "admin", body(`{"sources":["ccfddl"]}`), http.StatusAccepted, `"dryRun":false`},
+		{"list rolling journals", http.MethodGet, v + "?rolling=true", "researcher", nil, http.StatusOK, `"total":1`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

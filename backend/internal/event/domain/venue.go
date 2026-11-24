@@ -40,10 +40,33 @@ const (
 // Source says how a venue was added.
 type Source string
 
-// Sources.
+// Sources. The last three are the automatic import (FR-14.5, docs/venues-sync.md).
 const (
-	SourceManual Source = "manual"
-	SourceImport Source = "import"
+	SourceManual       Source = "manual"
+	SourceImport       Source = "import"
+	SourceCCF          Source = "ccfddl"
+	SourceHCIDeadlines Source = "hci_deadlines"
+	SourceOpenAlex     Source = "openalex"
+)
+
+// SyncSources lists the sources of the automatic import, in the order they run.
+var SyncSources = []Source{SourceCCF, SourceHCIDeadlines, SourceOpenAlex}
+
+// IsSync says whether the source is one of the automatic import's.
+func (s Source) IsSync() bool {
+	return s == SourceCCF || s == SourceHCIDeadlines || s == SourceOpenAlex
+}
+
+// LinkKind says what a venue's link points to.
+type LinkKind string
+
+// Link kinds.
+const (
+	// LinkOfficial is the venue's own site.
+	LinkOfficial LinkKind = "official"
+	// LinkISSNPortal is a journal's ISSN portal record, used when the sync found no working
+	// https homepage.
+	LinkISSNPortal LinkKind = "issn_portal"
 )
 
 // Field is a research field of the fixed list (FR-14.3).
@@ -54,12 +77,14 @@ type Field struct {
 
 // Venue is a venue as stored. Optional text is "" when not set, an optional time or date is
 // the zero time. Dates (StartsOn, EndsOn) are midnight UTC of that day. TimeZone is the label
-// the deadlines are stated in (AoE, UTC or an IANA name); the times are instants.
+// the deadlines are stated in (AoE, UTC or an IANA name); the times are instants. A rolling
+// journal has no TimeZone and no deadlines.
 type Venue struct {
 	ID                 string
 	Name               string
 	ShortName          string
 	Type               VenueType
+	Rolling            bool
 	Fields             []Field // in the order of the fixed list
 	Attendance         Attendance
 	City               string
@@ -71,9 +96,11 @@ type Venue struct {
 	AbstractDeadline   time.Time
 	NotificationAt     time.Time
 	OfficialURL        string
+	LinkKind           LinkKind // "" means official
 	Scope              string
 	Source             Source
 	SourceKey          string
+	LockedAt           time.Time // when an administrator edited a synced venue; zero if never
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
 }
@@ -87,14 +114,27 @@ func (v Venue) FieldKeys() []string {
 	return keys
 }
 
-// Past says whether the submission deadline has passed at now: at or before it.
-func (v Venue) Past(now time.Time) bool { return !v.SubmissionDeadline.After(now) }
+// Past says whether the submission deadline has passed at now: at or before it. A rolling
+// journal never closes.
+func (v Venue) Past(now time.Time) bool { return !v.Rolling && !v.SubmissionDeadline.After(now) }
+
+// Locked says whether an administrator edited this synced venue, so the sync leaves it alone.
+func (v Venue) Locked() bool { return !v.LockedAt.IsZero() }
+
+// Link returns the kind of the venue's link, official when not set.
+func (v Venue) Link() LinkKind {
+	if v.LinkKind == "" {
+		return LinkOfficial
+	}
+	return v.LinkKind
+}
 
 // Query is one request of the venue list (FR-14.1 to FR-14.3), already checked. Empty Types
 // or Fields means any; a zero From or To means no bound. To is exclusive.
 type Query struct {
 	Now         time.Time
 	IncludePast bool
+	Rolling     bool // only rolling journals, by name; IncludePast, From and To are then unset
 	Types       []VenueType
 	Fields      []string
 	From, To    time.Time
@@ -135,10 +175,23 @@ const (
 	ActImportUpdate ActionKind = "import_update"
 )
 
+// Actor is who made an audit row: an administrator, or the automatic import.
+type Actor string
+
+// Actors.
+const (
+	ActorAdmin  Actor = "admin"
+	ActorImport Actor = "import"
+)
+
+// ImportActorName is the name kept with the automatic import's audit rows.
+const ImportActorName = "Automatic import"
+
 // Action is one audit row (FR-15.1): who changed which venue, how, and the names of the
-// fields changed, never their values.
+// fields changed, never their values. An Actor of "" means an administrator.
 type Action struct {
 	VenueID       string
+	Actor         Actor
 	AdminID       string
 	AdminName     string
 	Kind          ActionKind
@@ -178,6 +231,10 @@ const (
 	CodeBeforeDeadline   = "before_deadline"
 	CodeDuplicateInFile  = "duplicate_in_file"
 	CodeVenueRemoved     = "venue_removed"
+	// The automatic import's own codes (docs/venues-sync.md).
+	CodeDeadlineTBD    = "deadline_tbd"
+	CodeUnknownCountry = "unknown_country"
+	CodeUnreadable     = "unreadable"
 )
 
 // Problem is one rule a field breaks.
@@ -232,6 +289,9 @@ type Store interface {
 	Create(ctx context.Context, v Venue, createdBy string) (string, error)
 	// Update stores v's values over the venue with v.ID, its fields included.
 	Update(ctx context.Context, v Venue) error
+	// Lock marks a synced venue as edited by an administrator at at, so the sync no longer
+	// changes it. A venue already locked keeps its first time.
+	Lock(ctx context.Context, id string, at time.Time) error
 	// Remove marks a live venue removed; ErrNotFound when it is not live.
 	Remove(ctx context.Context, id, by, reason string, at time.Time) error
 	// Record writes an audit row.
@@ -241,9 +301,11 @@ type Store interface {
 	AdminName(ctx context.Context, userID string) (string, error)
 	// LockImports makes imports take turns until the transaction ends.
 	LockImports(ctx context.Context) error
-	// ImportedByKeys returns the imported venues with these keys, removed ones included,
+	// ImportedByKeys returns the venues of source with these keys, removed ones included,
 	// locked until the transaction ends.
-	ImportedByKeys(ctx context.Context, keys []string) (map[string]Imported, error)
+	ImportedByKeys(ctx context.Context, source Source, keys []string) (map[string]Imported, error)
+	// LowEmbeddingPriority makes the embeddings the transaction queues low priority.
+	LowEmbeddingPriority(ctx context.Context) error
 }
 
 // Transactor runs fn in one transaction.

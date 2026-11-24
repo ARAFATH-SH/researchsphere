@@ -44,19 +44,21 @@ func (q *Queries) AdminName(ctx context.Context, userID pgtype.UUID) (string, er
 const countVenues = `-- name: CountVenues :one
 SELECT count(*)::bigint FROM venues v
 WHERE v.removed_at IS NULL
-  AND ($1::boolean OR v.submission_deadline > $2::timestamptz)
-  AND (cardinality($3::text[]) = 0 OR v.type = ANY ($3::text[]))
-  AND (cardinality($4::text[]) = 0 OR EXISTS (
-        SELECT 1 FROM venue_fields f WHERE f.venue_id = v.id AND f.field_key = ANY ($4::text[])))
-  AND ($5::timestamptz IS NULL OR v.submission_deadline >= $5::timestamptz)
-  AND ($6::timestamptz IS NULL OR v.submission_deadline < $6::timestamptz)
-  AND ($7::text = ''
-       OR v.name ILIKE $8::text ESCAPE '\' OR v.short_name ILIKE $8::text ESCAPE '\'
-       OR word_similarity($7::text, v.name) >= 0.4
-       OR word_similarity($7::text, coalesce(v.short_name, '')) >= 0.4)
+  AND v.rolling = $1::boolean
+  AND ($2::boolean OR $1::boolean OR v.submission_deadline > $3::timestamptz)
+  AND (cardinality($4::text[]) = 0 OR v.type = ANY ($4::text[]))
+  AND (cardinality($5::text[]) = 0 OR EXISTS (
+        SELECT 1 FROM venue_fields f WHERE f.venue_id = v.id AND f.field_key = ANY ($5::text[])))
+  AND ($6::timestamptz IS NULL OR v.submission_deadline >= $6::timestamptz)
+  AND ($7::timestamptz IS NULL OR v.submission_deadline < $7::timestamptz)
+  AND ($8::text = ''
+       OR v.name ILIKE $9::text ESCAPE '\' OR v.short_name ILIKE $9::text ESCAPE '\'
+       OR word_similarity($8::text, v.name) >= 0.4
+       OR word_similarity($8::text, coalesce(v.short_name, '')) >= 0.4)
 `
 
 type CountVenuesParams struct {
+	Rolling      bool
 	IncludePast  bool
 	Now          pgtype.Timestamptz
 	Types        []string
@@ -69,6 +71,7 @@ type CountVenuesParams struct {
 
 func (q *Queries) CountVenues(ctx context.Context, arg CountVenuesParams) (int64, error) {
 	row := q.db.QueryRow(ctx, countVenues,
+		arg.Rolling,
 		arg.IncludePast,
 		arg.Now,
 		arg.Types,
@@ -98,8 +101,101 @@ func (q *Queries) DeleteOtherVenueFields(ctx context.Context, arg DeleteOtherVen
 	return err
 }
 
+const deleteSyncFilePaths = `-- name: DeleteSyncFilePaths :exec
+DELETE FROM venue_sync_files WHERE source = $1 AND path = ANY ($2::text[])
+`
+
+type DeleteSyncFilePathsParams struct {
+	Source string
+	Paths  []string
+}
+
+func (q *Queries) DeleteSyncFilePaths(ctx context.Context, arg DeleteSyncFilePathsParams) error {
+	_, err := q.db.Exec(ctx, deleteSyncFilePaths, arg.Source, arg.Paths)
+	return err
+}
+
+const deleteSyncFiles = `-- name: DeleteSyncFiles :exec
+DELETE FROM venue_sync_files WHERE source = $1
+`
+
+func (q *Queries) DeleteSyncFiles(ctx context.Context, source string) error {
+	_, err := q.db.Exec(ctx, deleteSyncFiles, source)
+	return err
+}
+
+const ensureSyncSource = `-- name: EnsureSyncSource :exec
+
+INSERT INTO venue_sync_sources (source) VALUES ($1) ON CONFLICT (source) DO NOTHING
+`
+
+// ---------------------------------------------------------------------------
+// The automatic import's own state (slice 25A, migration 000040).
+// ---------------------------------------------------------------------------
+// 000040 seeds the three rows; this puts one back if it is ever missing.
+func (q *Queries) EnsureSyncSource(ctx context.Context, source string) error {
+	_, err := q.db.Exec(ctx, ensureSyncSource, source)
+	return err
+}
+
+const failStaleSyncRuns = `-- name: FailStaleSyncRuns :exec
+UPDATE venue_sync_runs
+SET status = 'failed', finished_at = $1::timestamptz, errors = errors || '["The run was interrupted."]'::jsonb
+WHERE source = $2 AND status = 'running'
+`
+
+type FailStaleSyncRunsParams struct {
+	At     pgtype.Timestamptz
+	Source string
+}
+
+// A run still running when its source's lease has expired was cut off (a restart).
+func (q *Queries) FailStaleSyncRuns(ctx context.Context, arg FailStaleSyncRunsParams) error {
+	_, err := q.db.Exec(ctx, failStaleSyncRuns, arg.At, arg.Source)
+	return err
+}
+
+const finishSyncRun = `-- name: FinishSyncRun :exec
+UPDATE venue_sync_runs
+SET finished_at = $1, status = $2, commit_sha = $3, created = $4,
+    updated = $5, unchanged = $6, skipped = $7, rejected = $8,
+    errors = $9::jsonb, rejects = $10::jsonb
+WHERE id = $11
+`
+
+type FinishSyncRunParams struct {
+	FinishedAt pgtype.Timestamptz
+	Status     string
+	CommitSha  pgtype.Text
+	Created    int32
+	Updated    int32
+	Unchanged  int32
+	Skipped    int32
+	Rejected   int32
+	Errors     []byte
+	Rejects    []byte
+	ID         pgtype.UUID
+}
+
+func (q *Queries) FinishSyncRun(ctx context.Context, arg FinishSyncRunParams) error {
+	_, err := q.db.Exec(ctx, finishSyncRun,
+		arg.FinishedAt,
+		arg.Status,
+		arg.CommitSha,
+		arg.Created,
+		arg.Updated,
+		arg.Unchanged,
+		arg.Skipped,
+		arg.Rejected,
+		arg.Errors,
+		arg.Rejects,
+		arg.ID,
+	)
+	return err
+}
+
 const getVenue = `-- name: GetVenue :one
-SELECT id, name, type, scope, starts_on, ends_on, submission_deadline, source, created_at, updated_at, short_name, city, country, attendance, deadline_tz, abstract_deadline, notification_at, official_url, source_key, created_by, removed_at, removed_by, removal_reason FROM venues WHERE id = $1 AND removed_at IS NULL
+SELECT id, name, type, scope, starts_on, ends_on, submission_deadline, source, created_at, updated_at, short_name, city, country, attendance, deadline_tz, abstract_deadline, notification_at, official_url, source_key, created_by, removed_at, removed_by, removal_reason, rolling, link_kind, locked_at FROM venues WHERE id = $1 AND removed_at IS NULL
 `
 
 func (q *Queries) GetVenue(ctx context.Context, id pgtype.UUID) (Venue, error) {
@@ -129,12 +225,15 @@ func (q *Queries) GetVenue(ctx context.Context, id pgtype.UUID) (Venue, error) {
 		&i.RemovedAt,
 		&i.RemovedBy,
 		&i.RemovalReason,
+		&i.Rolling,
+		&i.LinkKind,
+		&i.LockedAt,
 	)
 	return i, err
 }
 
 const getVenueForUpdate = `-- name: GetVenueForUpdate :one
-SELECT id, name, type, scope, starts_on, ends_on, submission_deadline, source, created_at, updated_at, short_name, city, country, attendance, deadline_tz, abstract_deadline, notification_at, official_url, source_key, created_by, removed_at, removed_by, removal_reason FROM venues WHERE id = $1 AND removed_at IS NULL FOR UPDATE
+SELECT id, name, type, scope, starts_on, ends_on, submission_deadline, source, created_at, updated_at, short_name, city, country, attendance, deadline_tz, abstract_deadline, notification_at, official_url, source_key, created_by, removed_at, removed_by, removal_reason, rolling, link_kind, locked_at FROM venues WHERE id = $1 AND removed_at IS NULL FOR UPDATE
 `
 
 func (q *Queries) GetVenueForUpdate(ctx context.Context, id pgtype.UUID) (Venue, error) {
@@ -164,18 +263,26 @@ func (q *Queries) GetVenueForUpdate(ctx context.Context, id pgtype.UUID) (Venue,
 		&i.RemovedAt,
 		&i.RemovedBy,
 		&i.RemovalReason,
+		&i.Rolling,
+		&i.LinkKind,
+		&i.LockedAt,
 	)
 	return i, err
 }
 
 const importedVenuesByKeys = `-- name: ImportedVenuesByKeys :many
-SELECT id, name, type, scope, starts_on, ends_on, submission_deadline, source, created_at, updated_at, short_name, city, country, attendance, deadline_tz, abstract_deadline, notification_at, official_url, source_key, created_by, removed_at, removed_by, removal_reason FROM venues
-WHERE source = 'import' AND source_key = ANY ($1::text[])
+SELECT id, name, type, scope, starts_on, ends_on, submission_deadline, source, created_at, updated_at, short_name, city, country, attendance, deadline_tz, abstract_deadline, notification_at, official_url, source_key, created_by, removed_at, removed_by, removal_reason, rolling, link_kind, locked_at FROM venues
+WHERE source = $1 AND source <> 'manual' AND source_key = ANY ($2::text[])
 FOR UPDATE
 `
 
-func (q *Queries) ImportedVenuesByKeys(ctx context.Context, keys []string) ([]Venue, error) {
-	rows, err := q.db.Query(ctx, importedVenuesByKeys, keys)
+type ImportedVenuesByKeysParams struct {
+	Source string
+	Keys   []string
+}
+
+func (q *Queries) ImportedVenuesByKeys(ctx context.Context, arg ImportedVenuesByKeysParams) ([]Venue, error) {
+	rows, err := q.db.Query(ctx, importedVenuesByKeys, arg.Source, arg.Keys)
 	if err != nil {
 		return nil, err
 	}
@@ -207,6 +314,9 @@ func (q *Queries) ImportedVenuesByKeys(ctx context.Context, keys []string) ([]Ve
 			&i.RemovedAt,
 			&i.RemovedBy,
 			&i.RemovalReason,
+			&i.Rolling,
+			&i.LinkKind,
+			&i.LockedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -218,13 +328,41 @@ func (q *Queries) ImportedVenuesByKeys(ctx context.Context, keys []string) ([]Ve
 	return items, nil
 }
 
+const insertSyncRun = `-- name: InsertSyncRun :one
+INSERT INTO venue_sync_runs (source, dry_run, trigger, requested_by, started_at)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id
+`
+
+type InsertSyncRunParams struct {
+	Source      string
+	DryRun      bool
+	Trigger     string
+	RequestedBy pgtype.UUID
+	StartedAt   pgtype.Timestamptz
+}
+
+func (q *Queries) InsertSyncRun(ctx context.Context, arg InsertSyncRunParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, insertSyncRun,
+		arg.Source,
+		arg.DryRun,
+		arg.Trigger,
+		arg.RequestedBy,
+		arg.StartedAt,
+	)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const insertVenue = `-- name: InsertVenue :one
-INSERT INTO venues (name, short_name, type, attendance, city, country, starts_on, ends_on, deadline_tz,
-                    submission_deadline, abstract_deadline, notification_at, official_url, scope, source,
+INSERT INTO venues (name, short_name, type, rolling, attendance, city, country, starts_on, ends_on, deadline_tz,
+                    submission_deadline, abstract_deadline, notification_at, official_url, link_kind, scope, source,
                     source_key, created_by)
-VALUES ($1, $2, $3, $4, $5, $6,
-        $7, $8, $9, $10, $11,
-        $12, $13, $14, $15, $16, $17)
+VALUES ($1, $2, $3, $4, $5, $6, $7,
+        $8, $9, $10, $11,
+        $12, $13, $14, $15, $16, $17,
+        $18, $19)
 RETURNING id
 `
 
@@ -232,16 +370,18 @@ type InsertVenueParams struct {
 	Name               string
 	ShortName          pgtype.Text
 	Type               string
+	Rolling            bool
 	Attendance         pgtype.Text
 	City               pgtype.Text
 	Country            pgtype.Text
 	StartsOn           pgtype.Date
 	EndsOn             pgtype.Date
-	DeadlineTz         string
+	DeadlineTz         pgtype.Text
 	SubmissionDeadline pgtype.Timestamptz
 	AbstractDeadline   pgtype.Timestamptz
 	NotificationAt     pgtype.Timestamptz
 	OfficialUrl        string
+	LinkKind           string
 	Scope              string
 	Source             string
 	SourceKey          pgtype.Text
@@ -253,6 +393,7 @@ func (q *Queries) InsertVenue(ctx context.Context, arg InsertVenueParams) (pgtyp
 		arg.Name,
 		arg.ShortName,
 		arg.Type,
+		arg.Rolling,
 		arg.Attendance,
 		arg.City,
 		arg.Country,
@@ -263,6 +404,7 @@ func (q *Queries) InsertVenue(ctx context.Context, arg InsertVenueParams) (pgtyp
 		arg.AbstractDeadline,
 		arg.NotificationAt,
 		arg.OfficialUrl,
+		arg.LinkKind,
 		arg.Scope,
 		arg.Source,
 		arg.SourceKey,
@@ -274,12 +416,13 @@ func (q *Queries) InsertVenue(ctx context.Context, arg InsertVenueParams) (pgtyp
 }
 
 const insertVenueAction = `-- name: InsertVenueAction :exec
-INSERT INTO venue_actions (venue_id, admin_id, admin_name, action, reason, changed_fields, import_id)
-VALUES ($1, $2, $3, $4, $5, $6::text[], $7)
+INSERT INTO venue_actions (venue_id, actor, admin_id, admin_name, action, reason, changed_fields, import_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7::text[], $8)
 `
 
 type InsertVenueActionParams struct {
 	VenueID       pgtype.UUID
+	Actor         string
 	AdminID       pgtype.UUID
 	AdminName     string
 	Action        string
@@ -291,6 +434,7 @@ type InsertVenueActionParams struct {
 func (q *Queries) InsertVenueAction(ctx context.Context, arg InsertVenueActionParams) error {
 	_, err := q.db.Exec(ctx, insertVenueAction,
 		arg.VenueID,
+		arg.Actor,
 		arg.AdminID,
 		arg.AdminName,
 		arg.Action,
@@ -301,26 +445,91 @@ func (q *Queries) InsertVenueAction(ctx context.Context, arg InsertVenueActionPa
 	return err
 }
 
+const latestSyncRun = `-- name: LatestSyncRun :one
+SELECT id, source, dry_run, trigger, requested_by, started_at, finished_at, status, commit_sha, created, updated, unchanged, skipped, rejected, errors, rejects FROM venue_sync_runs WHERE source = $1 AND dry_run = $2
+ORDER BY started_at DESC, id DESC LIMIT 1
+`
+
+type LatestSyncRunParams struct {
+	Source string
+	DryRun bool
+}
+
+func (q *Queries) LatestSyncRun(ctx context.Context, arg LatestSyncRunParams) (VenueSyncRun, error) {
+	row := q.db.QueryRow(ctx, latestSyncRun, arg.Source, arg.DryRun)
+	var i VenueSyncRun
+	err := row.Scan(
+		&i.ID,
+		&i.Source,
+		&i.DryRun,
+		&i.Trigger,
+		&i.RequestedBy,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.Status,
+		&i.CommitSha,
+		&i.Created,
+		&i.Updated,
+		&i.Unchanged,
+		&i.Skipped,
+		&i.Rejected,
+		&i.Errors,
+		&i.Rejects,
+	)
+	return i, err
+}
+
+const linkChecks = `-- name: LinkChecks :many
+SELECT url, ok, final_status, checked_at FROM venue_sync_link_checks WHERE url = ANY ($1::text[])
+`
+
+func (q *Queries) LinkChecks(ctx context.Context, urls []string) ([]VenueSyncLinkCheck, error) {
+	rows, err := q.db.Query(ctx, linkChecks, urls)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []VenueSyncLinkCheck
+	for rows.Next() {
+		var i VenueSyncLinkCheck
+		if err := rows.Scan(
+			&i.Url,
+			&i.Ok,
+			&i.FinalStatus,
+			&i.CheckedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listVenues = `-- name: ListVenues :many
-SELECT id, name, type, scope, starts_on, ends_on, submission_deadline, source, created_at, updated_at, short_name, city, country, attendance, deadline_tz, abstract_deadline, notification_at, official_url, source_key, created_by, removed_at, removed_by, removal_reason FROM venues v
+SELECT id, name, type, scope, starts_on, ends_on, submission_deadline, source, created_at, updated_at, short_name, city, country, attendance, deadline_tz, abstract_deadline, notification_at, official_url, source_key, created_by, removed_at, removed_by, removal_reason, rolling, link_kind, locked_at FROM venues v
 WHERE v.removed_at IS NULL
-  AND ($1::boolean OR v.submission_deadline > $2::timestamptz)
-  AND (cardinality($3::text[]) = 0 OR v.type = ANY ($3::text[]))
-  AND (cardinality($4::text[]) = 0 OR EXISTS (
-        SELECT 1 FROM venue_fields f WHERE f.venue_id = v.id AND f.field_key = ANY ($4::text[])))
-  AND ($5::timestamptz IS NULL OR v.submission_deadline >= $5::timestamptz)
-  AND ($6::timestamptz IS NULL OR v.submission_deadline < $6::timestamptz)
-  AND ($7::text = ''
-       OR v.name ILIKE $8::text ESCAPE '\' OR v.short_name ILIKE $8::text ESCAPE '\'
-       OR word_similarity($7::text, v.name) >= 0.4
-       OR word_similarity($7::text, coalesce(v.short_name, '')) >= 0.4)
-ORDER BY (v.submission_deadline <= $2::timestamptz),
-         CASE WHEN v.submission_deadline > $2::timestamptz THEN v.submission_deadline END,
+  AND v.rolling = $1::boolean
+  AND ($2::boolean OR $1::boolean OR v.submission_deadline > $3::timestamptz)
+  AND (cardinality($4::text[]) = 0 OR v.type = ANY ($4::text[]))
+  AND (cardinality($5::text[]) = 0 OR EXISTS (
+        SELECT 1 FROM venue_fields f WHERE f.venue_id = v.id AND f.field_key = ANY ($5::text[])))
+  AND ($6::timestamptz IS NULL OR v.submission_deadline >= $6::timestamptz)
+  AND ($7::timestamptz IS NULL OR v.submission_deadline < $7::timestamptz)
+  AND ($8::text = ''
+       OR v.name ILIKE $9::text ESCAPE '\' OR v.short_name ILIKE $9::text ESCAPE '\'
+       OR word_similarity($8::text, v.name) >= 0.4
+       OR word_similarity($8::text, coalesce(v.short_name, '')) >= 0.4)
+ORDER BY (v.submission_deadline <= $3::timestamptz),
+         CASE WHEN v.submission_deadline > $3::timestamptz THEN v.submission_deadline END,
          v.submission_deadline DESC, v.name, v.id
-LIMIT $10 OFFSET $9
+LIMIT $11 OFFSET $10
 `
 
 type ListVenuesParams struct {
+	Rolling      bool
 	IncludePast  bool
 	Now          pgtype.Timestamptz
 	Types        []string
@@ -334,9 +543,11 @@ type ListVenuesParams struct {
 }
 
 // Upcoming first by deadline, then (with include_past) past ones, most recently closed
-// first; then name and ID. A deadline has passed at or before now.
+// first; then name and ID. A deadline has passed at or before now. Rolling journals (no
+// deadline) are their own list, by name and ID.
 func (q *Queries) ListVenues(ctx context.Context, arg ListVenuesParams) ([]Venue, error) {
 	rows, err := q.db.Query(ctx, listVenues,
+		arg.Rolling,
 		arg.IncludePast,
 		arg.Now,
 		arg.Types,
@@ -379,6 +590,9 @@ func (q *Queries) ListVenues(ctx context.Context, arg ListVenuesParams) ([]Venue
 			&i.RemovedAt,
 			&i.RemovedBy,
 			&i.RemovalReason,
+			&i.Rolling,
+			&i.LinkKind,
+			&i.LockedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -390,6 +604,40 @@ func (q *Queries) ListVenues(ctx context.Context, arg ListVenuesParams) ([]Venue
 	return items, nil
 }
 
+const lockSyncSource = `-- name: LockSyncSource :one
+SELECT source, commit_sha, etag, lease_until, last_scheduled_at, last_run_at FROM venue_sync_sources WHERE source = $1 FOR UPDATE
+`
+
+func (q *Queries) LockSyncSource(ctx context.Context, source string) (VenueSyncSource, error) {
+	row := q.db.QueryRow(ctx, lockSyncSource, source)
+	var i VenueSyncSource
+	err := row.Scan(
+		&i.Source,
+		&i.CommitSha,
+		&i.Etag,
+		&i.LeaseUntil,
+		&i.LastScheduledAt,
+		&i.LastRunAt,
+	)
+	return i, err
+}
+
+const lockVenue = `-- name: LockVenue :exec
+UPDATE venues SET locked_at = coalesce(locked_at, $1::timestamptz)
+WHERE id = $2 AND source IN ('ccfddl', 'hci_deadlines', 'openalex')
+`
+
+type LockVenueParams struct {
+	At pgtype.Timestamptz
+	ID pgtype.UUID
+}
+
+// An administrator edited a synced venue: the sync leaves it alone from now on.
+func (q *Queries) LockVenue(ctx context.Context, arg LockVenueParams) error {
+	_, err := q.db.Exec(ctx, lockVenue, arg.At, arg.ID)
+	return err
+}
+
 const lockVenueImports = `-- name: LockVenueImports :exec
 SELECT pg_advisory_xact_lock(hashtext('venue_import'))
 `
@@ -397,6 +645,28 @@ SELECT pg_advisory_xact_lock(hashtext('venue_import'))
 // Imports take turns, so two files cannot both create the same key.
 func (q *Queries) LockVenueImports(ctx context.Context) error {
 	_, err := q.db.Exec(ctx, lockVenueImports)
+	return err
+}
+
+const lowEmbeddingPriority = `-- name: LowEmbeddingPriority :exec
+SELECT set_config('researchsphere.embedding_priority', '1', true)
+`
+
+// The embeddings this transaction queues are low priority (000040's trigger reads it).
+func (q *Queries) LowEmbeddingPriority(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, lowEmbeddingPriority)
+	return err
+}
+
+const pruneSyncRuns = `-- name: PruneSyncRuns :exec
+DELETE FROM venue_sync_runs r
+WHERE r.source = $1::text AND r.status <> 'running' AND r.id NOT IN (
+    SELECT k.id FROM venue_sync_runs k WHERE k.source = $1::text ORDER BY k.started_at DESC, k.id DESC LIMIT 30)
+`
+
+// Keep the last 30 runs of a source, real and dry.
+func (q *Queries) PruneSyncRuns(ctx context.Context, source string) error {
+	_, err := q.db.Exec(ctx, pruneSyncRuns, source)
 	return err
 }
 
@@ -459,39 +729,164 @@ func (q *Queries) ResearchFields(ctx context.Context) ([]ResearchFieldsRow, erro
 	return items, nil
 }
 
+const saveLinkCheck = `-- name: SaveLinkCheck :exec
+INSERT INTO venue_sync_link_checks (url, ok, final_status, checked_at) VALUES ($1, $2, $3, $4)
+ON CONFLICT (url) DO UPDATE SET ok = EXCLUDED.ok, final_status = EXCLUDED.final_status, checked_at = EXCLUDED.checked_at
+`
+
+type SaveLinkCheckParams struct {
+	Url         string
+	Ok          bool
+	FinalStatus int32
+	CheckedAt   pgtype.Timestamptz
+}
+
+func (q *Queries) SaveLinkCheck(ctx context.Context, arg SaveLinkCheckParams) error {
+	_, err := q.db.Exec(ctx, saveLinkCheck,
+		arg.Url,
+		arg.Ok,
+		arg.FinalStatus,
+		arg.CheckedAt,
+	)
+	return err
+}
+
+const saveSyncRepoState = `-- name: SaveSyncRepoState :exec
+UPDATE venue_sync_sources SET commit_sha = $1, etag = $2 WHERE source = $3
+`
+
+type SaveSyncRepoStateParams struct {
+	CommitSha pgtype.Text
+	Etag      pgtype.Text
+	Source    string
+}
+
+func (q *Queries) SaveSyncRepoState(ctx context.Context, arg SaveSyncRepoStateParams) error {
+	_, err := q.db.Exec(ctx, saveSyncRepoState, arg.CommitSha, arg.Etag, arg.Source)
+	return err
+}
+
+const saveSyncSource = `-- name: SaveSyncSource :exec
+UPDATE venue_sync_sources
+SET lease_until = $1, last_scheduled_at = $2,
+    last_run_at = $3
+WHERE source = $4
+`
+
+type SaveSyncSourceParams struct {
+	LeaseUntil      pgtype.Timestamptz
+	LastScheduledAt pgtype.Timestamptz
+	LastRunAt       pgtype.Timestamptz
+	Source          string
+}
+
+func (q *Queries) SaveSyncSource(ctx context.Context, arg SaveSyncSourceParams) error {
+	_, err := q.db.Exec(ctx, saveSyncSource,
+		arg.LeaseUntil,
+		arg.LastScheduledAt,
+		arg.LastRunAt,
+		arg.Source,
+	)
+	return err
+}
+
+const syncFiles = `-- name: SyncFiles :many
+SELECT path, content FROM venue_sync_files WHERE source = $1 ORDER BY path
+`
+
+type SyncFilesRow struct {
+	Path    string
+	Content string
+}
+
+func (q *Queries) SyncFiles(ctx context.Context, source string) ([]SyncFilesRow, error) {
+	rows, err := q.db.Query(ctx, syncFiles, source)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SyncFilesRow
+	for rows.Next() {
+		var i SyncFilesRow
+		if err := rows.Scan(&i.Path, &i.Content); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const syncSources = `-- name: SyncSources :many
+SELECT source, commit_sha, etag, lease_until, last_scheduled_at, last_run_at FROM venue_sync_sources ORDER BY source
+`
+
+func (q *Queries) SyncSources(ctx context.Context) ([]VenueSyncSource, error) {
+	rows, err := q.db.Query(ctx, syncSources)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []VenueSyncSource
+	for rows.Next() {
+		var i VenueSyncSource
+		if err := rows.Scan(
+			&i.Source,
+			&i.CommitSha,
+			&i.Etag,
+			&i.LeaseUntil,
+			&i.LastScheduledAt,
+			&i.LastRunAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateVenue = `-- name: UpdateVenue :exec
 UPDATE venues
 SET name                = $1,
     short_name          = $2,
     type                = $3,
-    attendance          = $4,
-    city                = $5,
-    country             = $6,
-    starts_on           = $7,
-    ends_on             = $8,
-    deadline_tz         = $9,
-    submission_deadline = $10,
-    abstract_deadline   = $11,
-    notification_at     = $12,
-    official_url        = $13,
-    scope               = $14
-WHERE id = $15
+    rolling             = $4,
+    attendance          = $5,
+    city                = $6,
+    country             = $7,
+    starts_on           = $8,
+    ends_on             = $9,
+    deadline_tz         = $10,
+    submission_deadline = $11,
+    abstract_deadline   = $12,
+    notification_at     = $13,
+    official_url        = $14,
+    link_kind           = $15,
+    scope               = $16
+WHERE id = $17
 `
 
 type UpdateVenueParams struct {
 	Name               string
 	ShortName          pgtype.Text
 	Type               string
+	Rolling            bool
 	Attendance         pgtype.Text
 	City               pgtype.Text
 	Country            pgtype.Text
 	StartsOn           pgtype.Date
 	EndsOn             pgtype.Date
-	DeadlineTz         string
+	DeadlineTz         pgtype.Text
 	SubmissionDeadline pgtype.Timestamptz
 	AbstractDeadline   pgtype.Timestamptz
 	NotificationAt     pgtype.Timestamptz
 	OfficialUrl        string
+	LinkKind           string
 	Scope              string
 	ID                 pgtype.UUID
 }
@@ -501,6 +896,7 @@ func (q *Queries) UpdateVenue(ctx context.Context, arg UpdateVenueParams) error 
 		arg.Name,
 		arg.ShortName,
 		arg.Type,
+		arg.Rolling,
 		arg.Attendance,
 		arg.City,
 		arg.Country,
@@ -511,9 +907,26 @@ func (q *Queries) UpdateVenue(ctx context.Context, arg UpdateVenueParams) error 
 		arg.AbstractDeadline,
 		arg.NotificationAt,
 		arg.OfficialUrl,
+		arg.LinkKind,
 		arg.Scope,
 		arg.ID,
 	)
+	return err
+}
+
+const upsertSyncFile = `-- name: UpsertSyncFile :exec
+INSERT INTO venue_sync_files (source, path, content) VALUES ($1, $2, $3)
+ON CONFLICT (source, path) DO UPDATE SET content = EXCLUDED.content
+`
+
+type UpsertSyncFileParams struct {
+	Source  string
+	Path    string
+	Content string
+}
+
+func (q *Queries) UpsertSyncFile(ctx context.Context, arg UpsertSyncFileParams) error {
+	_, err := q.db.Exec(ctx, upsertSyncFile, arg.Source, arg.Path, arg.Content)
 	return err
 }
 
@@ -522,18 +935,20 @@ SELECT vf.field_key, count(*)::bigint AS n
 FROM venues v
 JOIN venue_fields vf ON vf.venue_id = v.id
 WHERE v.removed_at IS NULL
-  AND ($1::boolean OR v.submission_deadline > $2::timestamptz)
-  AND (cardinality($3::text[]) = 0 OR v.type = ANY ($3::text[]))
-  AND ($4::timestamptz IS NULL OR v.submission_deadline >= $4::timestamptz)
-  AND ($5::timestamptz IS NULL OR v.submission_deadline < $5::timestamptz)
-  AND ($6::text = ''
-       OR v.name ILIKE $7::text ESCAPE '\' OR v.short_name ILIKE $7::text ESCAPE '\'
-       OR word_similarity($6::text, v.name) >= 0.4
-       OR word_similarity($6::text, coalesce(v.short_name, '')) >= 0.4)
+  AND v.rolling = $1::boolean
+  AND ($2::boolean OR $1::boolean OR v.submission_deadline > $3::timestamptz)
+  AND (cardinality($4::text[]) = 0 OR v.type = ANY ($4::text[]))
+  AND ($5::timestamptz IS NULL OR v.submission_deadline >= $5::timestamptz)
+  AND ($6::timestamptz IS NULL OR v.submission_deadline < $6::timestamptz)
+  AND ($7::text = ''
+       OR v.name ILIKE $8::text ESCAPE '\' OR v.short_name ILIKE $8::text ESCAPE '\'
+       OR word_similarity($7::text, v.name) >= 0.4
+       OR word_similarity($7::text, coalesce(v.short_name, '')) >= 0.4)
 GROUP BY vf.field_key
 `
 
 type VenueFieldCountsParams struct {
+	Rolling      bool
 	IncludePast  bool
 	Now          pgtype.Timestamptz
 	Types        []string
@@ -551,6 +966,7 @@ type VenueFieldCountsRow struct {
 // The list's filter without its field filter; a venue counts once under each of its fields.
 func (q *Queries) VenueFieldCounts(ctx context.Context, arg VenueFieldCountsParams) ([]VenueFieldCountsRow, error) {
 	rows, err := q.db.Query(ctx, venueFieldCounts,
+		arg.Rolling,
 		arg.IncludePast,
 		arg.Now,
 		arg.Types,
@@ -615,19 +1031,21 @@ func (q *Queries) VenueFieldsOf(ctx context.Context, venueIds []pgtype.UUID) ([]
 const venueTypeCounts = `-- name: VenueTypeCounts :many
 SELECT v.type, count(*)::bigint AS n FROM venues v
 WHERE v.removed_at IS NULL
-  AND ($1::boolean OR v.submission_deadline > $2::timestamptz)
-  AND (cardinality($3::text[]) = 0 OR EXISTS (
-        SELECT 1 FROM venue_fields f WHERE f.venue_id = v.id AND f.field_key = ANY ($3::text[])))
-  AND ($4::timestamptz IS NULL OR v.submission_deadline >= $4::timestamptz)
-  AND ($5::timestamptz IS NULL OR v.submission_deadline < $5::timestamptz)
-  AND ($6::text = ''
-       OR v.name ILIKE $7::text ESCAPE '\' OR v.short_name ILIKE $7::text ESCAPE '\'
-       OR word_similarity($6::text, v.name) >= 0.4
-       OR word_similarity($6::text, coalesce(v.short_name, '')) >= 0.4)
+  AND v.rolling = $1::boolean
+  AND ($2::boolean OR $1::boolean OR v.submission_deadline > $3::timestamptz)
+  AND (cardinality($4::text[]) = 0 OR EXISTS (
+        SELECT 1 FROM venue_fields f WHERE f.venue_id = v.id AND f.field_key = ANY ($4::text[])))
+  AND ($5::timestamptz IS NULL OR v.submission_deadline >= $5::timestamptz)
+  AND ($6::timestamptz IS NULL OR v.submission_deadline < $6::timestamptz)
+  AND ($7::text = ''
+       OR v.name ILIKE $8::text ESCAPE '\' OR v.short_name ILIKE $8::text ESCAPE '\'
+       OR word_similarity($7::text, v.name) >= 0.4
+       OR word_similarity($7::text, coalesce(v.short_name, '')) >= 0.4)
 GROUP BY v.type
 `
 
 type VenueTypeCountsParams struct {
+	Rolling      bool
 	IncludePast  bool
 	Now          pgtype.Timestamptz
 	FieldKeys    []string
@@ -645,6 +1063,7 @@ type VenueTypeCountsRow struct {
 // The list's filter without its type filter.
 func (q *Queries) VenueTypeCounts(ctx context.Context, arg VenueTypeCountsParams) ([]VenueTypeCountsRow, error) {
 	rows, err := q.db.Query(ctx, venueTypeCounts,
+		arg.Rolling,
 		arg.IncludePast,
 		arg.Now,
 		arg.FieldKeys,

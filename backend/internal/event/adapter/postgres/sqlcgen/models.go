@@ -23,7 +23,7 @@ type Venue struct {
 	City               pgtype.Text
 	Country            pgtype.Text
 	Attendance         pgtype.Text
-	DeadlineTz         string
+	DeadlineTz         pgtype.Text
 	AbstractDeadline   pgtype.Timestamptz
 	NotificationAt     pgtype.Timestamptz
 	OfficialUrl        string
@@ -32,4 +32,42 @@ type Venue struct {
 	RemovedAt          pgtype.Timestamptz
 	RemovedBy          pgtype.UUID
 	RemovalReason      pgtype.Text
+	Rolling            bool
+	LinkKind           string
+	LockedAt           pgtype.Timestamptz
+}
+
+type VenueSyncLinkCheck struct {
+	Url         string
+	Ok          bool
+	FinalStatus int32
+	CheckedAt   pgtype.Timestamptz
+}
+
+type VenueSyncRun struct {
+	ID          pgtype.UUID
+	Source      string
+	DryRun      bool
+	Trigger     string
+	RequestedBy pgtype.UUID
+	StartedAt   pgtype.Timestamptz
+	FinishedAt  pgtype.Timestamptz
+	Status      string
+	CommitSha   pgtype.Text
+	Created     int32
+	Updated     int32
+	Unchanged   int32
+	Skipped     int32
+	Rejected    int32
+	Errors      []byte
+	Rejects     []byte
+}
+
+type VenueSyncSource struct {
+	Source          string
+	CommitSha       pgtype.Text
+	Etag            pgtype.Text
+	LeaseUntil      pgtype.Timestamptz
+	LastScheduledAt pgtype.Timestamptz
+	LastRunAt       pgtype.Timestamptz
 }

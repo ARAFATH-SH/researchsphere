@@ -25,6 +25,9 @@ const (
 	CodeInvalidImportFile = "invalid_import_file"
 	CodeTooManyRows       = "too_many_rows"
 	CodeFileTooLarge      = "file_too_large"
+	CodeSyncRunning       = "venue_sync_running"
+	CodeSyncTooSoon       = "venue_sync_too_soon"
+	CodeSyncUnconfigured  = "venue_sync_unconfigured"
 )
 
 // formField is the multipart part that holds an import file.
@@ -41,19 +44,27 @@ type Service interface {
 	Import(ctx context.Context, adminID, filename string, r io.Reader, dryRun bool) (usecase.ImportResult, error)
 }
 
+// Syncer is what the handlers need from the automatic import (FR-14.5).
+type Syncer interface {
+	Start(ctx context.Context, adminID string, sources []string, dry bool) ([]domain.SyncRun, error)
+	Status(ctx context.Context) ([]usecase.SourceStatus, error)
+	Daily() bool
+}
+
 // Handler serves the venue operations.
 type Handler struct {
-	svc Service
-	now func() time.Time
+	svc  Service
+	sync Syncer
+	now  func() time.Time
 }
 
 // NewHandler returns a Handler. now is the clock that says whether a deadline has passed;
 // nil means time.Now.
-func NewHandler(svc Service, now func() time.Time) *Handler {
+func NewHandler(svc Service, sync Syncer, now func() time.Time) *Handler {
 	if now == nil {
 		now = time.Now
 	}
-	return &Handler{svc: svc, now: now}
+	return &Handler{svc: svc, sync: sync, now: now}
 }
 
 var (
@@ -80,6 +91,18 @@ var messages = map[string]string{
 	domain.CodeBeforeDeadline:   "The notification date is before the submission deadline.",
 }
 
+// notAllowedMessages says why a field is refused, where "not allowed" needs more words.
+var notAllowedMessages = map[string]string{
+	"rolling":            "Only a journal can be rolling.",
+	"timeZone":           "A rolling journal has no time zone.",
+	"submissionDeadline": "A rolling journal has no deadline.",
+	"abstractDeadline":   "A rolling journal has no deadline.",
+	"notificationAt":     "A rolling journal has no deadline.",
+	"includePast":        "Rolling journals have no deadline; leave out includePast.",
+	"deadlineFrom":       "Rolling journals have no deadline; leave out the deadline range.",
+	"deadlineTo":         "Rolling journals have no deadline; leave out the deadline range.",
+}
+
 // invalid is the 400 body of the first problem.
 func invalid(err *domain.InvalidError) gen.InvalidVenueJSONResponse {
 	if len(err.Problems) == 0 {
@@ -89,6 +112,9 @@ func invalid(err *domain.InvalidError) gen.InvalidVenueJSONResponse {
 	msg, ok := messages[p.Code]
 	if !ok {
 		msg = "This field is not valid."
+	}
+	if m, ok := notAllowedMessages[p.Field]; ok && p.Code == domain.CodeNotAllowed {
+		msg = m
 	}
 	field := p.Field
 	return gen.InvalidVenueJSONResponse{Code: httpx.CodeBadRequest, Message: msg, Field: &field}
@@ -117,7 +143,7 @@ func (h *Handler) ListVenues(ctx context.Context, req gen.ListVenuesRequestObjec
 	}
 	p := req.Params
 	in := usecase.ListInput{
-		IncludePast: deref(p.IncludePast), DeadlineFrom: deref(p.DeadlineFrom), DeadlineTo: deref(p.DeadlineTo),
+		IncludePast: deref(p.IncludePast), Rolling: deref(p.Rolling), DeadlineFrom: deref(p.DeadlineFrom), DeadlineTo: deref(p.DeadlineTo),
 		TZ: deref(p.Tz), Q: deref(p.Q),
 	}
 	if p.Page != nil {
@@ -196,10 +222,11 @@ func (h *Handler) CreateVenue(ctx context.Context, req gen.CreateVenueRequestObj
 	}
 	b := req.Body
 	v, err := h.svc.Create(ctx, id, usecase.Input{
-		Name: b.Name, ShortName: deref(b.ShortName), Type: b.Type, Fields: b.Fields, Attendance: deref(b.Attendance),
-		City: deref(b.City), Country: deref(b.Country), StartsOn: deref(b.StartsOn), EndsOn: deref(b.EndsOn),
-		TimeZone: b.TimeZone, SubmissionDeadline: b.SubmissionDeadline, AbstractDeadline: deref(b.AbstractDeadline),
-		NotificationAt: deref(b.NotificationAt), OfficialURL: b.OfficialUrl, Scope: b.Scope,
+		Name: b.Name, ShortName: deref(b.ShortName), Type: b.Type, Rolling: deref(b.Rolling), Fields: b.Fields,
+		Attendance: deref(b.Attendance), City: deref(b.City), Country: deref(b.Country), StartsOn: deref(b.StartsOn),
+		EndsOn: deref(b.EndsOn), TimeZone: deref(b.TimeZone), SubmissionDeadline: deref(b.SubmissionDeadline),
+		AbstractDeadline: deref(b.AbstractDeadline),
+		NotificationAt:   deref(b.NotificationAt), OfficialURL: b.OfficialUrl, Scope: b.Scope,
 	})
 	var bad *domain.InvalidError
 	switch {
@@ -232,6 +259,12 @@ func (h *Handler) UpdateVenue(ctx context.Context, req gen.UpdateVenueRequestObj
 		TimeZone: opt(b.TimeZone), SubmissionDeadline: opt(b.SubmissionDeadline),
 		AbstractDeadline: opt(b.AbstractDeadline), NotificationAt: opt(b.NotificationAt),
 		OfficialURL: opt(b.OfficialUrl), Scope: opt(b.Scope),
+	}
+	if b.Rolling.IsSpecified() {
+		p.Rolling.Set = true
+		if !b.Rolling.IsNull() {
+			p.Rolling.Value = b.Rolling.MustGet()
+		}
 	}
 	if b.Fields.IsSpecified() {
 		p.FieldsSet = true
@@ -336,6 +369,100 @@ func (h *Handler) ImportVenues(ctx context.Context, req gen.ImportVenuesRequestO
 	return body, nil
 }
 
+// StartVenueSync runs the automatic import now, or a dry run of it (FR-14.5).
+func (h *Handler) StartVenueSync(ctx context.Context, req gen.StartVenueSyncRequestObject) (gen.StartVenueSyncResponseObject, error) {
+	id, ok := httpx.UserID(ctx)
+	if !ok {
+		return gen.StartVenueSync401JSONResponse{UnauthorizedJSONResponse: unauthenticated}, nil
+	}
+	var sources []string
+	if req.Body != nil && req.Body.Sources != nil {
+		sources = *req.Body.Sources
+	}
+	dry := deref(req.Params.DryRun)
+	runs, err := h.sync.Start(ctx, id, sources, dry)
+	var bad *domain.InvalidError
+	switch {
+	case errors.As(err, &bad):
+		return gen.StartVenueSync400JSONResponse{InvalidVenueJSONResponse: gen.InvalidVenueJSONResponse{
+			Code: httpx.CodeBadRequest, Message: "Name sources from ccfddl, hci_deadlines and openalex.", Field: new("sources")}}, nil
+	case errors.Is(err, usecase.ErrSyncUnconfigured):
+		return gen.StartVenueSync503JSONResponse{Code: CodeSyncUnconfigured,
+			Message: "The automatic import has no contact address (VENUE_SYNC_CONTACT_EMAIL), so it reads no source."}, nil
+	case errors.Is(err, domain.ErrSyncRunning):
+		return gen.StartVenueSync409JSONResponse{Code: CodeSyncRunning, Message: "A run of this source is already in progress."}, nil
+	case errors.Is(err, domain.ErrSyncTooSoon):
+		return gen.StartVenueSync429JSONResponse{Code: CodeSyncTooSoon, Message: "This source was imported less than an hour ago. Try a dry run, or wait."}, nil
+	case err != nil:
+		return nil, err
+	}
+	body := gen.StartVenueSync202JSONResponse{DryRun: dry, Runs: make([]gen.VenueSyncStartedRun, len(runs))}
+	for i, r := range runs {
+		u, err := uuidOf(r.ID)
+		if err != nil {
+			return nil, err
+		}
+		body.Runs[i] = gen.VenueSyncStartedRun{Id: u, Source: gen.VenueSyncSourceName(r.Source)}
+	}
+	return body, nil
+}
+
+// GetVenueSyncStatus returns every source's state and latest runs (FR-14.5).
+func (h *Handler) GetVenueSyncStatus(ctx context.Context, _ gen.GetVenueSyncStatusRequestObject) (gen.GetVenueSyncStatusResponseObject, error) {
+	if _, ok := httpx.UserID(ctx); !ok {
+		return gen.GetVenueSyncStatus401JSONResponse{UnauthorizedJSONResponse: unauthenticated}, nil
+	}
+	sources, err := h.sync.Status(ctx)
+	if err != nil {
+		return nil, err
+	}
+	body := gen.GetVenueSyncStatus200JSONResponse{Daily: h.sync.Daily(), Sources: make([]gen.VenueSyncSource, len(sources))}
+	for i, s := range sources {
+		out := gen.VenueSyncSource{Source: gen.VenueSyncSourceName(s.Source), Label: s.Info.Label, Licence: s.Info.Licence,
+			Url: s.Info.URL, Commit: optString(s.CommitSHA)}
+		if !s.NextRunAt.IsZero() {
+			t := s.NextRunAt.UTC()
+			out.NextRunAt = &t
+		}
+		if out.LastRun, err = syncRunOf(s.LastRun); err != nil {
+			return nil, err
+		}
+		if out.LastDryRun, err = syncRunOf(s.LastDryRun); err != nil {
+			return nil, err
+		}
+		body.Sources[i] = out
+	}
+	return body, nil
+}
+
+func syncRunOf(r *domain.SyncRun) (*gen.VenueSyncRun, error) {
+	if r == nil {
+		return nil, nil
+	}
+	id, err := uuidOf(r.ID)
+	if err != nil {
+		return nil, err
+	}
+	out := &gen.VenueSyncRun{
+		Id: id, DryRun: r.DryRun, Trigger: gen.VenueSyncRunTrigger(r.Trigger), Status: gen.VenueSyncRunStatus(r.Status),
+		StartedAt: r.StartedAt.UTC(), Commit: optString(r.CommitSHA), Created: r.Created, Updated: r.Updated,
+		Unchanged: r.Unchanged, Skipped: r.Skipped, Rejected: r.Rejected,
+		Errors: append([]string{}, r.Errors...), Rejects: make([]gen.VenueSyncReject, len(r.Rejects)),
+	}
+	if !r.FinishedAt.IsZero() {
+		t := r.FinishedAt.UTC()
+		out.FinishedAt = &t
+	}
+	for i, rj := range r.Rejects {
+		reasons := make([]gen.VenueImportReason, len(rj.Problems))
+		for j, p := range rj.Problems {
+			reasons[j] = gen.VenueImportReason{Field: p.Field, Code: p.Code}
+		}
+		out.Rejects[i] = gen.VenueSyncReject{SourceKey: rj.SourceKey, Name: rj.Name, Reasons: reasons}
+	}
+	return out, nil
+}
+
 func badMultipart() gen.ImportVenues400JSONResponse {
 	return gen.ImportVenues400JSONResponse{Code: httpx.CodeBadRequest, Message: "Send the file as multipart form data in a part named file."}
 }
@@ -375,11 +502,12 @@ func summaryOf(v domain.Venue, now time.Time) (gen.VenueSummary, error) {
 		loc = time.UTC
 	}
 	s := gen.VenueSummary{
-		Id: id, Name: v.Name, ShortName: optString(v.ShortName), Type: gen.VenueType(v.Type),
+		Id: id, Name: v.Name, ShortName: optString(v.ShortName), Type: gen.VenueType(v.Type), Rolling: v.Rolling,
 		Fields: make([]gen.ResearchField, len(v.Fields)), City: optString(v.City), Country: optString(v.Country),
-		StartsOn: optDate(v.StartsOn), EndsOn: optDate(v.EndsOn), TimeZone: v.TimeZone,
-		SubmissionDeadline: venueTime(v.SubmissionDeadline, loc), AbstractDeadline: optVenueTime(v.AbstractDeadline, loc),
-		NotificationAt: optVenueTime(v.NotificationAt, loc), OfficialUrl: v.OfficialURL, Past: v.Past(now),
+		StartsOn: optDate(v.StartsOn), EndsOn: optDate(v.EndsOn), TimeZone: optString(v.TimeZone),
+		SubmissionDeadline: optVenueTime(v.SubmissionDeadline, loc), AbstractDeadline: optVenueTime(v.AbstractDeadline, loc),
+		NotificationAt: optVenueTime(v.NotificationAt, loc), OfficialUrl: v.OfficialURL,
+		LinkKind: gen.VenueSummaryLinkKind(v.Link()), Past: v.Past(now),
 	}
 	for i, f := range v.Fields {
 		s.Fields[i] = gen.ResearchField{Key: f.Key, Label: f.Label}
@@ -401,8 +529,8 @@ func venueOf(v domain.Venue, now time.Time) (gen.Venue, error) {
 		Id: s.Id, Name: s.Name, ShortName: s.ShortName, Type: s.Type, Fields: s.Fields, Attendance: s.Attendance,
 		City: s.City, Country: s.Country, StartsOn: s.StartsOn, EndsOn: s.EndsOn, TimeZone: s.TimeZone,
 		SubmissionDeadline: s.SubmissionDeadline, AbstractDeadline: s.AbstractDeadline, NotificationAt: s.NotificationAt,
-		OfficialUrl: s.OfficialUrl, Past: s.Past, Scope: v.Scope, Source: gen.VenueSource(v.Source),
-		CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt,
+		OfficialUrl: s.OfficialUrl, LinkKind: gen.VenueLinkKind(s.LinkKind), Rolling: s.Rolling, Past: s.Past,
+		Scope: v.Scope, Source: gen.VenueSource(v.Source), Locked: v.Locked(), CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt,
 	}, nil
 }
 

@@ -64,6 +64,7 @@ var jsonBodyRoutes = []struct {
 	{http.MethodPost, "/api/v1/projects/" + okProjectID + "/reports", "reason", `{"reason":5}`, "reason", "reason must be a string."},
 	{http.MethodPost, "/api/v1/admin/project-reports/" + okUserID + "/resolve", "outcome", `{"outcome":5}`, "outcome", "outcome must be a string."},
 	{http.MethodPost, "/api/v1/admin/venues", "fields", `{"fields":[],"name":5,"officialUrl":"","scope":"","submissionDeadline":"","timeZone":"","type":""}`, "name", "name must be a string."},
+	{http.MethodPost, "/api/v1/admin/venues/sync", "", `{"sources":"ccfddl"}`, "sources", "sources must be a list."},
 	{http.MethodPatch, "/api/v1/admin/venues/" + okVenueID, "", `{"scope":5}`, "scope", "scope must be a string."},
 	{http.MethodPost, "/api/v1/admin/venues/" + okVenueID + "/remove", "reason", `{"reason":5}`, "reason", "reason must be a string."},
 	{http.MethodPost, "/api/v1/projects/" + okProjectID + "/join-requests", "", `{"message":5}`, "message", "message must be a string."},

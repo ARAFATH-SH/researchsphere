@@ -91,6 +91,8 @@ var platformGuards = map[string]authz.Action{
 	"PATCH /api/v1/admin/venues/{venueId}":       authz.ManageVenues,
 	"POST /api/v1/admin/venues/{venueId}/remove": authz.ManageVenues,
 	"POST /api/v1/admin/venues/import":           authz.ManageVenues,
+	"GET /api/v1/admin/venues/sync":              authz.ManageVenues,
+	"POST /api/v1/admin/venues/sync":             authz.ManageVenues,
 
 	// Moderation (FR-15.3, FR-15.5 to FR-15.9). Warnings are the user's own, so reading and
 	// acknowledging one needs what reading the app needs.

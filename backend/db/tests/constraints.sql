@@ -1112,7 +1112,7 @@ LANGUAGE sql AS $$
     SELECT format('INSERT INTO venues SELECT * FROM jsonb_populate_record(NULL::venues, %L::jsonb)',
         jsonb_build_object('id', gen_random_uuid(), 'name', 'Journal', 'type', 'journal', 'scope', 'Scope',
                            'deadline_tz', 'UTC', 'submission_deadline', now(), 'official_url', 'https://j.example.org',
-                           'source', 'manual', 'created_at', now(), 'updated_at', now())
+                           'source', 'manual', 'rolling', false, 'link_kind', 'official', 'created_at', now(), 'updated_at', now())
         || jsonb_build_object(col, val))
 $$;
 SELECT pg_temp.expect_ok('Venue: the base journal of the checks below is valid', pg_temp.venue_with('name', 'Journal'));
@@ -1126,8 +1126,9 @@ SELECT pg_temp.expect_error('Venue: no carriage return in the scope', pg_temp.ve
 SELECT pg_temp.expect_error('Venue: the zone is AoE, UTC or an IANA name', pg_temp.venue_with('deadline_tz', 'GMT+6'), '23514');
 SELECT pg_temp.expect_error('Venue: a journal has no attendance', pg_temp.venue_with('attendance', 'online'), '23514');
 SELECT pg_temp.expect_error('Venue: a journal has no event dates', pg_temp.venue_with('starts_on', '2027-01-01'), '23514');
+-- Since 000040 a CHECK (venues_rolling) requires it of every venue that is not rolling.
 SELECT pg_temp.expect_error('Venue: the deadline is required',
-    $s$INSERT INTO venues (name, type, scope, deadline_tz, official_url) VALUES ('J', 'journal', 'S', 'UTC', 'https://j.example.org')$s$, '23502');
+    $s$INSERT INTO venues (name, type, scope, deadline_tz, official_url) VALUES ('J', 'journal', 'S', 'UTC', 'https://j.example.org')$s$, '23514');
 SELECT pg_temp.expect_error('Venue: an in-person event has its place',
     $s$INSERT INTO venues (name, type, scope, attendance, deadline_tz, submission_deadline, official_url)
        VALUES ('C', 'conference', 'S', 'in_person', 'UTC', now(), 'https://c.example.org')$s$, '23514');
@@ -1193,6 +1194,79 @@ SELECT pg_temp.expect_true('Venue embedding: a change of the link queues nothing
 UPDATE venues SET scope = 'NLP and speech' WHERE id = '00000000-0000-0000-0000-000000000201';
 SELECT pg_temp.expect_true('Venue embedding: a change of the scope queues the venue', $q$
     SELECT EXISTS (SELECT 1 FROM embedding_jobs WHERE owner_type = 'venue' AND owner_id = '00000000-0000-0000-0000-000000000201')$q$);
+
+-- ---------------------------------------------------------------------------
+-- Automatic venue import (FR-14.5; migration 000040)
+-- ---------------------------------------------------------------------------
+
+SELECT pg_temp.expect_ok('Venue sync: a synced venue has its source and key',
+    $s$INSERT INTO venues (name, type, scope, attendance, deadline_tz, submission_deadline, official_url, source, source_key)
+       VALUES ('ICML', 'conference', 'ML', 'online', 'AoE', now(), 'https://icml.example.org', 'ccfddl', 'ccfddl:icml27')$s$);
+SELECT pg_temp.expect_ok('Venue sync: the same key in another source is another venue',
+    $s$INSERT INTO venues (name, type, scope, attendance, deadline_tz, submission_deadline, official_url, source, source_key)
+       VALUES ('ICML', 'conference', 'ML', 'online', 'AoE', now(), 'https://icml.example.org', 'hci_deadlines', 'ccfddl:icml27')$s$);
+SELECT pg_temp.expect_error('Venue sync: one venue per source and key (FR-14.5)',
+    $s$INSERT INTO venues (name, type, scope, attendance, deadline_tz, submission_deadline, official_url, source, source_key)
+       VALUES ('ICML again', 'conference', 'ML', 'online', 'AoE', now(), 'https://icml.example.org', 'ccfddl', 'ccfddl:icml27')$s$, '23505');
+SELECT pg_temp.expect_error('Venue sync: a synced venue needs its key',
+    $s$INSERT INTO venues (name, type, scope, deadline_tz, submission_deadline, official_url, source)
+       VALUES ('J', 'journal', 'S', 'UTC', now(), 'https://j.example.org', 'openalex')$s$, '23514');
+SELECT pg_temp.expect_error('Venue sync: no other source', pg_temp.venue_with('source', 'wikicfp'), '23514');
+SELECT pg_temp.expect_ok('Venue sync: a rolling journal has no deadline and no zone',
+    $s$INSERT INTO venues (name, type, scope, rolling, official_url, source, source_key)
+       VALUES ('Rolling', 'journal', 'S', true, 'https://r.example.org', 'openalex', 'openalex:S1')$s$);
+SELECT pg_temp.expect_error('Venue sync: only a journal is rolling',
+    $s$INSERT INTO venues (name, type, scope, rolling, attendance, official_url) VALUES ('C', 'conference', 'S', true, 'online', 'https://c.example.org')$s$, '23514');
+SELECT pg_temp.expect_error('Venue sync: a rolling journal has no deadline',
+    $s$INSERT INTO venues (name, type, scope, rolling, deadline_tz, submission_deadline, official_url)
+       VALUES ('J', 'journal', 'S', true, 'UTC', now(), 'https://j.example.org')$s$, '23514');
+SELECT pg_temp.expect_error('Venue sync: a venue that is not rolling has its deadline',
+    $s$INSERT INTO venues (name, type, scope, official_url) VALUES ('J', 'journal', 'S', 'https://j.example.org')$s$, '23514');
+SELECT pg_temp.expect_error('Venue sync: a venue that is not rolling has its zone',
+    $s$INSERT INTO venues (name, type, scope, submission_deadline, official_url) VALUES ('J', 'journal', 'S', now(), 'https://j.example.org')$s$, '23514');
+SELECT pg_temp.expect_error('Venue sync: the link kind is official or issn_portal', pg_temp.venue_with('link_kind', 'mirror'), '23514');
+SELECT pg_temp.expect_error('Venue sync: only a synced venue is locked', pg_temp.venue_with('locked_at', now()::text), '23514');
+SELECT pg_temp.expect_ok('Venue sync: a synced venue is locked',
+    $s$UPDATE venues SET locked_at = now() WHERE source_key = 'openalex:S1'$s$);
+SELECT pg_temp.expect_ok('Venue sync: the import is an audit actor',
+    $s$INSERT INTO venue_actions (venue_id, actor, admin_name, action, import_id)
+       VALUES ('00000000-0000-0000-0000-000000000201', 'import', 'Automatic import', 'import_update', gen_random_uuid())$s$);
+SELECT pg_temp.expect_error('Venue sync: the import never has a user',
+    $s$INSERT INTO venue_actions (venue_id, actor, admin_id, admin_name, action, import_id)
+       SELECT '00000000-0000-0000-0000-000000000201', 'import', id, 'Automatic import', 'import_update', gen_random_uuid() FROM users LIMIT 1$s$, '23514');
+SELECT pg_temp.expect_error('Venue sync: the import only imports',
+    $s$INSERT INTO venue_actions (venue_id, actor, admin_name, action, reason)
+       VALUES ('00000000-0000-0000-0000-000000000201', 'import', 'Automatic import', 'remove', 'Not an import action')$s$, '23514');
+SELECT pg_temp.expect_error('Venue sync: no other actor',
+    $s$INSERT INTO venue_actions (venue_id, actor, admin_name, action) VALUES ('00000000-0000-0000-0000-000000000201', 'robot', 'R', 'create')$s$, '23514');
+-- 000040 seeds the three sources; integration tests may have emptied the table since.
+INSERT INTO venue_sync_sources (source) VALUES ('ccfddl'), ('hci_deadlines'), ('openalex') ON CONFLICT DO NOTHING;
+SELECT pg_temp.expect_error('Venue sync: no fourth source',
+    $s$INSERT INTO venue_sync_sources (source) VALUES ('wikicfp')$s$, '23514');
+SELECT pg_temp.expect_error('Venue sync: a run has a known trigger',
+    $s$INSERT INTO venue_sync_runs (source, dry_run, trigger, started_at) VALUES ('ccfddl', false, 'cron', now())$s$, '23514');
+SELECT pg_temp.expect_error('Venue sync: a finished run has its end',
+    $s$INSERT INTO venue_sync_runs (source, dry_run, trigger, started_at, status) VALUES ('ccfddl', false, 'schedule', now(), 'succeeded')$s$, '23514');
+SELECT pg_temp.expect_error('Venue sync: a run keeps at most 200 rejects',
+    $s$INSERT INTO venue_sync_runs (source, dry_run, trigger, started_at, rejects)
+       SELECT 'ccfddl', false, 'schedule', now(), jsonb_agg(i) FROM generate_series(1, 201) i$s$, '23514');
+SELECT pg_temp.expect_error('Venue sync: a link check is https',
+    $s$INSERT INTO venue_sync_link_checks (url, ok, final_status, checked_at) VALUES ('http://x.example.org', true, 200, now())$s$, '23514');
+SELECT pg_temp.expect_error('Venue sync: a stored commit is a full SHA',
+    $s$UPDATE venue_sync_sources SET commit_sha = 'main' WHERE source = 'ccfddl'$s$, '23514');
+-- The sync's embeddings are low priority; everyone else's stay at 0.
+DELETE FROM embedding_jobs WHERE owner_type = 'venue';
+DO $d$ BEGIN
+    PERFORM set_config('researchsphere.embedding_priority', '1', true);
+    UPDATE venues SET scope = 'Synced scope' WHERE source_key = 'ccfddl:icml27' AND source = 'ccfddl';
+END $d$;
+SELECT pg_temp.expect_true('Venue sync: the sync queues at priority 1', $q$
+    SELECT priority = 1 FROM embedding_jobs WHERE owner_type = 'venue'$q$);
+SELECT set_config('researchsphere.embedding_priority', '', false);
+DELETE FROM embedding_jobs WHERE owner_type = 'venue';
+UPDATE venues SET scope = 'Admin scope' WHERE source_key = 'ccfddl:icml27' AND source = 'ccfddl';
+SELECT pg_temp.expect_true('Venue sync: a change by anyone else queues at priority 0', $q$
+    SELECT priority = 0 FROM embedding_jobs WHERE owner_type = 'venue'$q$);
 
 -- ---------------------------------------------------------------------------
 -- Embedding: one per owner, deleted with its owner (AI-1)

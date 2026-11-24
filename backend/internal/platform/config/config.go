@@ -31,6 +31,12 @@ const (
 	DefaultS3Region   = "us-east-1"
 	// OpenAlex (FR-5.2); tests point it at a fake server.
 	DefaultOpenAlexBaseURL = "https://api.openalex.org"
+	// GitHub, for the automatic venue import's deadline repositories (FR-14.5).
+	DefaultGitHubAPIURL = "https://api.github.com"
+	DefaultGitHubRawURL = "https://raw.githubusercontent.com"
+	// The automatic venue import (FR-14.5, docs/venues-sync.md).
+	DefaultVenueSyncMinInterval   = time.Hour
+	DefaultVenueSyncOpenAlexWorks = 5000
 	// ORCID public API (FR-5.3); tests point it at a fake server.
 	DefaultORCIDBaseURL = "https://pub.orcid.org"
 	// Send limits per user (FR-16.10).
@@ -164,6 +170,18 @@ type Config struct {
 	OpenAlexMailto  string
 	// The ORCID public API, for importing works (FR-5.3).
 	ORCIDBaseURL string
+
+	// The automatic venue import (FR-14.5, docs/venues-sync.md). VenueSyncDaily turns the
+	// daily run on. VenueSyncContactEmail is sent to every source in the User-Agent and to
+	// OpenAlex as mailto; without it no run starts. OpenAlexAPIKey, when set, is sent to
+	// OpenAlex as api_key: never log it.
+	VenueSyncDaily         bool
+	VenueSyncContactEmail  string
+	VenueSyncMinInterval   time.Duration
+	VenueSyncOpenAlexWorks int
+	OpenAlexAPIKey         string
+	GitHubAPIURL           string
+	GitHubRawURL           string
 	// Send limits per user (FR-16.10): messages, and new message requests.
 	MessagesPerMinute int
 	MessagesPerDay    int
@@ -356,6 +374,7 @@ func Load(getenv func(string) string) (Config, error) {
 	if err := checkBaseURL("ORCID_BASE_URL", cfg.ORCIDBaseURL); err != nil {
 		errs = append(errs, err)
 	}
+	errs = append(errs, loadVenueSync(&cfg, getenv)...)
 
 	for _, l := range []struct {
 		name string
@@ -498,8 +517,43 @@ func Load(getenv func(string) string) (Config, error) {
 	return cfg, nil
 }
 
+// loadVenueSync reads the automatic venue import's settings.
+func loadVenueSync(cfg *Config, getenv func(string) string) []error {
+	var errs []error
+	var err error
+	if cfg.VenueSyncDaily, err = parseBool("VENUE_SYNC_DAILY", getenv("VENUE_SYNC_DAILY")); err != nil {
+		errs = append(errs, err)
+	}
+	cfg.VenueSyncContactEmail = strings.TrimSpace(getenv("VENUE_SYNC_CONTACT_EMAIL"))
+	if a, err := mail.ParseAddress(cfg.VenueSyncContactEmail); cfg.VenueSyncContactEmail != "" && (err != nil || a.Name != "" || a.Address != cfg.VenueSyncContactEmail) {
+		errs = append(errs, errors.New("VENUE_SYNC_CONTACT_EMAIL must be a bare email address, such as ops@example.org"))
+	}
+	if cfg.VenueSyncDaily && cfg.VenueSyncContactEmail == "" {
+		errs = append(errs, errors.New("VENUE_SYNC_DAILY=true needs VENUE_SYNC_CONTACT_EMAIL: the sources are told who is fetching"))
+	}
+	if cfg.VenueSyncMinInterval, err = parseDuration("VENUE_SYNC_MIN_INTERVAL", getenv("VENUE_SYNC_MIN_INTERVAL"), DefaultVenueSyncMinInterval); err != nil {
+		errs = append(errs, err)
+	}
+	if cfg.VenueSyncOpenAlexWorks, err = parsePositive("VENUE_SYNC_OPENALEX_MIN_WORKS", getenv("VENUE_SYNC_OPENALEX_MIN_WORKS"), DefaultVenueSyncOpenAlexWorks); err != nil {
+		errs = append(errs, err)
+	}
+	cfg.OpenAlexAPIKey = strings.TrimSpace(getenv("OPENALEX_API_KEY"))
+	if strings.ContainsAny(cfg.OpenAlexAPIKey, " \t\r\n&?#=") {
+		errs = append(errs, errors.New("OPENALEX_API_KEY must be the key alone, without spaces or URL characters"))
+	}
+	cfg.GitHubAPIURL = strings.TrimRight(orDefault(getenv("VENUE_SYNC_GITHUB_API_URL"), DefaultGitHubAPIURL), "/")
+	if err := checkBaseURL("VENUE_SYNC_GITHUB_API_URL", cfg.GitHubAPIURL); err != nil {
+		errs = append(errs, err)
+	}
+	cfg.GitHubRawURL = strings.TrimRight(orDefault(getenv("VENUE_SYNC_GITHUB_RAW_URL"), DefaultGitHubRawURL), "/")
+	if err := checkBaseURL("VENUE_SYNC_GITHUB_RAW_URL", cfg.GitHubRawURL); err != nil {
+		errs = append(errs, err)
+	}
+	return errs
+}
+
 // LogValue keeps the database and Redis URLs, and so any password in them, the JWT and
-// unsubscribe secrets, the AI service token, the SMTP password and the storage keys out of the logs. The mail, cookie, storage location,
+// unsubscribe secrets, the AI service token, the SMTP password, the OpenAlex API key and the storage keys out of the logs. The mail, cookie, storage location,
 // OpenAlex and ORCID address settings hold no secrets; the OpenAlex contact address is
 // left out as personal data.
 func (c Config) LogValue() slog.Value {
@@ -520,6 +574,11 @@ func (c Config) LogValue() slog.Value {
 		slog.Bool("s3_use_ssl", c.Storage.UseSSL),
 		slog.String("openalex_base_url", c.OpenAlexBaseURL),
 		slog.String("orcid_base_url", c.ORCIDBaseURL),
+		slog.Bool("venue_sync_daily", c.VenueSyncDaily),
+		slog.Bool("venue_sync_contact_set", c.VenueSyncContactEmail != ""),
+		slog.Duration("venue_sync_min_interval", c.VenueSyncMinInterval),
+		slog.Int("venue_sync_openalex_min_works", c.VenueSyncOpenAlexWorks),
+		slog.Bool("openalex_api_key_set", c.OpenAlexAPIKey != ""),
 		slog.String("clamav_addr", c.ClamAVAddr),
 		slog.Int64("clamav_max_bytes", c.ClamAVMaxBytes),
 		slog.Int64("figure_max_bytes", c.FigureMaxBytes),
