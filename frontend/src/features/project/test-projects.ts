@@ -11,6 +11,8 @@ import type {
   ProjectRecommendation,
   ProjectRecommendations,
   ProjectSummary,
+  RecommendedVenue,
+  VenueRecommendations,
 } from "./api";
 
 // Test data for the project pages.
@@ -162,4 +164,50 @@ export function myRequest(n: number, extra: Partial<MyJoinRequest> = {}): MyJoin
 // page wraps items as one page of a membership list.
 export function page<T>(items: T[]) {
   return { ok: true as const, data: { items, page: 1, pageSize: 50, total: items.length } };
+}
+
+// venueNotice is the AI-6.4 sentence the API sends with every venue answer.
+export const venueNotice = "Matched on topic only. This says nothing about a venue’s quality or ranking.";
+
+// recommendedVenue is a conference whose deadline is 15 Feb 2027, 23:59:59 AoE (16 Feb 2027,
+// 11:59:59 UTC), as in the events page's test data.
+export function recommendedVenue(n: number, extra: Partial<RecommendedVenue> = {}): RecommendedVenue {
+  return {
+    id: `0192f0a0-0000-7000-8000-0000000003${String(n).padStart(2, "0")}`,
+    name: `Conference on Digital Health ${n}`,
+    shortName: `CDH${n}`,
+    type: "conference",
+    fields: [{ key: "health_informatics", label: "Health informatics" }],
+    timeZone: "AoE",
+    submissionDeadline: { local: "2027-02-15T23:59:59", at: "2027-02-16T11:59:59Z" },
+    daysLeft: 15,
+    officialUrl: `https://cdh${n}.example.org/cfp`,
+    linkKind: "official",
+    score: 90 - n,
+    ...extra,
+  };
+}
+
+// recommendedJournal is a rolling journal: no zone, deadline or days left.
+export function recommendedJournal(n: number, extra: Partial<RecommendedVenue> = {}): RecommendedVenue {
+  return recommendedVenue(n, {
+    id: `0192f0a0-0000-7000-8000-0000000004${String(n).padStart(2, "0")}`,
+    name: `Journal of Screen Health ${n}`,
+    shortName: null,
+    type: "journal",
+    timeZone: null,
+    submissionDeadline: null,
+    daysLeft: null,
+    linkKind: "issn_portal",
+    score: 70 - n,
+    ...extra,
+  });
+}
+
+export function venueRecs(
+  state: VenueRecommendations["state"],
+  venues: RecommendedVenue[] = [],
+  journals: RecommendedVenue[] = [],
+): { ok: true; data: VenueRecommendations } {
+  return { ok: true, data: { state, venues, journals, notice: venueNotice } };
 }

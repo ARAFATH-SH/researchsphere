@@ -13,8 +13,11 @@ type DialogProps = {
   // usually the button that opened it.
   returnFocusId?: string;
   // placement "sheet" anchors the dialog to the bottom of the screen at full width, as the
-  // phone filter sheets do; "center" (the default) is the usual card in the middle.
-  placement?: "center" | "sheet";
+  // phone filter sheets do; "side" is a full-height panel at the right edge, a bottom sheet
+  // under 640 pixels; "center" (the default) is the usual card in the middle.
+  placement?: "center" | "sheet" | "side";
+  // initialFocusId is the element that gets the focus on open, in place of the first field.
+  initialFocusId?: string;
   children: ReactNode;
 };
 
@@ -27,9 +30,18 @@ type DialogProps = {
 const placementClass = {
   center: "m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-xl rounded-card-lg",
   sheet: "mx-0 mt-auto mb-0 max-h-[85dvh] w-full max-w-none rounded-t-card-lg",
+  side: "my-0 mr-0 ml-auto h-dvh max-h-dvh w-full max-w-md rounded-l-card-lg max-[640px]:mx-0 max-[640px]:mt-auto max-[640px]:h-auto max-[640px]:max-h-[85dvh] max-[640px]:max-w-none max-[640px]:rounded-none max-[640px]:rounded-t-card-lg",
 };
 
-export function Dialog({ title, dirty = false, onClose, returnFocusId, placement = "center", children }: DialogProps) {
+export function Dialog({
+  title,
+  dirty = false,
+  onClose,
+  returnFocusId,
+  placement = "center",
+  initialFocusId,
+  children,
+}: DialogProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const keepRef = useRef<HTMLButtonElement>(null);
@@ -40,12 +52,13 @@ export function Dialog({ title, dirty = false, onClose, returnFocusId, placement
     const el = ref.current;
     if (!el) return;
     if (!el.open) el.showModal();
-    bodyRef.current?.querySelector<HTMLElement>("input:not([disabled]), textarea, select, button")?.focus();
+    const first = initialFocusId ? document.getElementById(initialFocusId) : null;
+    (first ?? bodyRef.current?.querySelector<HTMLElement>("input:not([disabled]), textarea, select, button"))?.focus();
     return () => {
       if (el.open) el.close();
       if (returnFocusId) document.getElementById(returnFocusId)?.focus();
     };
-  }, [returnFocusId]);
+  }, [returnFocusId, initialFocusId]);
 
   useEffect(() => {
     if (confirming) keepRef.current?.focus();

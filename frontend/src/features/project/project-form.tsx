@@ -44,12 +44,14 @@ type ProjectFormProps = {
   actions: (busy: boolean) => ReactNode;
   // note is shown above the buttons.
   note?: ReactNode;
+  // abstractId is the abstract field's id, for a dialog that opens with the focus there.
+  abstractId?: string;
 };
 
 // ProjectForm holds a project's title, description, required skills and paper abstract
 // (FR-10.1, FR-10.2) for the Create card and the Edit dialog. It checks the API's limits
 // before sending, and shows a field the server refuses under that field.
-export function ProjectForm({ initial, onSubmit, onDone, onDirtyChange, actions, note }: ProjectFormProps) {
+export function ProjectForm({ initial, onSubmit, onDone, onDirtyChange, actions, note, abstractId }: ProjectFormProps) {
   const id = useId();
   const [values, setValues] = useState(initial);
   const [errors, setErrors] = useState<ProjectErrors>({});
@@ -145,7 +147,7 @@ export function ProjectForm({ initial, onSubmit, onDone, onDirtyChange, actions,
         />
       </fieldset>
       <TextAreaField
-        id={`${id}-abstract`}
+        id={abstractId ?? `${id}-abstract`}
         label="Paper abstract (optional)"
         look="rs"
         rows={3}

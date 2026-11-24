@@ -47,7 +47,7 @@ export function useDownloads(projectId: string) {
 
 export type Downloads = ReturnType<typeof useDownloads>;
 
-const barButton =
+export const barButton =
   "h-[38px] rounded-rs-pill border border-rs-surface bg-transparent px-3.5 text-rs-body font-medium text-rs-surface hover:bg-rs-accent-deep focus-visible:shadow-[0_0_0_2px_var(--rs-surface)] focus-visible:outline-none disabled:opacity-60";
 
 // DownloadButtons are the bar's "Download PDF" and "Download ZIP" (design/screens/Workspace.html)

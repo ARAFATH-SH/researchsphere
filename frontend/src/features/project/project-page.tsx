@@ -32,6 +32,8 @@ import { useMembership } from "./membership/use-membership";
 import { ProjectForm, valuesOf } from "./project-form";
 import { ReportProjectDialog } from "./report-project-dialog";
 import type { ProjectValues } from "./validation";
+import { AbstractDialog } from "./venues/abstract-dialog";
+import { VenueRecommendations } from "./venues/venue-recommendations";
 
 type Load = { status: "loading" } | { status: "notFound" } | { status: "error" } | { status: "ok"; project: Project };
 
@@ -41,7 +43,7 @@ type Load = { status: "loading" } | { status: "notFound" } | { status: "error" }
 // and the researchers who fit it, to invite (AI-2.3). A non-member may ask to join or answer an
 // invitation (FR-11.1, FR-11.3) and report it (FR-15.11); a member may leave (FR-11.5). A
 // project the caller may not see is "not found", like one that does not exist. A member opens
-// the workspace from here (FR-12); venues come with their slice.
+// the workspace from here (FR-12) and sees the venues that fit its abstract (AI-6).
 export function ProjectPage({ projectId }: { projectId: string }) {
   const [attempt, setAttempt] = useState(0);
   const key = `${projectId}#${attempt}`;
@@ -133,7 +135,12 @@ function StateCard({ title, text, children }: { title: string; text: string; chi
 
 const roleText = { owner: "You are the owner", editor: "You are an editor", viewer: "You are a viewer" } as const;
 
-type Open = "edit" | "report" | null;
+// "edit-abstract" is the owner's Edit dialog opened at the abstract; "abstract" is the editor's
+// abstract-only dialog.
+type Open = "edit" | "edit-abstract" | "abstract" | "report" | null;
+
+const addAbstractId = "add-abstract";
+const abstractFieldId = "edit-project-abstract";
 
 function ProjectView({
   project,
@@ -258,28 +265,44 @@ function ProjectView({
         )}
       </div>
 
-      {isOwner && (
+      {isMember && (
         <aside
           aria-label="Project recommendations"
           className="flex min-w-0 flex-[1_1_300px] max-w-[340px] flex-col gap-3 max-[640px]:max-w-none"
         >
-          <RecommendationList
-            limit={10}
-            variant="project"
-            action={(item) => (
-              <InviteControl
-                person={{ userId: item.userId, fullName: item.fullName, headline: item.headline, photoUrl: item.photoUrl }}
-                state={membership.inviteState(item.userId)}
-                onInvite={membership.invite}
-              />
-            )}
+          {isOwner && (
+            <RecommendationList
+              limit={10}
+              variant="project"
+              action={(item) => (
+                <InviteControl
+                  person={{ userId: item.userId, fullName: item.fullName, headline: item.headline, photoUrl: item.photoUrl }}
+                  state={membership.inviteState(item.userId)}
+                  onInvite={membership.invite}
+                />
+              )}
+            />
+          )}
+          <VenueRecommendations
+            projectId={project.id}
+            abstract={project.abstract}
+            canEditAbstract={project.myRole === "owner" || project.myRole === "editor"}
+            onAddAbstract={() => setOpen(isOwner ? "edit-abstract" : "abstract")}
+            addAbstractId={addAbstractId}
           />
         </aside>
       )}
 
-      {open === "edit" && (
-        <Dialog title="Edit project" dirty={editDirty} onClose={() => setOpen(null)} returnFocusId="edit-project">
+      {(open === "edit" || open === "edit-abstract") && (
+        <Dialog
+          title="Edit project"
+          dirty={editDirty}
+          onClose={() => setOpen(null)}
+          returnFocusId={open === "edit" ? "edit-project" : addAbstractId}
+          initialFocusId={open === "edit-abstract" ? abstractFieldId : undefined}
+        >
           <ProjectForm
+            abstractId={abstractFieldId}
             initial={valuesOf(project)}
             onDirtyChange={setEditDirty}
             onSubmit={(values) => saveChanges(project, values)}
@@ -305,6 +328,19 @@ function ProjectView({
             )}
           />
         </Dialog>
+      )}
+      {open === "abstract" && (
+        <AbstractDialog
+          projectId={project.id}
+          initial={project.abstract}
+          returnFocusId={addAbstractId}
+          onClose={() => setOpen(null)}
+          onSaved={(next) => {
+            onChange(next);
+            setOpen(null);
+            showToast("Saved");
+          }}
+        />
       )}
       {open === "report" && (
         <ReportProjectDialog projectId={project.id} onClose={() => setOpen(null)} returnFocusId="report-project" />

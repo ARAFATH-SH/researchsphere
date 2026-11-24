@@ -29,6 +29,7 @@ import { DropZone, figureAccept, StorageUse, UploadList, useFigureUploads } from
 import { type MemberFace, PresenceBar } from "./presence-bar";
 import { statusText } from "./autosave";
 import { useSaveState } from "./use-savers";
+import { VenuesSheet } from "../venues/venues-sheet";
 import { type BarStatus, WorkspaceBar } from "./workspace-bar";
 
 type Load =
@@ -412,6 +413,7 @@ function Workspace({
             <CompileStatus compile={compiler.compile} starting={compiler.starting} />
             {canEdit && <CompileButton onClick={() => void startCompile()} busy={compiler.starting} />}
             <DownloadButtons downloads={downloads} />
+            <VenuesSheet projectId={projectId} initialAbstract={project.abstract} canEditAbstract={canEdit} />
           </>
         }
       />

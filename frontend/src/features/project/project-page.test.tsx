@@ -1,6 +1,6 @@
 import "@/test/dialog-polyfill";
 
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import { useSession } from "@/features/auth/session";
 import { suggestTags } from "@/features/profile/api";
@@ -13,6 +13,7 @@ import {
   findMyPendingRequest,
   getProject,
   getRecommendedResearchers,
+  getRecommendedVenues,
   listProjectInvitations,
   listProjectJoinRequests,
   listProjectMembers,
@@ -21,7 +22,18 @@ import {
 } from "./api";
 import { mismatchMessage } from "./delete-project-dialog";
 import { ProjectPage } from "./project-page";
-import { failed, member, ownerPerson, page, project, projectID, researchersProcessing } from "./test-projects";
+import {
+  failed,
+  member,
+  ownerPerson,
+  page,
+  project,
+  projectID,
+  recommendedVenue,
+  researchersProcessing,
+  venueNotice,
+  venueRecs,
+} from "./test-projects";
 
 jest.mock("./api", () => ({
   ...jest.requireActual("./api"),
@@ -30,6 +42,7 @@ jest.mock("./api", () => ({
   deleteProject: jest.fn(),
   reportProject: jest.fn(),
   getRecommendedResearchers: jest.fn(),
+  getRecommendedVenues: jest.fn(),
   listProjectMembers: jest.fn(),
   listProjectJoinRequests: jest.fn(),
   listProjectInvitations: jest.fn(),
@@ -49,6 +62,7 @@ const mockUpdate = jest.mocked(updateProject);
 const mockDelete = jest.mocked(deleteProject);
 const mockReport = jest.mocked(reportProject);
 const mockResearchers = jest.mocked(getRecommendedResearchers);
+const mockVenues = jest.mocked(getRecommendedVenues);
 
 let consoleError: jest.SpyInstance;
 
@@ -60,6 +74,7 @@ beforeEach(() => {
   });
   jest.mocked(suggestTags).mockResolvedValue({ ok: true, data: [] });
   mockResearchers.mockResolvedValue(ready(people(1, 2)));
+  mockVenues.mockResolvedValue(venueRecs("ready", [recommendedVenue(1)]));
   jest.mocked(listProjectMembers).mockResolvedValue(page([member(ownerPerson, "owner")]));
   jest.mocked(listProjectJoinRequests).mockResolvedValue(page([]));
   jest.mocked(listProjectInvitations).mockResolvedValue(page([]));
@@ -80,6 +95,8 @@ async function renderProject(p = project()) {
   await screen.findByRole("heading", { level: 1, name: p.title });
   // The membership parts load after the project.
   await screen.findByRole("list", { name: "Members", busy: false });
+  // A member's venue card loads beside them.
+  await waitFor(() => expect(screen.queryByText("Loading venues…")).toBeNull());
 }
 
 function summaryCard() {
@@ -115,10 +132,9 @@ describe("ProjectPage for the owner", () => {
     expect(screen.getByRole("link", { name: "Open workspace" }).getAttribute("href")).toBe(
       `/projects/${projectID}/workspace`,
     );
-    // No request or invitation yet; venues come with their slice.
+    // No request or invitation yet.
     expect(screen.queryByText(/Join requests/)).toBeNull();
     expect(screen.queryByRole("region", { name: "Invitations" })).toBeNull();
-    expect(screen.queryByText(/Where to submit/)).toBeNull();
   });
 
   it("changes the status at once", async () => {
@@ -341,5 +357,98 @@ describe("ProjectPage for others", () => {
     render(<ProjectPage projectId={projectID} />);
     fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
     expect(await screen.findByRole("heading", { level: 1, name: "Explainable CVS detection" })).toBeTruthy();
+  });
+});
+
+describe("ProjectPage venue recommendations (AI-6)", () => {
+  function venueCard() {
+    return within(screen.getByRole("complementary", { name: "Project recommendations" })).getByRole("region", {
+      name: "Where to submit",
+    });
+  }
+
+  it.each(["owner", "editor", "viewer"] as const)("shows a %s the Where to submit card with the notice", async (role) => {
+    await renderProject(project({ myRole: role }));
+    const card = venueCard();
+    expect(mockVenues).toHaveBeenCalledWith(projectID);
+    expect(within(card).getByRole("link", { name: /Conference on Digital Health 1/ })).toBeTruthy();
+    expect(within(card).getByText(venueNotice)).toBeTruthy();
+  });
+
+  it("puts the venue card under the researchers who fit, for the owner", async () => {
+    await renderProject();
+    const aside = screen.getByRole("complementary", { name: "Project recommendations" });
+    const headings = within(aside)
+      .getAllByRole("heading", { level: 2 })
+      .map((h) => h.textContent);
+    expect(headings.indexOf("Where to submit")).toBeGreaterThan(headings.indexOf("Researchers who fit this project"));
+  });
+
+  it("shows a non-member no venues and never asks for them", async () => {
+    await renderProject(project({ myRole: null, abstract: null }));
+    expect(screen.queryByText("Where to submit")).toBeNull();
+    expect(screen.queryByText("Add an abstract to see venues")).toBeNull();
+    expect(mockVenues).not.toHaveBeenCalled();
+  });
+
+  it("opens the owner's Edit project at the abstract, and reads the venues again once it is saved", async () => {
+    mockVenues.mockResolvedValueOnce(venueRecs("needs_abstract")).mockResolvedValueOnce(venueRecs("processing"));
+    await renderProject(project({ abstract: null }));
+    fireEvent.click(screen.getByRole("button", { name: "Add abstract" }));
+    const dialog = screen.getByRole("dialog", { name: "Edit project" });
+    const field = within(dialog).getByLabelText(/^Paper abstract/);
+    expect(document.activeElement).toBe(field);
+    fireEvent.change(field, { target: { value: "We study screen use." } });
+    mockUpdate.mockResolvedValue({ ok: true, data: project({ abstract: "We study screen use." }) });
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    });
+    expect(mockUpdate).toHaveBeenCalledWith(projectID, { abstract: "We study screen use." });
+    expect(await within(venueCard()).findByText("Finding venues for your abstract…")).toBeTruthy();
+    expect(mockVenues).toHaveBeenCalledTimes(2);
+  });
+
+  it("gives an editor the abstract-only dialog, sending only the abstract, then reads the venues again", async () => {
+    mockVenues
+      .mockResolvedValueOnce(venueRecs("needs_abstract"))
+      .mockResolvedValueOnce(venueRecs("ready", [recommendedVenue(2)]));
+    await renderProject(project({ myRole: "editor", abstract: null }));
+    fireEvent.click(screen.getByRole("button", { name: "Add abstract" }));
+    const dialog = screen.getByRole("dialog", { name: "Add abstract" });
+    expect(within(dialog).queryByLabelText(/^Title/)).toBeNull();
+    const field = within(dialog).getByLabelText(/^Paper abstract/);
+    expect(document.activeElement).toBe(field);
+    fireEvent.change(field, { target: { value: "  We study screen use.  " } });
+    mockUpdate.mockResolvedValue({ ok: true, data: project({ myRole: "editor", abstract: "We study screen use." }) });
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    });
+    expect(mockUpdate).toHaveBeenCalledWith(projectID, { abstract: "We study screen use." });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(await within(venueCard()).findByRole("link", { name: /Conference on Digital Health 2/ })).toBeTruthy();
+    expect(mockVenues).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("heading", { name: "Abstract" })).toBeTruthy();
+  });
+
+  it("keeps the editor's dialog open with the error when the abstract is refused", async () => {
+    mockVenues.mockResolvedValue(venueRecs("needs_abstract"));
+    await renderProject(project({ myRole: "editor", abstract: null }));
+    fireEvent.click(screen.getByRole("button", { name: "Add abstract" }));
+    const dialog = screen.getByRole("dialog", { name: "Add abstract" });
+    fireEvent.change(within(dialog).getByLabelText(/^Paper abstract/), { target: { value: "x" } });
+    mockUpdate.mockResolvedValue(failed);
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    });
+    expect(within(dialog).getByRole("alert").textContent).toMatch(/couldn’t save the abstract/);
+    expect(mockVenues).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a viewer the request for an abstract without the button", async () => {
+    mockVenues.mockResolvedValue(venueRecs("needs_abstract"));
+    await renderProject(project({ myRole: "viewer", abstract: null }));
+    expect(screen.getByRole("heading", { name: "Add an abstract to see venues" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Add abstract" })).toBeNull();
+    expect(screen.getByText(venueNotice)).toBeTruthy();
   });
 });
