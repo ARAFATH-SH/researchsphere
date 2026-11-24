@@ -3563,6 +3563,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{projectId}/recommended-venues": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Venues whose scope is most similar to a project's title and abstract, for its members (AI-6.1 to AI-6.4)
+         * @description Needs the access cookie, a verified email and the project action "See venue
+         *     recommendations for the project" (SRS 2.3: viewer, editor and owner). Anyone else gets
+         *     404 `not_found`, also when they can see the project page, so the answer does not say
+         *     whether the project exists (unlike `recommendProjectResearchers`, which answers a
+         *     visible non-owner 403). Any project status is allowed.
+         *
+         *     `state`, checked in this order: `needs_abstract` when the project has no abstract,
+         *     even when it has a title and description (AI-6.3); `processing` while the embedding of
+         *     its title and abstract is not made yet (within a minute, AI-1.5); otherwise `ready`.
+         *     `venues` and `journals` are empty unless `state` is `ready`.
+         *
+         *     `venues` holds the 5 venues whose embedding is most similar (cosine) to the embedding of
+         *     the project's title and abstract, counting only venues not removed whose submission
+         *     deadline has not passed now (AI-6.1). A deadline stated in AoE is stored as its instant
+         *     (UTC-12), so it passes at the end of that day anywhere on Earth. `journals` lists up to
+         *     3 rolling journals (no deadline, so they cannot count toward AI-6.1's deadline rule), and
+         *     only those whose score is at least the configured floor (`RECS_JOURNAL_MIN_SCORE`), so it
+         *     may be empty. Ranking uses only the cosine similarity, never a venue's rank, impact or any
+         *     popularity signal (AI-2.4).
+         *
+         *     `notice` is the fixed sentence of AI-6.4. A client may restyle it but must show it beside
+         *     the list.
+         *
+         *     The lists are kept for up to 10 minutes and made again at once when the project's title
+         *     or abstract embedding changes, when any venue is added, edited, removed or imported, and
+         *     when the deadline of a listed venue passes. `daysLeft` is computed on every request.
+         */
+        get: operations["recommendProjectVenues"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ws": {
         parameters: {
             query?: never;
@@ -6781,6 +6826,68 @@ export interface components {
             owner: components["schemas"]["ProjectPerson"];
             /** @description Shown only; it never affects the order (AI-2.4). */
             memberCount: number;
+        };
+        /** @description A project's recommended venues (AI-6.1 to AI-6.4). */
+        VenueRecommendations: {
+            /**
+             * @description `ready`: `venues` and `journals` hold the recommendations (possibly none).
+             *     `needs_abstract`: the project has no abstract; the client asks for one in place of
+             *     the list (AI-6.3). `processing`: the embedding of the title and abstract is not made
+             *     yet.
+             * @enum {string}
+             */
+            state: "ready" | "needs_abstract" | "processing";
+            /**
+             * @description Most similar first; only venues whose submission deadline has not passed (AI-6.1).
+             *     Empty unless `state` is `ready`.
+             */
+            venues: components["schemas"]["RecommendedVenue"][];
+            /**
+             * @description Rolling journals (no deadline), most similar first, only those scoring at least the
+             *     configured floor; may be empty. Empty unless `state` is `ready`.
+             */
+            journals: components["schemas"]["RecommendedVenue"][];
+            /**
+             * @description The fixed AI-6.4 sentence, sent in every state.
+             * @example Matched on topic only. This says nothing about a venue's quality or ranking.
+             */
+            notice: string;
+        };
+        /**
+         * @description A recommended venue. In `journals`, `timeZone`, `submissionDeadline` and `daysLeft` are
+         *     always null.
+         */
+        RecommendedVenue: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            shortName: string | null;
+            type: components["schemas"]["VenueType"];
+            /** @description 1 to 5 fields, in the order of the fixed list. */
+            fields: components["schemas"]["ResearchField"][];
+            /** @description The zone the deadline is stated in (`AoE`, `UTC` or an IANA name), as in `VenueSummary`. */
+            timeZone: string | null;
+            /** @description The instant and its wall time in `timeZone` (AI-6.2). */
+            submissionDeadline: components["schemas"]["VenueTime"] | null;
+            /**
+             * @description Whole days from now until the deadline instant, rounded down: 0 means less than a
+             *     day is left.
+             */
+            daysLeft: number | null;
+            /** @description Always `https://`. */
+            officialUrl: string;
+            /**
+             * @description As in `VenueSummary`.
+             * @enum {string}
+             */
+            linkKind: "official" | "issn_portal";
+            /**
+             * @description How similar the venue's scope is to the project's title and abstract, as a
+             *     percentage (AI-6.2): the cosine similarity of the embeddings put through a fixed
+             *     increasing mapping fitted on sample data (docs/evaluation.md). It says nothing about
+             *     the venue's quality (AI-6.4).
+             */
+            score: number;
         };
         PeopleSearchFacets: {
             /**
@@ -13462,6 +13569,36 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PeopleRecommendations"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    recommendProjectVenues: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The project's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                projectId: components["parameters"]["ProjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The project's recommended venues, or why there are none yet. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VenueRecommendations"];
                 };
             };
             401: components["responses"]["Unauthorized"];

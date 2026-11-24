@@ -13,7 +13,7 @@ import (
 // requiredSchemaVersion is the newest migration in db/migrations, the database this code
 // needs. TestRequiredSchemaVersion keeps it equal to the files, so a slice that adds a
 // migration raises it too.
-const requiredSchemaVersion = 40
+const requiredSchemaVersion = 41
 
 // schemaTimeout bounds the check, so a database that is down does not hold up the start.
 const schemaTimeout = 5 * time.Second

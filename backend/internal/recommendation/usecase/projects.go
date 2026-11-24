@@ -297,6 +297,8 @@ func (s *Service) ProjectChanged(ctx context.Context, projectID string) {
 	if err := s.projects.Cache.DeleteResearchers(ctx, projectID); err != nil {
 		s.logger.WarnContext(ctx, "researcher recommendation list not cleared after a project change", slog.Any("error", err))
 	}
+	// A deleted project's venue lists go with it.
+	s.ProjectVenuesChanged(ctx, projectID)
 }
 
 // MembersChanged is told, after the commit, that userIDs' membership of the project or a

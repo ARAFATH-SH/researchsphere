@@ -6004,6 +6004,56 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /projects/{projectId}/recommended-venues:
+    get:
+      operationId: recommendProjectVenues
+      summary: Venues whose scope is most similar to a project's title and abstract, for its members (AI-6.1 to AI-6.4)
+      description: |
+        Needs the access cookie, a verified email and the project action "See venue
+        recommendations for the project" (SRS 2.3: viewer, editor and owner). Anyone else gets
+        404 `not_found`, also when they can see the project page, so the answer does not say
+        whether the project exists (unlike `recommendProjectResearchers`, which answers a
+        visible non-owner 403). Any project status is allowed.
+
+        `state`, checked in this order: `needs_abstract` when the project has no abstract,
+        even when it has a title and description (AI-6.3); `processing` while the embedding of
+        its title and abstract is not made yet (within a minute, AI-1.5); otherwise `ready`.
+        `venues` and `journals` are empty unless `state` is `ready`.
+
+        `venues` holds the 5 venues whose embedding is most similar (cosine) to the embedding of
+        the project's title and abstract, counting only venues not removed whose submission
+        deadline has not passed now (AI-6.1). A deadline stated in AoE is stored as its instant
+        (UTC-12), so it passes at the end of that day anywhere on Earth. `journals` lists up to
+        3 rolling journals (no deadline, so they cannot count toward AI-6.1's deadline rule), and
+        only those whose score is at least the configured floor (`RECS_JOURNAL_MIN_SCORE`), so it
+        may be empty. Ranking uses only the cosine similarity, never a venue's rank, impact or any
+        popularity signal (AI-2.4).
+
+        `notice` is the fixed sentence of AI-6.4. A client may restyle it but must show it beside
+        the list.
+
+        The lists are kept for up to 10 minutes and made again at once when the project's title
+        or abstract embedding changes, when any venue is added, edited, removed or imported, and
+        when the deadline of a listed venue passes. `daysLeft` is computed on every request.
+      tags: [recommendations]
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: The project's recommended venues, or why there are none yet.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VenueRecommendations"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /ws:
     get:
       operationId: openWebSocket
@@ -11865,6 +11915,94 @@ components:
           type: integer
           minimum: 1
           description: Shown only; it never affects the order (AI-2.4).
+    VenueRecommendations:
+      type: object
+      description: A project's recommended venues (AI-6.1 to AI-6.4).
+      required: [state, venues, journals, notice]
+      properties:
+        state:
+          type: string
+          enum: [ready, needs_abstract, processing]
+          description: |
+            `ready`: `venues` and `journals` hold the recommendations (possibly none).
+            `needs_abstract`: the project has no abstract; the client asks for one in place of
+            the list (AI-6.3). `processing`: the embedding of the title and abstract is not made
+            yet.
+        venues:
+          type: array
+          maxItems: 5
+          description: |
+            Most similar first; only venues whose submission deadline has not passed (AI-6.1).
+            Empty unless `state` is `ready`.
+          items:
+            $ref: "#/components/schemas/RecommendedVenue"
+        journals:
+          type: array
+          maxItems: 3
+          description: |
+            Rolling journals (no deadline), most similar first, only those scoring at least the
+            configured floor; may be empty. Empty unless `state` is `ready`.
+          items:
+            $ref: "#/components/schemas/RecommendedVenue"
+        notice:
+          type: string
+          description: The fixed AI-6.4 sentence, sent in every state.
+          example: Matched on topic only. This says nothing about a venue's quality or ranking.
+    RecommendedVenue:
+      type: object
+      description: |
+        A recommended venue. In `journals`, `timeZone`, `submissionDeadline` and `daysLeft` are
+        always null.
+      required: [id, name, shortName, type, fields, timeZone, submissionDeadline, daysLeft,
+                 officialUrl, linkKind, score]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        shortName:
+          type: string
+          nullable: true
+        type:
+          $ref: "#/components/schemas/VenueType"
+        fields:
+          type: array
+          description: 1 to 5 fields, in the order of the fixed list.
+          items:
+            $ref: "#/components/schemas/ResearchField"
+        timeZone:
+          type: string
+          nullable: true
+          description: The zone the deadline is stated in (`AoE`, `UTC` or an IANA name), as in `VenueSummary`.
+        submissionDeadline:
+          allOf:
+            - $ref: "#/components/schemas/VenueTime"
+          nullable: true
+          description: The instant and its wall time in `timeZone` (AI-6.2).
+        daysLeft:
+          type: integer
+          minimum: 0
+          nullable: true
+          description: |
+            Whole days from now until the deadline instant, rounded down: 0 means less than a
+            day is left.
+        officialUrl:
+          type: string
+          description: Always `https://`.
+        linkKind:
+          type: string
+          enum: [official, issn_portal]
+          description: As in `VenueSummary`.
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: |
+            How similar the venue's scope is to the project's title and abstract, as a
+            percentage (AI-6.2): the cosine similarity of the embeddings put through a fixed
+            increasing mapping fitted on sample data (docs/evaluation.md). It says nothing about
+            the venue's quality (AI-6.4).
     PeopleSearchFacets:
       type: object
       required: [institutions, interests]

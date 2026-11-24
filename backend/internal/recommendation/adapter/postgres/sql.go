@@ -62,3 +62,13 @@ func RankResearchersSQL() (string, error) {
 	q = strings.ReplaceAll(q, "@project_id", "$1")
 	return strings.ReplaceAll(q, "@lim", "$2"), nil
 }
+
+// RankProjectVenuesSQL is the venue ranking query (AI-6.1) with $1 for the project's ID, $2
+// for rolling and $3 for the limit, as sqlc numbers them, for EXPLAIN.
+func RankProjectVenuesSQL() (string, error) {
+	q, err := QueryText("RankProjectVenues")
+	if err != nil {
+		return "", err
+	}
+	return strings.NewReplacer("@project_id", "$1", "@rolling", "$2", "@lim", "$3").Replace(q), nil
+}

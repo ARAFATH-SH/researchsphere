@@ -881,3 +881,101 @@ of at most 0.5 s, reading the files and storing the PDF).
 many free. The first compile after the image is pulled reads it from disk; later ones find it
 in the page cache. A document with many large figures spends longer reading them through the
 API (up to `COMPILE_MAX_INPUT_BYTES`) than the sample.
+
+## Venue recommendations (AI-6.1, AI-6.2, NFR-6, NFR-1), slice 25, chunk 25.1
+
+`GET /projects/{id}/recommended-venues` ranks venues by the cosine similarity of a project's
+title-and-abstract embedding (`project_abstract_embeddings`, migration 000041) and each venue's
+embedding, counting only venues whose submission deadline has not passed (decisions.md,
+2026-11-24).
+
+**Data, and where it lives.** The development database holds real venues, so the labelled
+sample venues are made only in the TEST database: `seedsample -test-venues` (run first by both
+make targets) empties that database's venues and embedding jobs, makes the 200 sample venues of
+slice 24 (10 per research cluster: 4 conferences, 2 workshops, 2 journals, 2 special issues,
+none rolling; deadlines from 90 days before the run to 365 after) and embeds them with the
+embedding module's own worker. The projects are the sample projects of
+`make sample-data n=10000 projects=1` in development, read in a read-only session; a project's
+cluster and split are its owner's. Only projects with an abstract have the vector (AI-6.3):
+
+| Split | Sample projects | With an abstract and its vector |
+| --- | ---: | ---: |
+| tuning | 778 | 412 |
+| test | 222 | 107 |
+
+A venue is relevant to a project when its sample cluster is the project's cluster.
+
+### Score map check (`make calibrate-venues`, tuning split only)
+
+**Question.** Does the 19.2 project map (slope 87.6849, intercept -74.5228, 50 at cosine
+0.850) also hold for project -> venue pairs? Run 2026-11-25 on every pair of the 412 tuning
+projects with the 200 sample venues: 82,400 pairs, 5.0% in the same cluster.
+
+| Map | Slope | Intercept | Cosine at 50 | Calibration error (points) |
+| --- | ---: | ---: | ---: | ---: |
+| Project map (19.2) | 87.6849 | -74.5228 | 0.8499 | 2.5 |
+| Fitted on these pairs | 178.5375 | -150.2514 | 0.8416 | 0.4 |
+
+| Cosine | Pairs | Same cluster | Project map's score |
+| --- | ---: | ---: | ---: |
+| 0.78 to 0.80 | 34,168 | 0.0% | 1 |
+| 0.80 to 0.82 | 29,406 | 0.4% | 3 |
+| 0.82 to 0.84 | 6,802 | 9.9% | 15 |
+| 0.84 to 0.86 | 1,857 | 74.3% | 50 |
+| 0.86 to 0.88 | 1,281 | 99.0% | 85 |
+| 0.88 to 0.90 | 561 | 100.0% | 97 |
+
+**Decision.** By the 19.2 rule (keep the map unless its error is above 5 points or the
+50 point moves more than 0.01), the project map holds: error 2.5 points, the 50 point moves
+0.0083. `RECS_VENUE_SCORE_SLOPE` and `RECS_VENUE_SCORE_INTERCEPT` default to the project map's
+constants, kept as separate settings so a later refit can change them alone. The fitted curve
+is steeper because template venues separate the clusters sharply; fitting it would only
+sharpen the scores on synthetic data.
+
+<!-- eval-venues:begin (written by make eval-venues; do not edit by hand) -->
+### Quality (`make eval-venues`, test split; nothing fitted)
+
+Run 2026-11-24 21:56 UTC. Model `intfloat/multilingual-e5-base@d128750597153bb5987e10b1c3493a34e5a4502a`. Score map: slope 87.6849, intercept -74.5228.
+
+Data: 107 test projects with an abstract and its embedding (of 222 test sample projects; about half the sample projects have an abstract), read from database researchsphere on localhost:5433. 200 sample venues in the test database (database researchsphere_test on localhost:5433), 161 of them with a deadline still ahead (8 per cluster on average), as `seedsample -test-venues` made them today, so about a quarter have passed. 0 test projects skipped (no open venue of their cluster).
+
+Relevant: a venue whose sample cluster is the project's cluster (the project owner's main cluster). Ranked with the endpoint's own `RankProjectVenues` (deadline after now, not removed, not rolling, same model, cosine order) and its HNSW settings.
+
+| Measure | Value |
+| --- | ---: |
+| Top-5 accuracy (at least one relevant venue in the top 5) | 1.000 (107 of 107) |
+| 95% confidence interval (Wilson) | 0.965 to 1.000 |
+| Precision@5 | 0.957 |
+| Top-5 accuracy of 5 random open venues (expected) | 0.227 |
+
+Scores (AI-6.2) of the listed venues and of 5 random open venues per project:
+
+| Score of | Pairs | Mean | p10 | p25 | p50 | p75 | p90 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| listed (top 5) | 535 | 71.8 | 30 | 56 | 81 | 93 | 97 |
+| random open venue | 535 | 6.1 | 0 | 0 | 1 | 3 | 10 |
+
+**Optimism.** These numbers are higher than real use will see: the sample projects and venues are written from the same 20 cluster templates (`cmd/seedsample/content`), so a venue's scope shares vocabulary with the projects of its cluster, and each cluster has its own venues. Real projects straddle fields and real calls are broader. The test split keeps the projects unseen by the calibration, not the templates. The interval counts only the sampling error of 107 test projects, not this template bias, so read the accuracy as a check that the ranking and the deadline filter work, not as an estimate for real projects and venues.
+<!-- eval-venues:end -->
+
+### Speed (`make bench-recs`, NFR-1)
+
+Run 2026-11-25 on the development laptop, in development with the 10,000 embedded sample
+profiles and 1,000 sample projects (520 projects with a title-and-abstract vector) and its
+1,029 real venues: 118 with a deadline still ahead and 833 rolling journals, all embedded.
+200 random sample projects with a vector (seed 17, with repeats) after 10 warm-up calls, the
+usecase's whole uncached work: the project's abstract and stamp, both rankings (5 venues, 3
+journals) and their fields. The member check (one row) and HTTP are not in it.
+
+| Measure | Time |
+| --- | ---: |
+| Calls | 200 |
+| p50 | 6.18 ms |
+| p95 | 7.11 ms |
+| max | 8.23 ms |
+
+NFR-1 (p95 under 2 s): met. `EXPLAIN ANALYZE` of `RankProjectVenues` (deadline list): 0.92 ms.
+With so few open venues the planner filters `venues` first (118 rows) and sorts the exact
+distances instead of using `venue_embeddings_hnsw_idx`, so the list is exact; the HNSW index
+and the iterative scan take over as the venue table grows. In the same run the people list
+took p95 2.83 ms and the project lists 10.72 ms and 2.64 ms.

@@ -14,6 +14,8 @@ export type ProjectSearchResult = components["schemas"]["ProjectSearchResult"];
 export type ProjectRecommendations = components["schemas"]["ProjectRecommendations"];
 export type ProjectRecommendation = components["schemas"]["ProjectRecommendation"];
 export type PeopleRecommendations = components["schemas"]["PeopleRecommendations"];
+export type VenueRecommendations = components["schemas"]["VenueRecommendations"];
+export type RecommendedVenue = components["schemas"]["RecommendedVenue"];
 export type ReportReason = components["schemas"]["ReportReason"];
 export type MemberRole = components["schemas"]["MemberRole"];
 export type ProjectMember = components["schemas"]["ProjectMember"];
@@ -119,6 +121,14 @@ export async function getRecommendedResearchers(projectId: string): Promise<Resu
     await call(() =>
       api.GET("/projects/{projectId}/recommended-researchers", { params: { path: { projectId } } }),
     ),
+  );
+}
+
+// getRecommendedVenues reads the venues whose scope is most similar to a project's title and
+// abstract, for its members (AI-6.1 to AI-6.4). A non-member gets not_found.
+export async function getRecommendedVenues(projectId: string): Promise<Result<VenueRecommendations>> {
+  return withData(
+    await call(() => api.GET("/projects/{projectId}/recommended-venues", { params: { path: { projectId } } })),
   );
 }
 

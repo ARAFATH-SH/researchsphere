@@ -59,6 +59,8 @@ type options struct {
 	wait        bool
 	projects    bool
 	venues      bool
+	// testVenues makes the sample venues in the TEST database for the NFR-6 venue evaluation.
+	testVenues bool
 }
 
 func parseFlags(args []string) (options, error) {
@@ -71,6 +73,7 @@ func parseFlags(args []string) (options, error) {
 	fs.BoolVar(&o.wait, "wait", false, "after loading, wait until the running API has embedded every sample profile")
 	fs.BoolVar(&o.projects, "projects", false, "also make one sample project per 10 sample profiles, in the owner's cluster")
 	fs.BoolVar(&o.venues, "venues", false, "also make the fictional sample venues, 10 per research cluster")
+	fs.BoolVar(&o.testVenues, "test-venues", false, "make and embed the sample venues in the TEST database (TEST_DATABASE_URL) only, for make eval-venues")
 	if err := fs.Parse(args); err != nil {
 		return o, err
 	}
@@ -89,6 +92,9 @@ func parseFlags(args []string) (options, error) {
 	if o.purgeVenues && (o.purge || o.wait || o.projects || o.venues) {
 		return o, errors.New("use -purge-venues alone")
 	}
+	if o.testVenues && (o.purge || o.purgeVenues || o.wait || o.projects || o.venues) {
+		return o, errors.New("use -test-venues alone")
+	}
 	return o, nil
 }
 
@@ -96,6 +102,9 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	o, err := parseFlags(args)
 	if err != nil {
 		return err
+	}
+	if o.testVenues {
+		return runTestVenues(ctx, getenv, o.seed, out)
 	}
 	databaseURL := getenv("DATABASE_URL")
 	if err := checkTarget(databaseURL, getenv("APP_ENV")); err != nil {

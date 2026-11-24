@@ -26,9 +26,10 @@ const (
 
 // Service runs the venue rules.
 type Service struct {
-	store domain.Store
-	tx    domain.Transactor
-	now   func() time.Time
+	store   domain.Store
+	tx      domain.Transactor
+	now     func() time.Time
+	watcher domain.Watcher // nil: nobody is told
 }
 
 // New returns a Service. now is the clock; nil means time.Now.
@@ -37,6 +38,18 @@ func New(store domain.Store, tx domain.Transactor, now func() time.Time) *Servic
 		now = time.Now
 	}
 	return &Service{store: store, tx: tx, now: now}
+}
+
+// Watch makes the service tell w about every venue change it commits. Call it before use.
+func (s *Service) Watch(w domain.Watcher) {
+	s.watcher = w
+}
+
+// changed tells the watcher that venues changed; call it only after the commit.
+func (s *Service) changed(ctx context.Context) {
+	if s.watcher != nil {
+		s.watcher.VenuesChanged(ctx)
+	}
 }
 
 // ListInput is a list request as sent. A zero Page or PageSize means the default.
@@ -172,6 +185,7 @@ func (s *Service) Create(ctx context.Context, adminID string, in Input) (domain.
 	if err != nil {
 		return domain.Venue{}, err
 	}
+	s.changed(ctx)
 	return s.store.Get(ctx, id)
 }
 
@@ -208,6 +222,7 @@ func (s *Service) Update(ctx context.Context, adminID, id string, p Patch) (doma
 	if err != nil {
 		return domain.Venue{}, err
 	}
+	updated := false
 	err = s.tx.InTx(ctx, func(ctx context.Context) error {
 		old, err := s.store.GetForUpdate(ctx, id)
 		if err != nil {
@@ -233,6 +248,7 @@ func (s *Service) Update(ctx context.Context, adminID, id string, p Patch) (doma
 		if err := s.store.Update(ctx, v); err != nil {
 			return err
 		}
+		updated = true
 		if old.Source.IsSync() {
 			if err := s.store.Lock(ctx, id, s.now()); err != nil {
 				return err
@@ -246,6 +262,9 @@ func (s *Service) Update(ctx context.Context, adminID, id string, p Patch) (doma
 	})
 	if err != nil {
 		return domain.Venue{}, err
+	}
+	if updated {
+		s.changed(ctx)
 	}
 	return s.store.Get(ctx, id)
 }
@@ -264,7 +283,7 @@ func (s *Service) Remove(ctx context.Context, adminID, id, reason string) error 
 	case hasControl(reason, true):
 		return domain.Invalid("reason", domain.CodeInvalid)
 	}
-	return s.tx.InTx(ctx, func(ctx context.Context) error {
+	err := s.tx.InTx(ctx, func(ctx context.Context) error {
 		if err := s.store.Remove(ctx, id, adminID, reason, s.now()); err != nil {
 			return err
 		}
@@ -274,6 +293,11 @@ func (s *Service) Remove(ctx context.Context, adminID, id, reason string) error 
 		}
 		return s.store.Record(ctx, domain.Action{VenueID: id, AdminID: adminID, AdminName: name, Kind: domain.ActRemove, Reason: reason})
 	})
+	if err != nil {
+		return err
+	}
+	s.changed(ctx)
+	return nil
 }
 
 func (s *Service) catalog(ctx context.Context) (catalog, error) {

@@ -75,6 +75,7 @@ type Syncer struct {
 	cfg      SyncConfig
 	now      func() time.Time
 	log      *slog.Logger
+	watcher  domain.Watcher // nil: nobody is told
 
 	// base is the context of background runs: the server's, so they stop with it.
 	base context.Context
@@ -92,6 +93,8 @@ type SyncDeps struct {
 	Info     map[domain.Source]SourceInfo
 	Now      func() time.Time
 	Log      *slog.Logger
+	// Watcher, when set, is told once after a real run that created or updated venues.
+	Watcher domain.Watcher
 }
 
 // NewSyncer returns a Syncer. base is the context background runs use: they stop when it
@@ -122,7 +125,7 @@ func NewSyncer(base context.Context, d SyncDeps, cfg SyncConfig) *Syncer {
 		cfg.LinkParallel = DefaultSyncLinkParallel
 	}
 	return &Syncer{store: d.Store, sync: d.Sync, tx: d.Tx, repos: d.Repos, journals: d.Journals, links: d.Links,
-		info: d.Info, cfg: cfg, now: d.Now, log: d.Log, base: base}
+		info: d.Info, cfg: cfg, now: d.Now, log: d.Log, watcher: d.Watcher, base: base}
 }
 
 func (y *Syncer) lease() time.Duration { return y.cfg.RunTimeout + 5*time.Minute }
@@ -304,6 +307,11 @@ func (y *Syncer) execute(ctx context.Context, run *domain.SyncRun) {
 		st.LeaseUntil = time.Time{}
 		return y.sync.SaveSource(ctx, st)
 	})
+	// Venues written by a run are committed even when it failed later, so the watcher is told
+	// on any real run that created or updated one.
+	if !run.DryRun && run.Created+run.Updated > 0 && y.watcher != nil {
+		y.watcher.VenuesChanged(finishCtx)
+	}
 	attrs := []any{slog.String("source", string(run.Source)), slog.String("run", run.ID), slog.Bool("dry_run", run.DryRun),
 		slog.String("status", string(run.Status)), slog.Int("created", run.Created), slog.Int("updated", run.Updated),
 		slog.Int("unchanged", run.Unchanged), slog.Int("skipped", run.Skipped), slog.Int("rejected", run.Rejected),

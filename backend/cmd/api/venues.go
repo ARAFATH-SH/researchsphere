@@ -22,6 +22,8 @@ import (
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/config"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/logging"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/postgres"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/redis"
+	recommendationredis "github.com/ARAFATH-SH/researchsphere/backend/internal/recommendation/adapter/redis"
 )
 
 // venueSyncInterval is how often the API checks whether a source's daily run is due.
@@ -69,19 +71,25 @@ func newVenueFeeds(cfg config.Config) venueFeeds {
 
 // newVenueSyncer wires the automatic import (FR-14.5). base is the context its background
 // runs use.
-func newVenueSyncer(base context.Context, pool *pgxpool.Pool, cfg config.Config, f venueFeeds, logger *slog.Logger) *eventusecase.Syncer {
+// watcher is told after a run that wrote venues (venue recommendations, AI-6.1); nil is
+// nobody.
+func newVenueSyncer(base context.Context, pool *pgxpool.Pool, cfg config.Config, f venueFeeds, watcher domain.Watcher, logger *slog.Logger) *eventusecase.Syncer {
 	return eventusecase.NewSyncer(base, eventusecase.SyncDeps{
 		Store: eventpg.NewStore(pool), Sync: eventpg.NewSyncStore(pool), Tx: postgres.NewTransactor(pool),
-		Repos: f.repos, Journals: f.journals, Links: f.links, Info: f.info, Log: logger, Now: f.now,
+		Repos: f.repos, Journals: f.journals, Links: f.links, Info: f.info, Log: logger, Now: f.now, Watcher: watcher,
 	}, eventusecase.SyncConfig{
 		Daily: cfg.VenueSyncDaily, Contact: cfg.VenueSyncContactEmail != "", MinInterval: cfg.VenueSyncMinInterval,
 	})
 }
 
 // newVenues wires the event module (FR-14, FR-15.1): venues live in PostgreSQL, and the
-// database's triggers queue their embeddings (AI-1.3), so the module needs nothing else.
-func newVenues(pool *pgxpool.Pool, sync *eventusecase.Syncer) *eventhttp.Handler {
+// database's triggers queue their embeddings (AI-1.3). watcher is told about every committed
+// venue change (venue recommendations, AI-6.1); nil is nobody.
+func newVenues(pool *pgxpool.Pool, sync *eventusecase.Syncer, watcher domain.Watcher) *eventhttp.Handler {
 	svc := eventusecase.New(eventpg.NewStore(pool), postgres.NewTransactor(pool), nil)
+	if watcher != nil {
+		svc.Watch(watcher)
+	}
 	return eventhttp.NewHandler(svc, sync, nil)
 }
 
@@ -108,7 +116,17 @@ func runVenueSyncOnce(sources string, dry bool) func(context.Context, func(strin
 				names = append(names, s)
 			}
 		}
-		syncer := newVenueSyncer(ctx, pool, cfg, newVenueFeeds(cfg), logger)
+		// The running API's kept venue recommendations are made again after a run that wrote
+		// venues; without Redis the run goes on and they expire within 10 minutes.
+		var watcher domain.Watcher
+		if rdb, err := redis.NewClient(cfg.RedisURL, logger); err != nil {
+			logger.Warn("venue sync: Redis unavailable, kept venue recommendations are not renewed", slog.Any("error", err))
+		} else {
+			cache := recommendationredis.New(rdb)
+			defer func() { _ = cache.Close(); _ = rdb.Close() }()
+			watcher = venueGenerationRaiser{cache: cache, logger: logger}
+		}
+		syncer := newVenueSyncer(ctx, pool, cfg, newVenueFeeds(cfg), watcher, logger)
 		runs, err := syncer.RunNow(ctx, names, dry)
 		if err != nil {
 			return err

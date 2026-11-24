@@ -20,6 +20,7 @@ type Service interface {
 	People(ctx context.Context, userID string, limit int) (usecase.Result, error)
 	Projects(ctx context.Context, userID string, limit int) (usecase.ProjectResult, error)
 	ProjectResearchers(ctx context.Context, userID, projectID string) (usecase.ResearcherResult, error)
+	ProjectVenues(ctx context.Context, userID, projectID string) (usecase.VenueResult, error)
 }
 
 // Handler serves the recommendation operations.

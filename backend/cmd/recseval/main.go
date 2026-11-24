@@ -15,7 +15,14 @@
 //     precision@10 of plain-language queries that share no word with their cluster, among
 //     TEST split profiles, hybrid against keyword;
 //   - bench-search (make bench-search) measures NFR-1 for hybrid search: p50, p95 and max
-//     with a cold and a cached query vector, and EXPLAIN ANALYZE of the meaning query.
+//     with a cold and a cached query vector, and EXPLAIN ANALYZE of the meaning query;
+//   - calibrate-venues (make calibrate-venues) checks the project score map on project ->
+//     venue pairs of the TUNING split and prints RECS_VENUE_SCORE_* (slice 25);
+//   - eval-venues (make eval-venues) measures NFR-6 venue top-5 accuracy, its 95% Wilson
+//     interval and precision@5 on the TEST split, and with -write puts them into
+//     docs/evaluation.md. Both venue modes read the sample projects from the development
+//     database and the sample venues from the TEST database (TEST_DATABASE_URL), which
+//     `seedsample -test-venues` makes, in read-only sessions (venues.go).
 //
 // Definitions and results are in docs/evaluation.md. It reads DATABASE_URL and APP_ENV and
 // refuses anything but a local development database (checkTarget). It only reads. The test
@@ -56,7 +63,8 @@ func main() {
 type options struct {
 	mode    string
 	seed    uint64
-	queries int // calibrate: tuning queries; bench: measured users
+	queries int    // calibrate: tuning queries; bench: measured users
+	write   string // eval-venues: the evaluation document to write the results into
 }
 
 func parseFlags(args []string) (options, error) {
@@ -64,11 +72,12 @@ func parseFlags(args []string) (options, error) {
 	fs := flag.NewFlagSet("recseval", flag.ContinueOnError)
 	fs.Uint64Var(&o.seed, "seed", defaultSeed, "seed of the random draws (calibration queries, benchmark users)")
 	fs.IntVar(&o.queries, "n", 0, "calibrate: tuning queries (default 2000); bench: users measured (default 200)")
+	fs.StringVar(&o.write, "write", "", "eval-venues: write the results into this Markdown file (docs/evaluation.md)")
 	if err := fs.Parse(args); err != nil {
 		return o, err
 	}
 	if fs.NArg() != 1 {
-		return o, errors.New("usage: recseval [-seed N] [-n N] calibrate|eval|bench|eval-search|bench-search")
+		return o, errors.New("usage: recseval [-seed N] [-n N] [-write FILE] calibrate|eval|bench|eval-search|bench-search|calibrate-venues|eval-venues")
 	}
 	o.mode = fs.Arg(0)
 	switch o.mode {
@@ -88,8 +97,15 @@ func parseFlags(args []string) (options, error) {
 		if o.queries != 0 {
 			return o, errors.New("eval-search uses every evaluation query; -n does not apply")
 		}
+	case "calibrate-venues", "eval-venues":
+		if o.queries != 0 {
+			return o, fmt.Errorf("%s uses every sample project of its split; -n does not apply", o.mode)
+		}
 	default:
-		return o, fmt.Errorf("unknown mode %q: use calibrate, eval, bench, eval-search or bench-search", o.mode)
+		return o, fmt.Errorf("unknown mode %q: use calibrate, eval, bench, eval-search, bench-search, calibrate-venues or eval-venues", o.mode)
+	}
+	if o.write != "" && o.mode != "eval-venues" {
+		return o, errors.New("-write goes with eval-venues only")
 	}
 	if o.queries < 0 || o.queries > 10_000 {
 		return o, errors.New("-n must be 1 to 10000")
@@ -101,6 +117,9 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	o, err := parseFlags(args)
 	if err != nil {
 		return err
+	}
+	if o.mode == "calibrate-venues" || o.mode == "eval-venues" {
+		return runVenueModes(ctx, o, getenv, out)
 	}
 	databaseURL := getenv("DATABASE_URL")
 	if err := checkTarget(databaseURL, getenv("APP_ENV")); err != nil {
@@ -174,7 +193,14 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 		if err != nil {
 			return err
 		}
-		return benchProjects(ctx, pool, s, ps, cfg, pcfg, o, out)
+		if err := benchProjects(ctx, pool, s, ps, cfg, pcfg, o, out); err != nil {
+			return err
+		}
+		vcfg, err := venueScoreMapFromEnv(getenv)
+		if err != nil {
+			return err
+		}
+		return benchVenues(ctx, pool, cfg, vcfg, o, out)
 	}
 }
 

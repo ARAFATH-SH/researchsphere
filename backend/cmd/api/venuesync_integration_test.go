@@ -17,6 +17,7 @@ import (
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/event/domain"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/config"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/testenv"
+	recommendationredis "github.com/ARAFATH-SH/researchsphere/backend/internal/recommendation/adapter/redis"
 )
 
 // The recorded fixtures of the real sources (internal/event/adapter/feeds/testdata).
@@ -167,6 +168,11 @@ func TestVenueSyncEndToEnd(t *testing.T) {
 	if err := e.pool.QueryRow(t.Context(), "SELECT count(*) FROM venues").Scan(&n); err != nil || n != 0 {
 		t.Fatalf("a dry run wrote %d venues (%v)", n, err)
 	}
+	// Venue recommendations (AI-6.1) are renewed only by a run that wrote venues.
+	venueGen := func() string { return e.rdb.Get(t.Context(), recommendationredis.VenueGenerationKey).Val() }
+	if g := venueGen(); g != "" {
+		t.Errorf("a dry run raised the venues generation to %s", g)
+	}
 	dry := e.syncStatus(t, admin)
 	for _, src := range dry {
 		run := src["lastDryRun"].(map[string]any)
@@ -180,6 +186,9 @@ func TestVenueSyncEndToEnd(t *testing.T) {
 		t.Fatalf("real run: %d %v", code, body)
 	}
 	e.venueSync.Wait()
+	if g := venueGen(); g != "3" {
+		t.Errorf("venues generation after three runs that wrote venues = %q, want 3", g)
+	}
 	status := e.syncStatus(t, admin)
 	created := map[string]float64{}
 	for _, src := range status {

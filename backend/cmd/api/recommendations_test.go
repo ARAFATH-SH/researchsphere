@@ -57,6 +57,66 @@ func (okRecommendations) ProjectResearchers(_ context.Context, _, projectID stri
 	return recommendationusecase.ResearcherResult{}, recommendationdomain.ErrProjectNotFound
 }
 
+// okRecommendations shows okProjectID's venues: one conference with an AoE deadline and one
+// rolling journal. Any other project is not found (a non-member gets the same).
+func (okRecommendations) ProjectVenues(_ context.Context, _, projectID string) (recommendationusecase.VenueResult, error) {
+	if projectID != okProjectID {
+		return recommendationusecase.VenueResult{}, recommendationdomain.ErrProjectNotFound
+	}
+	deadline := time.Date(2027, 3, 2, 11, 59, 59, 0, time.UTC) // 2027-03-01 23:59:59 AoE
+	aoe, short, days := "AoE", "ICFM", 96
+	card := func(id, name, typ string) recommendationdomain.VenueCard {
+		return recommendationdomain.VenueCard{ID: id, Name: name, Type: typ,
+			Fields:      []recommendationdomain.VenueField{{Key: "water_resources", Label: "Water resources and hydrology"}},
+			OfficialURL: "https://example.org/" + typ, LinkKind: "official"}
+	}
+	conf := card("66666666-6666-4666-8666-666666666666", "International Conference on Flood Mapping", "conference")
+	conf.ShortName, conf.TimeZone, conf.Deadline = &short, &aoe, &deadline
+	return recommendationusecase.VenueResult{
+		State:    recommendationdomain.StateReady,
+		Venues:   []recommendationdomain.VenueRecommendation{{VenueCard: conf, Score: 81, DaysLeft: &days}},
+		Journals: []recommendationdomain.VenueRecommendation{{VenueCard: card("77777777-7777-4777-8777-777777777777", "Journal of Hydrology", "journal"), Score: 64}},
+		Notice:   recommendationdomain.VenueNotice,
+	}, nil
+}
+
+// AI-6 route: a verified session; a project the caller is not a member of is 404. The
+// deadline shows its instant and its wall time in the stated zone (AoE = UTC-12), and a
+// rolling journal has no deadline.
+func TestProjectVenueRoute(t *testing.T) {
+	router := testRouter()
+	researcher := accessCookie(t, authz.RoleResearcher)
+	for _, tt := range []struct {
+		name, path string
+		cookie     *http.Cookie
+		want       int
+		wantBody   string
+	}{
+		{"no session", "/api/v1/projects/" + okProjectID + "/recommended-venues", nil, http.StatusUnauthorized, `"code":"unauthenticated"`},
+		{"member", "/api/v1/projects/" + okProjectID + "/recommended-venues", researcher, http.StatusOK,
+			`{"journals":[{"daysLeft":null,"fields":[{"key":"water_resources","label":"Water resources and hydrology"}],"id":"77777777-7777-4777-8777-777777777777","linkKind":"official","name":"Journal of Hydrology","officialUrl":"https://example.org/journal","score":64,"shortName":null,"submissionDeadline":null,"timeZone":null,"type":"journal"}],` +
+				`"notice":"Matched on topic only. This says nothing about a venue's quality or ranking.","state":"ready",` +
+				`"venues":[{"daysLeft":96,"fields":[{"key":"water_resources","label":"Water resources and hydrology"}],"id":"66666666-6666-4666-8666-666666666666","linkKind":"official","name":"International Conference on Flood Mapping","officialUrl":"https://example.org/conference","score":81,"shortName":"ICFM","submissionDeadline":{"at":"2027-03-02T11:59:59Z","local":"2027-03-01T23:59:59"},"timeZone":"AoE","type":"conference"}]}`},
+		{"not a member", "/api/v1/projects/" + forbiddenProjectID + "/recommended-venues", researcher, http.StatusNotFound, `"code":"not_found"`},
+		{"not a UUID", "/api/v1/projects/nope/recommended-venues", researcher, http.StatusNotFound, `"code":"not_found"`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, tt.path, nil)
+			if tt.cookie != nil {
+				req.AddCookie(tt.cookie)
+			}
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			if rec.Code != tt.want {
+				t.Fatalf("status = %d, want %d; body %s", rec.Code, tt.want, rec.Body)
+			}
+			if !strings.Contains(rec.Body.String(), tt.wantBody) {
+				t.Errorf("body = %s, want it to contain %s", rec.Body, tt.wantBody)
+			}
+		})
+	}
+}
+
 // AI-3.1 and AI-2.3 routes: a verified session and "View profiles, search, feed, events and
 // recommendations"; the project's owner only (403), a hidden project 404.
 func TestProjectRecommendationRoutes(t *testing.T) {

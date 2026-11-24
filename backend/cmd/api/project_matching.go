@@ -93,8 +93,9 @@ func (w projectChanges) MembersChanged(ctx context.Context, projectID string, us
 }
 
 // embeddingChanges renews the project lists when the embedding worker stores or deletes a
-// project's embedding (AI-3.1). A profile's embedding needs nothing: each list carries the
-// stamp of the embedding it was made from.
+// project's embedding (AI-3.1), a project's venue lists when its title-and-abstract embedding
+// changes, and every venue list when a venue's embedding changes (AI-6.1). A profile's
+// embedding needs nothing: each list carries the stamp of the embedding it was made from.
 type embeddingChanges struct {
 	recs *recommendationusecase.Service
 }
@@ -102,8 +103,13 @@ type embeddingChanges struct {
 var _ embeddingdomain.Watcher = embeddingChanges{}
 
 func (w embeddingChanges) EmbeddingChanged(ctx context.Context, ownerType embeddingdomain.OwnerType, ownerID string) {
-	if ownerType == embeddingdomain.OwnerProject {
+	switch ownerType {
+	case embeddingdomain.OwnerProject:
 		w.recs.ProjectChanged(ctx, ownerID)
+	case embeddingdomain.OwnerProjectAbstract:
+		w.recs.ProjectVenuesChanged(ctx, ownerID)
+	case embeddingdomain.OwnerVenue:
+		w.recs.VenuesChanged(ctx)
 	}
 }
 

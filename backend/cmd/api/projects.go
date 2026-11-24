@@ -95,6 +95,8 @@ var projectActions = map[projectdomain.Action]authz.ProjectAction{
 	// AI-2.3 (recommended researchers, owner only) has no row of its own; its list is for
 	// finding people to invite (decisions.md 2026-11-16).
 	projectdomain.ActManageMembers: authz.ManageMembers,
+	// AI-6 (venue recommendations): viewer, editor and owner.
+	projectdomain.ActSeeVenueRecommendations: authz.SeeVenueRecommendations,
 }
 
 func (projectPermissions) Can(role projectdomain.Role, action projectdomain.Action) bool {

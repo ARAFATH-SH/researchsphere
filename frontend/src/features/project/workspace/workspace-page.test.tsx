@@ -8,7 +8,7 @@ import * as Y from "yjs";
 import type { RealtimeEvent } from "@/features/realtime/events";
 import { saveBlob } from "@/lib/download";
 
-import { getProject, listProjectMembers, updateProject } from "../api";
+import { getProject, getRecommendedVenues, listProjectMembers, updateProject } from "../api";
 import {
   createCollabTicket,
   createFile,
@@ -23,7 +23,7 @@ import {
   uploadFigure,
 } from "../files/api";
 import { figure, folder, storage, textFile, tree } from "../files/test-files";
-import { project, projectID } from "../test-projects";
+import { project, projectID, recommendedVenue, venueNotice, venueRecs } from "../test-projects";
 import { autosaveDelayMs } from "./autosave";
 import {
   type Compile,
@@ -41,7 +41,13 @@ import type { LinkFactory } from "./collab/link";
 import { CollabSession } from "./collab/session";
 import { WorkspacePage } from "./workspace-page";
 
-jest.mock("../api", () => ({ ...jest.requireActual("../api"), getProject: jest.fn(), listProjectMembers: jest.fn(), updateProject: jest.fn() }));
+jest.mock("../api", () => ({
+  ...jest.requireActual("../api"),
+  getProject: jest.fn(),
+  listProjectMembers: jest.fn(),
+  updateProject: jest.fn(),
+  getRecommendedVenues: jest.fn(),
+}));
 jest.mock("./compile/api", () => ({
   ...jest.requireActual("./compile/api"),
   startCompile: jest.fn(),
@@ -1118,6 +1124,66 @@ describe("WorkspacePage", () => {
         expect(downloadArchive).toHaveBeenCalledWith(projectID);
         expect(screen.queryByRole("menu")).toBeNull();
       });
+    });
+  });
+
+  describe("venues (AI-6)", () => {
+    it("opens the Where to submit card in a side sheet from the bar, a bottom sheet under 640px", async () => {
+      jest.mocked(getRecommendedVenues).mockResolvedValue(venueRecs("ready", [recommendedVenue(1)]));
+      await renderWorkspace("viewer");
+      expect(getRecommendedVenues).not.toHaveBeenCalled();
+      const button = within(screen.getByRole("banner")).getByRole("button", { name: "Venues" });
+      fireEvent.click(button);
+      const sheet = screen.getByRole("dialog", { name: "Venues" });
+      expect(sheet.className).toContain("ml-auto");
+      expect(sheet.className).toContain("h-dvh");
+      expect(sheet.className).toContain("max-[640px]:mt-auto");
+      const card = await within(sheet).findByRole("region", { name: "Where to submit", busy: false });
+      expect(within(card).getByRole("link", { name: /Conference on Digital Health 1/ }).getAttribute("href")).toBe(
+        `/events/${recommendedVenue(1).id}`,
+      );
+      expect(within(card).getByText(venueNotice)).toBeTruthy();
+      expect(getRecommendedVenues).toHaveBeenCalledWith(projectID);
+      fireEvent.click(within(sheet).getByRole("button", { name: "Close" }));
+      expect(screen.queryByRole("dialog", { name: "Venues" })).toBeNull();
+      expect(document.activeElement).toBe(button);
+    });
+
+    it("lets an editor add the abstract from the sheet, then reads the venues again", async () => {
+      jest.mocked(getProject).mockResolvedValue({ ok: true, data: project({ myRole: "editor", abstract: null }) });
+      jest
+        .mocked(getRecommendedVenues)
+        .mockResolvedValueOnce(venueRecs("needs_abstract"))
+        .mockResolvedValueOnce(venueRecs("processing"));
+      hub.roles.set(me.id, "editor");
+      render(<WorkspacePage projectId={projectID} />);
+      await editorView();
+      fireEvent.click(within(screen.getByRole("banner")).getByRole("button", { name: "Venues" }));
+      const sheet = screen.getByRole("dialog", { name: "Venues" });
+      fireEvent.click(await within(sheet).findByRole("button", { name: "Add abstract" }));
+      const dialog = screen.getByRole("dialog", { name: "Add abstract" });
+      fireEvent.change(within(dialog).getByLabelText(/^Paper abstract/), { target: { value: "We study screen use." } });
+      jest.mocked(updateProject).mockResolvedValue({ ok: true, data: project({ myRole: "editor", abstract: "We study screen use." }) });
+      await act(async () => {
+        fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+      });
+      expect(updateProject).toHaveBeenCalledWith(projectID, { abstract: "We study screen use." });
+      expect(screen.queryByRole("dialog", { name: "Add abstract" })).toBeNull();
+      expect(await within(sheet).findByText("Finding venues for your abstract…")).toBeTruthy();
+      expect(getRecommendedVenues).toHaveBeenCalledTimes(2);
+    });
+
+    it("shows a viewer the request for an abstract without the button", async () => {
+      jest.mocked(getProject).mockResolvedValue({ ok: true, data: project({ myRole: "viewer", abstract: null }) });
+      jest.mocked(getRecommendedVenues).mockResolvedValue(venueRecs("needs_abstract"));
+      hub.roles.set(me.id, "viewer");
+      render(<WorkspacePage projectId={projectID} />);
+      await editorView("main.tex, view only");
+      fireEvent.click(within(screen.getByRole("banner")).getByRole("button", { name: "Venues" }));
+      const sheet = screen.getByRole("dialog", { name: "Venues" });
+      expect(await within(sheet).findByRole("heading", { name: "Add an abstract to see venues" })).toBeTruthy();
+      expect(within(sheet).queryByRole("button", { name: "Add abstract" })).toBeNull();
+      expect(within(sheet).getByText(venueNotice)).toBeTruthy();
     });
   });
 

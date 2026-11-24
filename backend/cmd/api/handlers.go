@@ -192,6 +192,9 @@ var platformGuards = map[string]authz.Action{
 	// (AI-2.3) too; the usecase then checks the project role (owner only).
 	"GET /api/v1/recommendations/projects":                     authz.ViewContent,
 	"GET /api/v1/projects/{projectId}/recommended-researchers": authz.ViewContent,
+	// A project's recommended venues (AI-6) too; the usecase then checks the project row "See
+	// venue recommendations for the project" (members only, others get 404).
+	"GET /api/v1/projects/{projectId}/recommended-venues": authz.ViewContent,
 
 	// Research projects (FR-10). Creating is the row "Create a project". Reading, editing and
 	// deleting need what reading the app needs; the usecase then checks the project role

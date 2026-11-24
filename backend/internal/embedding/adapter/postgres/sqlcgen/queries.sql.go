@@ -86,6 +86,15 @@ func (q *Queries) DeleteProfileEmbedding(ctx context.Context, userID pgtype.UUID
 	return err
 }
 
+const deleteProjectAbstractEmbedding = `-- name: DeleteProjectAbstractEmbedding :exec
+DELETE FROM project_abstract_embeddings WHERE project_id = $1
+`
+
+func (q *Queries) DeleteProjectAbstractEmbedding(ctx context.Context, projectID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteProjectAbstractEmbedding, projectID)
+	return err
+}
+
 const deleteProjectEmbedding = `-- name: DeleteProjectEmbedding :exec
 DELETE FROM project_embeddings WHERE project_id = $1
 `
@@ -442,11 +451,14 @@ func (q *Queries) QueueStaleProfiles(ctx context.Context, arg QueueStaleProfiles
 
 const queueStaleProjects = `-- name: QueueStaleProjects :execrows
 INSERT INTO embedding_jobs (owner_type, owner_id, priority)
-SELECT 'project', e.project_id, 1
-FROM project_embeddings e
-WHERE e.model <> $1
-  AND NOT EXISTS (SELECT 1 FROM embedding_jobs j WHERE j.owner_type = 'project' AND j.owner_id = e.project_id)
-ORDER BY e.project_id
+SELECT 'project', s.project_id, 1
+FROM (
+    SELECT e.project_id FROM project_embeddings e WHERE e.model <> $1
+    UNION
+    SELECT a.project_id FROM project_abstract_embeddings a WHERE a.model <> $1
+) s
+WHERE NOT EXISTS (SELECT 1 FROM embedding_jobs j WHERE j.owner_type = 'project' AND j.owner_id = s.project_id)
+ORDER BY s.project_id
 LIMIT $2
 ON CONFLICT (owner_type, owner_id) DO NOTHING
 `
@@ -456,6 +468,8 @@ type QueueStaleProjectsParams struct {
 	Lim   int32
 }
 
+// A project whose main or title-and-abstract embedding (AI-6.1) another model made: one job
+// makes both again.
 func (q *Queries) QueueStaleProjects(ctx context.Context, arg QueueStaleProjectsParams) (int64, error) {
 	result, err := q.db.Exec(ctx, queueStaleProjects, arg.Model, arg.Lim)
 	if err != nil {
@@ -578,6 +592,43 @@ func (q *Queries) SaveProfileEmbedding(ctx context.Context, arg SaveProfileEmbed
 	return result.RowsAffected(), nil
 }
 
+const saveProjectAbstractEmbedding = `-- name: SaveProjectAbstractEmbedding :execrows
+WITH owner AS (
+    SELECT id FROM projects WHERE id = $5 FOR KEY SHARE
+)
+INSERT INTO project_abstract_embeddings (project_id, model, content_hash, embedding, chunk_count)
+SELECT owner.id, $1, $2, CAST($3::text AS vector), $4 FROM owner
+ON CONFLICT (project_id) DO UPDATE
+SET model        = EXCLUDED.model,
+    content_hash = EXCLUDED.content_hash,
+    embedding    = EXCLUDED.embedding,
+    chunk_count  = EXCLUDED.chunk_count,
+    updated_at   = now()
+`
+
+type SaveProjectAbstractEmbeddingParams struct {
+	Model       string
+	ContentHash string
+	Embedding   string
+	ChunkCount  int16
+	ProjectID   pgtype.UUID
+}
+
+// Only while the project exists, held as SaveProjectEmbedding holds it.
+func (q *Queries) SaveProjectAbstractEmbedding(ctx context.Context, arg SaveProjectAbstractEmbeddingParams) (int64, error) {
+	result, err := q.db.Exec(ctx, saveProjectAbstractEmbedding,
+		arg.Model,
+		arg.ContentHash,
+		arg.Embedding,
+		arg.ChunkCount,
+		arg.ProjectID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const saveProjectEmbedding = `-- name: SaveProjectEmbedding :execrows
 WITH owner AS (
     SELECT id FROM projects WHERE id = $5 FOR KEY SHARE
@@ -667,6 +718,25 @@ type StoredProfileEmbeddingRow struct {
 func (q *Queries) StoredProfileEmbedding(ctx context.Context, userID pgtype.UUID) (StoredProfileEmbeddingRow, error) {
 	row := q.db.QueryRow(ctx, storedProfileEmbedding, userID)
 	var i StoredProfileEmbeddingRow
+	err := row.Scan(&i.Model, &i.ContentHash)
+	return i, err
+}
+
+const storedProjectAbstractEmbedding = `-- name: StoredProjectAbstractEmbedding :one
+
+SELECT model, content_hash FROM project_abstract_embeddings WHERE project_id = $1
+`
+
+type StoredProjectAbstractEmbeddingRow struct {
+	Model       string
+	ContentHash string
+}
+
+// Title and abstract (AI-6.1; slice 25). The project job also makes this second vector; a
+// project without an abstract has none.
+func (q *Queries) StoredProjectAbstractEmbedding(ctx context.Context, projectID pgtype.UUID) (StoredProjectAbstractEmbeddingRow, error) {
+	row := q.db.QueryRow(ctx, storedProjectAbstractEmbedding, projectID)
+	var i StoredProjectAbstractEmbeddingRow
 	err := row.Scan(&i.Model, &i.ContentHash)
 	return i, err
 }

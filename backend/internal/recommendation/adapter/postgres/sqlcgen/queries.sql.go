@@ -201,6 +201,54 @@ func (q *Queries) ProjectSkillsOf(ctx context.Context, projectIds []pgtype.UUID)
 	return items, nil
 }
 
+const projectVenueSelf = `-- name: ProjectVenueSelf :many
+
+SELECT (p.abstract IS NOT NULL AND p.abstract ~ '[^[:space:]]')::boolean AS has_abstract,
+       a.model, a.content_hash, a.updated_at
+FROM projects p
+LEFT JOIN project_abstract_embeddings a ON a.project_id = p.id
+WHERE p.id = $1::uuid
+`
+
+type ProjectVenueSelfRow struct {
+	HasAbstract bool
+	Model       pgtype.Text
+	ContentHash pgtype.Text
+	UpdatedAt   pgtype.Timestamptz
+}
+
+// Venue recommendations (AI-6.1 to AI-6.4; slice 25, chunk 25.1). Read only, with the AI-2.4
+// rule above: the ranking orders by cosine distance only, never by a venue's rank, impact or
+// any count (TestRankQueryReadsNoPopularity). The project side is its title-and-abstract
+// embedding (project_abstract_embeddings, AI-6.1), not the AI-1.2 project embedding.
+// Whether the project has an abstract with any non-space character (AI-6.3), and the stamp of
+// its title-and-abstract embedding (NULLs when there is none); no row when the project does
+// not exist.
+func (q *Queries) ProjectVenueSelf(ctx context.Context, projectID pgtype.UUID) ([]ProjectVenueSelfRow, error) {
+	rows, err := q.db.Query(ctx, projectVenueSelf, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ProjectVenueSelfRow
+	for rows.Next() {
+		var i ProjectVenueSelfRow
+		if err := rows.Scan(
+			&i.HasAbstract,
+			&i.Model,
+			&i.ContentHash,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const projectsStillEligible = `-- name: ProjectsStillEligible :many
 SELECT p.id
 FROM projects p
@@ -316,6 +364,81 @@ func (q *Queries) RankPeople(ctx context.Context, arg RankPeopleParams) ([]RankP
 			&i.Headline,
 			&i.Institution,
 			&i.PhotoFileID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const rankProjectVenues = `-- name: RankProjectVenues :many
+WITH me AS (
+    SELECT embedding, model FROM project_abstract_embeddings WHERE project_id = $1::uuid
+),
+cand AS MATERIALIZED (
+    SELECT e.venue_id, (e.embedding <=> (SELECT embedding FROM me))::float8 AS distance
+    FROM venue_embeddings e
+    JOIN venues v ON v.id = e.venue_id
+    WHERE e.model = (SELECT model FROM me)
+      AND v.removed_at IS NULL
+      AND v.rolling = $2::boolean
+      AND (v.rolling OR v.submission_deadline > now())
+    ORDER BY e.embedding <=> (SELECT embedding FROM me)
+    LIMIT $3
+)
+SELECT cand.venue_id, (1 - cand.distance)::float8 AS cosine,
+       v.name, v.short_name, v.type, v.deadline_tz, v.submission_deadline, v.official_url, v.link_kind
+FROM cand
+JOIN venues v ON v.id = cand.venue_id
+ORDER BY cand.distance, cand.venue_id
+`
+
+type RankProjectVenuesParams struct {
+	ProjectID pgtype.UUID
+	Rolling   bool
+	Lim       int32
+}
+
+type RankProjectVenuesRow struct {
+	VenueID            pgtype.UUID
+	Cosine             float64
+	Name               string
+	ShortName          pgtype.Text
+	Type               string
+	DeadlineTz         pgtype.Text
+	SubmissionDeadline pgtype.Timestamptz
+	OfficialUrl        string
+	LinkKind           string
+}
+
+// The lim venues whose embedding is closest in cosine distance to the project's
+// title-and-abstract embedding, through venue_embeddings_hnsw_idx. With rolling false: venues
+// not removed, not rolling, whose submission deadline is after now (AI-6.1; an AoE deadline
+// is stored as its instant). With rolling true: rolling journals not removed. Embeddings of
+// another model are left out (not comparable).
+func (q *Queries) RankProjectVenues(ctx context.Context, arg RankProjectVenuesParams) ([]RankProjectVenuesRow, error) {
+	rows, err := q.db.Query(ctx, rankProjectVenues, arg.ProjectID, arg.Rolling, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RankProjectVenuesRow
+	for rows.Next() {
+		var i RankProjectVenuesRow
+		if err := rows.Scan(
+			&i.VenueID,
+			&i.Cosine,
+			&i.Name,
+			&i.ShortName,
+			&i.Type,
+			&i.DeadlineTz,
+			&i.SubmissionDeadline,
+			&i.OfficialUrl,
+			&i.LinkKind,
 		); err != nil {
 			return nil, err
 		}
@@ -670,6 +793,69 @@ func (q *Queries) StillEligible(ctx context.Context, arg StillEligibleParams) ([
 			return nil, err
 		}
 		items = append(items, user_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const venueFieldsOf = `-- name: VenueFieldsOf :many
+SELECT vf.venue_id, rf.key, rf.label
+FROM venue_fields vf
+JOIN research_fields rf ON rf.key = vf.field_key
+WHERE vf.venue_id = ANY($1::uuid[])
+ORDER BY vf.venue_id, rf.position
+`
+
+type VenueFieldsOfRow struct {
+	VenueID pgtype.UUID
+	Key     string
+	Label   string
+}
+
+// The research fields of the ranked venues, in the order of the fixed list.
+func (q *Queries) VenueFieldsOf(ctx context.Context, venueIds []pgtype.UUID) ([]VenueFieldsOfRow, error) {
+	rows, err := q.db.Query(ctx, venueFieldsOf, venueIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []VenueFieldsOfRow
+	for rows.Next() {
+		var i VenueFieldsOfRow
+		if err := rows.Scan(&i.VenueID, &i.Key, &i.Label); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const venuesStillEligible = `-- name: VenuesStillEligible :many
+SELECT id FROM venues
+WHERE id = ANY($1::uuid[])
+  AND removed_at IS NULL
+  AND (rolling OR submission_deadline > now())
+`
+
+// Those of ids that are not removed and either rolling or with a deadline after now.
+func (q *Queries) VenuesStillEligible(ctx context.Context, ids []pgtype.UUID) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, venuesStillEligible, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var id pgtype.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

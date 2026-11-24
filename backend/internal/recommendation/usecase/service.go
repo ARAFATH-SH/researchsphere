@@ -36,6 +36,7 @@ type Service struct {
 	scores    ScoreMap
 	logger    *slog.Logger
 	projects  *ProjectDeps // nil until WithProjects
+	venues    *VenueDeps   // nil until WithVenues
 
 	warned sync.Map // embedding model -> struct{}: models already warned about
 }

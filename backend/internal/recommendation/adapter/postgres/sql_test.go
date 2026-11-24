@@ -9,13 +9,15 @@ import (
 // (AI-2.4). Comments are left out of the check.
 func TestRankQueryReadsNoPopularity(t *testing.T) {
 	for _, name := range []string{"RankPeople", "StillEligible", "SelfFields",
-		"RankProjects", "ProjectsStillEligible", "ProjectSelfFields", "RankResearchers", "ResearchersStillEligible"} {
+		"RankProjects", "ProjectsStillEligible", "ProjectSelfFields", "RankResearchers", "ResearchersStillEligible",
+		"ProjectVenueSelf", "RankProjectVenues", "VenuesStillEligible"} {
 		q, err := QueryText(name)
 		if err != nil {
 			t.Fatal(err)
 		}
 		sql := strings.ToLower(q)
-		for _, banned := range []string{"count(", "publication", "citation", "cited", "follower", "popular", "score"} {
+		for _, banned := range []string{"count(", "publication", "citation", "cited", "follower", "popular", "score",
+			"impact", "h_index", "core_rank", "quartile", "works_count"} {
 			if strings.Contains(sql, banned) {
 				t.Errorf("%s reads %q; ranking may use only the embedding similarity (AI-2.4)", name, banned)
 			}
@@ -29,6 +31,9 @@ func TestRankQueryReadsNoPopularity(t *testing.T) {
 		if err != nil || strings.Contains(q, "@") || !strings.Contains(q, "$1") || !strings.Contains(q, "LIMIT $2") {
 			t.Errorf("%sSQL = %q, %v", name, q, err)
 		}
+	}
+	if q, err := RankProjectVenuesSQL(); err != nil || strings.Contains(q, "@") || !strings.Contains(q, "$1") || !strings.Contains(q, "$2::boolean") || !strings.Contains(q, "LIMIT $3") {
+		t.Errorf("RankProjectVenuesSQL = %q, %v", q, err)
 	}
 	// The member count is read only for the card, never by a ranking or recheck query.
 	for _, name := range []string{"RankProjects", "ProjectsStillEligible", "RankResearchers", "ResearchersStillEligible"} {

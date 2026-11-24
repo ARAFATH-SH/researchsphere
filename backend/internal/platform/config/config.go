@@ -91,6 +91,18 @@ const (
 	DefaultRecsProjectScoreSlope     = 87.6849
 	DefaultRecsProjectScoreIntercept = -74.5228
 
+	// The venue score map (AI-6.2) for pairs of a project's title-and-abstract embedding and a
+	// venue embedding, for the same model. make calibrate-venues checked the project map above
+	// on 2026-11-25 on the sample tuning split only (82,400 pairs: 412 tuning projects with an
+	// abstract against the 200 sample venues of the test database): error 2.5 points, its 50
+	// point 0.0083 from the fitted one, so the project map holds and these are its constants.
+	// docs/evaluation.md.
+	DefaultRecsVenueScoreSlope     = 87.6849
+	DefaultRecsVenueScoreIntercept = -74.5228
+	// DefaultRecsJournalMinScore hides a rolling journal scoring below it, so a poor fit never
+	// shows just to fill the journal list (AI-6.1; slice 25).
+	DefaultRecsJournalMinScore = 50
+
 	// DefaultSearchAITimeout is how long a hybrid search waits for its query embedding
 	// before it searches by keyword instead (AI-5.4). MaxSearchAITimeout keeps it short.
 	DefaultSearchAITimeout = 1500 * time.Millisecond
@@ -232,6 +244,12 @@ type Config struct {
 	// RecsScoreModel too; slope > 0.
 	RecsProjectScoreSlope     float64
 	RecsProjectScoreIntercept float64
+	// The venue score map (AI-6.2): project title-and-abstract to venue pairs, fitted for
+	// RecsScoreModel too; slope > 0.
+	RecsVenueScoreSlope     float64
+	RecsVenueScoreIntercept float64
+	// RecsJournalMinScore (0 to 100) is the lowest score a rolling journal is shown with.
+	RecsJournalMinScore int
 
 	// SearchAITimeout bounds the query embedding of a hybrid researcher search; after it
 	// the search falls back to keywords (AI-5.4).
@@ -491,6 +509,22 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	if cfg.RecsProjectScoreIntercept, err = parseFloat("RECS_PROJECT_SCORE_INTERCEPT", getenv("RECS_PROJECT_SCORE_INTERCEPT"), DefaultRecsProjectScoreIntercept); err != nil {
 		errs = append(errs, err)
+	}
+	if cfg.RecsVenueScoreSlope, err = parseFloat("RECS_VENUE_SCORE_SLOPE", getenv("RECS_VENUE_SCORE_SLOPE"), DefaultRecsVenueScoreSlope); err != nil {
+		errs = append(errs, err)
+	} else if cfg.RecsVenueScoreSlope <= 0 {
+		errs = append(errs, errors.New("RECS_VENUE_SCORE_SLOPE must be more than 0, so a more similar venue never scores lower"))
+	}
+	if cfg.RecsVenueScoreIntercept, err = parseFloat("RECS_VENUE_SCORE_INTERCEPT", getenv("RECS_VENUE_SCORE_INTERCEPT"), DefaultRecsVenueScoreIntercept); err != nil {
+		errs = append(errs, err)
+	}
+	cfg.RecsJournalMinScore = DefaultRecsJournalMinScore
+	if raw := strings.TrimSpace(getenv("RECS_JOURNAL_MIN_SCORE")); raw != "" {
+		if n, err := strconv.Atoi(raw); err != nil || n < 0 || n > 100 {
+			errs = append(errs, errors.New("RECS_JOURNAL_MIN_SCORE must be a whole number from 0 to 100"))
+		} else {
+			cfg.RecsJournalMinScore = n
+		}
 	}
 	if cfg.SearchAITimeout, err = parseDuration("SEARCH_AI_TIMEOUT", getenv("SEARCH_AI_TIMEOUT"), DefaultSearchAITimeout); err != nil {
 		errs = append(errs, err)

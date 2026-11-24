@@ -691,3 +691,69 @@ func TestProjectEmbeddings(t *testing.T) {
 		t.Errorf("save for a deleted project = %v, %v; want false", ok, err)
 	}
 }
+
+// AI-6.1: a project's title-and-abstract vector is stored, read and deleted apart from its own
+// embedding; a project whose second vector another model made is queued once (one job makes
+// both); deleting the project deletes it, and a save after that stores nothing.
+func TestProjectAbstractEmbeddings(t *testing.T) {
+	d := newDB(t)
+	s := NewStore(d.pool)
+	ctx := t.Context()
+	owner := d.user(true)
+	var id string
+	if err := d.pool.QueryRow(ctx, `WITH p AS (INSERT INTO projects (title, description, abstract) VALUES ('Floods', 'About', 'We map floods') RETURNING id),
+		m AS (INSERT INTO project_members (project_id, user_id, role) SELECT id, $1, 'owner' FROM p)
+		SELECT id::text FROM p`, owner).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	save := func(owner domain.OwnerType, model, hash string) bool {
+		t.Helper()
+		ok, err := s.SaveEmbedding(ctx, domain.Embedding{OwnerType: owner, OwnerID: id, Model: model, ContentHash: strings.Repeat(hash, 64), ChunkCount: 1, Vector: vector(5)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ok
+	}
+	if _, err := s.StoredEmbedding(ctx, domain.OwnerProjectAbstract, id); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("none yet: %v", err)
+	}
+	if !save(domain.OwnerProject, modelB, "a") || !save(domain.OwnerProjectAbstract, modelA, "c") {
+		t.Fatal("not saved")
+	}
+	if st, err := s.StoredEmbedding(ctx, domain.OwnerProjectAbstract, id); err != nil || st.Model != modelA || st.ContentHash != strings.Repeat("c", 64) {
+		t.Errorf("stored = %+v, %v", st, err)
+	}
+	if st, _ := s.StoredEmbedding(ctx, domain.OwnerProject, id); st.ContentHash != strings.Repeat("a", 64) {
+		t.Errorf("the project's own embedding changed: %+v", st)
+	}
+
+	d.clearJobs()
+	if n, err := s.QueueStale(ctx, modelB, 10); err != nil || n != 1 {
+		t.Errorf("QueueStale = %d, %v; want the project, whose second vector is of model A", n, err)
+	}
+	if n := d.scalar("SELECT count(*) FROM embedding_jobs WHERE owner_type = 'project' AND owner_id = $1", id); n != 1 {
+		t.Errorf("project jobs = %d, want 1", n)
+	}
+	d.clearJobs()
+	if n, err := s.QueueStale(ctx, modelA, 10); err != nil || n != 1 {
+		t.Errorf("QueueStale(model A) = %d, %v; want the project once, whose own embedding is of model B", n, err)
+	}
+
+	if err := s.DeleteEmbedding(ctx, domain.OwnerProjectAbstract, id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.StoredEmbedding(ctx, domain.OwnerProjectAbstract, id); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("after delete: %v", err)
+	}
+	if err := s.DeleteEmbedding(ctx, domain.OwnerProjectAbstract, "nope"); err != nil {
+		t.Errorf("delete with a bad ID: %v", err)
+	}
+	save(domain.OwnerProjectAbstract, modelA, "c")
+	d.exec("DELETE FROM projects WHERE id = $1", id)
+	if n := d.scalar("SELECT count(*) FROM project_abstract_embeddings"); n != 0 {
+		t.Errorf("%d title-and-abstract vectors left after the project's deletion", n)
+	}
+	if save(domain.OwnerProjectAbstract, modelA, "c") {
+		t.Error("saved for a deleted project")
+	}
+}
