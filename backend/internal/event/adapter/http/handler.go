@@ -17,6 +17,7 @@ import (
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/api/gen"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/event/domain"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/event/usecase"
+	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/authz"
 	"github.com/ARAFATH-SH/researchsphere/backend/internal/platform/httpx"
 )
 
@@ -172,13 +173,13 @@ func (h *Handler) ListVenues(ctx context.Context, req gen.ListVenuesRequestObjec
 	case err != nil:
 		return nil, err
 	}
-	now := h.now()
+	now, admin := h.now(), canManage(ctx)
 	body := gen.ListVenues200JSONResponse{
 		Items: make([]gen.VenueSummary, len(page.Items)), Page: num, PageSize: size, Total: page.Total,
 		Facets: gen.VenueFacets{Types: make([]gen.VenueTypeCount, len(page.TypeCounts)), Fields: make([]gen.VenueFieldCount, len(page.FieldCounts))},
 	}
 	for i, v := range page.Items {
-		if body.Items[i], err = summaryOf(v, now); err != nil {
+		if body.Items[i], err = summaryOf(v, now, admin); err != nil {
 			return nil, err
 		}
 	}
@@ -203,7 +204,7 @@ func (h *Handler) GetVenue(ctx context.Context, req gen.GetVenueRequestObject) (
 	case err != nil:
 		return nil, err
 	}
-	body, err := venueOf(v, h.now())
+	body, err := venueOf(v, h.now(), canManage(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -235,7 +236,7 @@ func (h *Handler) CreateVenue(ctx context.Context, req gen.CreateVenueRequestObj
 	case err != nil:
 		return nil, err
 	}
-	body, err := venueOf(v, h.now())
+	body, err := venueOf(v, h.now(), true)
 	if err != nil {
 		return nil, err
 	}
@@ -284,7 +285,7 @@ func (h *Handler) UpdateVenue(ctx context.Context, req gen.UpdateVenueRequestObj
 	case err != nil:
 		return nil, err
 	}
-	body, err := venueOf(v, h.now())
+	body, err := venueOf(v, h.now(), true)
 	if err != nil {
 		return nil, err
 	}
@@ -492,7 +493,16 @@ func isBodyError(err error) bool {
 }
 
 // summaryOf is a venue as the list shows it.
-func summaryOf(v domain.Venue, now time.Time) (gen.VenueSummary, error) {
+// canManage says whether the caller may add, edit and remove venues (an administrator), the
+// only callers who are told whether a venue is locked.
+func canManage(ctx context.Context) bool {
+	role, ok := httpx.Role(ctx)
+	return ok && authz.Can(role, authz.ManageVenues)
+}
+
+// summaryOf is a venue as the list shows it. locked is set only for admin, the caller who
+// may manage venues; everyone else never receives it.
+func summaryOf(v domain.Venue, now time.Time, admin bool) (gen.VenueSummary, error) {
 	id, err := uuidOf(v.ID)
 	if err != nil {
 		return gen.VenueSummary{}, err
@@ -507,7 +517,11 @@ func summaryOf(v domain.Venue, now time.Time) (gen.VenueSummary, error) {
 		StartsOn: optDate(v.StartsOn), EndsOn: optDate(v.EndsOn), TimeZone: optString(v.TimeZone),
 		SubmissionDeadline: optVenueTime(v.SubmissionDeadline, loc), AbstractDeadline: optVenueTime(v.AbstractDeadline, loc),
 		NotificationAt: optVenueTime(v.NotificationAt, loc), OfficialUrl: v.OfficialURL,
-		LinkKind: gen.VenueSummaryLinkKind(v.Link()), Past: v.Past(now),
+		LinkKind: gen.VenueSummaryLinkKind(v.Link()), Past: v.Past(now), Source: gen.VenueSummarySource(v.Source),
+	}
+	if admin {
+		locked := v.Locked()
+		s.Locked = &locked
 	}
 	for i, f := range v.Fields {
 		s.Fields[i] = gen.ResearchField{Key: f.Key, Label: f.Label}
@@ -520,8 +534,8 @@ func summaryOf(v domain.Venue, now time.Time) (gen.VenueSummary, error) {
 }
 
 // venueOf is a venue with its scope.
-func venueOf(v domain.Venue, now time.Time) (gen.Venue, error) {
-	s, err := summaryOf(v, now)
+func venueOf(v domain.Venue, now time.Time, admin bool) (gen.Venue, error) {
+	s, err := summaryOf(v, now, admin)
 	if err != nil {
 		return gen.Venue{}, err
 	}
@@ -530,7 +544,7 @@ func venueOf(v domain.Venue, now time.Time) (gen.Venue, error) {
 		City: s.City, Country: s.Country, StartsOn: s.StartsOn, EndsOn: s.EndsOn, TimeZone: s.TimeZone,
 		SubmissionDeadline: s.SubmissionDeadline, AbstractDeadline: s.AbstractDeadline, NotificationAt: s.NotificationAt,
 		OfficialUrl: s.OfficialUrl, LinkKind: gen.VenueLinkKind(s.LinkKind), Rolling: s.Rolling, Past: s.Past,
-		Scope: v.Scope, Source: gen.VenueSource(v.Source), Locked: v.Locked(), CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt,
+		Scope: v.Scope, Source: gen.VenueSource(s.Source), Locked: s.Locked, CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt,
 	}, nil
 }
 

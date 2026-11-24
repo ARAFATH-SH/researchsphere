@@ -183,3 +183,27 @@ func TestVenueImportBodyCap(t *testing.T) {
 		t.Fatalf("status = %d, body %s; want 413 file_too_large", rec.Code, rec.Body)
 	}
 }
+
+// Every reader gets a venue's source; only an administrator is told whether it is locked
+// (FR-15.1). A researcher's list and venue page never carry the key at all.
+func TestVenueLockedOnlyForAdmins(t *testing.T) {
+	router := testRouter()
+	for _, path := range []string{"/api/v1/venues", "/api/v1/venues/" + okVenueID} {
+		for _, tt := range []struct {
+			role       string
+			wantLocked bool
+		}{{"researcher", false}, {"admin", true}} {
+			rec := sendAs(t, router, http.MethodGet, path, nil, "", tt.role)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("%s as %s: status %d, body %s", path, tt.role, rec.Code, rec.Body)
+			}
+			body := rec.Body.String()
+			if !strings.Contains(body, `"source":"manual"`) {
+				t.Errorf("%s as %s: body %s has no source", path, tt.role, body)
+			}
+			if got := strings.Contains(body, `"locked"`); got != tt.wantLocked {
+				t.Errorf("%s as %s: has locked = %v, want %v; body %s", path, tt.role, got, tt.wantLocked, body)
+			}
+		}
+	}
+}

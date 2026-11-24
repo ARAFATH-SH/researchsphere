@@ -12,6 +12,9 @@ type DialogProps = {
   // returnFocusId is the element that gets the focus back when the dialog goes away,
   // usually the button that opened it.
   returnFocusId?: string;
+  // placement "sheet" anchors the dialog to the bottom of the screen at full width, as the
+  // phone filter sheets do; "center" (the default) is the usual card in the middle.
+  placement?: "center" | "sheet";
   children: ReactNode;
 };
 
@@ -21,7 +24,12 @@ type DialogProps = {
 // asks "Discard changes?". Focus moves to the first field on open and to returnFocusId on close.
 // The frame is the design's card (design/screens/ProfileEdit.html, UI.6): the header stays put
 // and the body scrolls when the dialog is taller than the screen.
-export function Dialog({ title, dirty = false, onClose, returnFocusId, children }: DialogProps) {
+const placementClass = {
+  center: "m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-xl rounded-card-lg",
+  sheet: "mx-0 mt-auto mb-0 max-h-[85dvh] w-full max-w-none rounded-t-card-lg",
+};
+
+export function Dialog({ title, dirty = false, onClose, returnFocusId, placement = "center", children }: DialogProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const keepRef = useRef<HTMLButtonElement>(null);
@@ -60,7 +68,7 @@ export function Dialog({ title, dirty = false, onClose, returnFocusId, children 
       onClick={(e) => {
         if (e.target === ref.current) requestClose();
       }}
-      className="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-xl flex-col overflow-hidden rounded-card-lg border border-rs-border bg-rs-surface p-0 text-rs-body text-rs-text shadow-card backdrop:bg-rs-text/40 open:flex"
+      className={`${placementClass[placement]} flex-col overflow-hidden border border-rs-border bg-rs-surface p-0 text-rs-body text-rs-text shadow-card backdrop:bg-rs-text/40 open:flex`}
     >
       <div className="flex shrink-0 items-center justify-between gap-4 border-b border-rs-divider py-3 pr-3 pl-5">
         <h2 id={titleId} className="text-rs-lead leading-rs-snug font-medium">

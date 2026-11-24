@@ -225,8 +225,12 @@ func TestVenueSyncEndToEnd(t *testing.T) {
 		t.Fatalf("journal = %v", sr)
 	}
 	code, body = e.asRole(t, researcher, "researcher", http.MethodGet, "/api/v1/venues/"+sr["id"].(string), "")
-	if code != http.StatusOK || body["source"] != "openalex" || body["locked"] != false {
+	if _, hasLocked := body["locked"]; code != http.StatusOK || body["source"] != "openalex" || hasLocked {
 		t.Fatalf("journal page: %d %v", code, body)
+	}
+	code, body = e.asAdmin(t, admin, http.MethodGet, "/api/v1/venues/"+sr["id"].(string), "")
+	if code != http.StatusOK || body["locked"] != false {
+		t.Fatalf("journal page as admin: %d %v", code, body)
 	}
 	if err := e.pool.QueryRow(t.Context(), `SELECT count(*) FROM venue_actions WHERE actor <> 'import'`).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("%d audit rows not by the import (%v)", n, err)

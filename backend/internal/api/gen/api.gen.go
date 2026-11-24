@@ -1452,6 +1452,33 @@ func (e VenueSummaryLinkKind) Valid() bool {
 	}
 }
 
+// Defines values for VenueSummarySource.
+const (
+	VenueSummarySourceCcfddl       VenueSummarySource = "ccfddl"
+	VenueSummarySourceHciDeadlines VenueSummarySource = "hci_deadlines"
+	VenueSummarySourceImport       VenueSummarySource = "import"
+	VenueSummarySourceManual       VenueSummarySource = "manual"
+	VenueSummarySourceOpenalex     VenueSummarySource = "openalex"
+)
+
+// Valid indicates whether the value is a known member of the VenueSummarySource enum.
+func (e VenueSummarySource) Valid() bool {
+	switch e {
+	case VenueSummarySourceCcfddl:
+		return true
+	case VenueSummarySourceHciDeadlines:
+		return true
+	case VenueSummarySourceImport:
+		return true
+	case VenueSummarySourceManual:
+		return true
+	case VenueSummarySourceOpenalex:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for VenueSyncRunStatus.
 const (
 	VenueSyncRunStatusFailed    VenueSyncRunStatus = "failed"
@@ -4589,9 +4616,10 @@ type Venue struct {
 	// administrator sets the link.
 	LinkKind VenueLinkKind `json:"linkKind"`
 
-	// Locked An administrator edited this venue after the automatic import made it, so the
-	// import no longer changes it. Always false for other venues.
-	Locked         bool       `json:"locked"`
+	// Locked Sent only to a caller who may add, edit and remove venues (an administrator) and left
+	// out for everyone else. An administrator edited this venue after the automatic import
+	// made it, so the import no longer changes it. Always false for other venues.
+	Locked         *bool      `json:"locked,omitempty"`
 	Name           string     `json:"name"`
 	NotificationAt *VenueTime `json:"notificationAt"`
 
@@ -4806,9 +4834,14 @@ type VenueSummary struct {
 	// LinkKind `official`: the venue's own site. `issn_portal`: the automatic import found no working
 	// https homepage for this journal and links its ISSN portal record instead, until an
 	// administrator sets the link.
-	LinkKind       VenueSummaryLinkKind `json:"linkKind"`
-	Name           string               `json:"name"`
-	NotificationAt *VenueTime           `json:"notificationAt"`
+	LinkKind VenueSummaryLinkKind `json:"linkKind"`
+
+	// Locked Sent only to a caller who may add, edit and remove venues (an administrator) and left
+	// out for everyone else. An administrator edited this venue after the automatic import
+	// made it, so the import no longer changes it. Always false for other venues.
+	Locked         *bool      `json:"locked,omitempty"`
+	Name           string     `json:"name"`
+	NotificationAt *VenueTime `json:"notificationAt"`
 
 	// OfficialUrl Always `https://`.
 	OfficialUrl string `json:"officialUrl"`
@@ -4820,8 +4853,12 @@ type VenueSummary struct {
 	Rolling bool `json:"rolling"`
 
 	// ShortName The acronym, such as `ICML`.
-	ShortName *string             `json:"shortName"`
-	StartsOn  *openapi_types.Date `json:"startsOn"`
+	ShortName *string `json:"shortName"`
+
+	// Source `manual`: added by an administrator. `import`: from an import file. `ccfddl`,
+	// `hci_deadlines`, `openalex`: from the automatic import (docs/venues-sync.md).
+	Source   VenueSummarySource  `json:"source"`
+	StartsOn *openapi_types.Date `json:"startsOn"`
 
 	// SubmissionDeadline Null only for a rolling journal.
 	SubmissionDeadline *VenueTime `json:"submissionDeadline"`
@@ -4836,6 +4873,10 @@ type VenueSummary struct {
 // https homepage for this journal and links its ISSN portal record instead, until an
 // administrator sets the link.
 type VenueSummaryLinkKind string
+
+// VenueSummarySource `manual`: added by an administrator. `import`: from an import file. `ccfddl`,
+// `hci_deadlines`, `openalex`: from the automatic import (docs/venues-sync.md).
+type VenueSummarySource string
 
 // VenueSyncReject defines model for VenueSyncReject.
 type VenueSyncReject struct {

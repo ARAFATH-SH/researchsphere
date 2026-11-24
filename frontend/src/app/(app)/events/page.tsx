@@ -1,11 +1,18 @@
-import { ComingSoon } from "@/components/coming-soon";
+import { Suspense } from "react";
 
+import { EventsPage } from "@/features/event/events-page";
+
+// Conferences, workshops and journal calls (FR-14.1 to FR-14.3).
 export default function Page() {
   return (
-    <ComingSoon
-      title="Events"
-      purpose="Browse and filter venues."
-      requirements={["FR-14"]}
-    />
+    <Suspense
+      fallback={
+        <p role="status" className="text-rs-body text-rs-text-muted">
+          Loading venues…
+        </p>
+      }
+    >
+      <EventsPage />
+    </Suspense>
   );
 }

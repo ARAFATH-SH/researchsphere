@@ -3992,6 +3992,9 @@ export interface paths {
          *     Every type and every field is listed, with 0 when none match. A venue with two fields
          *     counts once under each.
          *
+         *     **Fields:** every caller gets each venue's `source`; only a caller who may add, edit and
+         *     remove venues (an administrator) gets `locked`, which is left out for everyone else.
+         *
          *     A value that breaks a rule gets 400 `bad_request` with `field`.
          */
         get: operations["listVenues"];
@@ -4037,6 +4040,7 @@ export interface paths {
          *     and recommendations". A removed venue gets 404 `not_found`, the same as one that does
          *     not exist. A venue whose deadline has passed is still shown. `scope` is the text the
          *     administrator entered; a client shows it as text (NFR-8.2) and never as HTML.
+         *     `locked` is sent only to an administrator, as in the list.
          */
         get: operations["getVenue"];
         put?: never;
@@ -4120,11 +4124,6 @@ export interface components {
             rolling: boolean;
             /** @description The submission deadline has passed. Always false for a rolling journal. */
             past: boolean;
-        };
-        /** @description A venue with its full scope text (FR-14.4). */
-        Venue: components["schemas"]["VenueSummary"] & {
-            /** @description Plain text or a small Markdown subset. Show it as text, never as HTML (NFR-8.2). */
-            scope: string;
             /**
              * @description `manual`: added by an administrator. `import`: from an import file. `ccfddl`,
              *     `hci_deadlines`, `openalex`: from the automatic import (docs/venues-sync.md).
@@ -4132,10 +4131,16 @@ export interface components {
              */
             source: "manual" | "import" | "ccfddl" | "hci_deadlines" | "openalex";
             /**
-             * @description An administrator edited this venue after the automatic import made it, so the
-             *     import no longer changes it. Always false for other venues.
+             * @description Sent only to a caller who may add, edit and remove venues (an administrator) and left
+             *     out for everyone else. An administrator edited this venue after the automatic import
+             *     made it, so the import no longer changes it. Always false for other venues.
              */
-            locked: boolean;
+            locked?: boolean;
+        };
+        /** @description A venue with its full scope text (FR-14.4). */
+        Venue: components["schemas"]["VenueSummary"] & {
+            /** @description Plain text or a small Markdown subset. Show it as text, never as HTML (NFR-8.2). */
+            scope: string;
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */

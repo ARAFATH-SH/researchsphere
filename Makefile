@@ -23,7 +23,7 @@ COMPILE_IMAGE     ?= researchsphere-compile:dev
 MIGRATIONS_DIR := backend/db/migrations
 
 .DEFAULT_GOAL := help
-.PHONY: help up down logs ps psql check migrate migrate-down migrate-new admin unadmin seed-ui-compare seed-dev sample-data sample-purge purge-unverified send-digests venue-sync calibrate-recs eval-recs bench-recs eval-search bench-search embed-backfill backfill-main-tex purge-compile-output update-disposable-domains api web stop web-clean ai-build ai-up ai-fetch-model ai-logs sync sync-build sync-load compile-image compile-worker bench-compile compile-trace generate check-generated test test-prepare test-db test-go test-integration test-one test-web test-ai test-sync test-compile test-compile-sandbox lint lint-go lint-web lint-ai lint-sync lint-compile
+.PHONY: help up down logs ps psql check migrate migrate-down migrate-new admin unadmin seed-ui-compare seed-dev sample-data sample-purge sample-venues-purge purge-unverified send-digests venue-sync calibrate-recs eval-recs bench-recs eval-search bench-search embed-backfill backfill-main-tex purge-compile-output update-disposable-domains api web stop web-clean ai-build ai-up ai-fetch-model ai-logs sync sync-build sync-load compile-image compile-worker bench-compile compile-trace generate check-generated test test-prepare test-db test-go test-integration test-one test-web test-ai test-sync test-compile test-compile-sandbox lint lint-go lint-web lint-ai lint-sync lint-compile
 
 help: ## List the available commands
 	@grep -hE '^[a-zA-Z_-]+:.*## ' $(firstword $(MAKEFILE_LIST)) | awk 'BEGIN {FS = ":.*## "} {printf "  make %-16s %s\n", $$1, $$2}'
@@ -106,6 +106,9 @@ sample-data: ## Load deterministic sample profiles into the dev database: make s
 
 sample-purge: ## Delete every sample account (@sample.researchsphere.local) through the account deletion, and every sample venue
 	@cd backend && go run ./cmd/seedsample -purge
+
+sample-venues-purge: ## Delete only the sample venues (sample_venues), with their embeddings and jobs; keeps sample accounts and projects
+	@cd backend && go run ./cmd/seedsample -purge-venues
 
 purge-unverified: ## Run the FR-17.4 purge of old unverified accounts once, now (settings from .env), then exit
 	cd backend && go run ./cmd/api -purge-unverified

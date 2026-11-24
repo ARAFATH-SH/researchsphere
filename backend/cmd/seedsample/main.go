@@ -51,12 +51,14 @@ func main() {
 }
 
 type options struct {
-	n        int
-	seed     int64
-	purge    bool
-	wait     bool
-	projects bool
-	venues   bool
+	n     int
+	seed  int64
+	purge bool
+	// purgeVenues deletes only the sample venues, keeping sample accounts and projects.
+	purgeVenues bool
+	wait        bool
+	projects    bool
+	venues      bool
 }
 
 func parseFlags(args []string) (options, error) {
@@ -65,6 +67,7 @@ func parseFlags(args []string) (options, error) {
 	fs.IntVar(&o.n, "n", 1000, "how many sample profiles there should be (tops up to n)")
 	fs.Int64Var(&o.seed, "seed", defaultSeed, "generator seed; the same seed makes the same data")
 	fs.BoolVar(&o.purge, "purge", false, "delete every sample account instead, through the account deletion")
+	fs.BoolVar(&o.purgeVenues, "purge-venues", false, "delete only the sample venues (with their embeddings and jobs), keeping sample accounts and projects")
 	fs.BoolVar(&o.wait, "wait", false, "after loading, wait until the running API has embedded every sample profile")
 	fs.BoolVar(&o.projects, "projects", false, "also make one sample project per 10 sample profiles, in the owner's cluster")
 	fs.BoolVar(&o.venues, "venues", false, "also make the fictional sample venues, 10 per research cluster")
@@ -83,6 +86,9 @@ func parseFlags(args []string) (options, error) {
 	if o.purge && (o.wait || o.projects || o.venues) {
 		return o, errors.New("use -purge alone, without -wait, -projects or -venues")
 	}
+	if o.purgeVenues && (o.purge || o.wait || o.projects || o.venues) {
+		return o, errors.New("use -purge-venues alone")
+	}
 	return o, nil
 }
 
@@ -96,7 +102,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 		return err
 	}
 	password := getenv("SAMPLE_PASSWORD")
-	if !o.purge {
+	if !o.purge && !o.purgeVenues {
 		if err := checkPassword(password); err != nil {
 			return err
 		}
@@ -107,6 +113,15 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	}
 	defer pool.Close()
 	target := describeTarget(databaseURL)
+
+	if o.purgeVenues {
+		venues, err := purgeVenues(ctx, pool)
+		if err != nil {
+			return fmt.Errorf("delete the sample venues: %w", err)
+		}
+		fmt.Fprintf(out, "Deleted %d sample venues from %s; sample accounts and projects are kept.\n", venues, target)
+		return nil
+	}
 
 	if o.purge {
 		// The deletion needs only the auth store; the mailer, tokens and login counter are
