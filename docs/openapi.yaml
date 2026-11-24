@@ -582,8 +582,8 @@ paths:
       summary: Queue every embedding to be made again (AI-1.6)
       description: |
         Needs the access cookie and the platform action "Manage the AI matching model".
-        Queues every eligible owner (a verified, not suspended user's profile, and every
-        project) at low priority, forced, so each embedding
+        Queues every eligible owner (a verified, not suspended user's profile, every
+        project and every venue not removed) at low priority, forced, so each embedding
         is made again even when its text and model have not changed; changes users make go
         first. The work happens in the background; the answer comes at once. Asking again
         leaves one job per owner. Each call is recorded with the administrator and the count.
@@ -868,6 +868,172 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /admin/venues:
+    post:
+      operationId: createVenue
+      summary: Add a venue (FR-15.1)
+      description: |
+        Needs the access cookie and the platform action "Add, edit and remove venues", which
+        only an administrator has (SRS 2.3). The rules are in `VenueInput`. The first field
+        that breaks one gets 400 `bad_request` with `field`. The venue and its audit row
+        (`create`) are written in one transaction. The new venue is queued for its embedding
+        (AI-1.3).
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VenueInput"
+      responses:
+        "201":
+          description: The new venue.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Venue"
+        "400":
+          $ref: "#/components/responses/InvalidVenue"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /admin/venues/{venueId}:
+    patch:
+      operationId: updateVenue
+      summary: Change a venue (FR-15.1)
+      description: |
+        Needs the platform action "Add, edit and remove venues". A missing field keeps its
+        value. `null` clears an optional field (`shortName`, `attendance`, `city`, `country`,
+        `startsOn`, `endsOn`, `abstractDeadline`, `notificationAt`); `null` for any other field
+        is refused. The venue as changed must follow every rule of `VenueInput`. Changing
+        `timeZone` alone keeps the local times of the deadlines and reads them in the new zone.
+        A change writes an `update` audit row that names the changed fields, never their
+        values; a request that changes nothing writes none. A change of name, short name, scope
+        or fields queues the venue's embedding again. A removed venue gets 404 `not_found`.
+      tags: [admin]
+      parameters:
+        - $ref: "#/components/parameters/VenueId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VenuePatch"
+      responses:
+        "200":
+          description: The venue as it is now.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Venue"
+        "400":
+          $ref: "#/components/responses/InvalidVenue"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /admin/venues/{venueId}/remove:
+    post:
+      operationId: removeVenue
+      summary: Remove a venue, with a recorded reason (FR-15.1)
+      description: |
+        Needs the platform action "Add, edit and remove venues". The venue is kept for the
+        audit trail but no user sees it again: lists leave it out and its page answers 404.
+        Its embedding is deleted at once, so venue recommendations never return it. `reason`
+        is 10 to 1,000 characters after trimming (`bad_request`, `field: reason`). The removal
+        and its `remove` audit row, with the reason, are one transaction. A venue already
+        removed gets 404 `not_found`. There is no restore.
+      tags: [admin]
+      parameters:
+        - $ref: "#/components/parameters/VenueId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VenueRemoval"
+      responses:
+        "204":
+          description: The venue is removed.
+        "400":
+          $ref: "#/components/responses/InvalidVenue"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /admin/venues/import:
+    post:
+      operationId: importVenues
+      summary: Add and update venues from a CSV or JSON file (FR-14.5, interim; docs/venues-import.md)
+      description: |
+        Needs the platform action "Add, edit and remove venues". The file is in the part named
+        `file`, at most 1 MiB and 1,000 rows. A name ending in `.csv` is read as CSV, `.json` as
+        JSON. With any other name, a file whose first non-blank character is `[` is read as
+        JSON and anything else as CSV. The columns and keys are those of `VenueInput` plus
+        `sourceKey` (docs/venues-import.md). A CSV `fields` cell holds keys separated by `;`.
+
+        **Each row** is checked with the rules of `VenueInput`, and every problem is reported,
+        not only the first. Its key is `sourceKey`, or, when that is empty, `auto:` + the folded
+        name + `:` + the year of `startsOn` (of the deadline when there is no `startsOn`). A key
+        that no imported venue has is `created`. A live imported venue with that key is
+        `updated` when any value differs and `unchanged` otherwise. A venue an administrator
+        added by hand is never matched. A rejected row is skipped, with its reasons:
+        `duplicate_in_file` when an earlier row has the same key, and `venue_removed` when the
+        venue with that key was removed (it is not brought back).
+
+        **`dryRun=true`** reports the same outcomes and changes nothing. Otherwise every
+        accepted row is written in one transaction, each with an `import_create` or
+        `import_update` audit row sharing one import ID.
+
+        A file that cannot be read as a whole (not CSV or JSON, an unknown column or key, no
+        rows) gets 400 `invalid_import_file`. More than 1,000 rows gets 400 `too_many_rows`, and
+        over 1 MiB gets 413 `file_too_large`.
+      tags: [admin]
+      parameters:
+        - name: dryRun
+          in: query
+          required: false
+          description: Report what would happen and change nothing.
+          schema:
+            type: boolean
+            default: false
+      requestBody:
+        $ref: "#/components/requestBodies/VenueImportUpload"
+      responses:
+        "200":
+          description: What happened to each row, or would happen on a dry run.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VenueImportResult"
+        "400":
+          description: "`invalid_import_file`, `too_many_rows`, or `bad_request` when there is no part named `file`."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          $ref: "#/components/responses/FileTooLarge"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -6359,6 +6525,155 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /venues:
+    get:
+      operationId: listVenues
+      summary: List venues by nearest submission deadline, with filters and facet counts (FR-14.1 to FR-14.3)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed, events
+        and recommendations" (SRS 2.3). Removed venues never appear.
+
+        **Order:** venues whose submission deadline has not passed come first, nearest
+        deadline first. A deadline has passed when its instant is at or before now. Past
+        venues are left out unless `includePast=true`; they then follow the upcoming ones,
+        most recently closed first. Ties go by name, then ID.
+
+        **Filters** combine with AND. `type` and `field` may repeat, and a venue matches when
+        it has any of the given values. `deadlineFrom` and `deadlineTo` are calendar dates,
+        both inclusive, read in the time zone `tz` (an IANA name, `Asia/Dhaka` when left out):
+        `deadlineFrom` starts at that day's local midnight and `deadlineTo` ends at the next
+        day's local midnight. A deadline range does not show past venues unless
+        `includePast=true`. `q` (2 to 100 characters after trimming) matches a name or short
+        name that contains it, ignoring letter case, or is similar to it (pg_trgm word
+        similarity of at least 0.4, so one typo in one word still matches).
+
+        **Facets** count the venues each type or field value would give, with every other
+        filter applied: the type counts ignore `type`, and the field counts ignore `field`.
+        Every type and every field is listed, with 0 when none match. A venue with two fields
+        counts once under each.
+
+        A value that breaks a rule gets 400 `bad_request` with `field`.
+      tags: [venues]
+      parameters:
+        - $ref: "#/components/parameters/PageFromOne"
+        - $ref: "#/components/parameters/MembershipPageSize"
+        - name: includePast
+          in: query
+          required: false
+          description: Show venues whose submission deadline has passed, after the upcoming ones.
+          schema:
+            type: boolean
+            default: false
+        - name: type
+          in: query
+          required: false
+          description: "`conference`, `journal`, `workshop` or `special_issue`; may repeat."
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              type: string
+        - name: field
+          in: query
+          required: false
+          description: A research field key from `GET /venues/fields`; may repeat (at most 21).
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              type: string
+        - name: deadlineFrom
+          in: query
+          required: false
+          description: The first day of the deadline range, `YYYY-MM-DD`, in `tz`.
+          schema:
+            type: string
+        - name: deadlineTo
+          in: query
+          required: false
+          description: The last day of the deadline range, `YYYY-MM-DD`, in `tz`. Not before `deadlineFrom`.
+          schema:
+            type: string
+        - name: tz
+          in: query
+          required: false
+          description: The IANA time zone the deadline range is read in. `Asia/Dhaka` when left out.
+          schema:
+            type: string
+        - name: q
+          in: query
+          required: false
+          description: Part of a name or short name, 2 to 100 characters after trimming.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: One page of venues and the facet counts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VenuePage"
+        "400":
+          $ref: "#/components/responses/InvalidVenue"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /venues/fields:
+    get:
+      operationId: listResearchFields
+      summary: The fixed list of research fields a venue may have (FR-14.3)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed, events
+        and recommendations". In the order to show them; `other` comes last.
+      tags: [venues]
+      responses:
+        "200":
+          description: Every research field.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResearchFieldList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /venues/{venueId}:
+    get:
+      operationId: getVenue
+      summary: Read one venue with its full scope text (FR-14.4)
+      description: |
+        Needs the access cookie and the platform action "View profiles, search, feed, events
+        and recommendations". A removed venue gets 404 `not_found`, the same as one that does
+        not exist. A venue whose deadline has passed is still shown. `scope` is the text the
+        administrator entered; a client shows it as text (NFR-8.2) and never as HTML.
+      tags: [venues]
+      parameters:
+        - $ref: "#/components/parameters/VenueId"
+      responses:
+        "200":
+          description: The venue.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Venue"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
   securitySchemes:
     cookieAuth:
@@ -6389,6 +6704,15 @@ components:
         type: integer
         minimum: 1
         default: 1
+    VenueId:
+      name: venueId
+      in: path
+      required: true
+      description: |
+        The venue's ID, a UUID. It is declared as a plain string so that the login and role
+        checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+      schema:
+        type: string
     ModeratedUserId:
       name: userId
       in: path
@@ -6660,6 +6984,18 @@ components:
               file:
                 type: string
                 format: binary
+    VenueImportUpload:
+      required: true
+      description: The CSV or JSON file in the part named `file`, at most 1 MiB (docs/venues-import.md).
+      content:
+        multipart/form-data:
+          schema:
+            type: object
+            required: [file]
+            properties:
+              file:
+                type: string
+                format: binary
     ImageUpload:
       required: true
       description: The image in the part named `file`. Its file name and content type are ignored.
@@ -6674,6 +7010,416 @@ components:
                 format: binary
 
   schemas:
+    VenueType:
+      type: string
+      enum: [conference, journal, workshop, special_issue]
+    VenueAttendance:
+      type: string
+      description: How a conference or workshop takes place. A journal or special issue has none.
+      enum: [in_person, online, hybrid]
+    ResearchField:
+      type: object
+      required: [key, label]
+      properties:
+        key:
+          type: string
+          example: bangla_nlp
+        label:
+          type: string
+          example: Natural language processing
+    ResearchFieldList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ResearchField"
+    VenueTime:
+      type: object
+      description: |
+        A deadline or date of a venue. `at` is the instant (UTC). `local` is the wall time in
+        the venue's `timeZone`, as the call for papers states it.
+      required: [at, local]
+      properties:
+        at:
+          type: string
+          format: date-time
+        local:
+          type: string
+          description: "`YYYY-MM-DDTHH:MM:SS` in the venue's time zone."
+          example: "2027-03-01T23:59:59"
+    VenueSummary:
+      type: object
+      description: A venue as the list shows it (FR-14.1).
+      required: [id, name, shortName, type, fields, attendance, city, country, startsOn, endsOn,
+                 timeZone, submissionDeadline, abstractDeadline, notificationAt, officialUrl, past]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        shortName:
+          type: string
+          nullable: true
+          description: The acronym, such as `ICML`.
+        type:
+          $ref: "#/components/schemas/VenueType"
+        fields:
+          type: array
+          description: 1 to 5 fields, in the order of the fixed list.
+          items:
+            $ref: "#/components/schemas/ResearchField"
+        attendance:
+          allOf:
+            - $ref: "#/components/schemas/VenueAttendance"
+          nullable: true
+        city:
+          type: string
+          nullable: true
+        country:
+          type: string
+          nullable: true
+          description: ISO 3166-1 alpha-2 code, such as `BD`.
+        startsOn:
+          type: string
+          format: date
+          nullable: true
+        endsOn:
+          type: string
+          format: date
+          nullable: true
+        timeZone:
+          type: string
+          description: |
+            The zone the deadlines are stated in: `AoE` (anywhere on Earth, UTC-12 all year), `UTC`
+            or an IANA name such as `Asia/Dhaka`.
+        submissionDeadline:
+          $ref: "#/components/schemas/VenueTime"
+        abstractDeadline:
+          allOf:
+            - $ref: "#/components/schemas/VenueTime"
+          nullable: true
+        notificationAt:
+          allOf:
+            - $ref: "#/components/schemas/VenueTime"
+          nullable: true
+        officialUrl:
+          type: string
+          description: Always `https://`.
+        past:
+          type: boolean
+          description: The submission deadline has passed.
+    Venue:
+      description: A venue with its full scope text (FR-14.4).
+      allOf:
+        - $ref: "#/components/schemas/VenueSummary"
+        - type: object
+          required: [scope, source, createdAt, updatedAt]
+          properties:
+            scope:
+              type: string
+              description: Plain text or a small Markdown subset. Show it as text, never as HTML (NFR-8.2).
+            source:
+              type: string
+              enum: [manual, import]
+            createdAt:
+              type: string
+              format: date-time
+            updatedAt:
+              type: string
+              format: date-time
+    VenuePage:
+      type: object
+      required: [items, page, pageSize, total, facets]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/VenueSummary"
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+          description: Venues that match on all pages.
+        facets:
+          $ref: "#/components/schemas/VenueFacets"
+    VenueFacets:
+      type: object
+      required: [types, fields]
+      properties:
+        types:
+          type: array
+          description: Every type, in the order of `VenueType`.
+          items:
+            $ref: "#/components/schemas/VenueTypeCount"
+        fields:
+          type: array
+          description: Every research field, in the order of the fixed list.
+          items:
+            $ref: "#/components/schemas/VenueFieldCount"
+    VenueTypeCount:
+      type: object
+      required: [type, count]
+      properties:
+        type:
+          $ref: "#/components/schemas/VenueType"
+        count:
+          type: integer
+    VenueFieldCount:
+      type: object
+      required: [key, label, count]
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        count:
+          type: integer
+    VenueInput:
+      type: object
+      description: |
+        A venue as an administrator enters it (FR-15.1). Text is trimmed first.
+        `name`: 1 to 300 characters on one line. `shortName`: at most 40 characters on one line.
+        `fields`: 1 to 5 keys from `GET /venues/fields`, without repeats.
+        A conference or workshop needs `attendance`; a journal or special issue has none and no
+        `startsOn` or `endsOn`. `city` (at most 100 characters) and `country` (ISO 3166-1
+        alpha-2) are needed when attendance is `in_person` or `hybrid` and refused when it is
+        `online`. `endsOn` is not before `startsOn`.
+        `timeZone` is `AoE` (UTC-12, no daylight saving), `UTC` or an IANA name. The deadlines are
+        local times in that zone, `YYYY-MM-DD`, `YYYY-MM-DDTHH:MM` or `YYYY-MM-DDTHH:MM:SS`; a date
+        alone means 23:59:59 that day. `abstractDeadline` is not after `submissionDeadline`, and
+        `notificationAt` is not before it.
+        `officialUrl`: an `https://` link with a host and no user name, at most 2,048 characters.
+        `scope`: 1 to 10,000 characters; line breaks and tabs are the only control characters
+        allowed.
+      required: [name, type, fields, timeZone, submissionDeadline, officialUrl, scope]
+      properties:
+        name:
+          type: string
+        shortName:
+          type: string
+          nullable: true
+        type:
+          type: string
+          description: A `VenueType` value.
+        fields:
+          type: array
+          items:
+            type: string
+        attendance:
+          type: string
+          nullable: true
+          description: A `VenueAttendance` value.
+        city:
+          type: string
+          nullable: true
+        country:
+          type: string
+          nullable: true
+        startsOn:
+          type: string
+          nullable: true
+          description: "`YYYY-MM-DD`."
+        endsOn:
+          type: string
+          nullable: true
+          description: "`YYYY-MM-DD`."
+        timeZone:
+          type: string
+          example: AoE
+        submissionDeadline:
+          type: string
+          example: "2027-03-01T23:59"
+        abstractDeadline:
+          type: string
+          nullable: true
+        notificationAt:
+          type: string
+          nullable: true
+        officialUrl:
+          type: string
+          example: https://example.org/cfp
+        scope:
+          type: string
+    VenuePatch:
+      type: object
+      description: The fields of `VenueInput` to change. See `updateVenue`.
+      properties:
+        name:
+          type: string
+          nullable: true
+          x-go-type: nullable.Nullable[string]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        shortName:
+          type: string
+          nullable: true
+          x-go-type: nullable.Nullable[string]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        type:
+          type: string
+          nullable: true
+          x-go-type: nullable.Nullable[string]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        fields:
+          type: array
+          nullable: true
+          description: Replaces the whole list.
+          items:
+            type: string
+          x-go-type: nullable.Nullable[[]string]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        attendance:
+          type: string
+          nullable: true
+          x-go-type: nullable.Nullable[string]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        city:
+          type: string
+          nullable: true
+          x-go-type: nullable.Nullable[string]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        country:
+          type: string
+          nullable: true
+          x-go-type: nullable.Nullable[string]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        startsOn:
+          type: string
+          nullable: true
+          x-go-type: nullable.Nullable[string]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        endsOn:
+          type: string
+          nullable: true
+          x-go-type: nullable.Nullable[string]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        timeZone:
+          type: string
+          nullable: true
+          x-go-type: nullable.Nullable[string]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        submissionDeadline:
+          type: string
+          nullable: true
+          x-go-type: nullable.Nullable[string]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        abstractDeadline:
+          type: string
+          nullable: true
+          x-go-type: nullable.Nullable[string]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        notificationAt:
+          type: string
+          nullable: true
+          x-go-type: nullable.Nullable[string]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        officialUrl:
+          type: string
+          nullable: true
+          x-go-type: nullable.Nullable[string]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+        scope:
+          type: string
+          nullable: true
+          x-go-type: nullable.Nullable[string]
+          x-go-type-skip-optional-pointer: true
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+    VenueRemoval:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          description: Why the venue is removed, 10 to 1,000 characters after trimming. Kept in the audit trail.
+    VenueImportResult:
+      type: object
+      required: [dryRun, created, updated, unchanged, rejected, rows]
+      properties:
+        dryRun:
+          type: boolean
+        created:
+          type: integer
+        updated:
+          type: integer
+        unchanged:
+          type: integer
+        rejected:
+          type: integer
+        rows:
+          type: array
+          description: One entry per row of the file, in its order.
+          items:
+            $ref: "#/components/schemas/VenueImportRow"
+    VenueImportRow:
+      type: object
+      required: [row, outcome, sourceKey, reasons]
+      properties:
+        row:
+          type: integer
+          description: The row's number, from 1, not counting a CSV header.
+        outcome:
+          type: string
+          enum: [created, updated, unchanged, rejected]
+        venueId:
+          type: string
+          format: uuid
+          nullable: true
+          description: The venue created or matched. Absent on a dry run's `created` and on `rejected`.
+        sourceKey:
+          type: string
+          description: The row's key, given or derived; empty when it could not be derived.
+        reasons:
+          type: array
+          description: Why the row was rejected; empty otherwise.
+          items:
+            $ref: "#/components/schemas/VenueImportReason"
+    VenueImportReason:
+      type: object
+      required: [field, code]
+      properties:
+        field:
+          type: string
+          description: The column or key at fault, or `row`.
+        code:
+          type: string
+          description: |
+            `required`, `too_long`, `invalid`, `not_https`, `unknown_field`, `duplicate_field`,
+            `too_many_fields`, `not_allowed`, `invalid_time_zone`, `invalid_date`,
+            `ends_before_starts`, `after_deadline`, `before_deadline`, `duplicate_in_file` or
+            `venue_removed`.
     Error:
       type: object
       description: The shape of every error response (SRS 5.3).
@@ -6972,8 +7718,8 @@ components:
       properties:
         ownerType:
           type: string
-          description: What the embeddings belong to. Later slices add post and venue.
-          enum: [profile, project]
+          description: What the embeddings belong to. A later slice adds post.
+          enum: [profile, project, venue]
         total:
           type: integer
           description: Stored embeddings.
@@ -11274,6 +12020,14 @@ components:
             $ref: "#/components/schemas/Error"
     NotFound:
       description: No such route or resource.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    InvalidVenue:
+      description: |
+        A body field or parameter is not valid (`bad_request`, with `field`). The message says
+        what rule it breaks.
       content:
         application/json:
           schema:

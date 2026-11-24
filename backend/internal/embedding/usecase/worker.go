@@ -236,6 +236,15 @@ func (w *Worker) sourceText(ctx context.Context, job domain.Job) (string, bool, 
 			return "", false, err
 		}
 		return ProjectText(src), true, nil
+	case domain.OwnerVenue:
+		src, err := w.store.VenueSource(ctx, job.OwnerID)
+		if errors.Is(err, domain.ErrNotFound) {
+			return "", false, nil
+		}
+		if err != nil {
+			return "", false, err
+		}
+		return VenueText(src), true, nil
 	default:
 		return "", false, fmt.Errorf("unknown owner type %q", job.OwnerType)
 	}

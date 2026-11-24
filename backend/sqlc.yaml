@@ -102,3 +102,12 @@ sql:
         out: internal/compile/adapter/postgres/sqlcgen
         sql_package: pgx/v5
         omit_unused_structs: true
+  - engine: postgresql
+    schema: db/migrations
+    queries: internal/event/adapter/postgres/queries.sql
+    gen:
+      go:
+        package: sqlcgen
+        out: internal/event/adapter/postgres/sqlcgen
+        sql_package: pgx/v5
+        omit_unused_structs: true

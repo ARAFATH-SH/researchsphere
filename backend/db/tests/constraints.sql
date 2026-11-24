@@ -1086,18 +1086,113 @@ SELECT pg_temp.expect_true('Compile job: deleting it deletes its PDF and queues 
        AND EXISTS (SELECT 1 FROM storage_deletions WHERE object_key = pg_temp.t('compiled/pdf'))$q$);
 
 -- ---------------------------------------------------------------------------
--- Venue (FR-14.5)
+-- Venue (FR-14.1, FR-14.5, FR-15.1; migration 000039)
 -- ---------------------------------------------------------------------------
 
-INSERT INTO venues (id, name, type, scope, source, source_ref) VALUES
-    ('00000000-0000-0000-0000-000000000201', 'ACL', 'conference', 'NLP', 'listing', pg_temp.t('123'));
-SELECT pg_temp.expect_error('Venue: an imported venue is unique by source and source id',
-    $s$INSERT INTO venues (name, type, scope, source, source_ref) VALUES ('ACL again', 'conference', 'NLP', 'listing', pg_temp.t('123'))$s$, '23505');
-SELECT pg_temp.expect_error('Venue: an imported venue needs its source id',
-    $s$INSERT INTO venues (name, type, scope, source) VALUES ('EMNLP', 'conference', 'NLP', 'listing')$s$, '23514');
-SELECT pg_temp.expect_ok('Venue: venues added by an administrator need no source id (FR-15.1)',
-    $s$INSERT INTO venues (name, type, scope) VALUES ('Local workshop', 'workshop', 'Graphs'),
-                                                     ('Another workshop', 'workshop', 'Graphs')$s$);
+SELECT pg_temp.expect_true('Venue: 20 research fields and other (FR-14.3)', $q$
+    SELECT count(*) = 21 AND bool_or(key = 'other') FROM research_fields$q$);
+
+INSERT INTO venues (id, name, type, scope, attendance, city, country, deadline_tz, submission_deadline, official_url, source, source_key) VALUES
+    ('00000000-0000-0000-0000-000000000201', 'ACL', 'conference', 'NLP', 'hybrid', 'Dhaka', 'BD', 'AoE', '2027-03-02 11:59:59+00',
+     'https://acl.example.org/cfp', 'import', pg_temp.t('123'));
+INSERT INTO venue_fields (venue_id, field_key) VALUES ('00000000-0000-0000-0000-000000000201', 'bangla_nlp');
+SELECT pg_temp.expect_error('Venue: an imported venue is unique by its key',
+    $s$INSERT INTO venues (name, type, scope, deadline_tz, submission_deadline, official_url, source, source_key)
+       VALUES ('ACL again', 'journal', 'NLP', 'UTC', now(), 'https://x.example.org', 'import', pg_temp.t('123'))$s$, '23505');
+SELECT pg_temp.expect_error('Venue: an imported venue needs its key',
+    $s$INSERT INTO venues (name, type, scope, deadline_tz, submission_deadline, official_url, source)
+       VALUES ('EMNLP', 'journal', 'NLP', 'UTC', now(), 'https://x.example.org', 'import')$s$, '23514');
+SELECT pg_temp.expect_error('Venue: a venue added by hand has no key',
+    $s$INSERT INTO venues (name, type, scope, deadline_tz, submission_deadline, official_url, source_key)
+       VALUES ('EMNLP', 'journal', 'NLP', 'UTC', now(), 'https://x.example.org', 'k')$s$, '23514');
+
+-- One valid journal, changed one column at a time.
+CREATE FUNCTION pg_temp.venue_with(col text, val text) RETURNS text
+LANGUAGE sql AS $$
+    SELECT format('INSERT INTO venues SELECT * FROM jsonb_populate_record(NULL::venues, %L::jsonb)',
+        jsonb_build_object('id', gen_random_uuid(), 'name', 'Journal', 'type', 'journal', 'scope', 'Scope',
+                           'deadline_tz', 'UTC', 'submission_deadline', now(), 'official_url', 'https://j.example.org',
+                           'source', 'manual', 'created_at', now(), 'updated_at', now())
+        || jsonb_build_object(col, val))
+$$;
+SELECT pg_temp.expect_ok('Venue: the base journal of the checks below is valid', pg_temp.venue_with('name', 'Journal'));
+SELECT pg_temp.expect_error('Venue: the type is one of four', pg_temp.venue_with('type', 'seminar'), '23514');
+SELECT pg_temp.expect_error('Venue: the link is https only (FR-15.1)', pg_temp.venue_with('official_url', 'http://j.example.org'), '23514');
+SELECT pg_temp.expect_error('Venue: no javascript: link (NFR-8.2)', pg_temp.venue_with('official_url', 'javascript:alert(1)'), '23514');
+SELECT pg_temp.expect_error('Venue: no user name in the link', pg_temp.venue_with('official_url', 'https://a@j.example.org'), '23514');
+SELECT pg_temp.expect_error('Venue: the name is one line', pg_temp.venue_with('name', E'A\nB'), '23514');
+SELECT pg_temp.expect_error('Venue: scope at most 10,000 characters', pg_temp.venue_with('scope', repeat('s', 10001)), '23514');
+SELECT pg_temp.expect_error('Venue: no carriage return in the scope', pg_temp.venue_with('scope', E'a\rb'), '23514');
+SELECT pg_temp.expect_error('Venue: the zone is AoE, UTC or an IANA name', pg_temp.venue_with('deadline_tz', 'GMT+6'), '23514');
+SELECT pg_temp.expect_error('Venue: a journal has no attendance', pg_temp.venue_with('attendance', 'online'), '23514');
+SELECT pg_temp.expect_error('Venue: a journal has no event dates', pg_temp.venue_with('starts_on', '2027-01-01'), '23514');
+SELECT pg_temp.expect_error('Venue: the deadline is required',
+    $s$INSERT INTO venues (name, type, scope, deadline_tz, official_url) VALUES ('J', 'journal', 'S', 'UTC', 'https://j.example.org')$s$, '23502');
+SELECT pg_temp.expect_error('Venue: an in-person event has its place',
+    $s$INSERT INTO venues (name, type, scope, attendance, deadline_tz, submission_deadline, official_url)
+       VALUES ('C', 'conference', 'S', 'in_person', 'UTC', now(), 'https://c.example.org')$s$, '23514');
+SELECT pg_temp.expect_error('Venue: an online event has no place',
+    $s$INSERT INTO venues (name, type, scope, attendance, city, country, deadline_tz, submission_deadline, official_url)
+       VALUES ('C', 'conference', 'S', 'online', 'Dhaka', 'BD', 'UTC', now(), 'https://c.example.org')$s$, '23514');
+SELECT pg_temp.expect_error('Venue: the country is an ISO code',
+    $s$INSERT INTO venues (name, type, scope, attendance, city, country, deadline_tz, submission_deadline, official_url)
+       VALUES ('C', 'conference', 'S', 'hybrid', 'Dhaka', 'Bangladesh', 'UTC', now(), 'https://c.example.org')$s$, '23514');
+SELECT pg_temp.expect_error('Venue: the abstract deadline is not after the deadline',
+    $s$INSERT INTO venues (name, type, scope, deadline_tz, submission_deadline, abstract_deadline, official_url)
+       VALUES ('J', 'journal', 'S', 'UTC', now(), now() + interval '1 day', 'https://j.example.org')$s$, '23514');
+SELECT pg_temp.expect_error('Venue: a removal has its reason (FR-15.1)',
+    $s$UPDATE venues SET removed_at = now() WHERE id = '00000000-0000-0000-0000-000000000201'$s$, '23514');
+SELECT pg_temp.expect_error('Venue: a removal reason of at least 10 characters',
+    $s$UPDATE venues SET removed_at = now(), removal_reason = 'short' WHERE id = '00000000-0000-0000-0000-000000000201'$s$, '23514');
+SELECT pg_temp.expect_error('Venue: a field from the fixed list',
+    $s$INSERT INTO venue_fields (venue_id, field_key) VALUES ('00000000-0000-0000-0000-000000000201', 'astrology')$s$, '23503');
+SELECT pg_temp.expect_error('Venue: a field in use is not deleted',
+    $s$DELETE FROM research_fields WHERE key = 'bangla_nlp'$s$, '23503');
+
+-- 1 to 5 fields, checked at commit.
+SELECT pg_temp.expect_error('Venue: at least one field',
+    $s$DO $d$ BEGIN
+        INSERT INTO venues (name, type, scope, deadline_tz, submission_deadline, official_url)
+            VALUES ('No field', 'journal', 'S', 'UTC', now(), 'https://j.example.org');
+        SET CONSTRAINTS venues_field_count IMMEDIATE;
+    END $d$$s$, '23514');
+SET CONSTRAINTS ALL DEFERRED;
+SELECT pg_temp.expect_error('Venue: at most 5 fields',
+    $s$DO $d$ BEGIN
+        INSERT INTO venue_fields (venue_id, field_key)
+            SELECT '00000000-0000-0000-0000-000000000201', key FROM research_fields WHERE key <> 'bangla_nlp' ORDER BY position LIMIT 5;
+        SET CONSTRAINTS venue_fields_count IMMEDIATE;
+    END $d$$s$, '23514');
+SET CONSTRAINTS ALL DEFERRED;
+SELECT pg_temp.expect_ok('Venue: 5 fields',
+    $s$DO $d$ BEGIN
+        INSERT INTO venue_fields (venue_id, field_key)
+            SELECT '00000000-0000-0000-0000-000000000201', key FROM research_fields WHERE key <> 'bangla_nlp' ORDER BY position LIMIT 4;
+        SET CONSTRAINTS venue_fields_count IMMEDIATE;
+    END $d$$s$);
+SET CONSTRAINTS ALL DEFERRED;
+
+-- The audit trail of venues (FR-15.1).
+SELECT pg_temp.expect_error('Venue action: a removal has its reason',
+    $s$INSERT INTO venue_actions (venue_id, admin_name, action) VALUES ('00000000-0000-0000-0000-000000000201', 'Ada', 'remove')$s$, '23514');
+SELECT pg_temp.expect_error('Venue action: only a removal has a reason',
+    $s$INSERT INTO venue_actions (venue_id, admin_name, action, reason) VALUES ('00000000-0000-0000-0000-000000000201', 'Ada', 'create', 'A reason here')$s$, '23514');
+SELECT pg_temp.expect_error('Venue action: an import row has its import ID',
+    $s$INSERT INTO venue_actions (venue_id, admin_name, action) VALUES ('00000000-0000-0000-0000-000000000201', 'Ada', 'import_create')$s$, '23514');
+SELECT pg_temp.expect_ok('Venue action: a change names its fields',
+    $s$INSERT INTO venue_actions (venue_id, admin_name, action, changed_fields) VALUES ('00000000-0000-0000-0000-000000000201', 'Ada', 'update', '{scope}')$s$);
+
+-- Venue embeddings (AI-1.3, AI-1.5): a new venue is queued; a change of its text queues it
+-- again; a removal drops its embedding and job.
+SELECT pg_temp.expect_true('Venue embedding: a new venue is queued', $q$
+    SELECT EXISTS (SELECT 1 FROM embedding_jobs WHERE owner_type = 'venue' AND owner_id = '00000000-0000-0000-0000-000000000201')$q$);
+DELETE FROM embedding_jobs WHERE owner_type = 'venue';
+UPDATE venues SET official_url = 'https://acl.example.org/2027' WHERE id = '00000000-0000-0000-0000-000000000201';
+SELECT pg_temp.expect_true('Venue embedding: a change of the link queues nothing', $q$
+    SELECT NOT EXISTS (SELECT 1 FROM embedding_jobs WHERE owner_type = 'venue')$q$);
+UPDATE venues SET scope = 'NLP and speech' WHERE id = '00000000-0000-0000-0000-000000000201';
+SELECT pg_temp.expect_true('Venue embedding: a change of the scope queues the venue', $q$
+    SELECT EXISTS (SELECT 1 FROM embedding_jobs WHERE owner_type = 'venue' AND owner_id = '00000000-0000-0000-0000-000000000201')$q$);
 
 -- ---------------------------------------------------------------------------
 -- Embedding: one per owner, deleted with its owner (AI-1)
@@ -1123,6 +1218,13 @@ SELECT pg_temp.expect_error('Embedding: at most 8 chunks (AI-1.1)',
 SELECT pg_temp.expect_error('Embedding: at least 1 chunk (AI-1.1)',
     $s$INSERT INTO venue_embeddings (venue_id, model, content_hash, embedding, chunk_count)
        VALUES ('00000000-0000-0000-0000-000000000201', 'test-model@1', repeat('1', 64), array_fill(0.1::real, ARRAY[768])::vector, 0)$s$, '23514');
+INSERT INTO venue_embeddings (venue_id, model, content_hash, embedding)
+    VALUES ('00000000-0000-0000-0000-000000000201', 'test-model@1', repeat('1', 64), array_fill(0.1::real, ARRAY[768])::vector);
+UPDATE venues SET removed_at = now(), removal_reason = 'Removed by the constraint tests'
+    WHERE id = '00000000-0000-0000-0000-000000000201';
+SELECT pg_temp.expect_true('Venue embedding: a removed venue leaves the AI index and the queue', $q$
+    SELECT NOT EXISTS (SELECT 1 FROM venue_embeddings WHERE venue_id = '00000000-0000-0000-0000-000000000201')
+       AND NOT EXISTS (SELECT 1 FROM embedding_jobs WHERE owner_type = 'venue' AND owner_id = '00000000-0000-0000-0000-000000000201')$q$);
 
 -- The embedding queue (AI-1.5) and the administrators' AI actions (AI-1.6).
 SELECT pg_temp.expect_ok('Embedding job: queued by embedding_enqueue',

@@ -56,6 +56,7 @@ type options struct {
 	purge    bool
 	wait     bool
 	projects bool
+	venues   bool
 }
 
 func parseFlags(args []string) (options, error) {
@@ -66,6 +67,7 @@ func parseFlags(args []string) (options, error) {
 	fs.BoolVar(&o.purge, "purge", false, "delete every sample account instead, through the account deletion")
 	fs.BoolVar(&o.wait, "wait", false, "after loading, wait until the running API has embedded every sample profile")
 	fs.BoolVar(&o.projects, "projects", false, "also make one sample project per 10 sample profiles, in the owner's cluster")
+	fs.BoolVar(&o.venues, "venues", false, "also make the fictional sample venues, 10 per research cluster")
 	if err := fs.Parse(args); err != nil {
 		return o, err
 	}
@@ -78,8 +80,8 @@ func parseFlags(args []string) (options, error) {
 	if o.seed < 0 {
 		return o, errors.New("-seed must not be negative")
 	}
-	if o.purge && (o.wait || o.projects) {
-		return o, errors.New("use -purge alone, without -wait or -projects")
+	if o.purge && (o.wait || o.projects || o.venues) {
+		return o, errors.New("use -purge alone, without -wait, -projects or -venues")
 	}
 	return o, nil
 }
@@ -118,6 +120,11 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 			return err
 		}
 		fmt.Fprintf(out, "Deleted %d sample accounts in %s; kept %d.\n", deleted, time.Since(started).Round(time.Millisecond), kept)
+		venues, err := purgeVenues(ctx, pool)
+		if err != nil {
+			return fmt.Errorf("delete the sample venues: %w", err)
+		}
+		fmt.Fprintf(out, "Deleted %d sample venues.\n", venues)
 		return nil
 	}
 
@@ -160,6 +167,11 @@ func run(ctx context.Context, args []string, getenv func(string) string, out io.
 	}
 	if o.projects {
 		if err := runProjects(ctx, pool, g, ids, out); err != nil {
+			return err
+		}
+	}
+	if o.venues {
+		if err := runVenues(ctx, pool, g, time.Now().UTC(), out); err != nil {
 			return err
 		}
 	}

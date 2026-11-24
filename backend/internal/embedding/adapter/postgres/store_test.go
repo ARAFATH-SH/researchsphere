@@ -483,7 +483,8 @@ func TestQueueStaleAllRebuildAndStats(t *testing.T) {
 	}
 
 	st, err := s.Stats(ctx, modelB)
-	if err != nil || len(st) != 2 || st[1] != (domain.OwnerStats{OwnerType: domain.OwnerProject}) {
+	if err != nil || len(st) != 3 || st[1] != (domain.OwnerStats{OwnerType: domain.OwnerProject}) ||
+		st[2] != (domain.OwnerStats{OwnerType: domain.OwnerVenue}) {
 		t.Fatal(st, err)
 	}
 	if st[0] != (domain.OwnerStats{OwnerType: domain.OwnerProfile, Total: 3, CurrentModel: 1, Queued: 2, Failed: 0}) {

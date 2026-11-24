@@ -24,14 +24,16 @@ import (
 	platformredis "github.com/ARAFATH-SH/researchsphere/backend/internal/platform/redis"
 )
 
-// truncateAll empties every table except the migration record. It takes no input from
-// Go; format('%I') quotes the table names.
+// truncateAll empties every table except the migration record and the reference data the
+// migrations seed and no test changes: the research fields of venues (000039). Truncating a
+// table that refers to them leaves them alone. It takes no input from Go; format('%I')
+// quotes the table names.
 const truncateAll = `DO $$
 BEGIN
     EXECUTE (
         SELECT 'TRUNCATE ' || string_agg(format('%I.%I', schemaname, tablename), ', ') || ' RESTART IDENTITY CASCADE'
         FROM pg_tables
-        WHERE schemaname = 'public' AND tablename <> 'schema_migrations'
+        WHERE schemaname = 'public' AND tablename NOT IN ('schema_migrations', 'research_fields')
     );
 END
 $$`

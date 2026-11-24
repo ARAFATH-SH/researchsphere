@@ -19,6 +19,8 @@ recommendations. One developer builds it in 30 slices over 12 weeks.
   must do after a reconnect. OpenAPI covers only the upgrade.
 - `docs/sync.md` is the real-time editing contract (slice 22): the ticket, the token, the
   `session` message, refusal and close reasons, epochs and offline edits, saving, limits.
+- `docs/venues-import.md` is the venue import file (FR-14.5, interim): columns, rules, time zones
+  (AoE), matching by key and the research fields.
 - `docs/compile.md` is the compile contract (slice 23): jobs and their states, retention, the
   worker's internal operations, the sandbox's settings, error parsing, downloads and the threat
   model.
@@ -56,11 +58,11 @@ Run these from the repository root. `make help` prints the current list.
 | `make unadmin email=...` | Set that account back to the researcher role |
 | `make seed-ui-compare` | Create or refresh the fake accounts `npm run ui:compare` signs in with: Compare Alpha and Compare Beta, connected, with about 40 messages over several days and Beta's open report of a message from Alpha, Compare Gamma's pending message request to Alpha, and Compare Admin, an administrator (`@compare.researchsphere.local`). Needs `make migrate` and `UI_COMPARE_PASSWORD`. Refuses a database name ending in `_test`, `APP_ENV=production` and any host but this machine |
 | `make seed-dev` | Create or repair the development accounts `test1@example.com` to `test4@example.com` (researchers) and `admin@example.com` (administrator), all verified, with the password `DEV_SEED_PASSWORD` from `.env`. Running it again resets their password, role and suspension and touches no other account. Needs `make migrate`. Refuses a database name ending in `_test`, `APP_ENV=production` and any host but this machine. The API accepts these addresses only while `TEST_EMAIL_DOMAINS` names `example.com` |
-| `make sample-data` | Load deterministic sample profiles into the development database (slice 16): `n=10000` sets how many there should be (default 1,000), `wait=1` then waits until the running API (`make api`, AI service up) has embedded them all, printing progress. `projects=1` also makes one sample project per 10 sample profiles (slice 19), owned by profile 10k and in its cluster, with its labels in `sample_projects`. The same command makes the same data (seed 16); a second run tops up to `n` and never duplicates. Accounts are `sample-NNNNN@sample.researchsphere.local`, verified, with the one password `SAMPLE_PASSWORD` from `.env`; their research clusters and tuning/test split are in `sample_profiles`. Needs `make migrate`. Refuses unless `APP_ENV=development`, and refuses a database name ending in `_test` and any host but this machine. Never in production |
-| `make sample-purge` | Delete every sample account (a `sample_profiles` row and an address at `sample.researchsphere.local`, both) through the account deletion of FR-2.8, one transaction each; touches no other account |
+| `make sample-data` | Load deterministic sample profiles into the development database (slice 16): `n=10000` sets how many there should be (default 1,000), `wait=1` then waits until the running API (`make api`, AI service up) has embedded them all, printing progress. `projects=1` also makes one sample project per 10 sample profiles (slice 19), owned by profile 10k and in its cluster, with its labels in `sample_projects`. `venues=1` also makes 200 fictional venues (slice 24), 10 per cluster, with deadlines from 90 days before the run to 365 after, marked in `sample_venues`. The same command makes the same data (seed 16); a second run tops up to `n` and never duplicates. Accounts are `sample-NNNNN@sample.researchsphere.local`, verified, with the one password `SAMPLE_PASSWORD` from `.env`; their research clusters and tuning/test split are in `sample_profiles`. Needs `make migrate`. Refuses unless `APP_ENV=development`, and refuses a database name ending in `_test` and any host but this machine. Never in production |
+| `make sample-purge` | Delete every sample account (a `sample_profiles` row and an address at `sample.researchsphere.local`, both) through the account deletion of FR-2.8, one transaction each, then every sample venue (a `sample_venues` row) for good; touches no other account or venue |
 | `make purge-unverified` | Run the FR-17.4 purge once now, with the `.env` settings: delete the accounts still unverified `UNVERIFIED_ACCOUNT_DAYS` (7) after sign-up, except those at `TEST_EMAIL_DOMAINS` outside production, and log what it deleted. The API also runs it every hour |
 | `make send-digests` | Run the FR-16.11 unread message digest once now, with the `.env` settings: email each verified, not suspended user with the digest on who has messages unread for 24 hours that no digest counted yet and got no digest in the last 24 hours (at most 200 users a run), and log how many it sent. The API also runs it every hour. Mail goes to Mailpit locally (test-domain accounts included); needs `make migrate` and `UNSUBSCRIBE_SECRET` |
-| `make embed-backfill` | Queue every verified, not suspended profile, and every project, for its AI embedding once (AI-1.5), at low priority, then exit; the running API's worker embeds them, skipping a profile whose text and model have not changed. Run it once after migration 000028 on a database with existing profiles. Needs `make migrate`; the API needs the AI service (`AI_SERVICE_TOKEN`) to embed |
+| `make embed-backfill` | Queue every verified, not suspended profile, every project and every venue not removed, for its AI embedding once (AI-1.5), at low priority, then exit; the running API's worker embeds them, skipping a profile whose text and model have not changed. Run it once after migration 000028 on a database with existing profiles. Needs `make migrate`; the API needs the AI service (`AI_SERVICE_TOKEN`) to embed |
 | `make backfill-main-tex` | Give the starting `main.tex` (FR-10.4) to every project that has no file, one transaction per project, and print how many. Idempotent: a project with any file is left alone. Run it once in every environment after migration 000035 (`docs/deploy.md`). Needs `make migrate` |
 | `make calibrate-recs` | Fit the AI-2.2 recommendation score map on the sample TUNING split only (2,000 queries, seed 17) and print `RECS_SCORE_MODEL`, `RECS_SCORE_SLOPE` and `RECS_SCORE_INTERCEPT` with a calibration table; then check that map on profile-project pairs of the tuning split, both directions (slice 19), and print `RECS_PROJECT_SCORE_SLOPE` and `RECS_PROJECT_SCORE_INTERCEPT` when it does not hold; put them into the config defaults and `.env.example`. Needs the sample projects too (`make sample-data projects=1`). Run it again whenever the embedding model changes (`docs/evaluation.md`). Needs the 10,000 embedded sample profiles and `APP_ENV=development`; reads only |
 | `make eval-recs` | Measure NFR-6 collaborator matching on the held-out sample TEST split: recall@10 (capped), precision@10 and standard recall@10 against "relevant = same main cluster" and, beside it, "shares the main or second cluster", ranked as the endpoint ranks, with the score percentiles of random and top-10 pairs per group; then the same for project matching in both directions (AI-3.1 profile -> project, AI-2.3 project -> profile). Write the results into `docs/evaluation.md`. Never tune on its output. Needs `APP_ENV=development`; reads only |
@@ -151,7 +153,8 @@ do not rename them.
 
 - **Go:** one application (modular monolith). Modules live in `backend/internal/<module>`: health,
   then auth, profile, media, social, project, event, notification, messaging, moderation, realtime,
-  embedding (AI-1: the queue, the worker and the stored vectors), recommendation (AI-2,
+  embedding (AI-1: the queue, the worker and the stored vectors), event (FR-14, FR-15.1: venues,
+  their research fields, the administrators' changes and audit trail, the file import), recommendation (AI-2,
   AI-3: collaborator and project recommendations from the embeddings) and compile (FR-13: the
   compile jobs, their logs and PDFs; the worker that runs them is `compile/`). Return errors, do not panic.
   Table-driven tests beside the code they test. Each module is split into layers (clean
@@ -251,7 +254,7 @@ do not rename them.
   that need the database carry the build tag `integration`.
 - **Integration tests never touch development data.** They get their connections from
   `internal/platform/testenv`: `testenv.DB(t)` connects to `TEST_DATABASE_URL` and empties every
-  table, `testenv.Redis(t)` connects to `TEST_REDIS_URL` (DB 15) and flushes that DB only. Both
+  table but `research_fields` (reference data the migrations seed), `testenv.Redis(t)` connects to `TEST_REDIS_URL` (DB 15) and flushes that DB only. Both
   refuse to run unless the database name ends in `_test` and the Redis DB is not 0 or the one
   `REDIS_URL` uses. Call each once per test, before opening any transaction (the truncate waits
   for open transactions and fails after 10 seconds). Do not use `t.Parallel()` in integration
@@ -261,8 +264,9 @@ do not rename them.
 - **Sample data (slice 16) stays out of the application and out of production.** The
   sample accounts of `make sample-data` are at `@sample.researchsphere.local`, which
   `TEST_EMAIL_DOMAINS` lists outside production. `sample_profiles` is their marker and the
-  NFR-6 ground truth, and `sample_projects` labels the sample projects of `projects=1` the same
-  way: no code under `internal/` reads either, only `cmd/seedsample` writes them, and
+  NFR-6 ground truth, `sample_projects` labels the sample projects of `projects=1` the same
+  way, and `sample_venues` marks the fictional venues of `venues=1` with their cluster: no code
+  under `internal/` reads any of them, only `cmd/seedsample` writes them, and
   only `cmd/seedsample` and `cmd/recseval` (the AI-2.2 calibration on the `tuning` split, the
   NFR-6 and AI-5.2 evaluations on the `test` split) read them. For the NFR-6 collaborator matching
   evaluation (slice 17), a candidate is relevant to a query profile from the `test` split when

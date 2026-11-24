@@ -18,6 +18,7 @@ import (
 	authusecase "github.com/ARAFATH-SH/researchsphere/backend/internal/auth/usecase"
 	compilehttp "github.com/ARAFATH-SH/researchsphere/backend/internal/compile/adapter/http"
 	embeddinghttp "github.com/ARAFATH-SH/researchsphere/backend/internal/embedding/adapter/http"
+	eventhttp "github.com/ARAFATH-SH/researchsphere/backend/internal/event/adapter/http"
 	healthdomain "github.com/ARAFATH-SH/researchsphere/backend/internal/health/domain"
 	mediahttp "github.com/ARAFATH-SH/researchsphere/backend/internal/media/adapter/http"
 	messaginghttp "github.com/ARAFATH-SH/researchsphere/backend/internal/messaging/adapter/http"
@@ -168,6 +169,7 @@ func testRouter() http.Handler {
 		recommendationhttp.NewHandler(okRecommendations{}),
 		projecthttp.NewHandler(okProjects{}),
 		compilehttp.NewHandler(okCompiles{}),
+		eventhttp.NewHandler(okVenues{}, nil),
 		serviceAndSessionAuth([]byte(testSyncToken), []byte(testCompileToken), httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now)))
 }
 
@@ -200,6 +202,7 @@ func healthRouter(storage, ai healthdomain.Pinger) http.Handler {
 		recommendationhttp.NewHandler(okRecommendations{}),
 		projecthttp.NewHandler(okProjects{}),
 		compilehttp.NewHandler(okCompiles{}),
+		eventhttp.NewHandler(okVenues{}, nil),
 		serviceAndSessionAuth([]byte(testSyncToken), []byte(testCompileToken), httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now)))
 }
 

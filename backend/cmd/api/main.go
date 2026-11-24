@@ -301,6 +301,7 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 		recommendationhttp.NewHandler(recommendations),
 		projecthttp.NewHandler(projects),
 		compilehttp.NewHandler(compiles),
+		newVenues(pool),
 		serviceAndSessionAuth([]byte(cfg.SyncServiceToken), []byte(cfg.CompileServiceToken), httpx.RequireAuth(tokens, time.Now)))
 
 	var lc net.ListenConfig

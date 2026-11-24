@@ -355,6 +355,7 @@ func wireEnv(t *testing.T, pool *pgxpool.Pool, rdb *goredis.Client, files *stora
 		recommendationhttp.NewHandler(recommendations),
 		projecthttp.NewHandler(projects),
 		compilehttp.NewHandler(compiles),
+		newVenues(pool),
 		serviceAndSessionAuth([]byte(testSyncToken), []byte(testCompileToken), httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now)))
 	// As run serves them: the public port without the internal operations, the internal
 	// listener with them only (slice 22).

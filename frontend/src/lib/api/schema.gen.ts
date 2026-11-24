@@ -351,8 +351,8 @@ export interface paths {
         /**
          * Queue every embedding to be made again (AI-1.6)
          * @description Needs the access cookie and the platform action "Manage the AI matching model".
-         *     Queues every eligible owner (a verified, not suspended user's profile, and every
-         *     project) at low priority, forced, so each embedding
+         *     Queues every eligible owner (a verified, not suspended user's profile, every
+         *     project and every venue not removed) at low priority, forced, so each embedding
          *     is made again even when its text and model have not changed; changes users make go
          *     first. The work happens in the background; the answer comes at once. Asking again
          *     leaves one job per owner. Each call is recorded with the administrator and the count.
@@ -521,6 +521,123 @@ export interface paths {
          *     (warning, restriction or suspension).
          */
         post: operations["resolveProjectReport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/venues": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add a venue (FR-15.1)
+         * @description Needs the access cookie and the platform action "Add, edit and remove venues", which
+         *     only an administrator has (SRS 2.3). The rules are in `VenueInput`. The first field
+         *     that breaks one gets 400 `bad_request` with `field`. The venue and its audit row
+         *     (`create`) are written in one transaction. The new venue is queued for its embedding
+         *     (AI-1.3).
+         */
+        post: operations["createVenue"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/venues/{venueId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Change a venue (FR-15.1)
+         * @description Needs the platform action "Add, edit and remove venues". A missing field keeps its
+         *     value. `null` clears an optional field (`shortName`, `attendance`, `city`, `country`,
+         *     `startsOn`, `endsOn`, `abstractDeadline`, `notificationAt`); `null` for any other field
+         *     is refused. The venue as changed must follow every rule of `VenueInput`. Changing
+         *     `timeZone` alone keeps the local times of the deadlines and reads them in the new zone.
+         *     A change writes an `update` audit row that names the changed fields, never their
+         *     values; a request that changes nothing writes none. A change of name, short name, scope
+         *     or fields queues the venue's embedding again. A removed venue gets 404 `not_found`.
+         */
+        patch: operations["updateVenue"];
+        trace?: never;
+    };
+    "/admin/venues/{venueId}/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Remove a venue, with a recorded reason (FR-15.1)
+         * @description Needs the platform action "Add, edit and remove venues". The venue is kept for the
+         *     audit trail but no user sees it again: lists leave it out and its page answers 404.
+         *     Its embedding is deleted at once, so venue recommendations never return it. `reason`
+         *     is 10 to 1,000 characters after trimming (`bad_request`, `field: reason`). The removal
+         *     and its `remove` audit row, with the reason, are one transaction. A venue already
+         *     removed gets 404 `not_found`. There is no restore.
+         */
+        post: operations["removeVenue"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/venues/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add and update venues from a CSV or JSON file (FR-14.5, interim; docs/venues-import.md)
+         * @description Needs the platform action "Add, edit and remove venues". The file is in the part named
+         *     `file`, at most 1 MiB and 1,000 rows. A name ending in `.csv` is read as CSV, `.json` as
+         *     JSON. With any other name, a file whose first non-blank character is `[` is read as
+         *     JSON and anything else as CSV. The columns and keys are those of `VenueInput` plus
+         *     `sourceKey` (docs/venues-import.md). A CSV `fields` cell holds keys separated by `;`.
+         *
+         *     **Each row** is checked with the rules of `VenueInput`, and every problem is reported,
+         *     not only the first. Its key is `sourceKey`, or, when that is empty, `auto:` + the folded
+         *     name + `:` + the year of `startsOn` (of the deadline when there is no `startsOn`). A key
+         *     that no imported venue has is `created`. A live imported venue with that key is
+         *     `updated` when any value differs and `unchanged` otherwise. A venue an administrator
+         *     added by hand is never matched. A rejected row is skipped, with its reasons:
+         *     `duplicate_in_file` when an earlier row has the same key, and `venue_removed` when the
+         *     venue with that key was removed (it is not brought back).
+         *
+         *     **`dryRun=true`** reports the same outcomes and changes nothing. Otherwise every
+         *     accepted row is written in one transaction, each with an `import_create` or
+         *     `import_update` audit row sharing one import ID.
+         *
+         *     A file that cannot be read as a whole (not CSV or JSON, an unknown column or key, no
+         *     rows) gets 400 `invalid_import_file`. More than 1,000 rows gets 400 `too_many_rows`, and
+         *     over 1 MiB gets 413 `file_too_large`.
+         */
+        post: operations["importVenues"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3793,10 +3910,288 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/venues": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List venues by nearest submission deadline, with filters and facet counts (FR-14.1 to FR-14.3)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed, events
+         *     and recommendations" (SRS 2.3). Removed venues never appear.
+         *
+         *     **Order:** venues whose submission deadline has not passed come first, nearest
+         *     deadline first. A deadline has passed when its instant is at or before now. Past
+         *     venues are left out unless `includePast=true`; they then follow the upcoming ones,
+         *     most recently closed first. Ties go by name, then ID.
+         *
+         *     **Filters** combine with AND. `type` and `field` may repeat, and a venue matches when
+         *     it has any of the given values. `deadlineFrom` and `deadlineTo` are calendar dates,
+         *     both inclusive, read in the time zone `tz` (an IANA name, `Asia/Dhaka` when left out):
+         *     `deadlineFrom` starts at that day's local midnight and `deadlineTo` ends at the next
+         *     day's local midnight. A deadline range does not show past venues unless
+         *     `includePast=true`. `q` (2 to 100 characters after trimming) matches a name or short
+         *     name that contains it, ignoring letter case, or is similar to it (pg_trgm word
+         *     similarity of at least 0.4, so one typo in one word still matches).
+         *
+         *     **Facets** count the venues each type or field value would give, with every other
+         *     filter applied: the type counts ignore `type`, and the field counts ignore `field`.
+         *     Every type and every field is listed, with 0 when none match. A venue with two fields
+         *     counts once under each.
+         *
+         *     A value that breaks a rule gets 400 `bad_request` with `field`.
+         */
+        get: operations["listVenues"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/venues/fields": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The fixed list of research fields a venue may have (FR-14.3)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed, events
+         *     and recommendations". In the order to show them; `other` comes last.
+         */
+        get: operations["listResearchFields"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/venues/{venueId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read one venue with its full scope text (FR-14.4)
+         * @description Needs the access cookie and the platform action "View profiles, search, feed, events
+         *     and recommendations". A removed venue gets 404 `not_found`, the same as one that does
+         *     not exist. A venue whose deadline has passed is still shown. `scope` is the text the
+         *     administrator entered; a client shows it as text (NFR-8.2) and never as HTML.
+         */
+        get: operations["getVenue"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @enum {string} */
+        VenueType: "conference" | "journal" | "workshop" | "special_issue";
+        /**
+         * @description How a conference or workshop takes place. A journal or special issue has none.
+         * @enum {string}
+         */
+        VenueAttendance: "in_person" | "online" | "hybrid";
+        ResearchField: {
+            /** @example bangla_nlp */
+            key: string;
+            /** @example Natural language processing */
+            label: string;
+        };
+        ResearchFieldList: {
+            items: components["schemas"]["ResearchField"][];
+        };
+        /**
+         * @description A deadline or date of a venue. `at` is the instant (UTC). `local` is the wall time in
+         *     the venue's `timeZone`, as the call for papers states it.
+         */
+        VenueTime: {
+            /** Format: date-time */
+            at: string;
+            /**
+             * @description `YYYY-MM-DDTHH:MM:SS` in the venue's time zone.
+             * @example 2027-03-01T23:59:59
+             */
+            local: string;
+        };
+        /** @description A venue as the list shows it (FR-14.1). */
+        VenueSummary: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** @description The acronym, such as `ICML`. */
+            shortName: string | null;
+            type: components["schemas"]["VenueType"];
+            /** @description 1 to 5 fields, in the order of the fixed list. */
+            fields: components["schemas"]["ResearchField"][];
+            attendance: components["schemas"]["VenueAttendance"] | null;
+            city: string | null;
+            /** @description ISO 3166-1 alpha-2 code, such as `BD`. */
+            country: string | null;
+            /** Format: date */
+            startsOn: string | null;
+            /** Format: date */
+            endsOn: string | null;
+            /**
+             * @description The zone the deadlines are stated in: `AoE` (anywhere on Earth, UTC-12 all year), `UTC`
+             *     or an IANA name such as `Asia/Dhaka`.
+             */
+            timeZone: string;
+            submissionDeadline: components["schemas"]["VenueTime"];
+            abstractDeadline: components["schemas"]["VenueTime"] | null;
+            notificationAt: components["schemas"]["VenueTime"] | null;
+            /** @description Always `https://`. */
+            officialUrl: string;
+            /** @description The submission deadline has passed. */
+            past: boolean;
+        };
+        /** @description A venue with its full scope text (FR-14.4). */
+        Venue: components["schemas"]["VenueSummary"] & {
+            /** @description Plain text or a small Markdown subset. Show it as text, never as HTML (NFR-8.2). */
+            scope: string;
+            /** @enum {string} */
+            source: "manual" | "import";
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        VenuePage: {
+            items: components["schemas"]["VenueSummary"][];
+            page: number;
+            pageSize: number;
+            /** @description Venues that match on all pages. */
+            total: number;
+            facets: components["schemas"]["VenueFacets"];
+        };
+        VenueFacets: {
+            /** @description Every type, in the order of `VenueType`. */
+            types: components["schemas"]["VenueTypeCount"][];
+            /** @description Every research field, in the order of the fixed list. */
+            fields: components["schemas"]["VenueFieldCount"][];
+        };
+        VenueTypeCount: {
+            type: components["schemas"]["VenueType"];
+            count: number;
+        };
+        VenueFieldCount: {
+            key: string;
+            label: string;
+            count: number;
+        };
+        /**
+         * @description A venue as an administrator enters it (FR-15.1). Text is trimmed first.
+         *     `name`: 1 to 300 characters on one line. `shortName`: at most 40 characters on one line.
+         *     `fields`: 1 to 5 keys from `GET /venues/fields`, without repeats.
+         *     A conference or workshop needs `attendance`; a journal or special issue has none and no
+         *     `startsOn` or `endsOn`. `city` (at most 100 characters) and `country` (ISO 3166-1
+         *     alpha-2) are needed when attendance is `in_person` or `hybrid` and refused when it is
+         *     `online`. `endsOn` is not before `startsOn`.
+         *     `timeZone` is `AoE` (UTC-12, no daylight saving), `UTC` or an IANA name. The deadlines are
+         *     local times in that zone, `YYYY-MM-DD`, `YYYY-MM-DDTHH:MM` or `YYYY-MM-DDTHH:MM:SS`; a date
+         *     alone means 23:59:59 that day. `abstractDeadline` is not after `submissionDeadline`, and
+         *     `notificationAt` is not before it.
+         *     `officialUrl`: an `https://` link with a host and no user name, at most 2,048 characters.
+         *     `scope`: 1 to 10,000 characters; line breaks and tabs are the only control characters
+         *     allowed.
+         */
+        VenueInput: {
+            name: string;
+            shortName?: string | null;
+            /** @description A `VenueType` value. */
+            type: string;
+            fields: string[];
+            /** @description A `VenueAttendance` value. */
+            attendance?: string | null;
+            city?: string | null;
+            country?: string | null;
+            /** @description `YYYY-MM-DD`. */
+            startsOn?: string | null;
+            /** @description `YYYY-MM-DD`. */
+            endsOn?: string | null;
+            /** @example AoE */
+            timeZone: string;
+            /** @example 2027-03-01T23:59 */
+            submissionDeadline: string;
+            abstractDeadline?: string | null;
+            notificationAt?: string | null;
+            /** @example https://example.org/cfp */
+            officialUrl: string;
+            scope: string;
+        };
+        /** @description The fields of `VenueInput` to change. See `updateVenue`. */
+        VenuePatch: {
+            name?: string | null;
+            shortName?: string | null;
+            type?: string | null;
+            /** @description Replaces the whole list. */
+            fields?: string[] | null;
+            attendance?: string | null;
+            city?: string | null;
+            country?: string | null;
+            startsOn?: string | null;
+            endsOn?: string | null;
+            timeZone?: string | null;
+            submissionDeadline?: string | null;
+            abstractDeadline?: string | null;
+            notificationAt?: string | null;
+            officialUrl?: string | null;
+            scope?: string | null;
+        };
+        VenueRemoval: {
+            /** @description Why the venue is removed, 10 to 1,000 characters after trimming. Kept in the audit trail. */
+            reason: string;
+        };
+        VenueImportResult: {
+            dryRun: boolean;
+            created: number;
+            updated: number;
+            unchanged: number;
+            rejected: number;
+            /** @description One entry per row of the file, in its order. */
+            rows: components["schemas"]["VenueImportRow"][];
+        };
+        VenueImportRow: {
+            /** @description The row's number, from 1, not counting a CSV header. */
+            row: number;
+            /** @enum {string} */
+            outcome: "created" | "updated" | "unchanged" | "rejected";
+            /**
+             * Format: uuid
+             * @description The venue created or matched. Absent on a dry run's `created` and on `rejected`.
+             */
+            venueId?: string | null;
+            /** @description The row's key, given or derived; empty when it could not be derived. */
+            sourceKey: string;
+            /** @description Why the row was rejected; empty otherwise. */
+            reasons: components["schemas"]["VenueImportReason"][];
+        };
+        VenueImportReason: {
+            /** @description The column or key at fault, or `row`. */
+            field: string;
+            /**
+             * @description `required`, `too_long`, `invalid`, `not_https`, `unknown_field`, `duplicate_field`,
+             *     `too_many_fields`, `not_allowed`, `invalid_time_zone`, `invalid_date`,
+             *     `ends_before_starts`, `after_deadline`, `before_deadline`, `duplicate_in_file` or
+             *     `venue_removed`.
+             */
+            code: string;
+        };
         /** @description The shape of every error response (SRS 5.3). */
         Error: {
             /**
@@ -3986,10 +4381,10 @@ export interface components {
         };
         EmbeddingOwnerStats: {
             /**
-             * @description What the embeddings belong to. Later slices add post and venue.
+             * @description What the embeddings belong to. A later slice adds post.
              * @enum {string}
              */
-            ownerType: "profile" | "project";
+            ownerType: "profile" | "project" | "venue";
             /** @description Stored embeddings. */
             total: number;
             /** @description Of them, those the current model made; 0 when the model is unknown. */
@@ -6611,6 +7006,18 @@ export interface components {
             };
         };
         /**
+         * @description A body field or parameter is not valid (`bad_request`, with `field`). The message says
+         *     what rule it breaks.
+         */
+        InvalidVenue: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /**
          * @description A field is not valid (`bad_request`, with `field`: `title`, `description`, `abstract`,
          *     `status`, `requiredSkills` or `requiredSkills[i]` for one name). The value is never
          *     repeated.
@@ -7039,6 +7446,11 @@ export interface components {
         /** @description The page to return, from 1. Defaults to 1. A value below 1 gets 400 `bad_request`. */
         PageFromOne: number;
         /**
+         * @description The venue's ID, a UUID. It is declared as a plain string so that the login and role
+         *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+         */
+        VenueId: string;
+        /**
          * @description The user's ID, a UUID. It is declared as a plain string so that the login and role
          *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
          */
@@ -7176,6 +7588,15 @@ export interface components {
          *     for display only, cleaned up.
          */
         AttachmentUpload: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                };
+            };
+        };
+        /** @description The CSV or JSON file in the part named `file`, at most 1 MiB (docs/venues-import.md). */
+        VenueImportUpload: {
             content: {
                 "multipart/form-data": {
                     /** Format: binary */
@@ -8074,6 +8495,138 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            500: components["responses"]["InternalError"];
+        };
+    };
+    createVenue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VenueInput"];
+            };
+        };
+        responses: {
+            /** @description The new venue. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Venue"];
+                };
+            };
+            400: components["responses"]["InvalidVenue"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    updateVenue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The venue's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                venueId: components["parameters"]["VenueId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VenuePatch"];
+            };
+        };
+        responses: {
+            /** @description The venue as it is now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Venue"];
+                };
+            };
+            400: components["responses"]["InvalidVenue"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    removeVenue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The venue's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                venueId: components["parameters"]["VenueId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VenueRemoval"];
+            };
+        };
+        responses: {
+            /** @description The venue is removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["InvalidVenue"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    importVenues: {
+        parameters: {
+            query?: {
+                /** @description Report what would happen and change nothing. */
+                dryRun?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: components["requestBodies"]["VenueImportUpload"];
+        responses: {
+            /** @description What happened to each row, or would happen on a dry run. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VenueImportResult"];
+                };
+            };
+            /** @description `invalid_import_file`, `too_many_rows`, or `bad_request` when there is no part named `file`. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            413: components["responses"]["FileTooLarge"];
             500: components["responses"]["InternalError"];
         };
     };
@@ -13259,6 +13812,102 @@ export interface operations {
             };
             400: components["responses"]["BadSyncRequest"];
             401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listVenues: {
+        parameters: {
+            query?: {
+                /** @description The page to return, from 1. Defaults to 1. A value below 1 gets 400 `bad_request`. */
+                page?: components["parameters"]["PageFromOne"];
+                /** @description Items per page, from 1; a larger value than 50 is reduced to 50. Defaults to 20. Below 1 gets 400 `bad_request`. */
+                pageSize?: components["parameters"]["MembershipPageSize"];
+                /** @description Show venues whose submission deadline has passed, after the upcoming ones. */
+                includePast?: boolean;
+                /** @description `conference`, `journal`, `workshop` or `special_issue`; may repeat. */
+                type?: string[];
+                /** @description A research field key from `GET /venues/fields`; may repeat (at most 21). */
+                field?: string[];
+                /** @description The first day of the deadline range, `YYYY-MM-DD`, in `tz`. */
+                deadlineFrom?: string;
+                /** @description The last day of the deadline range, `YYYY-MM-DD`, in `tz`. Not before `deadlineFrom`. */
+                deadlineTo?: string;
+                /** @description The IANA time zone the deadline range is read in. `Asia/Dhaka` when left out. */
+                tz?: string;
+                /** @description Part of a name or short name, 2 to 100 characters after trimming. */
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of venues and the facet counts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VenuePage"];
+                };
+            };
+            400: components["responses"]["InvalidVenue"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    listResearchFields: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every research field. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResearchFieldList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    getVenue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The venue's ID, a UUID. It is declared as a plain string so that the login and role
+                 *     checks run before it is read (FR-3.1); a value that is not a UUID gets 404 `not_found`.
+                 */
+                venueId: components["parameters"]["VenueId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The venue. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Venue"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             500: components["responses"]["InternalError"];
         };
