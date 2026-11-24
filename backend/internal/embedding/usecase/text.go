@@ -18,6 +18,8 @@ const (
 	textVersion        = "profile-text-v1\n"
 	projectTextVersion = "project-text-v1\n"
 	venueTextVersion   = "venue-text-v1\n"
+	// projectAbstractTextVersion is hashed with every title-and-abstract text (AI-6.1).
+	projectAbstractTextVersion = "project-abstract-text-v1\n"
 )
 
 // ProfileText is the one place a profile's embedding text is built (AI-1.1): headline,
@@ -64,6 +66,21 @@ func ProjectText(src domain.ProjectSource) string {
 	return strings.Join(lines, "\n")
 }
 
+// ProjectAbstractText is the one place the text of a project's second vector is built, for
+// venue recommendations (AI-6.1 says "title and abstract"): the title, then the abstract,
+// each on its own line with its whitespace collapsed. It is empty when the abstract is empty,
+// so a project without an abstract has no such vector (AI-6.3).
+func ProjectAbstractText(src domain.ProjectSource) string {
+	abstract := oneLine(src.Abstract)
+	if abstract == "" {
+		return ""
+	}
+	if title := oneLine(src.Title); title != "" {
+		return title + "\n" + abstract
+	}
+	return abstract
+}
+
 // ContentHash is the hex SHA-256 of a profile text the worker compares with the stored one
 // (AI-1.4).
 func ContentHash(text string) string {
@@ -101,6 +118,12 @@ func ProjectContentHash(text string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// ProjectAbstractContentHash is ContentHash for a project's title-and-abstract text.
+func ProjectAbstractContentHash(text string) string {
+	sum := sha256.Sum256([]byte(projectAbstractTextVersion + text))
+	return hex.EncodeToString(sum[:])
+}
+
 // hashOf is the content hash of an owner's text.
 func hashOf(owner domain.OwnerType, text string) string {
 	switch owner {
@@ -108,6 +131,8 @@ func hashOf(owner domain.OwnerType, text string) string {
 		return ProjectContentHash(text)
 	case domain.OwnerVenue:
 		return VenueContentHash(text)
+	case domain.OwnerProjectAbstract:
+		return ProjectAbstractContentHash(text)
 	}
 	return ContentHash(text)
 }

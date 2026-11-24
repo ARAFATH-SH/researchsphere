@@ -291,6 +291,10 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 	if err := enableProjectMatching(recommendations, recStore, recCache, projects, cfg); err != nil {
 		return err
 	}
+	// Venue recommendations (AI-6): venue changes and title-and-abstract embeddings renew them.
+	if err := enableVenueMatching(recommendations, recStore, recCache, projects, cfg); err != nil {
+		return err
+	}
 	embedWorker.Watch(embeddingChanges{recs: recommendations})
 	go embedWorker.Run(ctx)
 	// Compile (slice 23): jobs queue here; the compile worker runs them (docs/compile.md).
@@ -298,7 +302,7 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 	defer func() { _ = compileKeys.Close() }()
 	go compiles.RunSweep(ctx, compileSweepInterval)
 	// The automatic venue import (FR-14.5): daily when VENUE_SYNC_DAILY is on, and on demand.
-	venueSync := newVenueSyncer(ctx, pool, cfg, newVenueFeeds(cfg), logger)
+	venueSync := newVenueSyncer(ctx, pool, cfg, newVenueFeeds(cfg), venueChanges{recs: recommendations}, logger)
 	go venueSync.RunSchedule(ctx, venueSyncInterval)
 	handler := newRouter(logger, healthpg.NewPinger(pool), healthredis.NewPinger(rdb), files, ai,
 		authhttp.NewHandler(auth, authhttp.CookieConfig{Secure: cfg.CookieSecure}),
@@ -313,7 +317,7 @@ func run(ctx context.Context, getenv func(string) string, logOut io.Writer) erro
 		recommendationhttp.NewHandler(recommendations),
 		projecthttp.NewHandler(projects),
 		compilehttp.NewHandler(compiles),
-		newVenues(pool, venueSync),
+		newVenues(pool, venueSync, venueChanges{recs: recommendations}),
 		serviceAndSessionAuth([]byte(cfg.SyncServiceToken), []byte(cfg.CompileServiceToken), httpx.RequireAuth(tokens, time.Now)))
 
 	var lc net.ListenConfig

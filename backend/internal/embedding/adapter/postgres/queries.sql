@@ -155,14 +155,42 @@ SET model        = EXCLUDED.model,
 DELETE FROM project_embeddings WHERE project_id = @project_id;
 
 -- name: QueueStaleProjects :execrows
+-- A project whose main or title-and-abstract embedding (AI-6.1) another model made: one job
+-- makes both again.
 INSERT INTO embedding_jobs (owner_type, owner_id, priority)
-SELECT 'project', e.project_id, 1
-FROM project_embeddings e
-WHERE e.model <> @model
-  AND NOT EXISTS (SELECT 1 FROM embedding_jobs j WHERE j.owner_type = 'project' AND j.owner_id = e.project_id)
-ORDER BY e.project_id
+SELECT 'project', s.project_id, 1
+FROM (
+    SELECT e.project_id FROM project_embeddings e WHERE e.model <> @model
+    UNION
+    SELECT a.project_id FROM project_abstract_embeddings a WHERE a.model <> @model
+) s
+WHERE NOT EXISTS (SELECT 1 FROM embedding_jobs j WHERE j.owner_type = 'project' AND j.owner_id = s.project_id)
+ORDER BY s.project_id
 LIMIT @lim
 ON CONFLICT (owner_type, owner_id) DO NOTHING;
+
+-- Title and abstract (AI-6.1; slice 25). The project job also makes this second vector; a
+-- project without an abstract has none.
+
+-- name: StoredProjectAbstractEmbedding :one
+SELECT model, content_hash FROM project_abstract_embeddings WHERE project_id = @project_id;
+
+-- name: SaveProjectAbstractEmbedding :execrows
+-- Only while the project exists, held as SaveProjectEmbedding holds it.
+WITH owner AS (
+    SELECT id FROM projects WHERE id = @project_id FOR KEY SHARE
+)
+INSERT INTO project_abstract_embeddings (project_id, model, content_hash, embedding, chunk_count)
+SELECT owner.id, @model, @content_hash, CAST(@embedding::text AS vector), @chunk_count FROM owner
+ON CONFLICT (project_id) DO UPDATE
+SET model        = EXCLUDED.model,
+    content_hash = EXCLUDED.content_hash,
+    embedding    = EXCLUDED.embedding,
+    chunk_count  = EXCLUDED.chunk_count,
+    updated_at   = now();
+
+-- name: DeleteProjectAbstractEmbedding :exec
+DELETE FROM project_abstract_embeddings WHERE project_id = @project_id;
 
 -- name: QueueAllProjects :one
 SELECT count(*)::bigint AS queued

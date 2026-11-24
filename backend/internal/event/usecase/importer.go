@@ -185,6 +185,9 @@ func (s *Service) Import(ctx context.Context, adminID, filename string, r io.Rea
 	if err != nil && !errors.Is(err, errDryRun) {
 		return ImportResult{}, err
 	}
+	if !dryRun && res.Created+res.Updated > 0 {
+		s.changed(ctx)
+	}
 	return res, nil
 }
 

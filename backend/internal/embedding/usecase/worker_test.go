@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -33,6 +34,7 @@ type memStore struct {
 	mu         sync.Mutex
 	jobs       map[string]*fakeJob
 	embeddings map[string]domain.Embedding
+	abstracts  map[string]domain.Embedding // a project's title-and-abstract vectors (AI-6.1)
 	sources    map[string]domain.ProfileSource
 	projects   map[string]domain.ProjectSource
 	venues     map[string]domain.VenueSource // a live venue; a removed one is absent
@@ -44,7 +46,7 @@ type memStore struct {
 }
 
 func newMemStore() *memStore {
-	return &memStore{jobs: map[string]*fakeJob{}, embeddings: map[string]domain.Embedding{}, sources: map[string]domain.ProfileSource{},
+	return &memStore{jobs: map[string]*fakeJob{}, embeddings: map[string]domain.Embedding{}, abstracts: map[string]domain.Embedding{}, sources: map[string]domain.ProfileSource{},
 		projects: map[string]domain.ProjectSource{}, venues: map[string]domain.VenueSource{}}
 }
 
@@ -145,10 +147,18 @@ func (s *memStore) VenueSource(_ context.Context, id string) (domain.VenueSource
 	return src, nil
 }
 
-func (s *memStore) StoredEmbedding(_ context.Context, _ domain.OwnerType, id string) (domain.Stored, error) {
+// table is where an owner type's embeddings are kept.
+func (s *memStore) table(owner domain.OwnerType) map[string]domain.Embedding {
+	if owner == domain.OwnerProjectAbstract {
+		return s.abstracts
+	}
+	return s.embeddings
+}
+
+func (s *memStore) StoredEmbedding(_ context.Context, owner domain.OwnerType, id string) (domain.Stored, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	e, ok := s.embeddings[id]
+	e, ok := s.table(owner)[id]
 	if !ok {
 		return domain.Stored{}, domain.ErrNotFound
 	}
@@ -158,14 +168,14 @@ func (s *memStore) StoredEmbedding(_ context.Context, _ domain.OwnerType, id str
 func (s *memStore) SaveEmbedding(_ context.Context, e domain.Embedding) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.embeddings[e.OwnerID] = e
+	s.table(e.OwnerType)[e.OwnerID] = e
 	return true, nil
 }
 
-func (s *memStore) DeleteEmbedding(_ context.Context, _ domain.OwnerType, id string) error {
+func (s *memStore) DeleteEmbedding(_ context.Context, owner domain.OwnerType, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.embeddings, id)
+	delete(s.table(owner), id)
 	return nil
 }
 
@@ -285,7 +295,9 @@ func TestWorkerEmbedsAQueuedProfile(t *testing.T) {
 }
 
 // AI-1.2: a project job embeds the project's title, skills, description and abstract with
-// the project hash; a project that is gone loses its embedding and its job.
+// the project hash, and (AI-6.1) its title and abstract alone as a second vector; a project
+// that is gone loses both and its job. Each is made again only when its own text changed,
+// and a project without an abstract has no second vector.
 func TestWorkerEmbedsAQueuedProject(t *testing.T) {
 	e := newWorkerEnv(t)
 	src := domain.ProjectSource{Title: "Graph  learning", Skills: []string{"Go", "PyTorch"}, Description: "Study\ngraphs", Abstract: "We learn."}
@@ -299,26 +311,48 @@ func TestWorkerEmbedsAQueuedProject(t *testing.T) {
 	if got.OwnerType != domain.OwnerProject || got.ContentHash != ProjectContentHash(ProjectText(src)) {
 		t.Errorf("embedding = %+v", got)
 	}
-	if want := "Graph learning\nGo, PyTorch\nStudy graphs\nWe learn."; e.ai.texts[0] != want {
-		t.Errorf("text sent = %q, want %q", e.ai.texts[0], want)
+	abs, ok := e.store.abstracts["p1"]
+	if !ok || abs.OwnerType != domain.OwnerProjectAbstract || abs.ContentHash != ProjectAbstractContentHash("Graph learning\nWe learn.") {
+		t.Errorf("title-and-abstract embedding = %+v, %v", abs, ok)
+	}
+	if want := []string{"Graph learning\nGo, PyTorch\nStudy graphs\nWe learn.", "Graph learning\nWe learn."}; !slices.Equal(e.ai.texts, want) {
+		t.Errorf("texts sent = %q, want %q", e.ai.texts, want)
 	}
 	if len(e.store.jobs) != 0 {
 		t.Errorf("job left: %+v", e.store.jobs)
 	}
 
-	// Unchanged: not embedded again.
+	// Unchanged: neither is embedded again.
 	e.store.enqueueOwner(domain.OwnerProject, "p1")
 	e.w.Tick(t.Context())
-	if n := e.ai.calls(); n != 1 {
+	if n := e.ai.calls(); n != 2 {
 		t.Errorf("an unchanged project was embedded again: %d calls", n)
 	}
 
-	// Gone: the embedding is deleted and the job finished.
+	// A new description: only the project's own embedding is made again.
+	src.Description = "Study graphs and trees"
+	e.store.projects["p1"] = src
+	e.store.enqueueOwner(domain.OwnerProject, "p1")
+	e.w.Tick(t.Context())
+	if n := e.ai.calls(); n != 3 || e.store.abstracts["p1"].ContentHash != abs.ContentHash {
+		t.Errorf("after a description change: %d calls, abstract hash changed %v", n, e.store.abstracts["p1"].ContentHash != abs.ContentHash)
+	}
+
+	// The abstract cleared: the second vector is deleted (AI-6.3), the first made again.
+	src.Abstract = "  "
+	e.store.projects["p1"] = src
+	e.store.enqueueOwner(domain.OwnerProject, "p1")
+	e.w.Tick(t.Context())
+	if _, ok := e.store.abstracts["p1"]; ok || e.ai.calls() != 4 {
+		t.Errorf("abstract cleared: second vector kept %v, %d calls", ok, e.ai.calls())
+	}
+
+	// Gone: both embeddings are deleted and the job finished.
 	delete(e.store.projects, "p1")
 	e.store.enqueueOwner(domain.OwnerProject, "p1")
 	e.w.Tick(t.Context())
 	if _, ok := e.store.embeddings["p1"]; ok || len(e.store.jobs) != 0 {
-		t.Errorf("gone project: embedding kept %v, jobs %+v", ok, e.store.jobs)
+		t.Errorf("gone: embedding %v, jobs %d", ok, len(e.store.jobs))
 	}
 }
 
@@ -694,8 +728,10 @@ func (r *recordWatcher) EmbeddingChanged(_ context.Context, t domain.OwnerType, 
 	r.told = append(r.told, string(t)+":"+id)
 }
 
-// The watcher (project recommendations, AI-3.1) hears of every embedding stored or deleted,
-// and of nothing when an unchanged text is skipped.
+// The watcher (project recommendations, AI-3.1; venue recommendations, AI-6.1) hears of
+// every embedding stored or deleted, each with its own type, and of nothing when an unchanged
+// text is skipped or there was nothing to delete (a project without an abstract has no second
+// vector, so nothing is told about it).
 func TestWorkerTellsTheWatcher(t *testing.T) {
 	e := newWorkerEnv(t)
 	w := &recordWatcher{}

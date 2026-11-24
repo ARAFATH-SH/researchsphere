@@ -62,6 +62,9 @@ const (
 	// ActCompile is the row "Compile, use the assistant, edit the abstract", for compiling
 	// (FR-13.1; slice 23).
 	ActCompile Action = "compile"
+	// ActSeeVenueRecommendations is the row "See venue recommendations for the project"
+	// (AI-6; slice 25): viewer, editor and owner.
+	ActSeeVenueRecommendations Action = "see_venue_recommendations"
 )
 
 // Permissions answers SRS 2.3's project table (authz.CanInProject).

@@ -198,6 +198,10 @@ func (s *Store) StoredEmbedding(ctx context.Context, owner domain.OwnerType, own
 		var row sqlcgen.StoredProjectEmbeddingRow
 		row, err = s.q(ctx).StoredProjectEmbedding(ctx, id)
 		model, hash = row.Model, row.ContentHash
+	case domain.OwnerProjectAbstract:
+		var row sqlcgen.StoredProjectAbstractEmbeddingRow
+		row, err = s.q(ctx).StoredProjectAbstractEmbedding(ctx, id)
+		model, hash = row.Model, row.ContentHash
 	case domain.OwnerVenue:
 		var row sqlcgen.StoredVenueEmbeddingRow
 		row, err = s.q(ctx).StoredVenueEmbedding(ctx, id)
@@ -233,6 +237,10 @@ func (s *Store) SaveEmbedding(ctx context.Context, e domain.Embedding) (bool, er
 		n, err = s.q(ctx).SaveProjectEmbedding(ctx, sqlcgen.SaveProjectEmbeddingParams{
 			Model: e.Model, ContentHash: e.ContentHash, Embedding: vectorText(e.Vector), ChunkCount: int16(e.ChunkCount), ProjectID: id,
 		})
+	case domain.OwnerProjectAbstract:
+		n, err = s.q(ctx).SaveProjectAbstractEmbedding(ctx, sqlcgen.SaveProjectAbstractEmbeddingParams{
+			Model: e.Model, ContentHash: e.ContentHash, Embedding: vectorText(e.Vector), ChunkCount: int16(e.ChunkCount), ProjectID: id,
+		})
 	case domain.OwnerVenue:
 		n, err = s.q(ctx).SaveVenueEmbedding(ctx, sqlcgen.SaveVenueEmbeddingParams{
 			Model: e.Model, ContentHash: e.ContentHash, Embedding: vectorText(e.Vector), ChunkCount: int16(e.ChunkCount), VenueID: id,
@@ -250,7 +258,7 @@ func (s *Store) SaveEmbedding(ctx context.Context, e domain.Embedding) (bool, er
 func (s *Store) DeleteEmbedding(ctx context.Context, owner domain.OwnerType, ownerID string) error {
 	id, ok := parseUUID(ownerID)
 	if !ok {
-		if owner == domain.OwnerProfile || owner == domain.OwnerProject || owner == domain.OwnerVenue {
+		if owner == domain.OwnerProfile || owner == domain.OwnerProject || owner == domain.OwnerProjectAbstract || owner == domain.OwnerVenue {
 			return nil
 		}
 		return unknownOwner(owner)
@@ -261,6 +269,8 @@ func (s *Store) DeleteEmbedding(ctx context.Context, owner domain.OwnerType, own
 		err = s.q(ctx).DeleteProfileEmbedding(ctx, id)
 	case domain.OwnerProject:
 		err = s.q(ctx).DeleteProjectEmbedding(ctx, id)
+	case domain.OwnerProjectAbstract:
+		err = s.q(ctx).DeleteProjectAbstractEmbedding(ctx, id)
 	case domain.OwnerVenue:
 		err = s.q(ctx).DeleteVenueEmbedding(ctx, id)
 	default:

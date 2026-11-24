@@ -173,3 +173,19 @@ func (s *Service) CanSeeRecommendedResearchers(ctx context.Context, viewerID, pr
 	}
 	return nil
 }
+
+// CanSeeRecommendedVenues answers whether viewerID may see the project's venue
+// recommendations (AI-6): nil for a member whose role has the row "See venue recommendations
+// for the project", else ErrNotFound, also when the caller can see the project page: the
+// list is for members only and does not say whether the project exists (decisions.md,
+// 2026-11-24).
+func (s *Service) CanSeeRecommendedVenues(ctx context.Context, viewerID, projectID string) error {
+	p, err := s.d.Store.Get(ctx, projectID, viewerID)
+	if err != nil {
+		return err
+	}
+	if !p.Access.Visible() || !s.d.Permissions.Can(p.MyRole, domain.ActSeeVenueRecommendations) {
+		return domain.ErrNotFound
+	}
+	return nil
+}

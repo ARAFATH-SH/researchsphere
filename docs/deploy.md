@@ -9,6 +9,7 @@ migrations, and before announcing the release.
 | --- | --- | --- | --- |
 | 000028 (embedding pipeline) | `make embed-backfill` | Queues every verified, not suspended profile and every project for its AI embedding once (AI-1.5); the running API embeds them | Profiles and projects saved before the pipeline have no embedding until they change |
 | 000035 (project files) | `make backfill-main-tex` | Gives the starting `main.tex` (FR-10.4) to every project that has no file, with its title and its owner's name; prints how many | Projects created before slice 21 have no files; new projects get `main.tex` when they are created |
+| 000041 (title-and-abstract embeddings) | `make embed-backfill` | Queues every profile, project and venue once (AI-1.5); the running API's worker gives each project with an abstract its new title-and-abstract vector and skips every embedding whose text and model have not changed | Venue recommendations (AI-6.1) rank by this vector; a project saved before 000041 has none, so its members see `processing` until it is made or the project changes |
 
 ## Settings and services for direct figure uploads (from migration 000036)
 

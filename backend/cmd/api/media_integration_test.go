@@ -332,6 +332,8 @@ func wireEnv(t *testing.T, pool *pgxpool.Pool, rdb *goredis.Client, files *stora
 		RecsScoreModel: config.DefaultRecsScoreModel, RecsScoreSlope: config.DefaultRecsScoreSlope,
 		RecsScoreIntercept: config.DefaultRecsScoreIntercept, RecsProjectScoreSlope: config.DefaultRecsProjectScoreSlope,
 		RecsProjectScoreIntercept: config.DefaultRecsProjectScoreIntercept,
+		RecsVenueScoreSlope:       config.DefaultRecsVenueScoreSlope, RecsVenueScoreIntercept: config.DefaultRecsVenueScoreIntercept,
+		RecsJournalMinScore: config.DefaultRecsJournalMinScore,
 	}
 	recommendations, recStore, recCache, err := newRecommendations(pool, rdb, recsCfg, social, logger)
 	if err != nil {
@@ -354,12 +356,15 @@ func wireEnv(t *testing.T, pool *pgxpool.Pool, rdb *goredis.Client, files *stora
 	if err := enableProjectMatching(recommendations, recStore, recCache, projects, recsCfg); err != nil {
 		t.Fatal(err)
 	}
+	if err := enableVenueMatching(recommendations, recStore, recCache, projects, recsCfg); err != nil {
+		t.Fatal(err)
+	}
 	embedWorker.Watch(embeddingChanges{recs: recommendations})
 	vs := venueSyncSetup{}
 	if opt.venueSync != nil {
 		vs = *opt.venueSync
 	}
-	venueSync := newVenueSyncer(t.Context(), pool, vs.cfg, vs.feeds, logger)
+	venueSync := newVenueSyncer(t.Context(), pool, vs.cfg, vs.feeds, venueChanges{recs: recommendations}, logger)
 	t.Cleanup(venueSync.Wait)
 	full := newRouter(logger, up, up, up, up, authAPI,
 		profilehttp.NewHandler(profileusecase.New(profileStore, profileOpts...)),
@@ -373,7 +378,7 @@ func wireEnv(t *testing.T, pool *pgxpool.Pool, rdb *goredis.Client, files *stora
 		recommendationhttp.NewHandler(recommendations),
 		projecthttp.NewHandler(projects),
 		compilehttp.NewHandler(compiles),
-		newVenues(pool, venueSync),
+		newVenues(pool, venueSync, venueChanges{recs: recommendations}),
 		serviceAndSessionAuth([]byte(testSyncToken), []byte(testCompileToken), httpx.RequireAuth(accesstoken.New([]byte(testSecret), accessTTL), time.Now)))
 	// As run serves them: the public port without the internal operations, the internal
 	// listener with them only (slice 22).

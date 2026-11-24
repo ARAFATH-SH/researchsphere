@@ -862,11 +862,15 @@ func TestLoadRecsScoreMap(t *testing.T) {
 	if cfg.RecsProjectScoreSlope != DefaultRecsProjectScoreSlope || cfg.RecsProjectScoreIntercept != DefaultRecsProjectScoreIntercept {
 		t.Errorf("project defaults = %v %v", cfg.RecsProjectScoreSlope, cfg.RecsProjectScoreIntercept)
 	}
-	if !(DefaultRecsScoreSlope > 0) || !(DefaultRecsProjectScoreSlope > 0) {
+	if cfg.RecsVenueScoreSlope != DefaultRecsVenueScoreSlope || cfg.RecsVenueScoreIntercept != DefaultRecsVenueScoreIntercept || cfg.RecsJournalMinScore != 50 {
+		t.Errorf("venue defaults = %v %v %d", cfg.RecsVenueScoreSlope, cfg.RecsVenueScoreIntercept, cfg.RecsJournalMinScore)
+	}
+	if !(DefaultRecsScoreSlope > 0) || !(DefaultRecsProjectScoreSlope > 0) || !(DefaultRecsVenueScoreSlope > 0) {
 		t.Error("the default slopes must be above 0")
 	}
 	cfg, err = Load(env(with(dev, "RECS_SCORE_MODEL", " m@2 ", "RECS_SCORE_SLOPE", "30.5", "RECS_SCORE_INTERCEPT", "-25",
-		"RECS_PROJECT_SCORE_SLOPE", "40", "RECS_PROJECT_SCORE_INTERCEPT", "-33.5")))
+		"RECS_PROJECT_SCORE_SLOPE", "40", "RECS_PROJECT_SCORE_INTERCEPT", "-33.5",
+		"RECS_VENUE_SCORE_SLOPE", "50", "RECS_VENUE_SCORE_INTERCEPT", "-41", "RECS_JOURNAL_MIN_SCORE", " 0 ")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -875,6 +879,9 @@ func TestLoadRecsScoreMap(t *testing.T) {
 	}
 	if cfg.RecsProjectScoreSlope != 40 || cfg.RecsProjectScoreIntercept != -33.5 {
 		t.Errorf("project set = %v %v", cfg.RecsProjectScoreSlope, cfg.RecsProjectScoreIntercept)
+	}
+	if cfg.RecsVenueScoreSlope != 50 || cfg.RecsVenueScoreIntercept != -41 || cfg.RecsJournalMinScore != 0 {
+		t.Errorf("venue set = %v %v %d", cfg.RecsVenueScoreSlope, cfg.RecsVenueScoreIntercept, cfg.RecsJournalMinScore)
 	}
 
 	for _, tt := range []struct{ name, key, value, want string }{
@@ -888,6 +895,11 @@ func TestLoadRecsScoreMap(t *testing.T) {
 		{"zero project slope", "RECS_PROJECT_SCORE_SLOPE", "0", "RECS_PROJECT_SCORE_SLOPE must be more than 0"},
 		{"project slope not a number", "RECS_PROJECT_SCORE_SLOPE", "steep", "RECS_PROJECT_SCORE_SLOPE must be a finite number"},
 		{"NaN project intercept", "RECS_PROJECT_SCORE_INTERCEPT", "NaN", "RECS_PROJECT_SCORE_INTERCEPT must be a finite number"},
+		{"zero venue slope", "RECS_VENUE_SCORE_SLOPE", "0", "RECS_VENUE_SCORE_SLOPE must be more than 0"},
+		{"NaN venue intercept", "RECS_VENUE_SCORE_INTERCEPT", "NaN", "RECS_VENUE_SCORE_INTERCEPT must be a finite number"},
+		{"journal floor above 100", "RECS_JOURNAL_MIN_SCORE", "101", "RECS_JOURNAL_MIN_SCORE must be a whole number from 0 to 100"},
+		{"negative journal floor", "RECS_JOURNAL_MIN_SCORE", "-1", "RECS_JOURNAL_MIN_SCORE must be"},
+		{"journal floor not a number", "RECS_JOURNAL_MIN_SCORE", "half", "RECS_JOURNAL_MIN_SCORE must be"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := Load(env(with(dev, tt.key, tt.value)))

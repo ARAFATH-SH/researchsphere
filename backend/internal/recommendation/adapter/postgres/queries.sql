@@ -261,3 +261,59 @@ WHERE e.user_id = ANY(@ids::uuid[])
 -- The projects the users own, whose researcher lists a block change clears.
 SELECT project_id FROM project_members
 WHERE user_id = ANY(@user_ids::uuid[]) AND role = 'owner';
+
+-- Venue recommendations (AI-6.1 to AI-6.4; slice 25, chunk 25.1). Read only, with the AI-2.4
+-- rule above: the ranking orders by cosine distance only, never by a venue's rank, impact or
+-- any count (TestRankQueryReadsNoPopularity). The project side is its title-and-abstract
+-- embedding (project_abstract_embeddings, AI-6.1), not the AI-1.2 project embedding.
+
+-- name: ProjectVenueSelf :many
+-- Whether the project has an abstract with any non-space character (AI-6.3), and the stamp of
+-- its title-and-abstract embedding (NULLs when there is none); no row when the project does
+-- not exist.
+SELECT (p.abstract IS NOT NULL AND p.abstract ~ '[^[:space:]]')::boolean AS has_abstract,
+       a.model, a.content_hash, a.updated_at
+FROM projects p
+LEFT JOIN project_abstract_embeddings a ON a.project_id = p.id
+WHERE p.id = @project_id::uuid;
+
+-- name: RankProjectVenues :many
+-- The lim venues whose embedding is closest in cosine distance to the project's
+-- title-and-abstract embedding, through venue_embeddings_hnsw_idx. With rolling false: venues
+-- not removed, not rolling, whose submission deadline is after now (AI-6.1; an AoE deadline
+-- is stored as its instant). With rolling true: rolling journals not removed. Embeddings of
+-- another model are left out (not comparable).
+WITH me AS (
+    SELECT embedding, model FROM project_abstract_embeddings WHERE project_id = @project_id::uuid
+),
+cand AS MATERIALIZED (
+    SELECT e.venue_id, (e.embedding <=> (SELECT embedding FROM me))::float8 AS distance
+    FROM venue_embeddings e
+    JOIN venues v ON v.id = e.venue_id
+    WHERE e.model = (SELECT model FROM me)
+      AND v.removed_at IS NULL
+      AND v.rolling = @rolling::boolean
+      AND (v.rolling OR v.submission_deadline > now())
+    ORDER BY e.embedding <=> (SELECT embedding FROM me)
+    LIMIT @lim
+)
+SELECT cand.venue_id, (1 - cand.distance)::float8 AS cosine,
+       v.name, v.short_name, v.type, v.deadline_tz, v.submission_deadline, v.official_url, v.link_kind
+FROM cand
+JOIN venues v ON v.id = cand.venue_id
+ORDER BY cand.distance, cand.venue_id;
+
+-- name: VenueFieldsOf :many
+-- The research fields of the ranked venues, in the order of the fixed list.
+SELECT vf.venue_id, rf.key, rf.label
+FROM venue_fields vf
+JOIN research_fields rf ON rf.key = vf.field_key
+WHERE vf.venue_id = ANY(@venue_ids::uuid[])
+ORDER BY vf.venue_id, rf.position;
+
+-- name: VenuesStillEligible :many
+-- Those of ids that are not removed and either rolling or with a deadline after now.
+SELECT id FROM venues
+WHERE id = ANY(@ids::uuid[])
+  AND removed_at IS NULL
+  AND (rolling OR submission_deadline > now());

@@ -23,7 +23,7 @@ COMPILE_IMAGE     ?= researchsphere-compile:dev
 MIGRATIONS_DIR := backend/db/migrations
 
 .DEFAULT_GOAL := help
-.PHONY: help up down logs ps psql check migrate migrate-down migrate-new admin unadmin seed-ui-compare seed-dev sample-data sample-purge sample-venues-purge purge-unverified send-digests venue-sync calibrate-recs eval-recs bench-recs eval-search bench-search embed-backfill backfill-main-tex purge-compile-output update-disposable-domains api web stop web-clean ai-build ai-up ai-fetch-model ai-logs sync sync-build sync-load compile-image compile-worker bench-compile compile-trace generate check-generated test test-prepare test-db test-go test-integration test-one test-web test-ai test-sync test-compile test-compile-sandbox lint lint-go lint-web lint-ai lint-sync lint-compile
+.PHONY: help up down logs ps psql check migrate migrate-down migrate-new admin unadmin seed-ui-compare seed-dev sample-data sample-purge sample-venues-purge purge-unverified send-digests venue-sync calibrate-recs eval-recs bench-recs calibrate-venues eval-venues eval-search bench-search embed-backfill backfill-main-tex purge-compile-output update-disposable-domains api web stop web-clean ai-build ai-up ai-fetch-model ai-logs sync sync-build sync-load compile-image compile-worker bench-compile compile-trace generate check-generated test test-prepare test-db test-go test-integration test-one test-web test-ai test-sync test-compile test-compile-sandbox lint lint-go lint-web lint-ai lint-sync lint-compile
 
 help: ## List the available commands
 	@grep -hE '^[a-zA-Z_-]+:.*## ' $(firstword $(MAKEFILE_LIST)) | awk 'BEGIN {FS = ":.*## "} {printf "  make %-16s %s\n", $$1, $$2}'
@@ -126,8 +126,17 @@ calibrate-recs: ## Fit the AI-2.2 score map on the sample TUNING split and print
 eval-recs: ## Measure NFR-6 collaborator matching and project matching both ways (recall@10, precision@10) on the held-out sample TEST split
 	@cd backend && go run ./cmd/recseval eval
 
-bench-recs: ## Measure NFR-1: people and project recommendations for 200 random sample users and projects (p50, p95, max) and EXPLAIN ANALYZE
+bench-recs: ## Measure NFR-1: people, project and venue recommendations for 200 random sample users and projects (p50, p95, max) and EXPLAIN ANALYZE
 	@cd backend && go run ./cmd/recseval bench
+
+# The venue measurements (slice 25) put their labelled sample venues in the TEST database only
+# (development holds real venues) and read the sample projects from development, read only.
+# They empty the test database's venues: do not run them while make test runs.
+calibrate-venues: test-prepare ## Check the project score map on project-venue pairs of the sample TUNING split and print RECS_VENUE_SCORE_* (sample venues in the test database; needs the AI service)
+	@cd backend && go run ./cmd/seedsample -test-venues && go run ./cmd/recseval calibrate-venues
+
+eval-venues: test-prepare ## Measure NFR-6 venue top-5 accuracy (95% Wilson interval) and precision@5 on the sample TEST split; writes docs/evaluation.md (sample venues in the test database; needs the AI service)
+	@cd backend && go run ./cmd/seedsample -test-venues && go run ./cmd/recseval -write ../docs/evaluation.md eval-venues
 
 eval-search: ## Measure AI-5.2: hybrid vs keyword researcher search precision@10 on the sample TEST split (needs the AI service)
 	@cd backend && go run ./cmd/recseval eval-search

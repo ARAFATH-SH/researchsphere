@@ -79,10 +79,11 @@ func (w *Worker) Watch(wt domain.Watcher) {
 	w.watcher = wt
 }
 
-// changed tells the watcher that the owner's embedding was stored or deleted.
-func (w *Worker) changed(ctx context.Context, job domain.Job) {
+// changed tells the watcher that an embedding of the job's owner was stored or deleted.
+// owner is the job's type, or OwnerProjectAbstract for a project's second vector.
+func (w *Worker) changed(ctx context.Context, owner domain.OwnerType, ownerID string) {
 	if w.watcher != nil {
-		w.watcher.EmbeddingChanged(ctx, job.OwnerType, job.OwnerID)
+		w.watcher.EmbeddingChanged(ctx, owner, ownerID)
 	}
 }
 
@@ -164,89 +165,116 @@ func (w *Worker) Tick(ctx context.Context) time.Duration {
 	return w.cfg.Poll
 }
 
-// process makes, keeps or removes one owner's embedding. It returns ErrUnavailable or
+// process makes, keeps or removes one owner's embeddings: one for most owners, two for a
+// project (its own and its title-and-abstract vector, AI-6.1). It returns ErrUnavailable or
 // ErrNotConfigured when the AI service cannot be used, so the caller keeps the job, and a
 // database error as it is. A text error is recorded on the job and is not returned.
 func (w *Worker) process(ctx context.Context, job domain.Job) error {
 	ctx, cancel := context.WithTimeout(ctx, w.cfg.JobTimeout)
 	defer cancel()
 
-	text, found, err := w.sourceText(ctx, job)
+	parts, err := w.sourceTexts(ctx, job)
 	if err != nil {
 		return err
 	}
-	if !found || text == "" {
-		// Gone, not eligible or nothing filled in: no embedding (AI-1.1).
-		if err := w.store.DeleteEmbedding(ctx, job.OwnerType, job.OwnerID); err != nil {
+	for _, p := range parts {
+		done, err := w.processPart(ctx, job, p)
+		if err != nil {
 			return err
 		}
-		w.changed(ctx, job)
-		return w.store.FinishJob(ctx, job)
-	}
-
-	hash := hashOf(job.OwnerType, text)
-	stored, err := w.store.StoredEmbedding(ctx, job.OwnerType, job.OwnerID)
-	switch {
-	case err == nil:
-		if !job.Force && stored.ContentHash == hash && stored.Model == w.model {
-			return w.store.FinishJob(ctx, job) // unchanged (AI-1.4)
+		if !done {
+			return nil // a text error, recorded on the job
 		}
-	case !errors.Is(err, domain.ErrNotFound):
-		return err
+	}
+	return w.store.FinishJob(ctx, job)
+}
+
+// part is one embedding a job makes: its stored type and its source text ("" for none).
+type part struct {
+	owner domain.OwnerType
+	text  string
+}
+
+// processPart makes, keeps or removes one embedding of the job's owner. It returns false
+// with a nil error when the text was refused and the job was set to run again.
+func (w *Worker) processPart(ctx context.Context, job domain.Job, p part) (bool, error) {
+	stored, err := w.store.StoredEmbedding(ctx, p.owner, job.OwnerID)
+	if err != nil && !errors.Is(err, domain.ErrNotFound) {
+		return false, err
+	}
+	if p.text == "" {
+		// Gone, not eligible or nothing filled in: no embedding (AI-1.1, AI-6.3). The
+		// watcher hears only of one that was there.
+		if errors.Is(err, domain.ErrNotFound) {
+			return true, nil
+		}
+		if err := w.store.DeleteEmbedding(ctx, p.owner, job.OwnerID); err != nil {
+			return false, err
+		}
+		w.changed(ctx, p.owner, job.OwnerID)
+		return true, nil
 	}
 
-	vector, model, chunks, err := w.embedder.EmbedDocument(ctx, cutText(text), domain.MaxChunks)
+	hash := hashOf(p.owner, p.text)
+	if err == nil && !job.Force && stored.ContentHash == hash && stored.Model == w.model {
+		return true, nil // unchanged (AI-1.4)
+	}
+
+	vector, model, chunks, err := w.embedder.EmbedDocument(ctx, cutText(p.text), domain.MaxChunks)
 	if errors.Is(err, domain.ErrUnavailable) || errors.Is(err, domain.ErrNotConfigured) {
-		return err
+		return false, err
 	}
 	if err != nil {
-		return w.retry(ctx, job, err)
+		return false, w.retry(ctx, job, err)
 	}
 	if model != w.model {
 		w.setModel(model)
 	}
 	if _, err := w.store.SaveEmbedding(ctx, domain.Embedding{
-		OwnerType: job.OwnerType, OwnerID: job.OwnerID, Model: model, ContentHash: hash, ChunkCount: chunks, Vector: vector,
+		OwnerType: p.owner, OwnerID: job.OwnerID, Model: model, ContentHash: hash, ChunkCount: chunks, Vector: vector,
 	}); err != nil {
-		return err
+		return false, err
 	}
-	w.changed(ctx, job)
-	return w.store.FinishJob(ctx, job)
+	w.changed(ctx, p.owner, job.OwnerID)
+	return true, nil
 }
 
-// sourceText returns the owner's text, and false when the owner is gone or may not have an
-// embedding. Each owner type adds its case.
-func (w *Worker) sourceText(ctx context.Context, job domain.Job) (string, bool, error) {
+// sourceTexts returns the texts of the owner's embeddings, each "" when the owner is gone or
+// may not have it. Each owner type adds its case.
+func (w *Worker) sourceTexts(ctx context.Context, job domain.Job) ([]part, error) {
 	switch job.OwnerType {
 	case domain.OwnerProfile:
 		src, err := w.store.ProfileSource(ctx, job.OwnerID)
 		if errors.Is(err, domain.ErrNotFound) {
-			return "", false, nil
+			return []part{{owner: job.OwnerType}}, nil
 		}
 		if err != nil {
-			return "", false, err
+			return nil, err
 		}
-		return ProfileText(src), src.Eligible, nil
+		if !src.Eligible {
+			return []part{{owner: job.OwnerType}}, nil
+		}
+		return []part{{job.OwnerType, ProfileText(src)}}, nil
 	case domain.OwnerProject:
 		src, err := w.store.ProjectSource(ctx, job.OwnerID)
 		if errors.Is(err, domain.ErrNotFound) {
-			return "", false, nil
+			return []part{{owner: domain.OwnerProject}, {owner: domain.OwnerProjectAbstract}}, nil
 		}
 		if err != nil {
-			return "", false, err
+			return nil, err
 		}
-		return ProjectText(src), true, nil
+		return []part{{domain.OwnerProject, ProjectText(src)}, {domain.OwnerProjectAbstract, ProjectAbstractText(src)}}, nil
 	case domain.OwnerVenue:
 		src, err := w.store.VenueSource(ctx, job.OwnerID)
 		if errors.Is(err, domain.ErrNotFound) {
-			return "", false, nil
+			return []part{{owner: job.OwnerType}}, nil
 		}
 		if err != nil {
-			return "", false, err
+			return nil, err
 		}
-		return VenueText(src), true, nil
+		return []part{{job.OwnerType, VenueText(src)}}, nil
 	default:
-		return "", false, fmt.Errorf("unknown owner type %q", job.OwnerType)
+		return nil, fmt.Errorf("unknown owner type %q", job.OwnerType)
 	}
 }
 

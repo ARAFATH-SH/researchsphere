@@ -1430,10 +1430,19 @@ SELECT pg_temp.expect_ok('Project report: the reporter may report again once it 
 -- cascade of its skills does not queue it again.
 INSERT INTO project_embeddings (project_id, model, content_hash, embedding) VALUES
     ('00000000-0000-0000-0000-0000000000a2', 'test-model@1', repeat('1', 64), array_fill(0.1::real, ARRAY[768])::vector);
+INSERT INTO project_abstract_embeddings (project_id, model, content_hash, embedding) VALUES
+    ('00000000-0000-0000-0000-0000000000a2', 'test-model@1', repeat('1', 64), array_fill(0.1::real, ARRAY[768])::vector);
+SELECT pg_temp.expect_error('Title and abstract embedding: one per project (AI-6.1)',
+    $s$INSERT INTO project_abstract_embeddings (project_id, model, content_hash, embedding)
+       VALUES ('00000000-0000-0000-0000-0000000000a2', 'test-model@1', repeat('2', 64), array_fill(0.2::real, ARRAY[768])::vector)$s$, '23505');
+SELECT pg_temp.expect_error('Title and abstract embedding: at most 8 chunks',
+    $s$UPDATE project_abstract_embeddings SET chunk_count = 9
+       WHERE project_id = '00000000-0000-0000-0000-0000000000a2'$s$, '23514');
 DELETE FROM projects WHERE id = '00000000-0000-0000-0000-0000000000a2';
 SELECT pg_temp.expect_true('Project deletion: job, embedding, skills and reports removed', $q$
     SELECT NOT EXISTS (SELECT 1 FROM embedding_jobs     WHERE owner_type = 'project' AND owner_id = '00000000-0000-0000-0000-0000000000a2')
        AND NOT EXISTS (SELECT 1 FROM project_embeddings WHERE project_id = '00000000-0000-0000-0000-0000000000a2')
+       AND NOT EXISTS (SELECT 1 FROM project_abstract_embeddings WHERE project_id = '00000000-0000-0000-0000-0000000000a2')
        AND NOT EXISTS (SELECT 1 FROM project_skills     WHERE project_id = '00000000-0000-0000-0000-0000000000a2')
        AND NOT EXISTS (SELECT 1 FROM project_reports    WHERE project_id = '00000000-0000-0000-0000-0000000000a2')$q$);
 

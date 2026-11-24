@@ -312,3 +312,10 @@ type Store interface {
 type Transactor interface {
 	InTx(ctx context.Context, fn func(ctx context.Context) error) error
 }
+
+// Watcher is told, after the commit, that venues were added, edited, removed or imported, so
+// lists made from venues can be made again (venue recommendations, AI-6.1). It must not
+// block; cmd/api implements it.
+type Watcher interface {
+	VenuesChanged(ctx context.Context)
+}

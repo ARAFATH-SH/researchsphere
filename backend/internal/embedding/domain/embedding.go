@@ -18,6 +18,11 @@ const (
 	OwnerProfile OwnerType = "profile"
 	OwnerProject OwnerType = "project"
 	OwnerVenue   OwnerType = "venue"
+	// OwnerProjectAbstract is a project's second vector, made from its title and abstract
+	// only, for venue recommendations (AI-6.1; slice 25). It is not a job type: the project
+	// job makes it beside the project's own embedding, and it is stored in
+	// project_abstract_embeddings. Watchers are told about it with this type.
+	OwnerProjectAbstract OwnerType = "project_abstract"
 )
 
 // OwnerTypes lists every owner type, in the order the admin statistics show them.

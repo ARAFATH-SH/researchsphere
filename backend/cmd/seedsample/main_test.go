@@ -82,10 +82,40 @@ func TestParseFlags(t *testing.T) {
 		t.Errorf("-purge-venues = %+v, %v", o, err)
 	}
 	for _, args := range [][]string{{"-n", "0"}, {"-n", "100001"}, {"-seed", "-1"}, {"-purge", "-wait"}, {"-purge", "-projects"},
-		{"-purge-venues", "-purge"}, {"-purge-venues", "-venues"}, {"extra"}} {
+		{"-purge-venues", "-purge"}, {"-purge-venues", "-venues"}, {"-test-venues", "-venues"}, {"-test-venues", "-projects"}, {"extra"}} {
 		if _, err := parseFlags(args); err == nil {
 			t.Errorf("parseFlags(%v) error = nil", args)
 		}
+	}
+}
+
+// -test-venues writes only a local database whose name ends in _test, never in production,
+// and never repeats the password.
+func TestCheckTestTarget(t *testing.T) {
+	const pass = "secretpw"
+	url := func(host, name string) string { return "postgres://u:" + pass + "@" + host + "/" + name }
+	for _, tt := range []struct {
+		name, url, env string
+		ok             bool
+	}{
+		{"local test database", url("localhost:5433", "researchsphere_test"), "development", true},
+		{"no APP_ENV", url("127.0.0.1:5433", "researchsphere_test"), "", true},
+		{"development database", url("localhost:5433", "researchsphere"), "development", false},
+		{"remote host", url("db.example.org:5432", "researchsphere_test"), "development", false},
+		{"production", url("localhost:5433", "researchsphere_test"), "production", false},
+		{"unset", "", "development", false},
+		{"not a URL", "postgres://u:" + pass + "@%zz/x_test", "development", false},
+	} {
+		err := checkTestTarget(tt.url, tt.env)
+		if (err == nil) != tt.ok {
+			t.Errorf("%s: error = %v, want ok %v", tt.name, err, tt.ok)
+		}
+		if err != nil && strings.Contains(err.Error(), pass) {
+			t.Errorf("%s: error repeats the password: %v", tt.name, err)
+		}
+	}
+	if o, err := parseFlags([]string{"-test-venues"}); err != nil || !o.testVenues {
+		t.Errorf("-test-venues = %+v, %v", o, err)
 	}
 }
 

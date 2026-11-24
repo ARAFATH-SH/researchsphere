@@ -1197,6 +1197,24 @@ func (e RealtimeEventType) Valid() bool {
 	}
 }
 
+// Defines values for RecommendedVenueLinkKind.
+const (
+	RecommendedVenueLinkKindIssnPortal RecommendedVenueLinkKind = "issn_portal"
+	RecommendedVenueLinkKindOfficial   RecommendedVenueLinkKind = "official"
+)
+
+// Valid indicates whether the value is a known member of the RecommendedVenueLinkKind enum.
+func (e RecommendedVenueLinkKind) Valid() bool {
+	switch e {
+	case RecommendedVenueLinkKindIssnPortal:
+		return true
+	case RecommendedVenueLinkKindOfficial:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ReportReason.
 const (
 	ReportReasonHarassment    ReportReason = "harassment"
@@ -1428,6 +1446,27 @@ func (e VenueImportRowOutcome) Valid() bool {
 	case VenueImportRowOutcomeUnchanged:
 		return true
 	case VenueImportRowOutcomeUpdated:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VenueRecommendationsState.
+const (
+	VenueRecommendationsStateNeedsAbstract VenueRecommendationsState = "needs_abstract"
+	VenueRecommendationsStateProcessing    VenueRecommendationsState = "processing"
+	VenueRecommendationsStateReady         VenueRecommendationsState = "ready"
+)
+
+// Valid indicates whether the value is a known member of the VenueRecommendationsState enum.
+func (e VenueRecommendationsState) Valid() bool {
+	switch e {
+	case VenueRecommendationsStateNeedsAbstract:
+		return true
+	case VenueRecommendationsStateProcessing:
+		return true
+	case VenueRecommendationsStateReady:
 		return true
 	default:
 		return false
@@ -4207,6 +4246,42 @@ type RecommendedProject struct {
 	Title          string   `json:"title"`
 }
 
+// RecommendedVenue A recommended venue. In `journals`, `timeZone`, `submissionDeadline` and `daysLeft` are
+// always null.
+type RecommendedVenue struct {
+	// DaysLeft Whole days from now until the deadline instant, rounded down: 0 means less than a
+	// day is left.
+	DaysLeft *int `json:"daysLeft"`
+
+	// Fields 1 to 5 fields, in the order of the fixed list.
+	Fields []ResearchField    `json:"fields"`
+	Id     openapi_types.UUID `json:"id"`
+
+	// LinkKind As in `VenueSummary`.
+	LinkKind RecommendedVenueLinkKind `json:"linkKind"`
+	Name     string                   `json:"name"`
+
+	// OfficialUrl Always `https://`.
+	OfficialUrl string `json:"officialUrl"`
+
+	// Score How similar the venue's scope is to the project's title and abstract, as a
+	// percentage (AI-6.2): the cosine similarity of the embeddings put through a fixed
+	// increasing mapping fitted on sample data (docs/evaluation.md). It says nothing about
+	// the venue's quality (AI-6.4).
+	Score     int     `json:"score"`
+	ShortName *string `json:"shortName"`
+
+	// SubmissionDeadline The instant and its wall time in `timeZone` (AI-6.2).
+	SubmissionDeadline *VenueTime `json:"submissionDeadline"`
+
+	// TimeZone The zone the deadline is stated in (`AoE`, `UTC` or an IANA name), as in `VenueSummary`.
+	TimeZone *string   `json:"timeZone"`
+	Type     VenueType `json:"type"`
+}
+
+// RecommendedVenueLinkKind As in `VenueSummary`.
+type RecommendedVenueLinkKind string
+
 // RegisterRequest defines model for RegisterRequest.
 type RegisterRequest struct {
 	// Email Example: ada@example.org
@@ -4810,6 +4885,34 @@ type VenuePatch struct {
 	TimeZone           nullable.Nullable[string] `json:"timeZone,omitempty"`
 	Type               nullable.Nullable[string] `json:"type,omitempty"`
 }
+
+// VenueRecommendations A project's recommended venues (AI-6.1 to AI-6.4).
+type VenueRecommendations struct {
+	// Journals Rolling journals (no deadline), most similar first, only those scoring at least the
+	// configured floor; may be empty. Empty unless `state` is `ready`.
+	Journals []RecommendedVenue `json:"journals"`
+
+	// Notice The fixed AI-6.4 sentence, sent in every state.
+	//
+	// Example: Matched on topic only. This says nothing about a venue's quality or ranking.
+	Notice string `json:"notice"`
+
+	// State `ready`: `venues` and `journals` hold the recommendations (possibly none).
+	// `needs_abstract`: the project has no abstract; the client asks for one in place of
+	// the list (AI-6.3). `processing`: the embedding of the title and abstract is not made
+	// yet.
+	State VenueRecommendationsState `json:"state"`
+
+	// Venues Most similar first; only venues whose submission deadline has not passed (AI-6.1).
+	// Empty unless `state` is `ready`.
+	Venues []RecommendedVenue `json:"venues"`
+}
+
+// VenueRecommendationsState `ready`: `venues` and `journals` hold the recommendations (possibly none).
+// `needs_abstract`: the project has no abstract; the client asks for one in place of
+// the list (AI-6.3). `processing`: the embedding of the title and abstract is not made
+// yet.
+type VenueRecommendationsState string
 
 // VenueRemoval defines model for VenueRemoval.
 type VenueRemoval struct {
@@ -6372,6 +6475,9 @@ type ServerInterface interface {
 	// RecommendProjectResearchers Researchers whose profiles are most similar to a project, for its owner (AI-2.3, AI-2.4)
 	// (GET /projects/{projectId}/recommended-researchers)
 	RecommendProjectResearchers(w http.ResponseWriter, r *http.Request, projectId ProjectId)
+	// RecommendProjectVenues Venues whose scope is most similar to a project's title and abstract, for its members (AI-6.1 to AI-6.4)
+	// (GET /projects/{projectId}/recommended-venues)
+	RecommendProjectVenues(w http.ResponseWriter, r *http.Request, projectId ProjectId)
 	// ReportProject Report a project to the administrators (FR-15.11)
 	// (POST /projects/{projectId}/reports)
 	ReportProject(w http.ResponseWriter, r *http.Request, projectId ProjectId)
@@ -11577,6 +11683,38 @@ func (siw *ServerInterfaceWrapper) RecommendProjectResearchers(w http.ResponseWr
 	handler.ServeHTTP(w, r)
 }
 
+// RecommendProjectVenues operation middleware
+func (siw *ServerInterfaceWrapper) RecommendProjectVenues(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "projectId" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "projectId", r.PathValue("projectId"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "projectId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RecommendProjectVenues(w, r, projectId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ReportProject operation middleware
 func (siw *ServerInterfaceWrapper) ReportProject(w http.ResponseWriter, r *http.Request) {
 
@@ -12549,6 +12687,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/recommendations/people", wrapper.RecommendPeople)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/recommendations/projects", wrapper.RecommendProjects)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/projects/{projectId}/recommended-researchers", wrapper.RecommendProjectResearchers)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/projects/{projectId}/recommended-venues", wrapper.RecommendProjectVenues)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/ws", wrapper.OpenWebSocket)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/presence", wrapper.GetPresence)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/projects/{projectId}/compiles", wrapper.StartCompile)
@@ -26542,6 +26681,84 @@ func (response RecommendProjectResearchers500JSONResponse) VisitRecommendProject
 	return err
 }
 
+type RecommendProjectVenuesRequestObject struct {
+	ProjectId ProjectId `json:"projectId"`
+}
+
+type RecommendProjectVenuesResponseObject interface {
+	VisitRecommendProjectVenuesResponse(w http.ResponseWriter) error
+}
+
+type RecommendProjectVenues200JSONResponse VenueRecommendations
+
+func (response RecommendProjectVenues200JSONResponse) VisitRecommendProjectVenuesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RecommendProjectVenues401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RecommendProjectVenues401JSONResponse) VisitRecommendProjectVenuesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RecommendProjectVenues403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response RecommendProjectVenues403JSONResponse) VisitRecommendProjectVenuesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RecommendProjectVenues404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RecommendProjectVenues404JSONResponse) VisitRecommendProjectVenuesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RecommendProjectVenues500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response RecommendProjectVenues500JSONResponse) VisitRecommendProjectVenuesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ReportProjectRequestObject struct {
 	ProjectId ProjectId `json:"projectId"`
 	Body      *ReportProjectJSONRequestBody
@@ -28196,6 +28413,9 @@ type StrictServerInterface interface {
 	// RecommendProjectResearchers Researchers whose profiles are most similar to a project, for its owner (AI-2.3, AI-2.4)
 	// (GET /projects/{projectId}/recommended-researchers)
 	RecommendProjectResearchers(ctx context.Context, request RecommendProjectResearchersRequestObject) (RecommendProjectResearchersResponseObject, error)
+	// RecommendProjectVenues Venues whose scope is most similar to a project's title and abstract, for its members (AI-6.1 to AI-6.4)
+	// (GET /projects/{projectId}/recommended-venues)
+	RecommendProjectVenues(ctx context.Context, request RecommendProjectVenuesRequestObject) (RecommendProjectVenuesResponseObject, error)
 	// ReportProject Report a project to the administrators (FR-15.11)
 	// (POST /projects/{projectId}/reports)
 	ReportProject(ctx context.Context, request ReportProjectRequestObject) (ReportProjectResponseObject, error)
@@ -32700,6 +32920,32 @@ func (sh *strictHandler) RecommendProjectResearchers(w http.ResponseWriter, r *h
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RecommendProjectResearchersResponseObject); ok {
 		if err := validResponse.VisitRecommendProjectResearchersResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RecommendProjectVenues operation middleware
+func (sh *strictHandler) RecommendProjectVenues(w http.ResponseWriter, r *http.Request, projectId ProjectId) {
+	var request RecommendProjectVenuesRequestObject
+
+	request.ProjectId = projectId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RecommendProjectVenues(ctx, request.(RecommendProjectVenuesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RecommendProjectVenues")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RecommendProjectVenuesResponseObject); ok {
+		if err := validResponse.VisitRecommendProjectVenuesResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
