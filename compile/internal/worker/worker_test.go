@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -49,14 +50,16 @@ func (f *fakeAPI) Finish(_ context.Context, _ string, r apiclient.Result) error 
 	return nil
 }
 
+// fakeRunner answers every run with res and err. Several worker loops call Run at once, so
+// ran is atomic; res and err are set before the worker starts and only read after.
 type fakeRunner struct {
 	res sandbox.Result
 	err error
-	ran int
+	ran atomic.Int64
 }
 
 func (r *fakeRunner) Run(_ context.Context, job sandbox.Job) (sandbox.Result, error) {
-	r.ran++
+	r.ran.Add(1)
 	_, _ = io.ReadAll(job.Input)
 	return r.res, r.err
 }
@@ -114,8 +117,8 @@ func TestHandle(t *testing.T) {
 			if got.Failure != nil {
 				failure = *got.Failure
 			}
-			if got.Outcome != tt.wantOutcome || failure != tt.wantFailure || len(tt.api.pdfs) != tt.wantPDFs || (r.ran > 0) != tt.wantRun {
-				t.Errorf("outcome %s failure %q pdfs %d ran %d", got.Outcome, failure, len(tt.api.pdfs), r.ran)
+			if got.Outcome != tt.wantOutcome || failure != tt.wantFailure || len(tt.api.pdfs) != tt.wantPDFs || (r.ran.Load() > 0) != tt.wantRun {
+				t.Errorf("outcome %s failure %q pdfs %d ran %d", got.Outcome, failure, len(tt.api.pdfs), r.ran.Load())
 			}
 			if res.PDF != nil {
 				if _, err := os.Stat(res.PDF.Name()); !os.IsNotExist(err) {
@@ -132,15 +135,15 @@ func TestHandleEndedJobs(t *testing.T) {
 		api := &fakeAPI{sourceErr: err}
 		r := &fakeRunner{}
 		New(api, r, "w", 1, nil).Handle(t.Context(), job())
-		if len(api.finished) != 0 || r.ran != 0 {
-			t.Errorf("%v: finished %d, ran %d", err, len(api.finished), r.ran)
+		if len(api.finished) != 0 || r.ran.Load() != 0 {
+			t.Errorf("%v: finished %d, ran %d", err, len(api.finished), r.ran.Load())
 		}
 	}
 	api := &fakeAPI{}
 	r := &fakeRunner{}
 	New(api, r, "w", 1, nil).Handle(t.Context(), apiclient.Job{ID: "j", MainFilePath: "../x.tex"})
-	if r.ran != 0 || len(api.finished) != 1 || *api.finished[0].Failure != "sandbox_error" {
-		t.Errorf("bad main file: ran %d, finished %v", r.ran, api.finished)
+	if r.ran.Load() != 0 || len(api.finished) != 1 || *api.finished[0].Failure != "sandbox_error" {
+		t.Errorf("bad main file: ran %d, finished %v", r.ran.Load(), api.finished)
 	}
 }
 
